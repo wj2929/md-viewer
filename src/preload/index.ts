@@ -7,7 +7,10 @@ const api = {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
-  watchFolder: (path: string) => ipcRenderer.send('fs:watchFolder', path),
+
+  // 文件监听 (v1.1 新增)
+  watchFolder: (path: string) => ipcRenderer.invoke('fs:watchFolder', path),
+  unwatchFolder: () => ipcRenderer.invoke('fs:unwatchFolder'),
 
   // 导出功能
   exportHTML: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:html', htmlContent, fileName),
@@ -22,6 +25,25 @@ const api = {
   onFileChange: (callback: (event: unknown, data: unknown) => void) => {
     ipcRenderer.on('fs:fileChanged', callback)
     return () => ipcRenderer.removeListener('fs:fileChanged', callback)
+  },
+
+  // 文件监听事件 (v1.1 新增)
+  onFileChanged: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:changed', handler)
+    return () => ipcRenderer.removeListener('file:changed', handler)
+  },
+
+  onFileAdded: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:added', handler)
+    return () => ipcRenderer.removeListener('file:added', handler)
+  },
+
+  onFileRemoved: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:removed', handler)
+    return () => ipcRenderer.removeListener('file:removed', handler)
   },
 
   // 监听恢复文件夹事件

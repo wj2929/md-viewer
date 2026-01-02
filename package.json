@@ -89,10 +89,12 @@
   "dependencies": {
     "@types/markdown-it": "^14.1.2",
     "@types/prismjs": "^1.26.5",
+    "chokidar": "^5.0.0",
     "electron-store": "^8.2.0",
     "fuse.js": "^7.1.0",
     "katex": "^0.16.27",
     "markdown-it": "^14.1.0",
+    "mermaid": "^11.12.2",
     "prismjs": "^1.30.0"
   }
 }

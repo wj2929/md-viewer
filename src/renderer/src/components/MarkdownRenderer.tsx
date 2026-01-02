@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo, useState } from 'react'
 import MarkdownIt from 'markdown-it'
 import Prism from 'prismjs'
 import katex from 'katex'
+import mermaid from 'mermaid'
 
 // 导入 Prism 语言支持
 import 'prismjs/components/prism-javascript'
@@ -26,6 +27,15 @@ interface MarkdownRendererProps {
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const [renderError, setRenderError] = useState<string | null>(null)
+
+  // 初始化 Mermaid
+  useEffect(() => {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+      securityLevel: 'loose'
+    })
+  }, [])
 
   // 创建 markdown-it 实例
   const md = useMemo(() => {
@@ -201,7 +211,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     )
   }
 
-  // 高亮代码块
+  // 高亮代码块和渲染 Mermaid 图表
   useEffect(() => {
     if (containerRef.current) {
       // Prism 已经在 highlight 函数中处理了
@@ -209,6 +219,25 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       const codeBlocks = containerRef.current.querySelectorAll('pre code')
       codeBlocks.forEach((block) => {
         // 已经被 highlight 处理过了，无需再次高亮
+      })
+
+      // 渲染 Mermaid 图表
+      const mermaidBlocks = containerRef.current.querySelectorAll('.language-mermaid')
+      mermaidBlocks.forEach(async (block, index) => {
+        try {
+          const code = block.textContent || ''
+          const { svg } = await mermaid.render(`mermaid-${Date.now()}-${index}`, code)
+          const pre = block.closest('pre')
+          if (pre) {
+            const container = document.createElement('div')
+            container.className = 'mermaid-container'
+            container.innerHTML = svg
+            pre.replaceWith(container)
+          }
+        } catch (error) {
+          console.error('Mermaid render error:', error)
+          // 保留原始代码显示
+        }
       })
     }
   }, [html])

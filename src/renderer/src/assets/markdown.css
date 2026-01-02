@@ -240,3 +240,27 @@
 .content-warning strong {
   font-size: 15px;
 }
+
+/* Mermaid 图表样式 */
+.mermaid-container {
+  margin: 20px 0;
+  padding: 16px;
+  background-color: var(--bg-color, #ffffff);
+  border: 1px solid var(--border-color, #e1e4e8);
+  border-radius: 6px;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 暗色模式下的 Mermaid */
+@media (prefers-color-scheme: dark) {
+  .mermaid-container {
+    --bg-color: #1e1e1e;
+    --border-color: #3e3e3e;
+  }
+}

@@ -7,6 +7,18 @@ afterEach(() => {
   cleanup()
 })
 
+// Mock window.matchMedia
+global.window.matchMedia = vi.fn().mockImplementation(query => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn()
+}))
+
 // Mock Electron API
 global.window.electronAPI = {
   openFolder: vi.fn(),
@@ -75,5 +87,13 @@ vi.mock('katex', () => ({
   default: {
     render: vi.fn(),
     renderToString: vi.fn((tex: string) => `<span class="katex">${tex}</span>`)
+  }
+}))
+
+// Mock Mermaid
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({ svg: '<svg>mermaid diagram</svg>' })
   }
 }))

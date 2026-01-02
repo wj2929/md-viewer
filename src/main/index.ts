@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import Store from 'electron-store'
+import chokidar from 'chokidar'
 
 // 定义存储的数据结构
 interface AppState {
@@ -419,4 +420,61 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
     console.error('Failed to export PDF:', error)
     throw error
   }
+})
+
+// 文件监听器
+let fileWatcher: chokidar.FSWatcher | null = null
+
+// 开始监听文件夹
+ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
+  try {
+    // 停止之前的监听
+    if (fileWatcher) {
+      await fileWatcher.close()
+      fileWatcher = null
+    }
+
+    // 创建新的监听器
+    fileWatcher = chokidar.watch(folderPath, {
+      ignored: /(^|[\/\\])\../,  // 忽略隐藏文件
+      persistent: true,
+      ignoreInitial: true,
+      depth: 99  // 监听所有子目录
+    })
+
+    // 文件变化事件
+    fileWatcher.on('change', (filePath) => {
+      if (filePath.endsWith('.md')) {
+        event.sender.send('file:changed', filePath)
+      }
+    })
+
+    // 文件添加事件
+    fileWatcher.on('add', (filePath) => {
+      if (filePath.endsWith('.md')) {
+        event.sender.send('file:added', filePath)
+      }
+    })
+
+    // 文件删除事件
+    fileWatcher.on('unlink', (filePath) => {
+      if (filePath.endsWith('.md')) {
+        event.sender.send('file:removed', filePath)
+      }
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to watch folder:', error)
+    throw error
+  }
+})
+
+// 停止监听
+ipcMain.handle('fs:unwatchFolder', async () => {
+  if (fileWatcher) {
+    await fileWatcher.close()
+    fileWatcher = null
+  }
+  return { success: true }
 })
