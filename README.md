@@ -16,7 +16,10 @@
 - 🎨 **完整 Markdown 支持** - 标题、列表、表格、引用等
 - 💻 **代码高亮** - 支持 15+ 编程语言，VSCode Dark+ 主题
 - 📐 **数学公式** - KaTeX 渲染 LaTeX 公式
+- 📊 **Mermaid 图表** - 支持流程图、时序图、甘特图等 (v1.1+)
+- 👀 **实时监听** - 文件修改自动刷新，无需手动重载 (v1.1+)
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
+- 💾 **导出功能** - 导出 HTML 和 PDF
 - 🌓 **主题自适应** - 自动跟随系统明暗主题
 - ⚡ **极速体验** - Vite 热重载，秒级启动
 
@@ -79,10 +82,12 @@ npm run dev
 - **[markdown-it](https://github.com/markdown-it/markdown-it)** - Markdown 解析器
 - **[Prism.js](https://prismjs.com/)** - 代码高亮
 - **[KaTeX](https://katex.org/)** - 数学公式渲染
+- **[Mermaid](https://mermaid.js.org/)** - 图表渲染 (v1.1+)
 
 ### 其他库
 - **[Fuse.js](https://fusejs.io/)** - 模糊搜索
-- **[Puppeteer](https://pptr.dev/)** - PDF 导出
+- **[chokidar](https://github.com/paulmillr/chokidar)** - 文件监听 (v1.1+)
+- **[electron-store](https://github.com/sindresorhus/electron-store)** - 状态持久化
 
 ---
 
@@ -127,6 +132,29 @@ $$
 \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
 $$
 ```
+
+#### Mermaid 图表 (v1.1+)
+
+**流程图：**
+```markdown
+\`\`\`mermaid
+graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[OK]
+    B -->|No| D[End]
+\`\`\`
+```
+
+**时序图：**
+```markdown
+\`\`\`mermaid
+sequenceDiagram
+    Alice->>Bob: Hello Bob!
+    Bob-->>Alice: Hi Alice!
+\`\`\`
+```
+
+支持的图表类型：流程图、时序图、类图、状态图、甘特图、饼图等。
 
 ### 搜索功能
 
@@ -209,7 +237,7 @@ npm run build:linux
 
 ## 📋 路线图
 
-### v1.0 (当前开发中)
+### v1.0 ✅
 - [x] 文件树浏览
 - [x] 多标签预览
 - [x] Markdown 渲染
@@ -217,17 +245,21 @@ npm run build:linux
 - [x] 数学公式
 - [x] 文件名搜索
 - [x] 全文搜索
-- [ ] HTML 导出
-- [ ] PDF 导出
-- [ ] 窗口状态记忆
-- [ ] 会话恢复
-- [ ] 主题切换
+- [x] HTML 导出
+- [x] PDF 导出
+- [x] 窗口状态记忆
+- [x] 会话恢复
+
+### v1.1 ✅ (当前版本)
+- [x] Mermaid 图表支持
+- [x] 文件监听与自动刷新
+- [x] 测试覆盖率 80%+
+- [x] CI/CD 自动化
 
 ### v2.0 (计划中)
 - [ ] 插件系统
 - [ ] 简单编辑功能
 - [ ] 多语言支持
-- [ ] Mermaid 图表
 - [ ] PlantUML 支持
 - [ ] 更多主题
 - [ ] Vim 键位支持
@@ -236,8 +268,8 @@ npm run build:linux
 
 ## 🐛 已知问题
 
-1. **大文件渲染可能卡顿** - 计划添加虚拟滚动优化
-2. **Mermaid 图表未支持** - 计划 v2.0 实现
+1. **大文件渲染可能卡顿** - 已添加 10000 行截断保护
+2. ~~**Mermaid 图表未支持**~~ - ✅ v1.1 已实现
 
 ---
 

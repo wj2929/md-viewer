@@ -52,6 +52,76 @@ function App(): JSX.Element {
     loadFiles()
   }, [folderPath])
 
+  // 文件监听 - 自动刷新功能
+  useEffect(() => {
+    if (!folderPath) return
+
+    // 开始监听文件夹
+    window.api.watchFolder(folderPath).catch(error => {
+      console.error('Failed to watch folder:', error)
+    })
+
+    // 监听文件变化 - 刷新已打开的标签页
+    const unsubscribeChanged = window.api.onFileChanged(async (filePath: string) => {
+      console.log('File changed:', filePath)
+
+      // 查找受影响的标签页
+      const affectedTab = tabs.find(tab => tab.file.path === filePath)
+      if (affectedTab) {
+        try {
+          const newContent = await window.api.readFile(filePath)
+          setTabs(prev => prev.map(tab =>
+            tab.id === affectedTab.id
+              ? { ...tab, content: newContent }
+              : tab
+          ))
+        } catch (error) {
+          console.error('Failed to reload file:', error)
+        }
+      }
+    })
+
+    // 监听文件添加 - 刷新文件树
+    const unsubscribeAdded = window.api.onFileAdded(async () => {
+      console.log('File added, refreshing file list')
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
+    // 监听文件删除 - 刷新文件树并关闭已删除文件的标签
+    const unsubscribeRemoved = window.api.onFileRemoved(async (filePath: string) => {
+      console.log('File removed:', filePath)
+
+      // 关闭已删除文件的标签
+      const removedTab = tabs.find(tab => tab.file.path === filePath)
+      if (removedTab) {
+        handleTabClose(removedTab.id)
+      }
+
+      // 刷新文件树
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
+    // 清理：停止监听
+    return () => {
+      window.api.unwatchFolder().catch(error => {
+        console.error('Failed to unwatch folder:', error)
+      })
+      unsubscribeChanged()
+      unsubscribeAdded()
+      unsubscribeRemoved()
+    }
+  }, [folderPath, tabs, handleTabClose])
+
   // 选择文件 - 打开新标签或切换到已有标签
   const handleFileSelect = useCallback(async (file: FileInfo) => {
     if (file.isDirectory) return
