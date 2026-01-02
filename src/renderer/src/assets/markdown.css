@@ -1,0 +1,242 @@
+/* Markdown 样式 */
+.markdown-body {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.7;
+  word-wrap: break-word;
+}
+
+/* 标题 */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.markdown-body h1 {
+  font-size: 2em;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.markdown-body h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 6px;
+}
+
+.markdown-body h3 {
+  font-size: 1.25em;
+}
+
+.markdown-body h4 {
+  font-size: 1em;
+}
+
+.markdown-body h5 {
+  font-size: 0.875em;
+}
+
+.markdown-body h6 {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+
+/* 段落 */
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+/* 链接 */
+.markdown-body a {
+  color: var(--accent-color);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+/* 列表 */
+.markdown-body ul,
+.markdown-body ol {
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-left: 2em;
+}
+
+.markdown-body li {
+  margin-top: 4px;
+}
+
+.markdown-body li > p {
+  margin-bottom: 8px;
+}
+
+/* 引用 */
+.markdown-body blockquote {
+  margin: 16px 0;
+  padding: 0 1em;
+  color: var(--text-secondary);
+  border-left: 4px solid var(--border-color);
+}
+
+.markdown-body blockquote > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* 水平分隔线 */
+.markdown-body hr {
+  height: 1px;
+  padding: 0;
+  margin: 24px 0;
+  background-color: var(--border-color);
+  border: 0;
+}
+
+/* 表格 */
+.markdown-body table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin-top: 0;
+  margin-bottom: 16px;
+  width: 100%;
+  overflow: auto;
+}
+
+.markdown-body table th {
+  font-weight: 600;
+  background-color: var(--bg-secondary);
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid var(--border-color);
+}
+
+.markdown-body table tr {
+  background-color: var(--bg-primary);
+  border-top: 1px solid var(--border-color);
+}
+
+.markdown-body table tr:nth-child(2n) {
+  background-color: var(--bg-secondary);
+}
+
+/* 图片 */
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 16px 0;
+}
+
+/* 任务列表 */
+.markdown-body .task-list-item {
+  list-style-type: none;
+}
+
+.markdown-body .task-list-item input[type="checkbox"] {
+  margin: 0 6px 0 -20px;
+  vertical-align: middle;
+}
+
+/* KaTeX 数学公式 */
+.katex {
+  font-size: 1.1em;
+}
+
+.katex-display {
+  margin: 16px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex-error {
+  color: #d16969;
+  background-color: rgba(209, 105, 105, 0.1);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+/* 强调 */
+.markdown-body strong {
+  font-weight: 600;
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+/* 删除线 */
+.markdown-body del {
+  text-decoration: line-through;
+}
+
+/* 首个元素上边距 */
+.markdown-body > *:first-child {
+  margin-top: 0 !important;
+}
+
+/* 最后元素下边距 */
+.markdown-body > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* 渲染错误样式 */
+.render-error {
+  padding: 20px;
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.render-error h3 {
+  margin: 0 0 8px 0;
+  color: #856404;
+  font-size: 16px;
+}
+
+.render-error p {
+  margin: 4px 0;
+  color: #856404;
+  font-size: 14px;
+}
+
+.error-hint {
+  font-size: 13px !important;
+  color: #6c757d !important;
+}
+
+/* 内容警告样式 */
+.content-warning {
+  padding: 16px;
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  margin: 20px 0;
+  text-align: center;
+}
+
+.content-warning p {
+  margin: 4px 0;
+  color: #856404;
+}
+
+.content-warning strong {
+  font-size: 15px;
+}

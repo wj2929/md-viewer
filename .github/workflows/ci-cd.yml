@@ -1,0 +1,163 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 测试
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 运行单元测试
+        run: npm test -- --run
+
+      - name: 生成覆盖率报告
+        run: npm run test:coverage
+        continue-on-error: true
+
+      - name: 上传覆盖率报告
+        uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          file: ./coverage/coverage-final.json
+          flags: unittests
+          name: codecov-umbrella
+        continue-on-error: true
+
+  build:
+    name: 构建
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 构建应用
+        run: npm run build
+
+      - name: 打包应用 (macOS)
+        if: matrix.platform == 'mac'
+        run: npm run build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: 打包应用 (Linux)
+        if: matrix.platform == 'linux'
+        run: npm run build:linux
+
+      - name: 打包应用 (Windows)
+        if: matrix.platform == 'windows'
+        run: npm run build:win
+
+      - name: 上传构建产物 (macOS)
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: md-viewer-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 7
+
+      - name: 上传构建产物 (Linux)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: md-viewer-linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+          retention-days: 7
+
+      - name: 上传构建产物 (Windows)
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: md-viewer-win
+          path: |
+            dist/*.exe
+            dist/*.zip
+          retention-days: 7
+
+  release:
+    name: 发布
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/md-viewer-mac/*
+            artifacts/md-viewer-linux/*
+            artifacts/md-viewer-win/*
+          draft: true
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          body: |
+            ## 🚀 MD Viewer ${{ github.ref_name }}
+
+            ### 📦 下载
+
+            - **macOS**: MD Viewer-*.dmg 或 MD Viewer-*.zip
+            - **Linux**: MD Viewer-*.AppImage 或 MD Viewer-*.deb
+            - **Windows**: MD Viewer Setup-*.exe 或 MD Viewer-*.zip
+
+            ### ✨ 更新内容
+
+            详见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
