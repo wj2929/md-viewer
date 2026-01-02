@@ -52,6 +52,26 @@ function App(): JSX.Element {
     loadFiles()
   }, [folderPath])
 
+  // 关闭标签 (必须在 useEffect 文件监听之前定义)
+  const handleTabClose = useCallback((tabId: string) => {
+    setTabs(prev => {
+      const newTabs = prev.filter(tab => tab.id !== tabId)
+
+      // 如果关闭的是当前标签，切换到下一个或上一个
+      if (tabId === activeTabId) {
+        const closedIndex = prev.findIndex(tab => tab.id === tabId)
+        if (newTabs.length > 0) {
+          const nextTab = newTabs[closedIndex] || newTabs[closedIndex - 1]
+          setActiveTabId(nextTab.id)
+        } else {
+          setActiveTabId(null)
+        }
+      }
+
+      return newTabs
+    })
+  }, [activeTabId])
+
   // 文件监听 - 自动刷新功能
   useEffect(() => {
     if (!folderPath) return
@@ -153,26 +173,6 @@ function App(): JSX.Element {
   const handleTabClick = useCallback((tabId: string) => {
     setActiveTabId(tabId)
   }, [])
-
-  // 关闭标签
-  const handleTabClose = useCallback((tabId: string) => {
-    setTabs(prev => {
-      const newTabs = prev.filter(tab => tab.id !== tabId)
-
-      // 如果关闭的是当前标签，切换到下一个或上一个
-      if (tabId === activeTabId) {
-        const closedIndex = prev.findIndex(tab => tab.id === tabId)
-        if (newTabs.length > 0) {
-          const nextTab = newTabs[closedIndex] || newTabs[closedIndex - 1]
-          setActiveTabId(nextTab.id)
-        } else {
-          setActiveTabId(null)
-        }
-      }
-
-      return newTabs
-    })
-  }, [activeTabId])
 
   // 获取当前活动标签
   const activeTab = tabs.find(tab => tab.id === activeTabId)

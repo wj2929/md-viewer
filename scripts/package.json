@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "perf:test": "tsx scripts/performance-test.ts"
+  }
+}

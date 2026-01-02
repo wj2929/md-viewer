@@ -22,7 +22,7 @@ import 'prismjs/components/prism-css'
  */
 export function createMarkdownRenderer(): MarkdownIt {
   const md = new MarkdownIt({
-    html: true,
+    html: false,  // 🔒 安全修复: 禁用 HTML 以防止 XSS 攻击
     linkify: true,
     typographer: true,
     breaks: true,
