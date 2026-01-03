@@ -5,6 +5,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import Store from 'electron-store'
 import chokidar from 'chokidar'
+import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
 
 // 定义存储的数据结构
 interface AppState {
@@ -45,9 +46,11 @@ function createWindow(): void {
     trafficLightPosition: { x: 15, y: 10 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,  // ✅ 启用 Chromium 沙箱
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false
     }
   })
 
@@ -137,6 +140,10 @@ ipcMain.handle('dialog:openFolder', async () => {
   // 保存最后打开的文件夹
   const folderPath = result.filePaths[0]
   store.set('lastOpenedFolder', folderPath)
+
+  // ✅ 设置安全白名单基础路径
+  setAllowedBasePath(folderPath)
+  console.log(`[SECURITY] Set allowed base path: ${folderPath}`)
 
   return folderPath
 })
@@ -305,12 +312,19 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
 // 读取目录 - 使用 glob 快速扫描
 ipcMain.handle('fs:readDir', async (_, dirPath: string) => {
   try {
+    // ✅ 安全校验：检查路径是否在允许范围内
+    validatePath(dirPath)
+
     const startTime = Date.now()
     const result = await scanMarkdownFiles(dirPath)
     console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
     return result
   } catch (error) {
     console.error('Failed to read directory:', error)
+    // 安全错误需要抛出，而不是返回空数组
+    if (error instanceof Error && error.message.includes('安全错误')) {
+      throw error
+    }
     return []
   }
 })
@@ -326,6 +340,9 @@ ipcMain.handle('fs:readFile', async (_, filePath: string) => {
   }
 
   try {
+    // ✅ 安全校验：检查路径是否在允许范围内
+    validatePath(filePath)
+
     log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
     log(`[MAIN] 📖 fs:readFile called for: ${filePath}`)
 
@@ -590,6 +607,9 @@ const watchedFiles = new Set<string>()
 // 开始监听文件夹（轻量级：只记录路径，不实际监听整个目录）
 ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
   try {
+    // ✅ 安全校验：检查路径是否在允许范围内
+    validatePath(folderPath)
+
     // 停止之前的监听
     if (fileWatcher) {
       await fileWatcher.close()
@@ -635,6 +655,9 @@ ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
 
 // 添加单个文件到监听列表
 ipcMain.handle('fs:watchFile', async (_, filePath: string) => {
+  // ✅ 安全校验：检查路径是否在允许范围内
+  validatePath(filePath)
+
   if (fileWatcher && !watchedFiles.has(filePath)) {
     fileWatcher.add(filePath)
     watchedFiles.add(filePath)
