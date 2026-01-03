@@ -8,9 +8,10 @@ import './assets/prism-theme.css'
 import 'katex/dist/katex.min.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+  // 🚨 临时禁用 StrictMode 以调试性能问题
+  // <React.StrictMode>
     <ErrorBoundary>
       <App />
     </ErrorBoundary>
-  </React.StrictMode>
+  // </React.StrictMode>
 )

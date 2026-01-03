@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useState } from 'react'
+import { useEffect, useRef, useMemo, memo } from 'react'
 import MarkdownIt from 'markdown-it'
 import Prism from 'prismjs'
 import katex from 'katex'
@@ -26,7 +26,8 @@ interface MarkdownRendererProps {
 
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [renderError, setRenderError] = useState<string | null>(null)
+  // 🚨 临时移除 renderError state 以避免任何潜在的state更新问题
+  // const [renderError, setRenderError] = useState<string | null>(null)
 
   // 初始化 Mermaid
   useEffect(() => {
@@ -57,6 +58,9 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       }
     })
 
+    // 🚨 临时禁用 KaTeX 以调试性能问题
+    // TODO: 将 KaTeX 渲染移到 Web Worker 或优化算法
+    /*
     // 自定义渲染规则：行内数学公式 $...$
     mdInstance.inline.ruler.before('escape', 'math_inline', (state, silent) => {
       if (state.src[state.pos] !== '$') return false
@@ -166,6 +170,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       state.line = nextLine + 1
       return true
     })
+    */
 
     return mdInstance
   }, [])
@@ -173,9 +178,22 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
   // 渲染 Markdown
   const html = useMemo(() => {
     try {
-      setRenderError(null)
+      // 检查内容是否为空
+      if (!content || content.trim().length === 0) {
+        return '<p class="placeholder">文件内容为空</p>'
+      }
 
-      // 检查内容大小 (超过 10000 行截断)
+      // 检查内容大小（字符数限制 500KB）
+      if (content.length > 500000) {
+        return `
+          <div class="content-warning">
+            <p><strong>文件过大，无法渲染</strong></p>
+            <p>文件大小: ${(content.length / 1024).toFixed(2)} KB，最大支持: 500 KB</p>
+          </div>
+        `
+      }
+
+      // 检查行数（超过 10000 行截断）
       const lines = content.split('\n')
       if (lines.length > 10000) {
         const truncated = lines.slice(0, 10000).join('\n')
@@ -183,63 +201,43 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
         return `
           ${renderedHtml}
           <div class="content-warning">
-            <p><strong>⚠️ 内容过长，已截断显示</strong></p>
+            <p><strong>内容过长，已截断显示</strong></p>
             <p>完整内容共 ${lines.length} 行，当前仅显示前 10000 行。</p>
           </div>
         `
       }
 
+      // 正常渲染
       return md.render(content)
     } catch (error) {
-      console.error('Markdown render error:', error)
-      setRenderError(error instanceof Error ? error.message : '渲染失败')
-      return `<pre>${content}</pre>`  // 降级显示原始内容
+      console.error('[MarkdownRenderer] Render error:', error)
+      return `<pre style="color: red;">渲染错误: ${error}</pre>`
     }
   }, [md, content])
 
-  // 显示错误信息
-  if (renderError) {
-    return (
-      <div className={`markdown-body ${className}`}>
-        <div className="render-error">
-          <h3>⚠️ Markdown 渲染失败</h3>
-          <p>{renderError}</p>
-          <p className="error-hint">已切换为纯文本模式显示</p>
-        </div>
-        <div dangerouslySetInnerHTML={{ __html: html }} />
-      </div>
-    )
-  }
-
-  // 高亮代码块和渲染 Mermaid 图表
+  // Mermaid 图表渲染
   useEffect(() => {
-    if (containerRef.current) {
-      // Prism 已经在 highlight 函数中处理了
-      // 这里只是确保容器内的代码被正确渲染
-      const codeBlocks = containerRef.current.querySelectorAll('pre code')
-      codeBlocks.forEach((block) => {
-        // 已经被 highlight 处理过了，无需再次高亮
-      })
+    if (!containerRef.current) return
 
-      // 渲染 Mermaid 图表
-      const mermaidBlocks = containerRef.current.querySelectorAll('.language-mermaid')
-      mermaidBlocks.forEach(async (block, index) => {
-        try {
-          const code = block.textContent || ''
-          const { svg } = await mermaid.render(`mermaid-${Date.now()}-${index}`, code)
-          const pre = block.closest('pre')
-          if (pre) {
-            const container = document.createElement('div')
-            container.className = 'mermaid-container'
-            container.innerHTML = svg
-            pre.replaceWith(container)
-          }
-        } catch (error) {
-          console.error('Mermaid render error:', error)
-          // 保留原始代码显示
-        }
-      })
-    }
+    // 查找 Mermaid 代码块并渲染
+    const mermaidBlocks = containerRef.current.querySelectorAll('pre.language-mermaid')
+    if (mermaidBlocks.length === 0) return
+
+    mermaidBlocks.forEach(async (block, index) => {
+      const code = block.textContent || ''
+      const id = `mermaid-${Date.now()}-${index}`
+
+      try {
+        const { svg } = await mermaid.render(id, code)
+        const wrapper = document.createElement('div')
+        wrapper.className = 'mermaid-diagram'
+        wrapper.innerHTML = svg
+        block.replaceWith(wrapper)
+      } catch (error) {
+        console.error('Mermaid render error:', error)
+        // 渲染失败时保留原始代码
+      }
+    })
   }, [html])
 
   return (
@@ -250,3 +248,6 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     />
   )
 }
+
+// 🚨 使用 React.memo 防止不必要的重新渲染
+export default memo(MarkdownRenderer)

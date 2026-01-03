@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as fs from 'fs/promises'
@@ -54,6 +54,11 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
 
+    // 🔧 开发模式下自动打开 DevTools
+    if (is.dev) {
+      mainWindow.webContents.openDevTools()
+    }
+
     // 恢复上次打开的文件夹
     const lastFolder = store.get('lastOpenedFolder')
     if (lastFolder) {
@@ -83,6 +88,22 @@ function createWindow(): void {
 app.whenReady().then(() => {
   // 设置 app user model id (Windows)
   electronApp.setAppUserModelId('com.mdviewer')
+
+  // 设置 Content Security Policy
+  // 开发模式需要允许 Vite HMR 和 WebSocket
+  // 生产模式使用严格的 CSP
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const csp = is.dev
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self' ws://localhost:* http://localhost:*; worker-src 'self' blob:;"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self';"
+
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp]
+      }
+    })
+  })
 
   // 开发环境下优化
   app.on('browser-window-created', (_, window) => {
@@ -181,17 +202,41 @@ ipcMain.handle('fs:readDir', async (_, dirPath: string) => {
 
 // 读取文件内容
 ipcMain.handle('fs:readFile', async (_, filePath: string) => {
+  const logFile = '/tmp/md-viewer-main-debug.log'
+  const log = (msg: string) => {
+    const timestamp = new Date().toISOString()
+    const logLine = `[${timestamp}] ${msg}\n`
+    require('fs').appendFileSync(logFile, logLine)
+    console.log(msg)
+  }
+
   try {
+    log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    log(`[MAIN] 📖 fs:readFile called for: ${filePath}`)
+
+    const statsStart = Date.now()
     const stats = await fs.stat(filePath)
+    log(`[MAIN] ✅ fs.stat() completed in ${Date.now() - statsStart}ms`)
+    log(`[MAIN] File size: ${stats.size} bytes`)
+
     const MAX_SIZE = 5 * 1024 * 1024 // 5MB 限制
 
     if (stats.size > MAX_SIZE) {
       const sizeMB = (stats.size / 1024 / 1024).toFixed(2)
+      log(`[MAIN] ❌ File too large: ${sizeMB}MB`)
       throw new Error(`文件过大 (${sizeMB}MB)，请选择小于 5MB 的文件`)
     }
 
-    return await fs.readFile(filePath, 'utf-8')
+    const readStart = Date.now()
+    const content = await fs.readFile(filePath, 'utf-8')
+    log(`[MAIN] ✅ fs.readFile() completed in ${Date.now() - readStart}ms`)
+    log(`[MAIN] Content length: ${content.length} chars`)
+    log(`[MAIN] 🎉 Returning content to renderer`)
+    log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+
+    return content
   } catch (error) {
+    log(`[MAIN] ❌ Error reading file: ${error}`)
     if (error instanceof Error) {
       throw error
     }
@@ -436,10 +481,27 @@ ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
 
     // 创建新的监听器
     fileWatcher = chokidar.watch(folderPath, {
-      ignored: /(^|[\/\\])\../,  // 忽略隐藏文件
+      ignored: [
+        /(^|[\/\\])\../,      // 忽略隐藏文件
+        '**/node_modules/**', // 忽略 node_modules
+        '**/.git/**',         // 忽略 .git
+        '**/dist/**',         // 忽略 dist
+        '**/build/**'         // 忽略 build
+      ],
       persistent: true,
       ignoreInitial: true,
-      depth: 99  // 监听所有子目录
+      depth: 10,  // 限制最大深度为10层，防止文件描述符耗尽
+      awaitWriteFinish: {
+        stabilityThreshold: 500,  // 文件写入稳定后才触发事件
+        pollInterval: 100
+      }
+    })
+
+    // 错误处理
+    fileWatcher.on('error', (error) => {
+      console.error('File watcher error:', error)
+      // 通知渲染进程监听失败
+      event.sender.send('file:watch-error', error.message)
     })
 
     // 文件变化事件

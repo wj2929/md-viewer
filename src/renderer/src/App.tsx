@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { FileTree, FileInfo, MarkdownRenderer, TabBar, Tab, SearchBar, ErrorBoundary } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
@@ -9,6 +9,10 @@ function App(): JSX.Element {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+
+  // 使用 ref 来存储最新的 tabs，避免闭包陷阱
+  const tabsRef = useRef<Tab[]>([])
+  tabsRef.current = tabs
 
   // 监听恢复文件夹事件
   useEffect(() => {
@@ -73,6 +77,7 @@ function App(): JSX.Element {
   }, [activeTabId])
 
   // 文件监听 - 自动刷新功能
+  // 只在 folderPath 改变时重新订阅，使用 ref 访问最新的 tabs
   useEffect(() => {
     if (!folderPath) return
 
@@ -82,18 +87,16 @@ function App(): JSX.Element {
     })
 
     // 监听文件变化 - 刷新已打开的标签页
-    const unsubscribeChanged = window.api.onFileChanged(async (filePath: string) => {
-      console.log('File changed:', filePath)
+    const unsubscribeChanged = window.api.onFileChanged(async (changedPath: string) => {
+      // 使用 ref 获取最新的 tabs，避免闭包陷阱
+      const currentTabs = tabsRef.current
+      const affectedTab = currentTabs.find(tab => tab.file.path === changedPath)
 
-      // 查找受影响的标签页
-      const affectedTab = tabs.find(tab => tab.file.path === filePath)
       if (affectedTab) {
         try {
-          const newContent = await window.api.readFile(filePath)
+          const newContent = await window.api.readFile(changedPath)
           setTabs(prev => prev.map(tab =>
-            tab.id === affectedTab.id
-              ? { ...tab, content: newContent }
-              : tab
+            tab.file.path === changedPath ? { ...tab, content: newContent } : tab
           ))
         } catch (error) {
           console.error('Failed to reload file:', error)
@@ -103,7 +106,6 @@ function App(): JSX.Element {
 
     // 监听文件添加 - 刷新文件树
     const unsubscribeAdded = window.api.onFileAdded(async () => {
-      console.log('File added, refreshing file list')
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -113,14 +115,9 @@ function App(): JSX.Element {
     })
 
     // 监听文件删除 - 刷新文件树并关闭已删除文件的标签
-    const unsubscribeRemoved = window.api.onFileRemoved(async (filePath: string) => {
-      console.log('File removed:', filePath)
-
-      // 关闭已删除文件的标签
-      const removedTab = tabs.find(tab => tab.file.path === filePath)
-      if (removedTab) {
-        handleTabClose(removedTab.id)
-      }
+    const unsubscribeRemoved = window.api.onFileRemoved(async (removedPath: string) => {
+      // 使用函数式更新来关闭标签，避免依赖外部状态
+      setTabs(prev => prev.filter(tab => tab.file.path !== removedPath))
 
       // 刷新文件树
       try {
@@ -140,20 +137,20 @@ function App(): JSX.Element {
       unsubscribeAdded()
       unsubscribeRemoved()
     }
-  }, [folderPath, tabs, handleTabClose])
+  }, [folderPath])  // 只依赖 folderPath！
 
   // 选择文件 - 打开新标签或切换到已有标签
   const handleFileSelect = useCallback(async (file: FileInfo) => {
     if (file.isDirectory) return
 
-    // 检查是否已经打开
-    const existingTab = tabs.find(tab => tab.file.path === file.path)
+    // 检查是否已经打开（使用 ref 获取最新状态）
+    const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
     if (existingTab) {
       setActiveTabId(existingTab.id)
       return
     }
 
-    // 使用缓存读取文件内容
+    // 读取文件内容
     try {
       const content = await readFileWithCache(file.path)
       const newTab: Tab = {
@@ -167,15 +164,17 @@ function App(): JSX.Element {
       console.error('Failed to read file:', error)
       alert(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [tabs])
+  }, [])
 
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => {
     setActiveTabId(tabId)
   }, [])
 
-  // 获取当前活动标签
-  const activeTab = tabs.find(tab => tab.id === activeTabId)
+  // 获取当前活动标签 - 使用 useMemo 避免不必要的重新渲染
+  const activeTab = useMemo(() => {
+    return tabs.find(tab => tab.id === activeTabId)
+  }, [tabs, activeTabId])
 
   // 导出 HTML
   const handleExportHTML = useCallback(async () => {
