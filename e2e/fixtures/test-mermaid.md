@@ -217,57 +217,6 @@ timeline
                : Bug 修复
 ```
 
-## 象限图
-
-```mermaid
-quadrantChart
-    title 技术选型评估
-    x-axis 低复杂度 --> 高复杂度
-    y-axis 低价值 --> 高价值
-    quadrant-1 优先实现
-    quadrant-2 计划实现
-    quadrant-3 可能放弃
-    quadrant-4 需要评估
-    TypeScript: [0.8, 0.9]
-    React: [0.7, 0.85]
-    Electron: [0.6, 0.7]
-    Vite: [0.3, 0.8]
-```
-
-## XY 图表
-
-```mermaid
-xychart-beta
-    title "月度销售额"
-    x-axis [一月, 二月, 三月, 四月, 五月, 六月]
-    y-axis "销售额(万)" 0 --> 100
-    bar [30, 45, 60, 55, 70, 85]
-    line [30, 45, 60, 55, 70, 85]
-```
-
-## Sankey 图
-
-```mermaid
-sankey-beta
-    源A,目标X,5
-    源A,目标Y,3
-    源B,目标X,2
-    源B,目标Y,4
-    目标X,最终,7
-    目标Y,最终,7
-```
-
-## 框图（Block）
-
-```mermaid
-block-beta
-    columns 3
-    a["前端"]:1
-    b["API"]:1
-    c["数据库"]:1
-    a --> b --> c
-```
-
 ## 错误语法测试
 
 以下是故意的错误语法，应该保留原始代码显示：
