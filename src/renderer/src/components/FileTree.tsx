@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { useClipboardStore } from '../stores/clipboardStore'
 
 interface FileInfo {
   name: string
@@ -31,6 +32,10 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
   const isSelected = selectedPath === item.path
+
+  // 检查是否在剪贴板中（剪切状态）
+  const isInClipboard = useClipboardStore(state => state.isInClipboard(item.path))
+  const isCut = useClipboardStore(state => state.isCut && isInClipboard)
 
   // 监听重命名事件
   useEffect(() => {
@@ -110,7 +115,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   return (
     <div className="file-tree-item">
       <div
-        className={`file-tree-row ${isSelected ? 'selected' : ''} ${item.isDirectory ? 'directory' : 'file'}`}
+        className={`file-tree-row ${isSelected ? 'selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
         onKeyDown={handleKeyDown}

@@ -714,3 +714,107 @@ ipcMain.handle('fs:rename', async (_, oldPath: string, newName: string) => {
     throw error
   }
 })
+
+// 复制文件 (v1.2 阶段 2)
+ipcMain.handle('fs:copyFile', async (_, srcPath: string, destPath: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(srcPath)
+    validateSecurePath(destPath)
+
+    // 检查源文件是否存在
+    if (!(await fs.pathExists(srcPath))) {
+      throw new Error('源文件不存在')
+    }
+
+    // 检查目标文件是否已存在
+    if (await fs.pathExists(destPath)) {
+      throw new Error('目标文件已存在')
+    }
+
+    // 复制文件
+    await fs.copy(srcPath, destPath, { overwrite: false })
+
+    return destPath
+  } catch (error) {
+    console.error('Failed to copy file:', error)
+    throw error
+  }
+})
+
+// 复制目录（递归） (v1.2 阶段 2)
+ipcMain.handle('fs:copyDir', async (_, srcPath: string, destPath: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(srcPath)
+    validateSecurePath(destPath)
+
+    // 检查源目录是否存在
+    if (!(await fs.pathExists(srcPath))) {
+      throw new Error('源目录不存在')
+    }
+
+    // 检查目标目录是否已存在
+    if (await fs.pathExists(destPath)) {
+      throw new Error('目标目录已存在')
+    }
+
+    // 递归复制目录
+    await fs.copy(srcPath, destPath, { overwrite: false })
+
+    return destPath
+  } catch (error) {
+    console.error('Failed to copy directory:', error)
+    throw error
+  }
+})
+
+// 移动文件/文件夹 (v1.2 阶段 2)
+ipcMain.handle('fs:moveFile', async (_, srcPath: string, destPath: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(srcPath)
+    validateSecurePath(destPath)
+
+    // 检查源是否存在
+    if (!(await fs.pathExists(srcPath))) {
+      throw new Error('源文件不存在')
+    }
+
+    // 检查目标是否已存在
+    if (await fs.pathExists(destPath)) {
+      throw new Error('目标文件已存在')
+    }
+
+    // 移动文件/文件夹（支持跨分区）
+    await fs.move(srcPath, destPath)
+
+    return destPath
+  } catch (error) {
+    console.error('Failed to move file:', error)
+    throw error
+  }
+})
+
+// 检查文件/目录是否存在 (v1.2 阶段 2)
+ipcMain.handle('fs:exists', async (_, filePath: string) => {
+  try {
+    validatePath(filePath)
+    return await fs.pathExists(filePath)
+  } catch (error) {
+    console.error('Failed to check file existence:', error)
+    return false
+  }
+})
+
+// 检查是否为目录 (v1.2 阶段 2)
+ipcMain.handle('fs:isDirectory', async (_, filePath: string) => {
+  try {
+    validatePath(filePath)
+    const stats = await fs.stat(filePath)
+    return stats.isDirectory()
+  } catch (error) {
+    console.error('Failed to check if directory:', error)
+    return false
+  }
+})

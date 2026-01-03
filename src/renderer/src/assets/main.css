@@ -325,6 +325,17 @@ body {
   font-weight: 500;
 }
 
+/* 剪切状态样式（v1.2 阶段 2） */
+.file-tree-row.cut {
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.file-tree-row.cut .file-name {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
 /* 编辑区域 */
 .editor-area {
   flex: 1;

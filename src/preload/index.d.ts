@@ -25,6 +25,13 @@ declare global {
       ) => Promise<{ success: boolean }>
       renameFile: (oldPath: string, newName: string) => Promise<string>
 
+      // 文件操作 (v1.2 阶段 2)
+      copyFile: (srcPath: string, destPath: string) => Promise<string>
+      copyDir: (srcPath: string, destPath: string) => Promise<string>
+      moveFile: (srcPath: string, destPath: string) => Promise<string>
+      fileExists: (filePath: string) => Promise<boolean>
+      isDirectory: (filePath: string) => Promise<boolean>
+
       // 窗口操作
       minimize: () => void
       maximize: () => void
@@ -45,6 +52,11 @@ declare global {
         callback: (data: { path: string; type: 'html' | 'pdf' }) => void
       ) => () => void
       onError: (callback: (error: { message: string }) => void) => () => void
+
+      // 剪贴板事件 (v1.2 阶段 2)
+      onClipboardCopy: (callback: (paths: string[]) => void) => () => void
+      onClipboardCut: (callback: (paths: string[]) => void) => () => void
+      onClipboardPaste: (callback: (targetDir: string) => void) => () => void
 
       // 其他事件
       onRestoreFolder: (callback: (folderPath: string) => void) => () => void

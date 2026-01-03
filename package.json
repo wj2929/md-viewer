@@ -96,6 +96,7 @@
     "katex": "^0.16.27",
     "markdown-it": "^14.1.0",
     "mermaid": "^11.12.2",
-    "prismjs": "^1.30.0"
+    "prismjs": "^1.30.0",
+    "zustand": "^5.0.9"
   }
 }

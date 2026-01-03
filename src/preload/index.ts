@@ -22,6 +22,13 @@ const api = {
     ipcRenderer.invoke('context-menu:show', file, basePath),
   renameFile: (oldPath: string, newName: string) => ipcRenderer.invoke('fs:rename', oldPath, newName),
 
+  // 文件操作 (v1.2 阶段 2 新增)
+  copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
+  copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),
+  moveFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:moveFile', srcPath, destPath),
+  fileExists: (filePath: string) => ipcRenderer.invoke('fs:exists', filePath),
+  isDirectory: (filePath: string) => ipcRenderer.invoke('fs:isDirectory', filePath),
+
   // 窗口操作
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
@@ -82,6 +89,25 @@ const api = {
     const handler = (_event: unknown, error: { message: string }) => callback(error)
     ipcRenderer.on('error:show', handler)
     return () => ipcRenderer.removeListener('error:show', handler)
+  },
+
+  // 剪贴板事件 (v1.2 阶段 2 新增)
+  onClipboardCopy: (callback: (paths: string[]) => void) => {
+    const handler = (_event: unknown, paths: string[]) => callback(paths)
+    ipcRenderer.on('clipboard:copy', handler)
+    return () => ipcRenderer.removeListener('clipboard:copy', handler)
+  },
+
+  onClipboardCut: (callback: (paths: string[]) => void) => {
+    const handler = (_event: unknown, paths: string[]) => callback(paths)
+    ipcRenderer.on('clipboard:cut', handler)
+    return () => ipcRenderer.removeListener('clipboard:cut', handler)
+  },
+
+  onClipboardPaste: (callback: (targetDir: string) => void) => {
+    const handler = (_event: unknown, targetDir: string) => callback(targetDir)
+    ipcRenderer.on('clipboard:paste', handler)
+    return () => ipcRenderer.removeListener('clipboard:paste', handler)
   }
 }
 
