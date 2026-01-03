@@ -7,7 +7,58 @@
 
 ---
 
-## [Unreleased] - v1.2
+## [1.2.1] - 2026-01-03 22:00
+
+### 新增 - 全局快捷键
+- ✅ **全局快捷键支持** - 提升操作效率
+  - `⌘/Ctrl + O` - 打开文件夹
+  - `⌘/Ctrl + R` - 刷新文件树
+  - `⌘/Ctrl + W` - 关闭当前标签
+  - `⌘/Ctrl + E` - 导出 HTML
+  - `⌘/Ctrl + Shift + E` - 导出 PDF
+  - `⌘/Ctrl + F` - 聚焦搜索栏
+  - `⌘/Ctrl + Tab` - 下一个标签
+  - `⌘/Ctrl + Shift + Tab` - 上一个标签
+  - `⌘/Ctrl + 1-5` - 切换到指定标签
+
+### 新增 - E2E 测试完善
+- ✅ **Playwright E2E 测试增强**
+  - 完善 electron fixture（testDir、openFolderViaIPC）
+  - 应用启动测试（主题切换验证）
+  - 文件树功能测试
+  - Markdown 渲染测试
+  - 键盘快捷键测试（新增 06-keyboard-shortcuts.spec.ts）
+
+### 新增 - 集成测试扩展
+- ✅ **App.tsx 集成测试** - 28 个测试用例
+  - 快捷键事件监听器测试
+  - 右键菜单事件测试
+  - 剪贴板事件测试
+  - 状态恢复测试
+  - 边界条件测试
+
+### 技术实现
+- `src/main/shortcuts.ts` - 快捷键模块
+- `e2e/06-keyboard-shortcuts.spec.ts` - 快捷键 E2E 测试
+- 修改 `src/main/index.ts` - 注册快捷键
+- 修改 `src/preload/index.ts` - 快捷键事件 API
+- 修改 `src/renderer/src/App.tsx` - 快捷键处理
+- 修改 `src/renderer/src/components/SearchBar.tsx` - forwardRef 支持
+
+### 测试统计
+```
+渲染进程测试：257/257 通过 ✅
+主进程测试：  55/55  通过 ✅
+─────────────────────────────────
+总计：       312/312 通过 ✅
+```
+
+---
+
+## [1.2.0] - 2026-01-03 21:36
+
+### 发布说明
+v1.2.0 是一个重大功能更新版本，包含安全加固、右键菜单、应用内剪贴板、虚拟滚动和主题切换等核心功能。
 
 ### 已完成 (2026-01-03 19:00-21:30)
 
