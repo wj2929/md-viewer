@@ -6,6 +6,7 @@ import * as path from 'path'
 import Store from 'electron-store'
 import chokidar from 'chokidar'
 import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
+import { showContextMenu } from './contextMenuHandler'
 
 // 定义存储的数据结构
 interface AppState {
@@ -674,5 +675,18 @@ ipcMain.handle('fs:unwatchFolder', async () => {
     await fileWatcher.close()
     fileWatcher = null
   }
+  return { success: true }
+})
+
+// ============== 右键菜单 Handlers ==============
+
+// 显示右键菜单
+ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: string) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (!window) {
+    throw new Error('无法获取窗口实例')
+  }
+
+  showContextMenu(window, file, basePath)
   return { success: true }
 })

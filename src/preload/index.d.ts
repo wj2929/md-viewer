@@ -18,6 +18,12 @@ declare global {
       exportHTML: (htmlContent: string, fileName: string) => Promise<string | null>
       exportPDF: (htmlContent: string, fileName: string) => Promise<string | null>
 
+      // 右键菜单 (v1.2 阶段 1)
+      showContextMenu: (
+        file: { name: string; path: string; isDirectory: boolean },
+        basePath: string
+      ) => Promise<{ success: boolean }>
+
       // 窗口操作
       minimize: () => void
       maximize: () => void
@@ -30,6 +36,14 @@ declare global {
       onFileChanged: (callback: (filePath: string) => void) => () => void
       onFileAdded: (callback: (filePath: string) => void) => () => void
       onFileRemoved: (callback: (filePath: string) => void) => () => void
+
+      // 右键菜单事件 (v1.2 阶段 1)
+      onFileDeleted: (callback: (filePath: string) => void) => () => void
+      onFileStartRename: (callback: (filePath: string) => void) => () => void
+      onFileExportRequest: (
+        callback: (data: { path: string; type: 'html' | 'pdf' }) => void
+      ) => () => void
+      onError: (callback: (error: { message: string }) => void) => () => void
 
       // 其他事件
       onRestoreFolder: (callback: (folderPath: string) => void) => () => void

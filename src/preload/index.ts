@@ -17,6 +17,10 @@ const api = {
   exportHTML: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:html', htmlContent, fileName),
   exportPDF: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:pdf', htmlContent, fileName),
 
+  // 右键菜单 (v1.2 阶段 1 新增)
+  showContextMenu: (file: { name: string; path: string; isDirectory: boolean }, basePath: string) =>
+    ipcRenderer.invoke('context-menu:show', file, basePath),
+
   // 窗口操作
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
@@ -52,6 +56,31 @@ const api = {
     const handler = (_event: unknown, folderPath: string) => callback(folderPath)
     ipcRenderer.on('restore-folder', handler)
     return () => ipcRenderer.removeListener('restore-folder', handler)
+  },
+
+  // 右键菜单事件 (v1.2 阶段 1 新增)
+  onFileDeleted: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:deleted', handler)
+    return () => ipcRenderer.removeListener('file:deleted', handler)
+  },
+
+  onFileStartRename: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:start-rename', handler)
+    return () => ipcRenderer.removeListener('file:start-rename', handler)
+  },
+
+  onFileExportRequest: (callback: (data: { path: string; type: 'html' | 'pdf' }) => void) => {
+    const handler = (_event: unknown, data: { path: string; type: 'html' | 'pdf' }) => callback(data)
+    ipcRenderer.on('file:export-request', handler)
+    return () => ipcRenderer.removeListener('file:export-request', handler)
+  },
+
+  onError: (callback: (error: { message: string }) => void) => {
+    const handler = (_event: unknown, error: { message: string }) => callback(error)
+    ipcRenderer.on('error:show', handler)
+    return () => ipcRenderer.removeListener('error:show', handler)
   }
 }
 
