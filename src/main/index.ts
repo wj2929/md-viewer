@@ -65,6 +65,8 @@ function createWindow(): void {
     // 恢复上次打开的文件夹
     const lastFolder = store.get('lastOpenedFolder')
     if (lastFolder) {
+      // ✅ 设置安全白名单基础路径
+      setAllowedBasePath(lastFolder)
       mainWindow.webContents.send('restore-folder', lastFolder)
     }
   })
