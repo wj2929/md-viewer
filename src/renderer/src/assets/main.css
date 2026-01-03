@@ -289,6 +289,24 @@ body {
   white-space: nowrap;
 }
 
+/* v1.2：重命名输入框 */
+.file-name-input {
+  flex: 1;
+  padding: 2px 4px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--hover-bg);
+  border: 1px solid var(--accent-color);
+  border-radius: 2px;
+  outline: none;
+  color: var(--text-primary);
+}
+
+.file-name-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(64, 150, 255, 0.2);
+}
+
 /* 文件树子项 */
 .file-tree-children {
   /* 子项无额外样式，缩进通过 padding-left 控制 */

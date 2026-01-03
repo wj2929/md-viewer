@@ -690,3 +690,27 @@ ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: stri
   showContextMenu(window, file, basePath)
   return { success: true }
 })
+
+// 重命名文件/文件夹 (v1.2 阶段 1)
+ipcMain.handle('fs:rename', async (_, oldPath: string, newName: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(oldPath)
+
+    const dirName = path.dirname(oldPath)
+    const newPath = path.join(dirName, newName)
+
+    // 检查新路径是否已存在
+    if (await fs.pathExists(newPath)) {
+      throw new Error('目标文件已存在')
+    }
+
+    // 使用 fs-extra 的 move 方法（支持跨分区移动）
+    await fs.move(oldPath, newPath)
+
+    return newPath
+  } catch (error) {
+    console.error('Failed to rename file:', error)
+    throw error
+  }
+})

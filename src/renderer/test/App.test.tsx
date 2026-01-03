@@ -14,6 +14,7 @@ const mockApi = {
   exportHTML: vi.fn(),
   exportPDF: vi.fn(),
   showContextMenu: vi.fn().mockResolvedValue({ success: true }),  // v1.2 阶段 1
+  renameFile: vi.fn().mockResolvedValue('/new/path'),  // v1.2 阶段 1
   onRestoreFolder: vi.fn(() => vi.fn()),
   onFileChanged: vi.fn(() => vi.fn()),
   onFileAdded: vi.fn(() => vi.fn()),

@@ -23,6 +23,7 @@ declare global {
         file: { name: string; path: string; isDirectory: boolean },
         basePath: string
       ) => Promise<{ success: boolean }>
+      renameFile: (oldPath: string, newName: string) => Promise<string>
 
       // 窗口操作
       minimize: () => void

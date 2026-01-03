@@ -34,11 +34,10 @@ function App(): JSX.Element {
       }
     })
 
-    // 文件重命名事件 (阶段 1 暂不实现具体逻辑，仅监听)
+    // 文件重命名事件
     const unsubscribeRename = window.api.onFileStartRename((filePath: string) => {
+      // FileTree 组件内部已监听此事件，这里仅做日志记录
       console.log('Start rename:', filePath)
-      // TODO: 阶段 1 暂不实现重命名 UI
-      alert('重命名功能将在后续版本实现')
     })
 
     // 文件导出请求事件
@@ -126,6 +125,31 @@ function App(): JSX.Element {
       setIsLoading(false)
     }
   }, [folderPath])
+
+  // 文件重命名处理 (v1.2 阶段 1)
+  const handleFileRenamed = useCallback(async (oldPath: string, newName: string) => {
+    try {
+      // 调用主进程 API 重命名文件
+      const newPath = await window.api.renameFile(oldPath, newName)
+
+      if (!newPath) {
+        throw new Error('重命名失败')
+      }
+
+      // 更新标签页中的文件路径
+      setTabs(prev => prev.map(tab =>
+        tab.file.path === oldPath
+          ? { ...tab, file: { ...tab.file, name: newName, path: newPath } }
+          : tab
+      ))
+
+      // 刷新文件树
+      await handleRefreshFiles()
+    } catch (error) {
+      console.error('Failed to rename file:', error)
+      alert(`重命名失败：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [handleRefreshFiles])
 
   // 关闭标签 (必须在 useEffect 文件监听之前定义)
   const handleTabClose = useCallback((tabId: string) => {
@@ -341,6 +365,7 @@ function App(): JSX.Element {
                     onFileSelect={handleFileSelect}
                     selectedPath={activeTab?.file.path}
                     basePath={folderPath}
+                    onFileRenamed={handleFileRenamed}
                   />
                 )}
               </div>

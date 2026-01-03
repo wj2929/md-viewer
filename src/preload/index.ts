@@ -20,6 +20,7 @@ const api = {
   // 右键菜单 (v1.2 阶段 1 新增)
   showContextMenu: (file: { name: string; path: string; isDirectory: boolean }, basePath: string) =>
     ipcRenderer.invoke('context-menu:show', file, basePath),
+  renameFile: (oldPath: string, newName: string) => ipcRenderer.invoke('fs:rename', oldPath, newName),
 
   // 窗口操作
   minimize: () => ipcRenderer.send('window:minimize'),

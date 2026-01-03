@@ -11,7 +11,8 @@ describe('FileTree', () => {
   // Mock window.api
   beforeAll(() => {
     window.api = {
-      showContextMenu: mockShowContextMenu
+      showContextMenu: mockShowContextMenu,
+      onFileStartRename: vi.fn(() => vi.fn())  // v1.2: 重命名事件监听
     } as any
   })
 
