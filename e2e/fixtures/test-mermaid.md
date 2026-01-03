@@ -175,22 +175,6 @@ graph TB
     C --> D
 ```
 
-## 需求图
-
-```mermaid
-requirementDiagram
-    requirement 用户登录 {
-        id: REQ-001
-        text: 用户必须能够登录系统
-        risk: low
-        verifymethod: test
-    }
-    element 登录页面 {
-        type: ui
-    }
-    登录页面 - satisfies -> 用户登录
-```
-
 ## C4 架构图
 
 ```mermaid
