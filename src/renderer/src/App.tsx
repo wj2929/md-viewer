@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, MarkdownRenderer, TabBar, Tab, SearchBar, ErrorBoundary } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, ErrorBoundary, ToastContainer, ThemeToggle } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
+import { useToast } from './hooks/useToast'
+import { useTheme } from './hooks/useTheme'
+import { useClipboardStore } from './stores/clipboardStore'
 
 function App(): JSX.Element {
   const [folderPath, setFolderPath] = useState<string | null>(null)
@@ -9,6 +12,11 @@ function App(): JSX.Element {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const toast = useToast()
+  const { theme, setTheme } = useTheme()
+
+  // 剪贴板 Store (v1.2 阶段 2)
+  const { copy, cut, paste } = useClipboardStore()
 
   // 使用 ref 来存储最新的 tabs，避免闭包陷阱
   const tabsRef = useRef<Tab[]>([])
@@ -21,6 +29,91 @@ function App(): JSX.Element {
     })
     return cleanup
   }, [])
+
+  // 监听右键菜单事件 (v1.2 阶段 1)
+  useEffect(() => {
+    // 文件删除事件
+    const unsubscribeDeleted = window.api.onFileDeleted((filePath: string) => {
+      // 关闭已删除文件的标签
+      setTabs(prev => prev.filter(tab => tab.file.path !== filePath))
+      // 刷新文件树
+      if (folderPath) {
+        window.api.readDir(folderPath).then(setFiles).catch(console.error)
+      }
+    })
+
+    // 文件重命名事件
+    const unsubscribeRename = window.api.onFileStartRename((filePath: string) => {
+      // FileTree 组件内部已监听此事件，这里仅做日志记录
+      console.log('Start rename:', filePath)
+    })
+
+    // 文件导出请求事件
+    const unsubscribeExport = window.api.onFileExportRequest(
+      async (data: { path: string; type: 'html' | 'pdf' }) => {
+        try {
+          // 读取文件内容
+          const content = await window.api.readFile(data.path)
+          const md = createMarkdownRenderer()
+          const htmlContent = md.render(content)
+          const fileName = data.path.split('/').pop() || 'export'
+
+          // 调用导出 API
+          if (data.type === 'html') {
+            const result = await window.api.exportHTML(htmlContent, fileName)
+            if (result) toast.success(`HTML 已导出到：${result}`)
+          } else {
+            const result = await window.api.exportPDF(htmlContent, fileName)
+            if (result) toast.success(`PDF 已导出到：${result}`)
+          }
+        } catch (error) {
+          console.error('导出失败:', error)
+          toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+        }
+      }
+    )
+
+    // 错误事件
+    const unsubscribeError = window.api.onError((error: { message: string }) => {
+      toast.error(error.message)
+    })
+
+    // 剪贴板事件 (v1.2 阶段 2)
+    const unsubscribeCopy = window.api.onClipboardCopy((paths: string[]) => {
+      copy(paths)
+      toast.success(`已复制 ${paths.length} 个文件`)
+    })
+
+    const unsubscribeCut = window.api.onClipboardCut((paths: string[]) => {
+      cut(paths)
+      toast.success(`已剪切 ${paths.length} 个文件`)
+    })
+
+    const unsubscribePaste = window.api.onClipboardPaste(async (targetDir: string) => {
+      try {
+        await paste(targetDir)
+        toast.success('粘贴成功')
+        // 刷新文件树
+        if (folderPath) {
+          const fileList = await window.api.readDir(folderPath)
+          setFiles(fileList)
+        }
+      } catch (error) {
+        console.error('粘贴失败:', error)
+        toast.error(`粘贴失败：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    })
+
+    return () => {
+      unsubscribeDeleted()
+      unsubscribeRename()
+      unsubscribeExport()
+      unsubscribeError()
+      unsubscribeCopy()
+      unsubscribeCut()
+      unsubscribePaste()
+    }
+  }, [folderPath, copy, cut, paste, toast])
 
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
@@ -55,6 +148,45 @@ function App(): JSX.Element {
 
     loadFiles()
   }, [folderPath])
+
+  // 手动刷新文件树 (v1.2 阶段 1)
+  const handleRefreshFiles = useCallback(async () => {
+    if (!folderPath) return
+    setIsLoading(true)
+    try {
+      const fileList = await window.api.readDir(folderPath)
+      setFiles(fileList)
+    } catch (error) {
+      console.error('Failed to refresh files:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [folderPath])
+
+  // 文件重命名处理 (v1.2 阶段 1)
+  const handleFileRenamed = useCallback(async (oldPath: string, newName: string) => {
+    try {
+      // 调用主进程 API 重命名文件
+      const newPath = await window.api.renameFile(oldPath, newName)
+
+      if (!newPath) {
+        throw new Error('重命名失败')
+      }
+
+      // 更新标签页中的文件路径
+      setTabs(prev => prev.map(tab =>
+        tab.file.path === oldPath
+          ? { ...tab, file: { ...tab.file, name: newName, path: newPath } }
+          : tab
+      ))
+
+      // 刷新文件树
+      await handleRefreshFiles()
+    } catch (error) {
+      console.error('Failed to rename file:', error)
+      toast.error(`重命名失败：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [handleRefreshFiles, toast])
 
   // 关闭标签 (必须在 useEffect 文件监听之前定义)
   const handleTabClose = useCallback((tabId: string) => {
@@ -167,9 +299,9 @@ function App(): JSX.Element {
       })
     } catch (error) {
       console.error('Failed to read file:', error)
-      alert(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [])
+  }, [toast])
 
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => {
@@ -192,13 +324,13 @@ function App(): JSX.Element {
 
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
       if (filePath) {
-        alert(`HTML 已导出到：${filePath}`)
+        toast.success(`HTML 已导出到：${filePath}`)
       }
     } catch (error) {
       console.error('导出 HTML 失败:', error)
-      alert(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab])
+  }, [activeTab, toast])
 
   // 导出 PDF
   const handleExportPDF = useCallback(async () => {
@@ -211,21 +343,25 @@ function App(): JSX.Element {
 
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
       if (filePath) {
-        alert(`PDF 已导出到：${filePath}`)
+        toast.success(`PDF 已导出到：${filePath}`)
       }
     } catch (error) {
       console.error('导出 PDF 失败:', error)
-      alert(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab])
+  }, [activeTab, toast])
 
   return (
     <ErrorBoundary>
       <div className="app">
+      <ToastContainer messages={toast.messages} onClose={toast.close} />
       {/* 标题栏 (macOS 拖拽区域) */}
       <header className="titlebar">
         <div className="titlebar-drag-region" />
         <h1 className="app-title">MD Viewer</h1>
+        <div className="titlebar-actions">
+          <ThemeToggle theme={theme} onThemeChange={setTheme} />
+        </div>
       </header>
 
       {/* 主内容区 */}
@@ -245,9 +381,19 @@ function App(): JSX.Element {
               <div className="sidebar-header">
                 <div className="sidebar-header-top">
                   <span className="folder-name">{folderPath.split('/').pop()}</span>
-                  <button className="change-folder-btn" onClick={handleOpenFolder}>
-                    切换
-                  </button>
+                  <div className="sidebar-header-buttons">
+                    <button
+                      className="refresh-btn"
+                      onClick={handleRefreshFiles}
+                      title="刷新文件列表"
+                      disabled={isLoading}
+                    >
+                      🔄
+                    </button>
+                    <button className="change-folder-btn" onClick={handleOpenFolder}>
+                      切换
+                    </button>
+                  </div>
                 </div>
                 <SearchBar files={files} onFileSelect={handleFileSelect} />
               </div>
@@ -259,6 +405,8 @@ function App(): JSX.Element {
                     files={files}
                     onFileSelect={handleFileSelect}
                     selectedPath={activeTab?.file.path}
+                    basePath={folderPath}
+                    onFileRenamed={handleFileRenamed}
                   />
                 )}
               </div>
@@ -281,7 +429,7 @@ function App(): JSX.Element {
                         导出 PDF
                       </button>
                     </div>
-                    <MarkdownRenderer content={activeTab.content} />
+                    <VirtualizedMarkdown content={activeTab.content} />
                   </>
                 ) : (
                   <p className="placeholder">选择一个 Markdown 文件开始预览</p>

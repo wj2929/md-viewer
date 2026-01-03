@@ -10,12 +10,30 @@ const mockApi = {
   readFile: vi.fn(),
   watchFolder: vi.fn().mockResolvedValue(undefined),  // ✅ 返回 Promise
   unwatchFolder: vi.fn().mockResolvedValue(undefined),  // ✅ 返回 Promise
+  watchFile: vi.fn().mockResolvedValue(undefined),  // v1.1
   exportHTML: vi.fn(),
   exportPDF: vi.fn(),
+  showContextMenu: vi.fn().mockResolvedValue({ success: true }),  // v1.2 阶段 1
+  renameFile: vi.fn().mockResolvedValue('/new/path'),  // v1.2 阶段 1
+  // v1.2 阶段 2：文件操作
+  copyFile: vi.fn().mockResolvedValue('/new/path'),
+  copyDir: vi.fn().mockResolvedValue('/new/path'),
+  moveFile: vi.fn().mockResolvedValue('/new/path'),
+  fileExists: vi.fn().mockResolvedValue(false),
+  isDirectory: vi.fn().mockResolvedValue(false),
   onRestoreFolder: vi.fn(() => vi.fn()),
   onFileChanged: vi.fn(() => vi.fn()),
   onFileAdded: vi.fn(() => vi.fn()),
-  onFileRemoved: vi.fn(() => vi.fn())
+  onFileRemoved: vi.fn(() => vi.fn()),
+  // v1.2 阶段 1：右键菜单事件
+  onFileDeleted: vi.fn(() => vi.fn()),
+  onFileStartRename: vi.fn(() => vi.fn()),
+  onFileExportRequest: vi.fn(() => vi.fn()),
+  onError: vi.fn(() => vi.fn()),
+  // v1.2 阶段 2：剪贴板事件
+  onClipboardCopy: vi.fn(() => vi.fn()),
+  onClipboardCut: vi.fn(() => vi.fn()),
+  onClipboardPaste: vi.fn(() => vi.fn())
 }
 
 // Mock 全局 window.api

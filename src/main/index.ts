@@ -5,6 +5,8 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import Store from 'electron-store'
 import chokidar from 'chokidar'
+import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
+import { showContextMenu } from './contextMenuHandler'
 
 // 定义存储的数据结构
 interface AppState {
@@ -45,9 +47,11 @@ function createWindow(): void {
     trafficLightPosition: { x: 15, y: 10 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,  // ✅ 启用 Chromium 沙箱
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false
     }
   })
 
@@ -62,6 +66,8 @@ function createWindow(): void {
     // 恢复上次打开的文件夹
     const lastFolder = store.get('lastOpenedFolder')
     if (lastFolder) {
+      // ✅ 设置安全白名单基础路径
+      setAllowedBasePath(lastFolder)
       mainWindow.webContents.send('restore-folder', lastFolder)
     }
   })
@@ -137,6 +143,10 @@ ipcMain.handle('dialog:openFolder', async () => {
   // 保存最后打开的文件夹
   const folderPath = result.filePaths[0]
   store.set('lastOpenedFolder', folderPath)
+
+  // ✅ 设置安全白名单基础路径
+  setAllowedBasePath(folderPath)
+  console.log(`[SECURITY] Set allowed base path: ${folderPath}`)
 
   return folderPath
 })
@@ -305,12 +315,19 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
 // 读取目录 - 使用 glob 快速扫描
 ipcMain.handle('fs:readDir', async (_, dirPath: string) => {
   try {
+    // ✅ 安全校验：检查路径是否在允许范围内
+    validatePath(dirPath)
+
     const startTime = Date.now()
     const result = await scanMarkdownFiles(dirPath)
     console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
     return result
   } catch (error) {
     console.error('Failed to read directory:', error)
+    // 安全错误需要抛出，而不是返回空数组
+    if (error instanceof Error && error.message.includes('安全错误')) {
+      throw error
+    }
     return []
   }
 })
@@ -326,6 +343,9 @@ ipcMain.handle('fs:readFile', async (_, filePath: string) => {
   }
 
   try {
+    // ✅ 安全校验：检查路径是否在允许范围内
+    validatePath(filePath)
+
     log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
     log(`[MAIN] 📖 fs:readFile called for: ${filePath}`)
 
@@ -590,6 +610,9 @@ const watchedFiles = new Set<string>()
 // 开始监听文件夹（轻量级：只记录路径，不实际监听整个目录）
 ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
   try {
+    // ✅ 安全校验：检查路径是否在允许范围内
+    validatePath(folderPath)
+
     // 停止之前的监听
     if (fileWatcher) {
       await fileWatcher.close()
@@ -635,6 +658,9 @@ ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
 
 // 添加单个文件到监听列表
 ipcMain.handle('fs:watchFile', async (_, filePath: string) => {
+  // ✅ 安全校验：检查路径是否在允许范围内
+  validatePath(filePath)
+
   if (fileWatcher && !watchedFiles.has(filePath)) {
     fileWatcher.add(filePath)
     watchedFiles.add(filePath)
@@ -650,4 +676,145 @@ ipcMain.handle('fs:unwatchFolder', async () => {
     fileWatcher = null
   }
   return { success: true }
+})
+
+// ============== 右键菜单 Handlers ==============
+
+// 显示右键菜单
+ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: string) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (!window) {
+    throw new Error('无法获取窗口实例')
+  }
+
+  showContextMenu(window, file, basePath)
+  return { success: true }
+})
+
+// 重命名文件/文件夹 (v1.2 阶段 1)
+ipcMain.handle('fs:rename', async (_, oldPath: string, newName: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(oldPath)
+
+    const dirName = path.dirname(oldPath)
+    const newPath = path.join(dirName, newName)
+
+    // 检查新路径是否已存在
+    if (await fs.pathExists(newPath)) {
+      throw new Error('目标文件已存在')
+    }
+
+    // 使用 fs-extra 的 move 方法（支持跨分区移动）
+    await fs.move(oldPath, newPath)
+
+    return newPath
+  } catch (error) {
+    console.error('Failed to rename file:', error)
+    throw error
+  }
+})
+
+// 复制文件 (v1.2 阶段 2)
+ipcMain.handle('fs:copyFile', async (_, srcPath: string, destPath: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(srcPath)
+    validateSecurePath(destPath)
+
+    // 检查源文件是否存在
+    if (!(await fs.pathExists(srcPath))) {
+      throw new Error('源文件不存在')
+    }
+
+    // 检查目标文件是否已存在
+    if (await fs.pathExists(destPath)) {
+      throw new Error('目标文件已存在')
+    }
+
+    // 复制文件
+    await fs.copy(srcPath, destPath, { overwrite: false })
+
+    return destPath
+  } catch (error) {
+    console.error('Failed to copy file:', error)
+    throw error
+  }
+})
+
+// 复制目录（递归） (v1.2 阶段 2)
+ipcMain.handle('fs:copyDir', async (_, srcPath: string, destPath: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(srcPath)
+    validateSecurePath(destPath)
+
+    // 检查源目录是否存在
+    if (!(await fs.pathExists(srcPath))) {
+      throw new Error('源目录不存在')
+    }
+
+    // 检查目标目录是否已存在
+    if (await fs.pathExists(destPath)) {
+      throw new Error('目标目录已存在')
+    }
+
+    // 递归复制目录
+    await fs.copy(srcPath, destPath, { overwrite: false })
+
+    return destPath
+  } catch (error) {
+    console.error('Failed to copy directory:', error)
+    throw error
+  }
+})
+
+// 移动文件/文件夹 (v1.2 阶段 2)
+ipcMain.handle('fs:moveFile', async (_, srcPath: string, destPath: string) => {
+  try {
+    // 安全校验
+    validateSecurePath(srcPath)
+    validateSecurePath(destPath)
+
+    // 检查源是否存在
+    if (!(await fs.pathExists(srcPath))) {
+      throw new Error('源文件不存在')
+    }
+
+    // 检查目标是否已存在
+    if (await fs.pathExists(destPath)) {
+      throw new Error('目标文件已存在')
+    }
+
+    // 移动文件/文件夹（支持跨分区）
+    await fs.move(srcPath, destPath)
+
+    return destPath
+  } catch (error) {
+    console.error('Failed to move file:', error)
+    throw error
+  }
+})
+
+// 检查文件/目录是否存在 (v1.2 阶段 2)
+ipcMain.handle('fs:exists', async (_, filePath: string) => {
+  try {
+    validatePath(filePath)
+    return await fs.pathExists(filePath)
+  } catch (error) {
+    console.error('Failed to check file existence:', error)
+    return false
+  }
+})
+
+// 检查是否为目录 (v1.2 阶段 2)
+ipcMain.handle('fs:isDirectory', async (_, filePath: string) => {
+  try {
+    validatePath(filePath)
+    const stats = await fs.stat(filePath)
+    return stats.isDirectory()
+  } catch (error) {
+    console.error('Failed to check if directory:', error)
+    return false
+  }
 })

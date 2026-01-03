@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { useClipboardStore } from '../stores/clipboardStore'
 
 interface FileInfo {
   name: string
@@ -11,6 +12,8 @@ interface FileTreeProps {
   files: FileInfo[]
   onFileSelect: (file: FileInfo) => void
   selectedPath?: string
+  basePath: string
+  onFileRenamed?: (oldPath: string, newName: string) => void
 }
 
 interface FileTreeItemProps {
@@ -18,12 +21,48 @@ interface FileTreeItemProps {
   depth: number
   onFileSelect: (file: FileInfo) => void
   selectedPath?: string
+  basePath: string
+  onFileRenamed?: (oldPath: string, newName: string) => void
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed }: FileTreeItemProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(true)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [newName, setNewName] = useState(item.name)
+  const inputRef = useRef<HTMLInputElement>(null)
   const isSelected = selectedPath === item.path
+
+  // 检查是否在剪贴板中（剪切状态）
+  const isInClipboard = useClipboardStore(state => state.isInClipboard(item.path))
+  const isCut = useClipboardStore(state => state.isCut && isInClipboard)
+
+  // 监听重命名事件
+  useEffect(() => {
+    const handleStartRename = (targetPath: string) => {
+      if (targetPath === item.path) {
+        setIsRenaming(true)
+        setNewName(item.name)
+      }
+    }
+
+    const cleanup = window.api.onFileStartRename(handleStartRename)
+    return cleanup
+  }, [item.path, item.name])
+
+  // 自动聚焦输入框
+  useEffect(() => {
+    if (isRenaming && inputRef.current) {
+      inputRef.current.focus()
+      // 选中文件名（不包含扩展名）
+      const dotIndex = item.name.lastIndexOf('.')
+      if (dotIndex > 0) {
+        inputRef.current.setSelectionRange(0, dotIndex)
+      } else {
+        inputRef.current.select()
+      }
+    }
+  }, [isRenaming, item.name])
 
   const handleClick = useCallback(() => {
     if (item.isDirectory) {
@@ -40,13 +79,47 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
     }
   }, [handleClick])
 
+  // 右键菜单
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    window.api.showContextMenu(
+      { name: item.name, path: item.path, isDirectory: item.isDirectory },
+      basePath
+    )
+  }, [item, basePath])
+
+  // 重命名处理
+  const handleRenameSubmit = useCallback(() => {
+    const trimmedName = newName.trim()
+    if (trimmedName && trimmedName !== item.name) {
+      onFileRenamed?.(item.path, trimmedName)
+    }
+    setIsRenaming(false)
+  }, [newName, item.name, item.path, onFileRenamed])
+
+  const handleRenameCancel = useCallback(() => {
+    setIsRenaming(false)
+    setNewName(item.name)
+  }, [item.name])
+
+  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleRenameSubmit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleRenameCancel()
+    }
+  }, [handleRenameSubmit, handleRenameCancel])
+
   return (
     <div className="file-tree-item">
       <div
-        className={`file-tree-row ${isSelected ? 'selected' : ''} ${item.isDirectory ? 'directory' : 'file'}`}
+        className={`file-tree-row ${isSelected ? 'selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
+        onContextMenu={handleContextMenu}
         role="treeitem"
         tabIndex={0}
         aria-expanded={item.isDirectory ? isExpanded : undefined}
@@ -71,9 +144,21 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
         </span>
 
         {/* 文件名 */}
-        <span className="file-name" title={item.path}>
-          {item.name}
-        </span>
+        {isRenaming ? (
+          <input
+            ref={inputRef}
+            type="text"
+            className="file-name-input"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={handleRenameKeyDown}
+            onBlur={handleRenameSubmit}
+          />
+        ) : (
+          <span className="file-name" title={item.path}>
+            {item.name}
+          </span>
+        )}
       </div>
 
       {/* 子项 */}
@@ -86,6 +171,8 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
               depth={depth + 1}
               onFileSelect={onFileSelect}
               selectedPath={selectedPath}
+              basePath={basePath}
+              onFileRenamed={onFileRenamed}
             />
           ))}
         </div>
@@ -95,7 +182,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
 }
 
 // 文件树组件
-export function FileTree({ files, onFileSelect, selectedPath }: FileTreeProps): JSX.Element {
+export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed }: FileTreeProps): JSX.Element {
   if (files.length === 0) {
     return (
       <div className="file-tree-empty">
@@ -113,6 +200,8 @@ export function FileTree({ files, onFileSelect, selectedPath }: FileTreeProps): 
           depth={0}
           onFileSelect={onFileSelect}
           selectedPath={selectedPath}
+          basePath={basePath}
+          onFileRenamed={onFileRenamed}
         />
       ))}
     </div>

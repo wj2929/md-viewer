@@ -17,6 +17,18 @@ const api = {
   exportHTML: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:html', htmlContent, fileName),
   exportPDF: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:pdf', htmlContent, fileName),
 
+  // 右键菜单 (v1.2 阶段 1 新增)
+  showContextMenu: (file: { name: string; path: string; isDirectory: boolean }, basePath: string) =>
+    ipcRenderer.invoke('context-menu:show', file, basePath),
+  renameFile: (oldPath: string, newName: string) => ipcRenderer.invoke('fs:rename', oldPath, newName),
+
+  // 文件操作 (v1.2 阶段 2 新增)
+  copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
+  copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),
+  moveFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:moveFile', srcPath, destPath),
+  fileExists: (filePath: string) => ipcRenderer.invoke('fs:exists', filePath),
+  isDirectory: (filePath: string) => ipcRenderer.invoke('fs:isDirectory', filePath),
+
   // 窗口操作
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
@@ -52,6 +64,50 @@ const api = {
     const handler = (_event: unknown, folderPath: string) => callback(folderPath)
     ipcRenderer.on('restore-folder', handler)
     return () => ipcRenderer.removeListener('restore-folder', handler)
+  },
+
+  // 右键菜单事件 (v1.2 阶段 1 新增)
+  onFileDeleted: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:deleted', handler)
+    return () => ipcRenderer.removeListener('file:deleted', handler)
+  },
+
+  onFileStartRename: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:start-rename', handler)
+    return () => ipcRenderer.removeListener('file:start-rename', handler)
+  },
+
+  onFileExportRequest: (callback: (data: { path: string; type: 'html' | 'pdf' }) => void) => {
+    const handler = (_event: unknown, data: { path: string; type: 'html' | 'pdf' }) => callback(data)
+    ipcRenderer.on('file:export-request', handler)
+    return () => ipcRenderer.removeListener('file:export-request', handler)
+  },
+
+  onError: (callback: (error: { message: string }) => void) => {
+    const handler = (_event: unknown, error: { message: string }) => callback(error)
+    ipcRenderer.on('error:show', handler)
+    return () => ipcRenderer.removeListener('error:show', handler)
+  },
+
+  // 剪贴板事件 (v1.2 阶段 2 新增)
+  onClipboardCopy: (callback: (paths: string[]) => void) => {
+    const handler = (_event: unknown, paths: string[]) => callback(paths)
+    ipcRenderer.on('clipboard:copy', handler)
+    return () => ipcRenderer.removeListener('clipboard:copy', handler)
+  },
+
+  onClipboardCut: (callback: (paths: string[]) => void) => {
+    const handler = (_event: unknown, paths: string[]) => callback(paths)
+    ipcRenderer.on('clipboard:cut', handler)
+    return () => ipcRenderer.removeListener('clipboard:cut', handler)
+  },
+
+  onClipboardPaste: (callback: (targetDir: string) => void) => {
+    const handler = (_event: unknown, targetDir: string) => callback(targetDir)
+    ipcRenderer.on('clipboard:paste', handler)
+    return () => ipcRenderer.removeListener('clipboard:paste', handler)
   }
 }
 

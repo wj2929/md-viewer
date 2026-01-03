@@ -6,7 +6,7 @@
 }
 
 :root {
-  /* 亮色主题 */
+  /* 亮色主题（默认） */
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f5;
   --bg-tertiary: #e8e8e8;
@@ -20,9 +20,22 @@
   --titlebar-height: 52px;
 }
 
-/* 暗色主题 */
+/* 暗色主题 - 通过 data-theme 属性控制 */
+:root[data-theme="dark"] {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252525;
+  --bg-tertiary: #2d2d2d;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #666666;
+  --border-color: #404040;
+  --accent-color: #0a84ff;
+  --accent-hover: #409cff;
+}
+
+/* 自动模式：跟随系统（当没有 data-theme 或 data-theme="light" 时生效） */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
     --bg-primary: #1e1e1e;
     --bg-secondary: #252525;
     --bg-tertiary: #2d2d2d;
@@ -78,6 +91,17 @@ body {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-secondary);
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-actions {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   -webkit-app-region: no-drag;
 }
 
@@ -167,6 +191,36 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* v1.2 阶段 1：侧边栏按钮组 */
+.sidebar-header-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.refresh-btn {
+  padding: 4px 8px;
+  font-size: 14px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background-color: var(--hover-bg);
+  border-color: var(--accent-color);
+  transform: rotate(90deg);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .change-folder-btn {
@@ -259,6 +313,24 @@ body {
   white-space: nowrap;
 }
 
+/* v1.2：重命名输入框 */
+.file-name-input {
+  flex: 1;
+  padding: 2px 4px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--hover-bg);
+  border: 1px solid var(--accent-color);
+  border-radius: 2px;
+  outline: none;
+  color: var(--text-primary);
+}
+
+.file-name-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(64, 150, 255, 0.2);
+}
+
 /* 文件树子项 */
 .file-tree-children {
   /* 子项无额外样式，缩进通过 padding-left 控制 */
@@ -275,6 +347,17 @@ body {
 /* 目录样式 */
 .file-tree-row.directory .file-name {
   font-weight: 500;
+}
+
+/* 剪切状态样式（v1.2 阶段 2） */
+.file-tree-row.cut {
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.file-tree-row.cut .file-name {
+  text-decoration: line-through;
+  color: var(--text-muted);
 }
 
 /* 编辑区域 */
@@ -780,4 +863,101 @@ body {
 
 .error-btn-secondary:hover {
   background-color: var(--border-color);
+}
+
+/* ============================================
+   虚拟滚动样式 (v1.2 阶段 4)
+   ============================================ */
+
+/* 虚拟滚动容器 */
+.markdown-body.virtualized {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+/* 大文件模式提示 */
+.virtualized-info {
+  padding: 8px 16px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 虚拟滚动分段 */
+.virtualized-section {
+  padding: 0 32px 24px 32px;
+}
+
+.virtualized-section:first-child {
+  padding-top: 24px;
+}
+
+/* 确保 Virtuoso 容器填满剩余空间 */
+.markdown-body.virtualized > [data-virtuoso-scroller] {
+  flex: 1;
+}
+
+/* 大文件内容警告 */
+.content-warning {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px 24px;
+  margin: 16px 0;
+  text-align: center;
+}
+
+.content-warning p {
+  margin: 4px 0;
+  color: var(--text-secondary);
+}
+
+.content-warning strong {
+  color: var(--accent-color);
+}
+
+/* ============================================
+   主题切换组件样式 (v1.2 阶段 5)
+   ============================================ */
+
+.theme-toggle {
+  display: flex;
+  gap: 2px;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.theme-toggle-btn:hover {
+  background-color: var(--bg-secondary);
+}
+
+.theme-toggle-btn.active {
+  background-color: var(--accent-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.theme-icon {
+  font-size: 14px;
+  line-height: 1;
 }
