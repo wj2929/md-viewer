@@ -26,8 +26,6 @@ interface MarkdownRendererProps {
 
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
-  // 🚨 临时移除 renderError state 以避免任何潜在的state更新问题
-  // const [renderError, setRenderError] = useState<string | null>(null)
 
   // 初始化 Mermaid
   useEffect(() => {
@@ -46,6 +44,10 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       typographer: true,
       breaks: true,
       highlight: (str: string, lang: string) => {
+        // Mermaid 图表特殊处理 - 保留原始代码供后续渲染
+        if (lang === 'mermaid') {
+          return `<pre class="language-mermaid"><code class="language-mermaid">${mdInstance.utils.escapeHtml(str)}</code></pre>`
+        }
         // 代码高亮
         if (lang && Prism.languages[lang]) {
           try {
@@ -58,12 +60,11 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       }
     })
 
-    // 🚨 临时禁用 KaTeX 以调试性能问题
-    // TODO: 将 KaTeX 渲染移到 Web Worker 或优化算法
-    /*
     // 自定义渲染规则：行内数学公式 $...$
     mdInstance.inline.ruler.before('escape', 'math_inline', (state, silent) => {
       if (state.src[state.pos] !== '$') return false
+      // 避免匹配 $$ 块级公式
+      if (state.src[state.pos + 1] === '$') return false
 
       const start = state.pos
       let found = false
@@ -78,6 +79,8 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       }
 
       if (!found) return false
+      // 确保不是空内容
+      if (end === start + 1) return false
 
       if (!silent) {
         const latex = state.src.slice(start + 1, end)
@@ -87,7 +90,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
           token.content = html
         } catch (e) {
           const token = state.push('html_inline', '', 0)
-          token.content = `<span class="katex-error">${latex}</span>`
+          token.content = `<span class="katex-error">${mdInstance.utils.escapeHtml(latex)}</span>`
         }
       }
 
@@ -117,7 +120,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
             token.content = html + '\n'
           } catch (e) {
             const token = state.push('html_block', '', 0)
-            token.content = `<div class="katex-error">${latex}</div>\n`
+            token.content = `<div class="katex-error">${mdInstance.utils.escapeHtml(latex)}</div>\n`
           }
         }
         state.line = startLine + 1
@@ -163,14 +166,13 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
           token.content = html + '\n'
         } catch (e) {
           const token = state.push('html_block', '', 0)
-          token.content = `<div class="katex-error">${latex}</div>\n`
+          token.content = `<div class="katex-error">${mdInstance.utils.escapeHtml(latex)}</div>\n`
         }
       }
 
       state.line = nextLine + 1
       return true
     })
-    */
 
     return mdInstance
   }, [])
