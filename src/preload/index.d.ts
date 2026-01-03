@@ -60,6 +60,17 @@ declare global {
 
       // 其他事件
       onRestoreFolder: (callback: (folderPath: string) => void) => () => void
+
+      // 快捷键事件 (v1.2.1)
+      onShortcutOpenFolder: (callback: () => void) => () => void
+      onShortcutRefresh: (callback: () => void) => () => void
+      onShortcutCloseTab: (callback: () => void) => () => void
+      onShortcutExportHTML: (callback: () => void) => () => void
+      onShortcutExportPDF: (callback: () => void) => () => void
+      onShortcutFocusSearch: (callback: () => void) => () => void
+      onShortcutNextTab: (callback: () => void) => () => void
+      onShortcutPrevTab: (callback: () => void) => () => void
+      onShortcutSwitchTab: (callback: (tabIndex: number) => void) => () => void
     }
   }
 

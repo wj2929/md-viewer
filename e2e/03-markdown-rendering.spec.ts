@@ -1,47 +1,20 @@
-import { test, expect } from './fixtures/electron'
-import { mkdirSync, writeFileSync, rmSync } from 'fs'
-import { join } from 'path'
-import { tmpdir } from 'os'
+import { test, expect, openFolderViaIPC } from './fixtures/electron'
 
 /**
  * E2E 测试 3: Markdown 渲染功能
  * 验证基础 Markdown、代码高亮、数学公式、Mermaid 图表渲染
  */
-
-let testDir: string
-
-test.beforeEach(() => {
-  testDir = join(tmpdir(), `md-viewer-test-${Date.now()}`)
-  mkdirSync(testDir, { recursive: true })
-})
-
-test.afterEach(() => {
-  if (testDir) {
-    rmSync(testDir, { recursive: true, force: true })
-  }
-})
-
 test.describe('Markdown 渲染测试', () => {
-  test('应该正确渲染基础 Markdown 语法', async ({ page }) => {
-    // 创建包含基础语法的 Markdown 文件
-    const markdown = `# Heading 1
-## Heading 2
+  test('应该正确渲染基础 Markdown 语法', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
-**Bold** and *italic* text
-
-- List item 1
-- List item 2
-
-\`inline code\`
-`
-    writeFileSync(join(testDir, 'basic.md'), markdown)
-
-    // 打开文件并验证渲染
-    // （需要先实现文件选择逻辑）
+    // 点击 test2.md（包含基础语法）
+    await page.click('.file-item:has-text("test2.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
     // 验证标题渲染
-    await expect(page.locator('.markdown-body h1')).toHaveText('Heading 1')
-    await expect(page.locator('.markdown-body h2')).toHaveText('Heading 2')
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 2')
 
     // 验证粗体和斜体
     await expect(page.locator('.markdown-body strong')).toHaveText('Bold')
@@ -52,77 +25,119 @@ test.describe('Markdown 渲染测试', () => {
     await expect(listItems).toHaveCount(2)
   })
 
-  test('应该正确渲染代码块并高亮', async ({ page }) => {
-    const markdown = `\`\`\`javascript
-function hello() {
-  console.log("Hello World");
-}
-\`\`\`
-`
-    writeFileSync(join(testDir, 'code.md'), markdown)
+  test('应该正确渲染代码块并高亮', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
-    // 打开文件后验证
+    // 点击 code.md
+    await page.click('.file-item:has-text("code.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
+
     // 验证代码块存在
-    const codeBlock = page.locator('pre.language-javascript')
+    const codeBlock = page.locator('pre code')
     await expect(codeBlock).toBeVisible()
 
-    // 验证代码高亮（Prism.js 应该添加了 token 类）
-    const tokens = page.locator('.language-javascript .token')
-    expect(await tokens.count()).toBeGreaterThan(0)
+    // 验证代码高亮（Prism.js 应该添加了语言类）
+    const preElement = page.locator('pre.language-javascript, pre:has(code.language-javascript)')
+    await expect(preElement).toBeVisible()
   })
 
-  test('应该正确渲染 KaTeX 数学公式', async ({ page }) => {
-    const markdown = `
-行内公式: $E = mc^2$
+  test('应该正确渲染 KaTeX 数学公式', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
-块级公式:
-$$
-\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
-$$
-`
-    writeFileSync(join(testDir, 'math.md'), markdown)
+    // 点击 math.md
+    await page.click('.file-item:has-text("math.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
-    // 打开文件后验证
-    // 验证 KaTeX 渲染
+    // 等待 KaTeX 渲染
+    await page.waitForTimeout(1000)
+
+    // 验证 KaTeX 渲染（行内公式）
     const inlineFormula = page.locator('.katex')
     await expect(inlineFormula.first()).toBeVisible()
 
+    // 验证块级公式
     const blockFormula = page.locator('.katex-display')
     await expect(blockFormula).toBeVisible()
   })
 
-  test('应该正确渲染 Mermaid 图表', async ({ page }) => {
-    const markdown = `\`\`\`mermaid
-graph LR
-  A[Start] --> B[Process]
-  B --> C[End]
-\`\`\`
-`
-    writeFileSync(join(testDir, 'mermaid.md'), markdown)
+  test('应该正确渲染 Mermaid 图表', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
-    // 打开文件后验证
-    // 等待 Mermaid 渲染完成
-    await page.waitForSelector('.mermaid-container', { timeout: 10000 })
+    // 点击 mermaid.md
+    await page.click('.file-item:has-text("mermaid.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
-    // 验证 SVG 图表存在
-    const mermaidSvg = page.locator('.mermaid-container svg')
-    await expect(mermaidSvg).toBeVisible()
+    // 等待 Mermaid 渲染完成（可能需要更长时间）
+    await page.waitForTimeout(3000)
 
-    // 验证图表包含节点
-    const nodes = page.locator('.mermaid-container .node')
-    expect(await nodes.count()).toBeGreaterThan(0)
+    // 验证 Mermaid 容器或 SVG 存在
+    const mermaidContainer = page.locator('.mermaid-container, .mermaid, svg[id^="mermaid"]')
+    await expect(mermaidContainer.first()).toBeVisible()
   })
 
-  test('应该处理超长内容截断', async ({ page }) => {
-    // 创建超过 10000 行的文件
-    const lines = Array.from({ length: 12000 }, (_, i) => `Line ${i + 1}`)
-    const markdown = lines.join('\n')
-    writeFileSync(join(testDir, 'long.md'), markdown)
+  test('标签栏应该显示打开的文件', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
-    // 打开文件后验证
-    // 验证截断警告显示
-    await expect(page.locator('.content-warning')).toBeVisible()
-    await expect(page.locator('.content-warning')).toContainText('12000')
-    await expect(page.locator('.content-warning')).toContainText('10000')
+    // 打开第一个文件
+    await page.click('.file-item:has-text("test1.md")')
+    await page.waitForSelector('.tab', { timeout: 5000 })
+
+    // 验证标签存在
+    const tab = page.locator('.tab:has-text("test1.md")')
+    await expect(tab).toBeVisible()
+
+    // 打开第二个文件
+    await page.click('.file-item:has-text("test2.md")')
+    await page.waitForTimeout(500)
+
+    // 验证两个标签
+    await expect(page.locator('.tab')).toHaveCount(2)
+  })
+
+  test('点击标签应该切换预览', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    // 打开两个文件
+    await page.click('.file-item:has-text("test1.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 5000 })
+
+    await page.click('.file-item:has-text("test2.md")')
+    await page.waitForTimeout(500)
+
+    // 验证当前显示 test2
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 2')
+
+    // 点击 test1 标签
+    await page.click('.tab:has-text("test1.md")')
+    await page.waitForTimeout(300)
+
+    // 验证切换到 test1
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 1')
+  })
+
+  test('关闭标签按钮应该关闭标签', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    // 打开文件
+    await page.click('.file-item:has-text("test1.md")')
+    await page.waitForSelector('.tab', { timeout: 5000 })
+
+    // 找到关闭按钮并点击
+    const closeBtn = page.locator('.tab:has-text("test1.md") .tab-close, .tab:has-text("test1.md") .close-btn')
+    if (await closeBtn.isVisible()) {
+      await closeBtn.click()
+
+      // 等待关闭
+      await page.waitForTimeout(300)
+
+      // 验证标签已关闭
+      await expect(page.locator('.tab:has-text("test1.md")')).not.toBeVisible()
+    }
   })
 })

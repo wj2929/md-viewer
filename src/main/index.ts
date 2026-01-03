@@ -7,6 +7,7 @@ import Store from 'electron-store'
 import chokidar from 'chokidar'
 import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
 import { showContextMenu } from './contextMenuHandler'
+import { registerWindowShortcuts } from './shortcuts'
 
 // 定义存储的数据结构
 interface AppState {
@@ -63,12 +64,17 @@ function createWindow(): void {
       mainWindow.webContents.openDevTools()
     }
 
-    // 恢复上次打开的文件夹
-    const lastFolder = store.get('lastOpenedFolder')
-    if (lastFolder) {
-      // ✅ 设置安全白名单基础路径
-      setAllowedBasePath(lastFolder)
-      mainWindow.webContents.send('restore-folder', lastFolder)
+    // ⌨️ 注册窗口快捷键 (v1.2.1)
+    registerWindowShortcuts(mainWindow)
+
+    // 恢复上次打开的文件夹（跳过测试环境）
+    if (process.env.MD_VIEWER_SKIP_RESTORE !== '1') {
+      const lastFolder = store.get('lastOpenedFolder')
+      if (lastFolder) {
+        // ✅ 设置安全白名单基础路径
+        setAllowedBasePath(lastFolder)
+        mainWindow.webContents.send('restore-folder', lastFolder)
+      }
     }
   })
 

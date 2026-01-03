@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, ErrorBoundary, ToastContainer, ThemeToggle } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { useToast } from './hooks/useToast'
@@ -21,6 +21,9 @@ function App(): JSX.Element {
   // 使用 ref 来存储最新的 tabs，避免闭包陷阱
   const tabsRef = useRef<Tab[]>([])
   tabsRef.current = tabs
+
+  // 搜索栏 ref (用于快捷键聚焦)
+  const searchBarRef = useRef<SearchBarHandle>(null)
 
   // 监听恢复文件夹事件
   useEffect(() => {
@@ -351,6 +354,79 @@ function App(): JSX.Element {
     }
   }, [activeTab, toast])
 
+  // 切换到下一个标签
+  const handleNextTab = useCallback(() => {
+    const currentTabs = tabsRef.current
+    if (currentTabs.length === 0) return
+
+    const currentIndex = currentTabs.findIndex(tab => tab.id === activeTabId)
+    const nextIndex = (currentIndex + 1) % currentTabs.length
+    setActiveTabId(currentTabs[nextIndex].id)
+  }, [activeTabId])
+
+  // 切换到上一个标签
+  const handlePrevTab = useCallback(() => {
+    const currentTabs = tabsRef.current
+    if (currentTabs.length === 0) return
+
+    const currentIndex = currentTabs.findIndex(tab => tab.id === activeTabId)
+    const prevIndex = (currentIndex - 1 + currentTabs.length) % currentTabs.length
+    setActiveTabId(currentTabs[prevIndex].id)
+  }, [activeTabId])
+
+  // 切换到指定标签
+  const handleSwitchTab = useCallback((tabIndex: number) => {
+    const currentTabs = tabsRef.current
+    if (tabIndex < 0 || tabIndex >= currentTabs.length) return
+    setActiveTabId(currentTabs[tabIndex].id)
+  }, [])
+
+  // 聚焦搜索栏
+  const handleFocusSearch = useCallback(() => {
+    searchBarRef.current?.focus()
+  }, [])
+
+  // 监听快捷键事件 (v1.2.1)
+  useEffect(() => {
+    // 检查 API 是否存在（兼容旧版本）
+    if (!window.api.onShortcutOpenFolder) return
+
+    const unsubscribeOpenFolder = window.api.onShortcutOpenFolder(handleOpenFolder)
+    const unsubscribeRefresh = window.api.onShortcutRefresh(handleRefreshFiles)
+    const unsubscribeCloseTab = window.api.onShortcutCloseTab(() => {
+      if (activeTabId) handleTabClose(activeTabId)
+    })
+    const unsubscribeExportHTML = window.api.onShortcutExportHTML(handleExportHTML)
+    const unsubscribeExportPDF = window.api.onShortcutExportPDF(handleExportPDF)
+    const unsubscribeFocusSearch = window.api.onShortcutFocusSearch(handleFocusSearch)
+    const unsubscribeNextTab = window.api.onShortcutNextTab(handleNextTab)
+    const unsubscribePrevTab = window.api.onShortcutPrevTab(handlePrevTab)
+    const unsubscribeSwitchTab = window.api.onShortcutSwitchTab(handleSwitchTab)
+
+    return () => {
+      unsubscribeOpenFolder()
+      unsubscribeRefresh()
+      unsubscribeCloseTab()
+      unsubscribeExportHTML()
+      unsubscribeExportPDF()
+      unsubscribeFocusSearch()
+      unsubscribeNextTab()
+      unsubscribePrevTab()
+      unsubscribeSwitchTab()
+    }
+  }, [
+    handleOpenFolder,
+    handleRefreshFiles,
+    handleTabClose,
+    handleExportHTML,
+    handleExportPDF,
+    handleFocusSearch,
+    handleNextTab,
+    handlePrevTab,
+    handleSwitchTab,
+    activeTabId
+  ])
+
   return (
     <ErrorBoundary>
       <div className="app">
@@ -395,7 +471,7 @@ function App(): JSX.Element {
                     </button>
                   </div>
                 </div>
-                <SearchBar files={files} onFileSelect={handleFileSelect} />
+                <SearchBar ref={searchBarRef} files={files} onFileSelect={handleFileSelect} />
               </div>
               <div className="file-tree-container">
                 {isLoading ? (

@@ -108,6 +108,61 @@ const api = {
     const handler = (_event: unknown, targetDir: string) => callback(targetDir)
     ipcRenderer.on('clipboard:paste', handler)
     return () => ipcRenderer.removeListener('clipboard:paste', handler)
+  },
+
+  // 快捷键事件 (v1.2.1 新增)
+  onShortcutOpenFolder: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:open-folder', handler)
+    return () => ipcRenderer.removeListener('shortcut:open-folder', handler)
+  },
+
+  onShortcutRefresh: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:refresh', handler)
+    return () => ipcRenderer.removeListener('shortcut:refresh', handler)
+  },
+
+  onShortcutCloseTab: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:close-tab', handler)
+    return () => ipcRenderer.removeListener('shortcut:close-tab', handler)
+  },
+
+  onShortcutExportHTML: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:export-html', handler)
+    return () => ipcRenderer.removeListener('shortcut:export-html', handler)
+  },
+
+  onShortcutExportPDF: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:export-pdf', handler)
+    return () => ipcRenderer.removeListener('shortcut:export-pdf', handler)
+  },
+
+  onShortcutFocusSearch: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:focus-search', handler)
+    return () => ipcRenderer.removeListener('shortcut:focus-search', handler)
+  },
+
+  onShortcutNextTab: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:next-tab', handler)
+    return () => ipcRenderer.removeListener('shortcut:next-tab', handler)
+  },
+
+  onShortcutPrevTab: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:prev-tab', handler)
+    return () => ipcRenderer.removeListener('shortcut:prev-tab', handler)
+  },
+
+  onShortcutSwitchTab: (callback: (tabIndex: number) => void) => {
+    const handler = (_event: unknown, tabIndex: number) => callback(tabIndex)
+    ipcRenderer.on('shortcut:switch-tab', handler)
+    return () => ipcRenderer.removeListener('shortcut:switch-tab', handler)
   }
 }
 

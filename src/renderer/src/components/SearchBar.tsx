@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 import Fuse from 'fuse.js'
 import { FileInfo } from './FileTree'
 
@@ -7,17 +7,29 @@ interface SearchBarProps {
   onFileSelect: (file: FileInfo) => void
 }
 
+export interface SearchBarHandle {
+  focus: () => void
+}
+
 interface FileWithContent extends FileInfo {
   content?: string
 }
 
-export function SearchBar({ files, onFileSelect }: SearchBarProps): JSX.Element {
+export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, onFileSelect }, ref) => {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [searchMode, setSearchMode] = useState<'filename' | 'content'>('filename')
   const [filesWithContent, setFilesWithContent] = useState<FileWithContent[]>([])
   const [isLoadingContent, setIsLoadingContent] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // 暴露 focus 方法给父组件
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      setIsOpen(true)
+      setTimeout(() => inputRef.current?.focus(), 0)
+    }
+  }))
 
   // 展平文件树，只包含文件（不包含目录）
   const flatFiles = useMemo(() => {
@@ -269,4 +281,6 @@ export function SearchBar({ files, onFileSelect }: SearchBarProps): JSX.Element 
       )}
     </div>
   )
-}
+})
+
+SearchBar.displayName = 'SearchBar'
