@@ -232,7 +232,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       try {
         const { svg } = await mermaid.render(id, code)
         const wrapper = document.createElement('div')
-        wrapper.className = 'mermaid-diagram'
+        wrapper.className = 'mermaid-container'
         wrapper.innerHTML = svg
         block.replaceWith(wrapper)
       } catch (error) {
