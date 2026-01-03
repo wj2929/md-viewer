@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, MarkdownRenderer, TabBar, Tab, SearchBar, ErrorBoundary } from './components'
+import { FileTree, FileInfo, MarkdownRenderer, TabBar, Tab, SearchBar, ErrorBoundary, ToastContainer } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
+import { useToast } from './hooks/useToast'
 
 function App(): JSX.Element {
   const [folderPath, setFolderPath] = useState<string | null>(null)
@@ -9,6 +10,7 @@ function App(): JSX.Element {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const toast = useToast()
 
   // 使用 ref 来存储最新的 tabs，避免闭包陷阱
   const tabsRef = useRef<Tab[]>([])
@@ -53,21 +55,21 @@ function App(): JSX.Element {
           // 调用导出 API
           if (data.type === 'html') {
             const result = await window.api.exportHTML(htmlContent, fileName)
-            if (result) alert(`HTML 已导出到：${result}`)
+            if (result) toast.success(`HTML 已导出到：${result}`)
           } else {
             const result = await window.api.exportPDF(htmlContent, fileName)
-            if (result) alert(`PDF 已导出到：${result}`)
+            if (result) toast.success(`PDF 已导出到：${result}`)
           }
         } catch (error) {
           console.error('导出失败:', error)
-          alert(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+          toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
         }
       }
     )
 
     // 错误事件
     const unsubscribeError = window.api.onError((error: { message: string }) => {
-      alert(`错误：${error.message}`)
+      toast.error(error.message)
     })
 
     return () => {
@@ -147,9 +149,9 @@ function App(): JSX.Element {
       await handleRefreshFiles()
     } catch (error) {
       console.error('Failed to rename file:', error)
-      alert(`重命名失败：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`重命名失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [handleRefreshFiles])
+  }, [handleRefreshFiles, toast])
 
   // 关闭标签 (必须在 useEffect 文件监听之前定义)
   const handleTabClose = useCallback((tabId: string) => {
@@ -262,9 +264,9 @@ function App(): JSX.Element {
       })
     } catch (error) {
       console.error('Failed to read file:', error)
-      alert(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [])
+  }, [toast])
 
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => {
@@ -287,13 +289,13 @@ function App(): JSX.Element {
 
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
       if (filePath) {
-        alert(`HTML 已导出到：${filePath}`)
+        toast.success(`HTML 已导出到：${filePath}`)
       }
     } catch (error) {
       console.error('导出 HTML 失败:', error)
-      alert(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab])
+  }, [activeTab, toast])
 
   // 导出 PDF
   const handleExportPDF = useCallback(async () => {
@@ -306,17 +308,18 @@ function App(): JSX.Element {
 
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
       if (filePath) {
-        alert(`PDF 已导出到：${filePath}`)
+        toast.success(`PDF 已导出到：${filePath}`)
       }
     } catch (error) {
       console.error('导出 PDF 失败:', error)
-      alert(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab])
+  }, [activeTab, toast])
 
   return (
     <ErrorBoundary>
       <div className="app">
+      <ToastContainer messages={toast.messages} onClose={toast.close} />
       {/* 标题栏 (macOS 拖拽区域) */}
       <header className="titlebar">
         <div className="titlebar-drag-region" />
