@@ -451,3 +451,69 @@ a06289d feat(toast): 添加 Toast 通知组件替代 alert
 - **移除**: 已移除的功能
 - **修复**: Bug 修复
 - **安全**: 安全相关修复
+
+## [Unreleased] - v1.2-beta
+
+### Added - 新功能
+- **应用内剪贴板系统** (v1.2 阶段 2)
+  - Zustand 状态管理
+  - 文件/文件夹复制、剪切、粘贴功能
+  - 剪切状态可视化（半透明 + 删除线）
+  - 右键菜单集成（Cmd/Ctrl+C, X, V）
+  - 文件夹递归复制支持
+  - Toast 通知反馈
+
+- **右键上下文菜单** (v1.2 阶段 1)
+  - Electron 原生 Menu
+  - 跨平台菜单文案（macOS/Windows/Linux）
+  - 在文件管理器中显示
+  - 复制路径/相对路径
+  - Inline Editing 重命名
+  - 文件删除（移到回收站）
+  - 导出 HTML/PDF（右键未打开的文件）
+  - 侧边栏手动刷新按钮
+
+- **Toast 通知组件**
+  - 4 种类型：success, error, warning, info
+  - 滑入/滑出动画
+  - 自定义持续时间
+  - 手动关闭按钮
+  - 替代所有 alert 调用
+
+### Security - 安全 (v1.2 阶段 0)
+- **路径白名单校验**：限制文件操作在用户选择的文件夹内
+- **受保护路径黑名单**：阻止操作系统关键目录
+- **Chromium 沙箱启用**：`sandbox: true`
+- **所有文件操作 IPC 添加安全校验**
+
+### Fixed - 修复
+- 🔴 **高危**：路径穿越漏洞（通过 validatePath 修复）
+- 🔴 **高危**：沙箱禁用问题（启用 sandbox: true）
+- 🔴 **阻塞**：剪贴板 API 错误（阶段 2 完整实现）
+
+### Changed - 变更
+- 文件操作全部通过安全校验
+- 增强错误提示（使用 Toast 替代 alert）
+- 文件树右键菜单行为优化
+
+### Technical - 技术细节
+- **新增依赖**：zustand@4.x
+- **新增文件**：
+  - `src/main/security.ts` - 安全模块
+  - `src/main/contextMenuHandler.ts` - 右键菜单处理
+  - `src/renderer/src/stores/clipboardStore.ts` - 剪贴板 Store
+  - `src/renderer/src/components/Toast.tsx` - Toast 组件
+  - `src/renderer/src/hooks/useToast.ts` - Toast Hook
+  - `src/main/__tests__/contextMenuHandler.test.ts` - 右键菜单测试
+  - `src/main/__tests__/security.test.ts` - 安全模块测试
+
+- **测试统计**：
+  - 渲染进程：129 通过
+  - 主进程：55 通过
+  - 总计：184 通过（+28 个新测试）
+
+- **Git 提交**：10 次（阶段 0-2）
+- **代码统计**：约 800+ 行新增代码
+
+---
+
