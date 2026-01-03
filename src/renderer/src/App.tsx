@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, MarkdownRenderer, TabBar, Tab, SearchBar, ErrorBoundary, ToastContainer } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, ErrorBoundary, ToastContainer, ThemeToggle } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { useToast } from './hooks/useToast'
+import { useTheme } from './hooks/useTheme'
 import { useClipboardStore } from './stores/clipboardStore'
 
 function App(): JSX.Element {
@@ -12,6 +13,7 @@ function App(): JSX.Element {
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const toast = useToast()
+  const { theme, setTheme } = useTheme()
 
   // 剪贴板 Store (v1.2 阶段 2)
   const { copy, cut, paste } = useClipboardStore()
@@ -357,6 +359,9 @@ function App(): JSX.Element {
       <header className="titlebar">
         <div className="titlebar-drag-region" />
         <h1 className="app-title">MD Viewer</h1>
+        <div className="titlebar-actions">
+          <ThemeToggle theme={theme} onThemeChange={setTheme} />
+        </div>
       </header>
 
       {/* 主内容区 */}
@@ -424,7 +429,7 @@ function App(): JSX.Element {
                         导出 PDF
                       </button>
                     </div>
-                    <MarkdownRenderer content={activeTab.content} />
+                    <VirtualizedMarkdown content={activeTab.content} />
                   </>
                 ) : (
                   <p className="placeholder">选择一个 Markdown 文件开始预览</p>

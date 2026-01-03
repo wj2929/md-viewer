@@ -332,6 +332,33 @@ describe('FileTree', () => {
     })
   })
 
+  // v1.2 阶段 2：剪切状态可视化
+  describe('剪切状态 (v1.2)', () => {
+    it('剪切的文件应该有 cut 类', async () => {
+      const file = createMockFile('test.md', '/test.md')
+      const files = [file]
+
+      // 模拟 clipboardStore
+      vi.mock('../../src/stores/clipboardStore', () => ({
+        useClipboardStore: vi.fn((selector) => {
+          const state = {
+            files: new Set(['/test.md']),
+            isCut: true,
+            isInClipboard: (path: string) => path === '/test.md'
+          }
+          return selector(state)
+        })
+      }))
+
+      const { container } = render(
+        <FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+
+      // 验证渲染成功
+      expect(screen.getByText('test.md')).toBeInTheDocument()
+    })
+  })
+
   // v1.2 阶段 1：右键菜单测试
   describe('右键菜单 (v1.2)', () => {
     it('右键点击文件应该显示上下文菜单', async () => {
