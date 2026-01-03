@@ -60,7 +60,7 @@
     "electron",
     "react"
   ],
-  "author": "",
+  "author": "wj2929",
   "license": "MIT",
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.2",

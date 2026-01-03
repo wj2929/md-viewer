@@ -34,13 +34,13 @@ _（待添加）_
 ## 📦 下载
 
 ### macOS
-- [MD Viewer-1.0.0.dmg](https://github.com/yourusername/md-viewer/releases) (Intel + Apple Silicon)
+- [MD Viewer-1.1.1.dmg](https://github.com/wj2929/md-viewer/releases) (Apple Silicon)
 
 ### Windows
-- [MD Viewer-1.0.0.exe](https://github.com/yourusername/md-viewer/releases)
+- [MD Viewer-1.1.1.exe](https://github.com/wj2929/md-viewer/releases)
 
 ### Linux
-- [MD Viewer-1.0.0.AppImage](https://github.com/yourusername/md-viewer/releases)
+- [MD Viewer-1.1.1.AppImage](https://github.com/wj2929/md-viewer/releases)
 
 ---
 
@@ -50,7 +50,7 @@ _（待添加）_
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/md-viewer.git
+git clone https://github.com/wj2929/md-viewer.git
 
 # 进入目录
 cd md-viewer
@@ -253,7 +253,7 @@ npm run build:linux
 ### v1.1 ✅ (当前版本)
 - [x] Mermaid 图表支持
 - [x] 文件监听与自动刷新
-- [x] 测试覆盖率 80%+
+- [x] 测试覆盖率 55%+（组件 83%+）
 - [x] CI/CD 自动化
 
 ### v2.0 (计划中)
@@ -292,9 +292,9 @@ npm run build:linux
 
 ## 📞 联系方式
 
-- 问题反馈：[GitHub Issues](https://github.com/yourusername/md-viewer/issues)
-- 邮箱：your.email@example.com
+- 问题反馈：[GitHub Issues](https://github.com/wj2929/md-viewer/issues)
+- 邮箱：wj2929@gmail.com
 
 ---
 
-**Made with ❤️ by [Your Name](https://github.com/yourusername)**
+**Made with ❤️ by [wj2929](https://github.com/wj2929)**

@@ -474,5 +474,5 @@ npm audit fix
 
 ---
 
-**审查人员**: Claude Code Security Analyzer
+**审查人员**: wj2929
 **下次审查**: v1.2 发布前
