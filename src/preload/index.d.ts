@@ -9,8 +9,9 @@ declare global {
       readDir: (path: string) => Promise<FileInfo[]>
       readFile: (path: string) => Promise<string>
 
-      // 文件监听 (v1.1)
+      // 文件监听 (v1.1) - 只监听已打开的文件
       watchFolder: (path: string) => Promise<{ success: boolean }>
+      watchFile: (path: string) => Promise<{ success: boolean }>
       unwatchFolder: () => Promise<{ success: boolean }>
 
       // 导出功能

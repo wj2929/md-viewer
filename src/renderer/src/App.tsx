@@ -160,6 +160,11 @@ function App(): JSX.Element {
       }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(newTab.id)
+
+      // 将文件添加到监听列表（只监听已打开的文件）
+      window.api.watchFile(file.path).catch(err => {
+        console.error('Failed to watch file:', err)
+      })
     } catch (error) {
       console.error('Failed to read file:', error)
       alert(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)

@@ -149,51 +149,166 @@ interface FileInfo {
   children?: FileInfo[]
 }
 
-// 递归读取目录（只读取 .md 文件）
-async function readDirRecursive(dirPath: string): Promise<FileInfo[]> {
-  const entries = await fs.readdir(dirPath, { withFileTypes: true })
-  const results: FileInfo[] = []
+// 使用 glob 快速扫描 .md 文件，而不是递归遍历所有目录
+async function scanMarkdownFiles(rootPath: string): Promise<FileInfo[]> {
+  const { glob } = await import('glob')
 
-  for (const entry of entries) {
-    // 跳过隐藏文件和 node_modules
-    if (entry.name.startsWith('.') || entry.name === 'node_modules') {
-      continue
+  // 直接用 glob 找所有 .md 文件，自动忽略 node_modules 等
+  const mdFiles = await glob('**/*.md', {
+    cwd: rootPath,
+    ignore: ['**/node_modules/**', '**/.*/**', '**/venv/**', '**/.venv/**', '**/env/**'],
+    nodir: true,
+    absolute: false
+  })
+
+  // 构建文件树结构
+  const root: Map<string, FileInfo> = new Map()
+
+  for (const relativePath of mdFiles) {
+    const parts = relativePath.split('/')
+    const fileName = parts.pop()!
+    const fullPath = path.join(rootPath, relativePath)
+
+    // 确保父目录存在
+    let currentPath = ''
+    let currentMap = root
+
+    for (const part of parts) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part
+      const dirFullPath = path.join(rootPath, currentPath)
+
+      if (!currentMap.has(part)) {
+        const dirInfo: FileInfo = {
+          name: part,
+          path: dirFullPath,
+          isDirectory: true,
+          children: []
+        }
+        currentMap.set(part, dirInfo)
+      }
+
+      const dir = currentMap.get(part)!
+      if (!dir.children) dir.children = []
+
+      // 为下一层准备 map
+      const childMap = new Map<string, FileInfo>()
+      for (const child of dir.children) {
+        childMap.set(child.name, child)
+      }
+      currentMap = childMap
     }
 
-    const fullPath = path.join(dirPath, entry.name)
+    // 添加文件
+    const fileInfo: FileInfo = {
+      name: fileName,
+      path: fullPath,
+      isDirectory: false
+    }
+    currentMap.set(fileName, fileInfo)
+  }
 
-    if (entry.isDirectory()) {
-      const children = await readDirRecursive(fullPath)
-      // 只添加包含 .md 文件的目录
-      if (children.length > 0) {
-        results.push({
-          name: entry.name,
-          path: fullPath,
-          isDirectory: true,
-          children
-        })
+  // 转换为数组并排序
+  function mapToArray(map: Map<string, FileInfo>, parentPath: string): FileInfo[] {
+    const result: FileInfo[] = []
+
+    for (const [name, info] of map) {
+      if (info.isDirectory && info.children) {
+        // 重建子目录的 children
+        const childMap = new Map<string, FileInfo>()
+        for (const child of info.children) {
+          childMap.set(child.name, child)
+        }
+        info.children = mapToArray(childMap, info.path)
       }
-    } else if (entry.name.endsWith('.md')) {
-      results.push({
-        name: entry.name,
+      result.push(info)
+    }
+
+    // 目录优先，然后按名称排序
+    return result.sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1
+      if (!a.isDirectory && b.isDirectory) return 1
+      return a.name.localeCompare(b.name)
+    })
+  }
+
+  // 简化：直接从 glob 结果构建扁平树
+  return buildFileTree(rootPath, mdFiles)
+}
+
+// 从 glob 结果构建文件树
+function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
+  const tree: FileInfo[] = []
+  const dirMap = new Map<string, FileInfo>()
+
+  for (const relativePath of relativePaths) {
+    const parts = relativePath.split('/')
+    const fileName = parts.pop()!
+    const fullPath = path.join(rootPath, relativePath)
+
+    if (parts.length === 0) {
+      // 根目录下的文件
+      tree.push({
+        name: fileName,
+        path: fullPath,
+        isDirectory: false
+      })
+    } else {
+      // 确保目录链存在
+      let currentPath = ''
+      let parent: FileInfo[] = tree
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]
+        currentPath = currentPath ? `${currentPath}/${part}` : part
+        const dirFullPath = path.join(rootPath, currentPath)
+
+        let dir = dirMap.get(currentPath)
+        if (!dir) {
+          dir = {
+            name: part,
+            path: dirFullPath,
+            isDirectory: true,
+            children: []
+          }
+          dirMap.set(currentPath, dir)
+          parent.push(dir)
+        }
+        parent = dir.children!
+      }
+
+      // 添加文件到最深目录
+      parent.push({
+        name: fileName,
         path: fullPath,
         isDirectory: false
       })
     }
   }
 
-  // 目录优先，然后按名称排序
-  return results.sort((a, b) => {
-    if (a.isDirectory && !b.isDirectory) return -1
-    if (!a.isDirectory && b.isDirectory) return 1
-    return a.name.localeCompare(b.name)
-  })
+  // 递归排序
+  function sortTree(items: FileInfo[]): FileInfo[] {
+    return items.sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1
+      if (!a.isDirectory && b.isDirectory) return 1
+      return a.name.localeCompare(b.name)
+    }).map(item => {
+      if (item.isDirectory && item.children) {
+        item.children = sortTree(item.children)
+      }
+      return item
+    })
+  }
+
+  return sortTree(tree)
 }
 
-// 读取目录
+// 读取目录 - 使用 glob 快速扫描
 ipcMain.handle('fs:readDir', async (_, dirPath: string) => {
   try {
-    return await readDirRecursive(dirPath)
+    const startTime = Date.now()
+    const result = await scanMarkdownFiles(dirPath)
+    console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
+    return result
   } catch (error) {
     console.error('Failed to read directory:', error)
     return []
@@ -467,10 +582,12 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
   }
 })
 
-// 文件监听器
+// 文件监听器 - 只监听已打开的文件，而不是整个目录
 let fileWatcher: chokidar.FSWatcher | null = null
+let watchedFolder: string | null = null
+const watchedFiles = new Set<string>()
 
-// 开始监听文件夹
+// 开始监听文件夹（轻量级：只记录路径，不实际监听整个目录）
 ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
   try {
     // 停止之前的监听
@@ -478,21 +595,15 @@ ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
       await fileWatcher.close()
       fileWatcher = null
     }
+    watchedFiles.clear()
+    watchedFolder = folderPath
 
-    // 创建新的监听器
-    fileWatcher = chokidar.watch(folderPath, {
-      ignored: [
-        /(^|[\/\\])\../,      // 忽略隐藏文件
-        '**/node_modules/**', // 忽略 node_modules
-        '**/.git/**',         // 忽略 .git
-        '**/dist/**',         // 忽略 dist
-        '**/build/**'         // 忽略 build
-      ],
+    // 创建空的 watcher，后续通过 watchFile 添加具体文件
+    fileWatcher = chokidar.watch([], {
       persistent: true,
       ignoreInitial: true,
-      depth: 10,  // 限制最大深度为10层，防止文件描述符耗尽
       awaitWriteFinish: {
-        stabilityThreshold: 500,  // 文件写入稳定后才触发事件
+        stabilityThreshold: 300,
         pollInterval: 100
       }
     })
@@ -500,36 +611,36 @@ ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
     // 错误处理
     fileWatcher.on('error', (error) => {
       console.error('File watcher error:', error)
-      // 通知渲染进程监听失败
       event.sender.send('file:watch-error', error.message)
     })
 
     // 文件变化事件
     fileWatcher.on('change', (filePath) => {
-      if (filePath.endsWith('.md')) {
-        event.sender.send('file:changed', filePath)
-      }
-    })
-
-    // 文件添加事件
-    fileWatcher.on('add', (filePath) => {
-      if (filePath.endsWith('.md')) {
-        event.sender.send('file:added', filePath)
-      }
+      event.sender.send('file:changed', filePath)
     })
 
     // 文件删除事件
     fileWatcher.on('unlink', (filePath) => {
-      if (filePath.endsWith('.md')) {
-        event.sender.send('file:removed', filePath)
-      }
+      event.sender.send('file:removed', filePath)
+      watchedFiles.delete(filePath)
     })
 
+    console.log(`[MAIN] Folder watch initialized for: ${folderPath}`)
     return { success: true }
   } catch (error) {
-    console.error('Failed to watch folder:', error)
+    console.error('Failed to init folder watch:', error)
     throw error
   }
+})
+
+// 添加单个文件到监听列表
+ipcMain.handle('fs:watchFile', async (_, filePath: string) => {
+  if (fileWatcher && !watchedFiles.has(filePath)) {
+    fileWatcher.add(filePath)
+    watchedFiles.add(filePath)
+    console.log(`[MAIN] Now watching file: ${filePath}`)
+  }
+  return { success: true }
 })
 
 // 停止监听

@@ -8,8 +8,9 @@ const api = {
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
 
-  // 文件监听 (v1.1 新增)
+  // 文件监听 (v1.1 新增) - 只监听已打开的文件
   watchFolder: (path: string) => ipcRenderer.invoke('fs:watchFolder', path),
+  watchFile: (path: string) => ipcRenderer.invoke('fs:watchFile', path),
   unwatchFolder: () => ipcRenderer.invoke('fs:unwatchFolder'),
 
   // 导出功能
