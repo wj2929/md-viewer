@@ -9,38 +9,115 @@
 
 ## [Unreleased] - v1.2
 
-### 阶段 0：安全加固 ✅ 完成（2026-01-03 19:00-19:15）
-- 🔒 **修复路径穿越漏洞**（高危）
+### 已完成 (2026-01-03 19:00-20:15)
+
+#### 阶段 0：安全加固 ✅
+- ✅ **路径白名单校验** - 防止路径穿越攻击
   - 创建 `src/main/security.ts` 安全模块
-  - 实现路径白名单校验（`validatePath`）
-  - 实现受保护路径黑名单（`isProtectedPath`）
+  - 实现 `validatePath()` 和 `validateSecurePath()`
   - 所有 IPC handlers 添加安全校验
-- 🔒 **启用 Chromium 沙箱**
-  - `sandbox: false` → `sandbox: true`
+- ✅ **受保护路径黑名单** - 防止访问敏感系统文件
+  - 阻止访问 `/etc`, `/usr/bin`, `~/.ssh` 等
+  - 阻止访问 `.key`, `.pem` 等敏感文件
+- ✅ **启用 Chromium 沙箱** - `sandbox: true`
+  - 从 `sandbox: false` 改为 `sandbox: true`
   - 添加 `webSecurity: true`
-  - 禁用 `allowRunningInsecureContent`
-- 🧪 **安全测试**
-  - 新增 27 个安全测试用例（100% 通过）
-  - 创建 `vitest.config.main.ts` 主进程测试配置
-  - 总测试数：152（152 通过）
+- ✅ **安全测试** - 27 个测试用例全部通过
+  - 路径白名单测试
+  - 受保护路径测试
+  - 综合安全校验测试
 
-### 阶段 1：右键菜单 ⏳ 进行中 50%（2026-01-03 19:15-19:20）
-- ✅ **主进程部分完成**
+**修复的安全漏洞**：
+- 🔴 **路径穿越漏洞**（高危）- ✅ 已修复
+- 🔴 **沙箱禁用**（高危）- ✅ 已修复
+
+#### 阶段 1：右键菜单 ✅
+- ✅ **Electron 原生 Menu** - 跨平台上下文菜单
   - 创建 `src/main/contextMenuHandler.ts`
-  - 实现 Electron 原生 Menu
+  - 实现 `showContextMenu()` 函数
   - 跨平台菜单文案（macOS/Windows/Linux）
-  - 集成安全校验
 - ✅ **Preload API 扩展**
-  - 添加 `showContextMenu` API
-  - 添加 4 个事件监听器
-- ⏳ **待完成**
-  - FileTree.tsx 右键事件绑定
-  - App.tsx 事件处理
-  - 侧边栏刷新按钮
-  - 阶段 1 测试用例
+  - 添加 `showContextMenu()` API
+  - 添加 `renameFile()` API
+  - 添加 4 个事件监听器（deleted, rename, export, error）
+- ✅ **主进程 IPC Handlers**
+  - `context-menu:show` - 显示右键菜单
+  - `fs:rename` - 文件重命名
+- ✅ **渲染进程集成**
+  - FileTree 添加 `onContextMenu` 事件
+  - App 添加事件处理（删除/重命名/导出/错误）
+  - 侧边栏添加刷新按钮
+- ✅ **测试用例** - 156/156 全部通过
+  - 更新 FileTree 测试（4 个右键菜单测试）
+  - 更新 App 测试（mock 新 API）
 
-### 规划完成（2026-01-03 18:00-19:00）
-- 📋 **v1.2 实施方案制定与审批**
+**菜单功能**：
+| 功能 | 状态 | 快捷键 |
+|------|------|--------|
+| 在 Finder 中显示 | ✅ | - |
+| 复制路径 | ✅ | Cmd+Alt+C |
+| 复制相对路径 | ✅ | Shift+Alt+C |
+| 导出 HTML | ✅ | - |
+| 导出 PDF | ✅ | - |
+| 重命名 | ✅ | Enter |
+| 删除 | ✅ | Cmd+Backspace |
+| 刷新 | ✅ | - |
+
+#### 优化改进 ✅
+
+##### Inline Editing 重命名
+- ✅ 右键菜单触发 inline editing 模式
+- ✅ 自动聚焦并选中文件名（不包含扩展名）
+- ✅ Enter 提交，Escape 取消，失焦提交
+- ✅ 主进程安全校验（`validateSecurePath`）
+- ✅ 检查目标文件是否已存在
+- ✅ 更新标签页中的文件路径
+- ✅ 自动刷新文件树
+
+**技术实现**：
+- `src/components/FileTree.tsx` - inline editing 状态管理
+- `src/main/index.ts` - `fs:rename` IPC handler
+- `src/preload/index.ts` - `renameFile` API
+- `src/assets/main.css` - 重命名输入框样式
+
+##### Toast 通知组件
+- ✅ 创建 Toast 组件（4 种类型）
+  - success, error, warning, info
+- ✅ 滑入/滑出动画（300ms）
+- ✅ 自定义持续时间（默认 3 秒）
+- ✅ 手动关闭按钮
+- ✅ 图标 + 颜色区分
+- ✅ 替代所有 alert 调用
+
+**技术实现**：
+- `src/components/Toast.tsx` - Toast 组件
+- `src/components/Toast.css` - Toast 样式
+- `src/hooks/useToast.ts` - useToast Hook
+- `src/App.tsx` - 使用 Toast 替代 alert
+
+**UI 特性**：
+- 固定在右上角
+- 渐变左边框（4px）
+- box-shadow 阴影
+- 非阻塞式通知
+
+### Git 提交记录
+```
+a06289d feat(toast): 添加 Toast 通知组件替代 alert
+28d308a feat(rename): 实现 inline editing 重命名功能
+83784d3 feat(context-menu): 阶段 1 - 右键菜单完成（渲染进程 + 测试）
+5c9dd35 feat(context-menu): 阶段 1 - 右键菜单基础架构（主进程部分）
+542ab06 fix(security): 恢复文件夹时设置安全白名单
+3503aa6 feat(security): 阶段 0 - 安全加固完成
+```
+
+**代码统计**：
+- 6 次提交
+- 14 files changed
+- 421+ insertions, 42 deletions
+
+### 规划完成
+- 📋 **v1.2 实施方案制定与审批**（2026-01-03 18:00-19:00）
   - 创建完整实施方案（V1.2-IMPLEMENTATION-PLAN.md）
   - 调用 4 位专家 Agent 进行审批
     - 架构师评审：有条件通过
@@ -89,10 +166,10 @@
   - 手动刷新文件树
   - 与自动刷新共存
 
-### 安全问题
-- ✅ **路径穿越漏洞**（高危）- ~~所有 IPC handlers 缺乏路径校验~~ **已修复（阶段 0）**
-- ✅ **沙箱禁用**（高危）- ~~sandbox: false 降低安全性~~ **已修复（阶段 0）**
-- ⏸️ **剪贴板 API 错误**（延期）- 跨应用剪贴板延期到 v1.3，v1.2 实现应用内剪贴板
+### 安全问题（待修复）
+- 🔴 **路径穿越漏洞**（高危）- 所有 IPC handlers 缺乏路径校验
+- 🔴 **沙箱禁用**（高危）- sandbox: false 降低安全性
+- 🔴 **剪贴板 API 错误**（阻塞）- clipboard.write({ files }) 不存在
 
 ### 技术决策
 - 右键菜单：Electron Menu（原生体验）
