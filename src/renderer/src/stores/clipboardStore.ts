@@ -5,7 +5,6 @@
  */
 
 import { create } from 'zustand'
-import * as path from 'path-browserify'
 
 /**
  * 剪贴板状态接口
@@ -72,8 +71,9 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
 
     for (const srcPath of files) {
       try {
-        const fileName = path.basename(srcPath)
-        const destPath = path.join(targetDir, fileName)
+        // 使用简单的路径处理（避免引入 path-browserify）
+        const fileName = srcPath.split('/').pop() || srcPath.split('\\').pop() || 'unknown'
+        const destPath = targetDir + '/' + fileName
 
         // 检查源文件和目标路径是否相同
         if (srcPath === destPath) {
@@ -82,7 +82,7 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
         }
 
         // 检查是否粘贴到自己的子目录
-        if (destPath.startsWith(srcPath + path.sep)) {
+        if (destPath.startsWith(srcPath + '/') || destPath.startsWith(srcPath + '\\')) {
           console.error(`[Clipboard] Cannot paste into subdirectory: ${srcPath} -> ${destPath}`)
           errors.push(`无法将 ${fileName} 粘贴到其子目录中`)
           continue
@@ -114,7 +114,7 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
           }
         }
       } catch (error) {
-        const fileName = path.basename(srcPath)
+        const fileName = srcPath.split('/').pop() || srcPath.split('\\').pop() || 'unknown'
         const errorMsg = error instanceof Error ? error.message : '未知错误'
         console.error(`[Clipboard] Failed to ${isCut ? 'move' : 'copy'} ${srcPath}:`, error)
         errors.push(`${fileName}: ${errorMsg}`)

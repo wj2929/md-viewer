@@ -3,6 +3,7 @@ import { FileTree, FileInfo, MarkdownRenderer, TabBar, Tab, SearchBar, ErrorBoun
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { useToast } from './hooks/useToast'
+import { useClipboardStore } from './stores/clipboardStore'
 
 function App(): JSX.Element {
   const [folderPath, setFolderPath] = useState<string | null>(null)
@@ -11,6 +12,9 @@ function App(): JSX.Element {
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const toast = useToast()
+
+  // 剪贴板 Store (v1.2 阶段 2)
+  const { copy, cut, paste } = useClipboardStore()
 
   // 使用 ref 来存储最新的 tabs，避免闭包陷阱
   const tabsRef = useRef<Tab[]>([])
@@ -72,13 +76,42 @@ function App(): JSX.Element {
       toast.error(error.message)
     })
 
+    // 剪贴板事件 (v1.2 阶段 2)
+    const unsubscribeCopy = window.api.onClipboardCopy((paths: string[]) => {
+      copy(paths)
+      toast.success(`已复制 ${paths.length} 个文件`)
+    })
+
+    const unsubscribeCut = window.api.onClipboardCut((paths: string[]) => {
+      cut(paths)
+      toast.success(`已剪切 ${paths.length} 个文件`)
+    })
+
+    const unsubscribePaste = window.api.onClipboardPaste(async (targetDir: string) => {
+      try {
+        await paste(targetDir)
+        toast.success('粘贴成功')
+        // 刷新文件树
+        if (folderPath) {
+          const fileList = await window.api.readDir(folderPath)
+          setFiles(fileList)
+        }
+      } catch (error) {
+        console.error('粘贴失败:', error)
+        toast.error(`粘贴失败：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    })
+
     return () => {
       unsubscribeDeleted()
       unsubscribeRename()
       unsubscribeExport()
       unsubscribeError()
+      unsubscribeCopy()
+      unsubscribeCut()
+      unsubscribePaste()
     }
-  }, [folderPath])
+  }, [folderPath, copy, cut, paste, toast])
 
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {

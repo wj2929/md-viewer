@@ -85,20 +85,20 @@ export function showContextMenu(
       }
     },
     { type: 'separator' },
-    // 复制（应用内剪贴板 - 阶段 2 实现）
+    // 复制（应用内剪贴板 - v1.2 阶段 2）
     {
       label: i18n.copy,
       accelerator: 'CmdOrCtrl+C',
-      enabled: false, // 阶段 2 启用
+      enabled: true, // v1.2 阶段 2 已启用
       click: () => {
         window.webContents.send('clipboard:copy', [file.path])
       }
     },
-    // 剪切（应用内剪贴板 - 阶段 2 实现）
+    // 剪切（应用内剪贴板 - v1.2 阶段 2）
     {
       label: i18n.cut,
       accelerator: 'CmdOrCtrl+X',
-      enabled: false, // 阶段 2 启用
+      enabled: true, // v1.2 阶段 2 已启用
       click: () => {
         window.webContents.send('clipboard:cut', [file.path])
       }
@@ -109,7 +109,7 @@ export function showContextMenu(
           {
             label: i18n.paste,
             accelerator: 'CmdOrCtrl+V' as const,
-            enabled: false, // 阶段 2 启用
+            enabled: true, // v1.2 阶段 2 已启用
             click: () => {
               window.webContents.send('clipboard:paste', file.path)
             }

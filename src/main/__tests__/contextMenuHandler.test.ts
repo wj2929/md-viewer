@@ -501,7 +501,7 @@ describe('contextMenuHandler', () => {
   })
 
   describe('菜单项功能：复制/剪切/粘贴（阶段 2）', () => {
-    it('复制和剪切菜单项应该禁用（阶段 2 未实现）', () => {
+    it('复制和剪切菜单项应该启用（阶段 2 已实现）', () => {
       const file = {
         name: 'test.md',
         path: '/Users/test/documents/test.md',
@@ -514,11 +514,11 @@ describe('contextMenuHandler', () => {
       const copyItem = template.find((item: any) => item.label === '复制')
       const cutItem = template.find((item: any) => item.label === '剪切')
 
-      expect(copyItem.enabled).toBe(false)
-      expect(cutItem.enabled).toBe(false)
+      expect(copyItem.enabled).toBe(true)
+      expect(cutItem.enabled).toBe(true)
     })
 
-    it('粘贴菜单项应该禁用（阶段 2 未实现）', () => {
+    it('粘贴菜单项应该启用（阶段 2 已实现）', () => {
       const folder = {
         name: 'subfolder',
         path: '/Users/test/documents/subfolder',
@@ -531,7 +531,7 @@ describe('contextMenuHandler', () => {
       const pasteItem = template.find((item: any) => item.label === '粘贴')
 
       expect(pasteItem).toBeDefined()
-      expect(pasteItem.enabled).toBe(false)
+      expect(pasteItem.enabled).toBe(true)
     })
 
     it('复制菜单项应该有正确的快捷键', () => {
