@@ -5,6 +5,15 @@ import { FileTree, FileInfo } from '../../src/components/FileTree'
 
 describe('FileTree', () => {
   const mockOnFileSelect = vi.fn()
+  const mockShowContextMenu = vi.fn()
+  const basePath = '/base/path'
+
+  // Mock window.api
+  beforeAll(() => {
+    window.api = {
+      showContextMenu: mockShowContextMenu
+    } as any
+  })
 
   const createMockFile = (name: string, path: string): FileInfo => ({
     name,
@@ -21,11 +30,13 @@ describe('FileTree', () => {
 
   beforeEach(() => {
     mockOnFileSelect.mockClear()
+    mockShowContextMenu.mockClear()
+    mockShowContextMenu.mockResolvedValue({ success: true })
   })
 
   describe('基础渲染', () => {
     it('应该显示空状态提示', () => {
-      render(<FileTree files={[]} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={[]} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('没有找到 Markdown 文件')).toBeInTheDocument()
     })
@@ -33,7 +44,7 @@ describe('FileTree', () => {
     it('应该渲染单个文件', () => {
       const files = [createMockFile('test.md', '/test.md')]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('test.md')).toBeInTheDocument()
     })
@@ -45,7 +56,7 @@ describe('FileTree', () => {
         createMockFile('file3.md', '/file3.md')
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('file1.md')).toBeInTheDocument()
       expect(screen.getByText('file2.md')).toBeInTheDocument()
@@ -60,7 +71,7 @@ describe('FileTree', () => {
         createMockFile('index.md', '/index.md')
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('docs')).toBeInTheDocument()
       expect(screen.getByText('readme.md')).toBeInTheDocument()
@@ -73,7 +84,7 @@ describe('FileTree', () => {
       const file = createMockFile('test.md', '/test.md')
       const files = [file]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const fileElement = screen.getByText('test.md')
       await userEvent.click(fileElement)
@@ -89,7 +100,7 @@ describe('FileTree', () => {
       ]
 
       const { container } = render(
-        <FileTree files={files} onFileSelect={mockOnFileSelect} selectedPath="/file1.md" />
+        <FileTree files={files} onFileSelect={mockOnFileSelect} selectedPath="/file1.md" basePath={basePath} />
       )
 
       const selectedRow = container.querySelector('.file-tree-row.selected')
@@ -101,7 +112,7 @@ describe('FileTree', () => {
       const file = createMockFile('test.md', '/test.md')
       const files = [file]
 
-      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const fileRow = container.querySelector('.file-tree-row')!
       fireEvent.keyDown(fileRow, { key: 'Enter' })
@@ -113,7 +124,7 @@ describe('FileTree', () => {
       const file = createMockFile('test.md', '/test.md')
       const files = [file]
 
-      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const fileRow = container.querySelector('.file-tree-row')!
       fireEvent.keyDown(fileRow, { key: ' ' })
@@ -130,7 +141,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('readme.md')).toBeInTheDocument()
     })
@@ -142,7 +153,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const folderElement = screen.getByText('docs')
 
@@ -165,7 +176,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const folderElement = screen.getByText('docs')
       await userEvent.click(folderElement)
@@ -184,7 +195,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('level1')).toBeInTheDocument()
       expect(screen.getByText('level2')).toBeInTheDocument()
@@ -200,7 +211,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const rows = container.querySelectorAll('.file-tree-row')
 
@@ -224,7 +235,7 @@ describe('FileTree', () => {
         createMockFile('index.md', '/index.md')
       ]
 
-      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       // 树容器
       const tree = container.querySelector('[role="tree"]')
@@ -248,7 +259,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const folderRow = screen.getByText('docs').closest('.file-tree-row')
 
@@ -264,7 +275,7 @@ describe('FileTree', () => {
       const files = [createMockFile('test.md', '/test.md')]
 
       const { container } = render(
-        <FileTree files={files} onFileSelect={mockOnFileSelect} selectedPath="/test.md" />
+        <FileTree files={files} onFileSelect={mockOnFileSelect} selectedPath="/test.md" basePath={basePath} />
       )
 
       const fileRow = container.querySelector('.file-tree-row')
@@ -280,7 +291,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('📂')).toBeInTheDocument()
     })
@@ -292,7 +303,7 @@ describe('FileTree', () => {
         ])
       ]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       // 点击折叠
       await userEvent.click(screen.getByText('docs'))
@@ -303,7 +314,7 @@ describe('FileTree', () => {
     it('文件应该显示文件图标', () => {
       const files = [createMockFile('test.md', '/test.md')]
 
-      render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       expect(screen.getByText('📄')).toBeInTheDocument()
     })
@@ -313,10 +324,74 @@ describe('FileTree', () => {
     it('应该显示文件完整路径', () => {
       const files = [createMockFile('test.md', '/path/to/test.md')]
 
-      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} />)
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const fileName = container.querySelector('.file-name')
       expect(fileName).toHaveAttribute('title', '/path/to/test.md')
+    })
+  })
+
+  // v1.2 阶段 1：右键菜单测试
+  describe('右键菜单 (v1.2)', () => {
+    it('右键点击文件应该显示上下文菜单', async () => {
+      const file = createMockFile('test.md', '/base/path/test.md')
+      const files = [file]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      const fileRow = container.querySelector('.file-tree-row')!
+      await userEvent.pointer({ keys: '[MouseRight]', target: fileRow })
+
+      expect(mockShowContextMenu).toHaveBeenCalledWith(
+        { name: 'test.md', path: '/base/path/test.md', isDirectory: false },
+        basePath
+      )
+      expect(mockShowContextMenu).toHaveBeenCalledTimes(1)
+    })
+
+    it('右键点击文件夹应该显示上下文菜单', async () => {
+      const folder = createMockDirectory('docs', '/base/path/docs', [])
+      const files = [folder]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      const folderRow = container.querySelector('.file-tree-row')!
+      await userEvent.pointer({ keys: '[MouseRight]', target: folderRow })
+
+      expect(mockShowContextMenu).toHaveBeenCalledWith(
+        { name: 'docs', path: '/base/path/docs', isDirectory: true },
+        basePath
+      )
+    })
+
+    it('右键点击嵌套文件应该传递正确的 basePath', async () => {
+      const files = [
+        createMockDirectory('level1', '/base/path/level1', [
+          createMockFile('deep.md', '/base/path/level1/deep.md')
+        ])
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      const deepFile = screen.getByText('deep.md')
+      await userEvent.pointer({ keys: '[MouseRight]', target: deepFile })
+
+      expect(mockShowContextMenu).toHaveBeenCalledWith(
+        { name: 'deep.md', path: '/base/path/level1/deep.md', isDirectory: false },
+        basePath
+      )
+    })
+
+    it('右键点击不应该触发文件选择', async () => {
+      const file = createMockFile('test.md', '/test.md')
+      const files = [file]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      const fileRow = container.querySelector('.file-tree-row')!
+      await userEvent.pointer({ keys: '[MouseRight]', target: fileRow })
+
+      expect(mockOnFileSelect).not.toHaveBeenCalled()
     })
   })
 })

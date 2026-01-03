@@ -9,8 +9,38 @@
 
 ## [Unreleased] - v1.2
 
-### 规划完成
-- 📋 **v1.2 实施方案制定与审批**（2026-01-03 18:00-19:00）
+### 阶段 0：安全加固 ✅ 完成（2026-01-03 19:00-19:15）
+- 🔒 **修复路径穿越漏洞**（高危）
+  - 创建 `src/main/security.ts` 安全模块
+  - 实现路径白名单校验（`validatePath`）
+  - 实现受保护路径黑名单（`isProtectedPath`）
+  - 所有 IPC handlers 添加安全校验
+- 🔒 **启用 Chromium 沙箱**
+  - `sandbox: false` → `sandbox: true`
+  - 添加 `webSecurity: true`
+  - 禁用 `allowRunningInsecureContent`
+- 🧪 **安全测试**
+  - 新增 27 个安全测试用例（100% 通过）
+  - 创建 `vitest.config.main.ts` 主进程测试配置
+  - 总测试数：152（152 通过）
+
+### 阶段 1：右键菜单 ⏳ 进行中 50%（2026-01-03 19:15-19:20）
+- ✅ **主进程部分完成**
+  - 创建 `src/main/contextMenuHandler.ts`
+  - 实现 Electron 原生 Menu
+  - 跨平台菜单文案（macOS/Windows/Linux）
+  - 集成安全校验
+- ✅ **Preload API 扩展**
+  - 添加 `showContextMenu` API
+  - 添加 4 个事件监听器
+- ⏳ **待完成**
+  - FileTree.tsx 右键事件绑定
+  - App.tsx 事件处理
+  - 侧边栏刷新按钮
+  - 阶段 1 测试用例
+
+### 规划完成（2026-01-03 18:00-19:00）
+- 📋 **v1.2 实施方案制定与审批**
   - 创建完整实施方案（V1.2-IMPLEMENTATION-PLAN.md）
   - 调用 4 位专家 Agent 进行审批
     - 架构师评审：有条件通过
@@ -59,10 +89,10 @@
   - 手动刷新文件树
   - 与自动刷新共存
 
-### 安全问题（待修复）
-- 🔴 **路径穿越漏洞**（高危）- 所有 IPC handlers 缺乏路径校验
-- 🔴 **沙箱禁用**（高危）- sandbox: false 降低安全性
-- 🔴 **剪贴板 API 错误**（阻塞）- clipboard.write({ files }) 不存在
+### 安全问题
+- ✅ **路径穿越漏洞**（高危）- ~~所有 IPC handlers 缺乏路径校验~~ **已修复（阶段 0）**
+- ✅ **沙箱禁用**（高危）- ~~sandbox: false 降低安全性~~ **已修复（阶段 0）**
+- ⏸️ **剪贴板 API 错误**（延期）- 跨应用剪贴板延期到 v1.3，v1.2 实现应用内剪贴板
 
 ### 技术决策
 - 右键菜单：Electron Menu（原生体验）

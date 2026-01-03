@@ -22,6 +22,63 @@ function App(): JSX.Element {
     return cleanup
   }, [])
 
+  // 监听右键菜单事件 (v1.2 阶段 1)
+  useEffect(() => {
+    // 文件删除事件
+    const unsubscribeDeleted = window.api.onFileDeleted((filePath: string) => {
+      // 关闭已删除文件的标签
+      setTabs(prev => prev.filter(tab => tab.file.path !== filePath))
+      // 刷新文件树
+      if (folderPath) {
+        window.api.readDir(folderPath).then(setFiles).catch(console.error)
+      }
+    })
+
+    // 文件重命名事件 (阶段 1 暂不实现具体逻辑，仅监听)
+    const unsubscribeRename = window.api.onFileStartRename((filePath: string) => {
+      console.log('Start rename:', filePath)
+      // TODO: 阶段 1 暂不实现重命名 UI
+      alert('重命名功能将在后续版本实现')
+    })
+
+    // 文件导出请求事件
+    const unsubscribeExport = window.api.onFileExportRequest(
+      async (data: { path: string; type: 'html' | 'pdf' }) => {
+        try {
+          // 读取文件内容
+          const content = await window.api.readFile(data.path)
+          const md = createMarkdownRenderer()
+          const htmlContent = md.render(content)
+          const fileName = data.path.split('/').pop() || 'export'
+
+          // 调用导出 API
+          if (data.type === 'html') {
+            const result = await window.api.exportHTML(htmlContent, fileName)
+            if (result) alert(`HTML 已导出到：${result}`)
+          } else {
+            const result = await window.api.exportPDF(htmlContent, fileName)
+            if (result) alert(`PDF 已导出到：${result}`)
+          }
+        } catch (error) {
+          console.error('导出失败:', error)
+          alert(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+        }
+      }
+    )
+
+    // 错误事件
+    const unsubscribeError = window.api.onError((error: { message: string }) => {
+      alert(`错误：${error.message}`)
+    })
+
+    return () => {
+      unsubscribeDeleted()
+      unsubscribeRename()
+      unsubscribeExport()
+      unsubscribeError()
+    }
+  }, [folderPath])
+
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -54,6 +111,20 @@ function App(): JSX.Element {
     }
 
     loadFiles()
+  }, [folderPath])
+
+  // 手动刷新文件树 (v1.2 阶段 1)
+  const handleRefreshFiles = useCallback(async () => {
+    if (!folderPath) return
+    setIsLoading(true)
+    try {
+      const fileList = await window.api.readDir(folderPath)
+      setFiles(fileList)
+    } catch (error) {
+      console.error('Failed to refresh files:', error)
+    } finally {
+      setIsLoading(false)
+    }
   }, [folderPath])
 
   // 关闭标签 (必须在 useEffect 文件监听之前定义)
@@ -245,9 +316,19 @@ function App(): JSX.Element {
               <div className="sidebar-header">
                 <div className="sidebar-header-top">
                   <span className="folder-name">{folderPath.split('/').pop()}</span>
-                  <button className="change-folder-btn" onClick={handleOpenFolder}>
-                    切换
-                  </button>
+                  <div className="sidebar-header-buttons">
+                    <button
+                      className="refresh-btn"
+                      onClick={handleRefreshFiles}
+                      title="刷新文件列表"
+                      disabled={isLoading}
+                    >
+                      🔄
+                    </button>
+                    <button className="change-folder-btn" onClick={handleOpenFolder}>
+                      切换
+                    </button>
+                  </div>
                 </div>
                 <SearchBar files={files} onFileSelect={handleFileSelect} />
               </div>
@@ -259,6 +340,7 @@ function App(): JSX.Element {
                     files={files}
                     onFileSelect={handleFileSelect}
                     selectedPath={activeTab?.file.path}
+                    basePath={folderPath}
                   />
                 )}
               </div>

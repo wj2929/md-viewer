@@ -11,6 +11,7 @@ interface FileTreeProps {
   files: FileInfo[]
   onFileSelect: (file: FileInfo) => void
   selectedPath?: string
+  basePath: string
 }
 
 interface FileTreeItemProps {
@@ -18,10 +19,11 @@ interface FileTreeItemProps {
   depth: number
   onFileSelect: (file: FileInfo) => void
   selectedPath?: string
+  basePath: string
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath }: FileTreeItemProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(true)
   const isSelected = selectedPath === item.path
 
@@ -40,6 +42,15 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
     }
   }, [handleClick])
 
+  // 右键菜单
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    window.api.showContextMenu(
+      { name: item.name, path: item.path, isDirectory: item.isDirectory },
+      basePath
+    )
+  }, [item, basePath])
+
   return (
     <div className="file-tree-item">
       <div
@@ -47,6 +58,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
+        onContextMenu={handleContextMenu}
         role="treeitem"
         tabIndex={0}
         aria-expanded={item.isDirectory ? isExpanded : undefined}
@@ -86,6 +98,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
               depth={depth + 1}
               onFileSelect={onFileSelect}
               selectedPath={selectedPath}
+              basePath={basePath}
             />
           ))}
         </div>
@@ -95,7 +108,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath }: FileTreeItemP
 }
 
 // 文件树组件
-export function FileTree({ files, onFileSelect, selectedPath }: FileTreeProps): JSX.Element {
+export function FileTree({ files, onFileSelect, selectedPath, basePath }: FileTreeProps): JSX.Element {
   if (files.length === 0) {
     return (
       <div className="file-tree-empty">
@@ -113,6 +126,7 @@ export function FileTree({ files, onFileSelect, selectedPath }: FileTreeProps): 
           depth={0}
           onFileSelect={onFileSelect}
           selectedPath={selectedPath}
+          basePath={basePath}
         />
       ))}
     </div>

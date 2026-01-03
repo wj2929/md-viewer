@@ -169,6 +169,36 @@ body {
   white-space: nowrap;
 }
 
+/* v1.2 阶段 1：侧边栏按钮组 */
+.sidebar-header-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.refresh-btn {
+  padding: 4px 8px;
+  font-size: 14px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background-color: var(--hover-bg);
+  border-color: var(--accent-color);
+  transform: rotate(90deg);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .change-folder-btn {
   padding: 4px 8px;
   font-size: 12px;
