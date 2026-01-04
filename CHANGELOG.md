@@ -9,34 +9,78 @@
 
 ## [Unreleased] - v1.3.0
 
-> **状态**: 📋 规划完成，待开发
-> **专家审批**: 4 位专家通过（评分 7.0/10）
-> **规划日期**: 2026-01-04
+> **状态**: 🚀 开发中（阶段 0-3 完成）
+> **开始日期**: 2026-01-04
+> **当前分支**: `feature/v1.3`
 
-### 规划功能
+### 已完成 - 阶段 0-3 (2026-01-04)
 
-#### 阶段 0：安全加固 + 文件监听修复
-- 📋 扩展 PROTECTED_PATTERNS 到 30+ 条规则
-- 📋 补充 add/addDir/unlinkDir/rename 事件监听
-- 📋 外部编辑器修改后自动刷新文件树
+#### 阶段 0：安全加固 + 文件监听增强 ✅
+- ✅ **PROTECTED_PATTERNS 扩展到 45+ 条规则**
+  - 新增：Docker/Azure/GCloud/GitHub CLI 配置保护
+  - 新增：.env/.npmrc/.pypirc/.git-credentials 保护
+  - 新增：SSH/证书私钥保护 (pem/p12/pfx/key/jks)
+- ✅ **文件监听事件补充**
+  - 新增 add/addDir/unlinkDir/rename 事件
+  - 500ms 时间窗口重命名检测机制
+- ✅ **新增安全测试** - 16 个测试用例
 
-#### 阶段 1：Tab 右键菜单
-- 📋 关闭当前/关闭其他/关闭所有标签
-- 📋 关闭左侧/关闭右侧标签
-- 📋 在 Finder 中显示/复制路径
-- 📋 动态启用/禁用菜单项
+**技术实现**：
+- `src/main/security.ts` - 扩展保护规则
+- `src/main/index.ts` - 文件监听增强
+- `src/preload/index.ts` - 新增事件 API
 
-#### 阶段 2：Markdown 内容区右键菜单
-- 📋 导出 HTML/PDF（移除导出按钮）
-- 📋 复制为纯文本/富文本
-- 📋 复制选中内容
-- 📋 页内查找/打印/在浏览器中打开
-- 📋 刷新渲染
+**Git 提交**: `36450a9`
 
-#### 阶段 3：重构剪贴板架构
-- 📋 单一数据源（渲染进程 Store）
-- 📋 右键粘贴菜单检查剪贴板状态
-- 📋 事务性粘贴（部分失败不丢失数据）
+#### 阶段 1：Tab 右键菜单 ✅
+- ✅ **Tab 标签右键菜单**
+  - 关闭当前 / 关闭其他 / 关闭所有
+  - 关闭左侧 / 关闭右侧
+  - 在 Finder 中显示 / 复制路径
+  - 菜单项根据 Tab 位置动态启用/禁用
+- ✅ **新增 Tab 菜单测试** - 15 个测试用例
+
+**技术实现**：
+- `src/main/tabMenuHandler.ts` - 新增：Tab 右键菜单处理
+- `src/renderer/src/components/TabBar.tsx` - 右键菜单支持
+- `src/preload/index.ts` - 新增 Tab 菜单 API
+
+**Git 提交**: `ecd49d5`
+
+#### 阶段 2：Markdown 内容区右键菜单 ✅
+- ✅ **Markdown 预览区右键菜单**
+  - 导出 HTML (Cmd+E) / 导出 PDF (Cmd+Shift+E)
+  - 复制为 Markdown / 纯文本 / HTML
+  - 有选中内容时显示"复制选中内容"
+- ✅ **移除预览区顶部导出按钮**（功能移入右键菜单）
+- ✅ **新增 Markdown 菜单测试** - 12 个测试用例
+
+**技术实现**：
+- `src/main/markdownMenuHandler.ts` - 新增：Markdown 右键菜单处理
+- `src/renderer/src/components/VirtualizedMarkdown.tsx` - 右键菜单支持
+- `src/renderer/src/App.tsx` - 移除导出按钮
+
+**Git 提交**: `9e79a07`
+
+#### 阶段 3：重构剪贴板架构 ✅
+- ✅ **单一数据源架构**
+  - 渲染进程 clipboardStore 作为唯一数据源
+  - 主进程仅作为状态镜像
+- ✅ **事务性粘贴**
+  - 部分失败不丢失剪贴板数据
+  - 返回 PasteResult { success[], failed[] }
+- ✅ **右键菜单动态控制**
+  - 根据剪贴板状态启用/禁用粘贴菜单
+
+**技术实现**：
+- `src/main/clipboardState.ts` - 新增：剪贴板状态缓存
+- `src/main/contextMenuHandler.ts` - 更新：动态粘贴菜单
+- `src/renderer/src/stores/clipboardStore.ts` - 重构：事务性粘贴
+- `src/preload/index.ts` - 新增剪贴板同步 API
+
+**Git 提交**: `2e767f2`
+
+### 待开发功能
 
 #### 阶段 4：优化虚拟滚动
 - 📋 CSS 调整消除分段间隔
@@ -45,7 +89,7 @@
 #### 阶段 5：多文件选择
 - 📋 Cmd+点击追加选择
 - 📋 Shift+点击区间选择
-- 📋 Cmd+A 全选/Escape 取消
+- 📋 Cmd+A 全选 / Escape 取消
 - 📋 状态提升到 App.tsx
 
 #### 阶段 6：跨应用剪贴板
@@ -56,11 +100,14 @@
 #### 阶段 7：测试覆盖率
 - 📋 渐进式目标：70% → 80%
 - 📋 新增 E2E 测试场景
-- 📋 修复现有 E2E 测试前置步骤
 
-### 审批文档
-- 修订版方案：`V1.3-IMPLEMENTATION-PLAN-REVISED.md`
-- 审批报告：`V1.3-REVIEW-REPORT.md`
+### 测试统计
+```
+渲染进程测试：257/257 通过 ✅
+主进程测试：  98/98  通过 ✅（+43 新增）
+─────────────────────────────────
+总计：       355/355 通过 ✅
+```
 
 ---
 
