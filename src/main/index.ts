@@ -613,7 +613,11 @@ let fileWatcher: chokidar.FSWatcher | null = null
 let watchedFolder: string | null = null
 const watchedFiles = new Set<string>()
 
-// 开始监听文件夹（轻量级：只记录路径，不实际监听整个目录）
+// v1.3 新增：重命名检测
+let pendingUnlink: { path: string; timestamp: number } | null = null
+const RENAME_THRESHOLD_MS = 500 // 重命名检测时间窗口
+
+// 开始监听文件夹（v1.3 增强：支持 add/addDir/unlinkDir/rename 事件）
 ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
   try {
     // ✅ 安全校验：检查路径是否在允许范围内
@@ -626,32 +630,83 @@ ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
     }
     watchedFiles.clear()
     watchedFolder = folderPath
+    pendingUnlink = null
 
-    // 创建空的 watcher，后续通过 watchFile 添加具体文件
-    fileWatcher = chokidar.watch([], {
+    // v1.3 改进：监听整个文件夹以检测新增文件
+    fileWatcher = chokidar.watch(folderPath, {
       persistent: true,
       ignoreInitial: true,
+      ignored: ['**/node_modules/**', '**/.*/**', '**/venv/**', '**/.venv/**'],
       awaitWriteFinish: {
         stabilityThreshold: 300,
         pollInterval: 100
-      }
+      },
+      depth: 10 // 限制递归深度
     })
 
     // 错误处理
     fileWatcher.on('error', (error) => {
-      console.error('File watcher error:', error)
+      console.error('[WATCHER] Error:', error)
       event.sender.send('file:watch-error', error.message)
     })
 
     // 文件变化事件
     fileWatcher.on('change', (filePath) => {
+      console.log(`[WATCHER] File changed: ${filePath}`)
       event.sender.send('file:changed', filePath)
     })
 
-    // 文件删除事件
+    // v1.3 新增：文件添加事件
+    fileWatcher.on('add', (filePath) => {
+      // 检查是否为重命名操作（unlink + add 组合）
+      if (pendingUnlink && Date.now() - pendingUnlink.timestamp < RENAME_THRESHOLD_MS) {
+        // 这是重命名操作
+        console.log(`[WATCHER] File renamed: ${pendingUnlink.path} -> ${filePath}`)
+        event.sender.send('file:renamed', {
+          oldPath: pendingUnlink.path,
+          newPath: filePath
+        })
+        pendingUnlink = null
+      } else {
+        // 这是新增文件
+        if (filePath.endsWith('.md')) {
+          console.log(`[WATCHER] File added: ${filePath}`)
+          event.sender.send('file:added', filePath)
+        }
+      }
+    })
+
+    // 文件删除事件（可能是重命名的第一步）
     fileWatcher.on('unlink', (filePath) => {
-      event.sender.send('file:removed', filePath)
-      watchedFiles.delete(filePath)
+      console.log(`[WATCHER] File unlinked: ${filePath}`)
+      // 记录删除，可能是重命名
+      pendingUnlink = { path: filePath, timestamp: Date.now() }
+
+      // 延迟发送删除事件，等待可能的 add 事件
+      setTimeout(() => {
+        if (pendingUnlink && pendingUnlink.path === filePath) {
+          // 超时，确认是真正的删除
+          console.log(`[WATCHER] File removed (confirmed): ${filePath}`)
+          event.sender.send('file:removed', filePath)
+          watchedFiles.delete(filePath)
+          pendingUnlink = null
+        }
+      }, RENAME_THRESHOLD_MS + 50)
+    })
+
+    // v1.3 新增：文件夹添加事件
+    fileWatcher.on('addDir', (dirPath) => {
+      // 忽略根目录
+      if (dirPath !== folderPath) {
+        console.log(`[WATCHER] Directory added: ${dirPath}`)
+        event.sender.send('folder:added', dirPath)
+      }
+    })
+
+    // v1.3 新增：文件夹删除事件
+    fileWatcher.on('unlinkDir', (dirPath) => {
+      console.log(`[WATCHER] Directory removed: ${dirPath}`)
+      event.sender.send('folder:removed', dirPath)
     })
 
     console.log(`[MAIN] Folder watch initialized for: ${folderPath}`)

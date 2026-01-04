@@ -263,6 +263,59 @@ function App(): JSX.Element {
       }
     })
 
+    // v1.3 新增：监听文件夹添加 - 刷新文件树
+    const unsubscribeFolderAdded = window.api.onFolderAdded(async (dirPath: string) => {
+      console.log('[App] Folder added:', dirPath)
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
+    // v1.3 新增：监听文件夹删除 - 刷新文件树 + 关闭相关标签
+    const unsubscribeFolderRemoved = window.api.onFolderRemoved(async (dirPath: string) => {
+      console.log('[App] Folder removed:', dirPath)
+      // 关闭该文件夹下的所有标签
+      setTabs(prev => prev.filter(tab => !tab.file.path.startsWith(dirPath + '/')))
+
+      // 刷新文件树
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
+    // v1.3 新增：监听文件重命名 - 刷新文件树 + 更新标签
+    const unsubscribeRenamed = window.api.onFileRenamed(async ({ oldPath, newPath }) => {
+      console.log('[App] File renamed:', oldPath, '->', newPath)
+      // 更新标签中的文件路径
+      setTabs(prev => prev.map(tab => {
+        if (tab.file.path === oldPath) {
+          return {
+            ...tab,
+            file: {
+              ...tab.file,
+              path: newPath,
+              name: newPath.split('/').pop() || tab.file.name
+            }
+          }
+        }
+        return tab
+      }))
+
+      // 刷新文件树
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
     // 清理：停止监听
     return () => {
       window.api.unwatchFolder().catch(error => {
@@ -271,6 +324,9 @@ function App(): JSX.Element {
       unsubscribeChanged()
       unsubscribeAdded()
       unsubscribeRemoved()
+      unsubscribeFolderAdded()
+      unsubscribeFolderRemoved()
+      unsubscribeRenamed()
     }
   }, [folderPath])  // 只依赖 folderPath！
 

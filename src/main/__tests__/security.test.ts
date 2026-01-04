@@ -129,6 +129,91 @@ describe('Security Module', () => {
       expect(isProtectedPath('/Users/test/projects/app.js')).toBe(false)
       expect(isProtectedPath('/home/user/notes.txt')).toBe(false)
     })
+
+    // ========== v1.3 新增测试 ==========
+    describe('v1.3 扩展规则', () => {
+      it('应该保护 Docker 配置目录', () => {
+        expect(isProtectedPath('/Users/test/.docker/config.json')).toBe(true)
+      })
+
+      it('应该保护 Azure 配置目录', () => {
+        expect(isProtectedPath('/Users/test/.azure/credentials')).toBe(true)
+      })
+
+      it('应该保护 Google Cloud 配置目录', () => {
+        expect(isProtectedPath('/Users/test/.gcloud/credentials.db')).toBe(true)
+        expect(isProtectedPath('/Users/test/.config/gcloud/credentials.db')).toBe(true)
+      })
+
+      it('应该保护 GitHub CLI 配置目录', () => {
+        expect(isProtectedPath('/Users/test/.config/gh/hosts.yml')).toBe(true)
+      })
+
+      it('应该保护 .env 文件', () => {
+        expect(isProtectedPath('/project/.env')).toBe(true)
+        expect(isProtectedPath('/project/.env.local')).toBe(true)
+        expect(isProtectedPath('/project/.env.production')).toBe(true)
+      })
+
+      it('应该保护 NPM 配置文件', () => {
+        expect(isProtectedPath('/Users/test/.npmrc')).toBe(true)
+      })
+
+      it('应该保护 PyPI 配置文件', () => {
+        expect(isProtectedPath('/Users/test/.pypirc')).toBe(true)
+      })
+
+      it('应该保护 Git 凭证文件', () => {
+        expect(isProtectedPath('/Users/test/.git-credentials')).toBe(true)
+        expect(isProtectedPath('/Users/test/.gitconfig')).toBe(true)
+      })
+
+      it('应该保护 Keychain 目录', () => {
+        expect(isProtectedPath('/Users/test/Library/Keychains/login.keychain')).toBe(true)
+      })
+
+      it('应该保护 SSH 私钥文件', () => {
+        expect(isProtectedPath('/Users/test/.ssh/id_rsa')).toBe(true)
+        expect(isProtectedPath('/Users/test/.ssh/id_ed25519')).toBe(true)
+        expect(isProtectedPath('/Users/test/.ssh/id_ecdsa')).toBe(true)
+        expect(isProtectedPath('/Users/test/.ssh/id_dsa')).toBe(true)
+      })
+
+      it('应该保护证书文件', () => {
+        expect(isProtectedPath('/project/server.pem')).toBe(true)
+        expect(isProtectedPath('/project/server.key')).toBe(true)
+        expect(isProtectedPath('/project/cert.p12')).toBe(true)
+        expect(isProtectedPath('/project/cert.pfx')).toBe(true)
+      })
+
+      it('应该保护 Java 密钥库', () => {
+        expect(isProtectedPath('/project/app.keystore')).toBe(true)
+        expect(isProtectedPath('/project/app.jks')).toBe(true)
+      })
+
+      it('应该保护密码管理器数据库', () => {
+        expect(isProtectedPath('/Users/test/passwords.kdbx')).toBe(true)
+        expect(isProtectedPath('/Users/test/export.1pux')).toBe(true)
+      })
+
+      it('应该保护包含 password 的文件', () => {
+        expect(isProtectedPath('/project/password.txt')).toBe(true)
+        expect(isProtectedPath('/project/passwords.json')).toBe(true)
+        expect(isProtectedPath('/project/myPassword.md')).toBe(true)
+      })
+
+      it('应该保护隐藏目录下的敏感文件', () => {
+        expect(isProtectedPath('/Users/test/.config/credentials.json')).toBe(true)
+        expect(isProtectedPath('/Users/test/.app/secret.yaml')).toBe(true)
+        expect(isProtectedPath('/Users/test/.service/token.txt')).toBe(true)
+      })
+
+      it('不应该误判普通 Markdown 文件', () => {
+        expect(isProtectedPath('/Users/test/docs/README.md')).toBe(false)
+        expect(isProtectedPath('/Users/test/notes/todo.md')).toBe(false)
+        expect(isProtectedPath('/project/docs/api.md')).toBe(false)
+      })
+    })
   })
 
   describe('validateNotProtected', () => {

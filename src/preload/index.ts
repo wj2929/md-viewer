@@ -59,6 +59,27 @@ const api = {
     return () => ipcRenderer.removeListener('file:removed', handler)
   },
 
+  // v1.3 新增：文件夹添加事件
+  onFolderAdded: (callback: (dirPath: string) => void) => {
+    const handler = (_event: unknown, dirPath: string) => callback(dirPath)
+    ipcRenderer.on('folder:added', handler)
+    return () => ipcRenderer.removeListener('folder:added', handler)
+  },
+
+  // v1.3 新增：文件夹删除事件
+  onFolderRemoved: (callback: (dirPath: string) => void) => {
+    const handler = (_event: unknown, dirPath: string) => callback(dirPath)
+    ipcRenderer.on('folder:removed', handler)
+    return () => ipcRenderer.removeListener('folder:removed', handler)
+  },
+
+  // v1.3 新增：文件重命名事件
+  onFileRenamed: (callback: (data: { oldPath: string; newPath: string }) => void) => {
+    const handler = (_event: unknown, data: { oldPath: string; newPath: string }) => callback(data)
+    ipcRenderer.on('file:renamed', handler)
+    return () => ipcRenderer.removeListener('file:renamed', handler)
+  },
+
   // 监听恢复文件夹事件
   onRestoreFolder: (callback: (folderPath: string) => void) => {
     const handler = (_event: unknown, folderPath: string) => callback(folderPath)

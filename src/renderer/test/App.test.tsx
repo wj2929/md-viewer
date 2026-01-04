@@ -25,6 +25,10 @@ const mockApi = {
   onFileChanged: vi.fn(() => vi.fn()),
   onFileAdded: vi.fn(() => vi.fn()),
   onFileRemoved: vi.fn(() => vi.fn()),
+  // v1.3 新增：文件夹和重命名事件
+  onFolderAdded: vi.fn(() => vi.fn()),
+  onFolderRemoved: vi.fn(() => vi.fn()),
+  onFileRenamed: vi.fn(() => vi.fn()),
   // v1.2 阶段 1：右键菜单事件
   onFileDeleted: vi.fn(() => vi.fn()),
   onFileStartRename: vi.fn(() => vi.fn()),

@@ -45,6 +45,11 @@ declare global {
       onFileAdded: (callback: (filePath: string) => void) => () => void
       onFileRemoved: (callback: (filePath: string) => void) => () => void
 
+      // v1.3 新增文件监听事件
+      onFolderAdded: (callback: (dirPath: string) => void) => () => void
+      onFolderRemoved: (callback: (dirPath: string) => void) => () => void
+      onFileRenamed: (callback: (data: { oldPath: string; newPath: string }) => void) => () => void
+
       // 右键菜单事件 (v1.2 阶段 1)
       onFileDeleted: (callback: (filePath: string) => void) => () => void
       onFileStartRename: (callback: (filePath: string) => void) => () => void
