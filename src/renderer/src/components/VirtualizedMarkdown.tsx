@@ -31,15 +31,15 @@ interface Section {
 }
 
 /**
- * 虚拟滚动阈值配置
+ * 虚拟滚动已禁用
+ * 原因：分段渲染存在问题，且对于 Markdown 预览场景收益有限
+ * 保留代码但设置不可能达到的阈值
  */
 const VIRTUALIZATION_THRESHOLD = {
-  /** 小于此行数不启用虚拟滚动 */
-  MIN_LINES: 500,
-  /** 小于此字符数不启用虚拟滚动 */
-  MIN_CHARS: 50000,
-  /** 每个分段的最大行数 */
-  MAX_SECTION_LINES: 100
+  /** 禁用：设置为不可能达到的值 */
+  MIN_LINES: Infinity,
+  MIN_CHARS: Infinity,
+  MAX_SECTION_LINES: 200
 }
 
 interface VirtualizedMarkdownProps {
@@ -354,13 +354,17 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
 
   // 大文件使用虚拟滚动
   return (
-    <div className={`markdown-body virtualized ${className}`} onContextMenu={handleContextMenu}>
+    <div
+      className={`markdown-body virtualized ${className}`}
+      onContextMenu={handleContextMenu}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
       <div className="virtualized-info">
         <span>📄 大文件模式：{sections.length} 个分段，共 {content.split('\n').length} 行</span>
       </div>
       <Virtuoso
         ref={virtuosoRef}
-        style={{ height: '100%' }}
+        style={{ flex: 1, minHeight: 0 }}
         data={sections}
         itemContent={(index, section) => (
           <SectionRenderer

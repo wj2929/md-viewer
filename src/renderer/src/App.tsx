@@ -14,6 +14,9 @@ function App(): JSX.Element {
   const [isLoading, setIsLoading] = useState(false)
   // v1.3 阶段 5：多选状态
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  // 侧边栏宽度（可拖拽调整）
+  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [isResizing, setIsResizing] = useState(false)
   const toast = useToast()
   const { theme, setTheme } = useTheme()
 
@@ -588,6 +591,33 @@ function App(): JSX.Element {
     }
   }, [activeTab, handleExportHTML, handleExportPDF, toast])
 
+  // 侧边栏拖拽调整宽度
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.min(Math.max(e.clientX, 180), 500) // 限制 180-500px
+      setSidebarWidth(newWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
+
   return (
     <ErrorBoundary>
       <div className="app">
@@ -613,8 +643,8 @@ function App(): JSX.Element {
             </button>
           </div>
         ) : (
-          <div className="workspace">
-            <aside className="sidebar">
+          <div className={`workspace ${isResizing ? 'resizing' : ''}`}>
+            <aside className="sidebar" style={{ width: sidebarWidth }}>
               <div className="sidebar-header">
                 <div className="sidebar-header-top">
                   <span className="folder-name">{folderPath.split('/').pop()}</span>
@@ -650,6 +680,8 @@ function App(): JSX.Element {
                 )}
               </div>
             </aside>
+            {/* 可拖拽分隔条 */}
+            <div className="resize-handle" onMouseDown={handleResizeStart} />
             <section className="editor-area">
               <TabBar
                 tabs={tabs}
