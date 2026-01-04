@@ -6,7 +6,6 @@
 
 import { BrowserWindow, Menu, shell, clipboard } from 'electron'
 import * as path from 'path'
-import { validatePath } from './security'
 
 /**
  * Tab 菜单上下文

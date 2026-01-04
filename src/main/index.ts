@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import * as fs from 'fs/promises'
+import * as fs from 'fs-extra'
 import * as path from 'path'
 import Store from 'electron-store'
 import chokidar from 'chokidar'
@@ -228,10 +228,10 @@ async function scanMarkdownFiles(rootPath: string): Promise<FileInfo[]> {
   }
 
   // 转换为数组并排序
-  function mapToArray(map: Map<string, FileInfo>, parentPath: string): FileInfo[] {
+  function mapToArray(map: Map<string, FileInfo>, _parentPath: string): FileInfo[] {
     const result: FileInfo[] = []
 
-    for (const [name, info] of map) {
+    for (const [_name, info] of map) {
       if (info.isDirectory && info.children) {
         // 重建子目录的 children
         const childMap = new Map<string, FileInfo>()
@@ -597,7 +597,7 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
     // 打印为 PDF
     const pdfData = await printWindow.webContents.printToPDF({
       pageSize: 'A4',
-      marginsType: 0,  // 使用默认边距
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
       printBackground: true
     })
 
@@ -615,9 +615,9 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
 // ============================================================
 // 文件监听器 - 简化版：只监听当前打开文件所在的单个目录
 // ============================================================
-let fileWatcher: chokidar.FSWatcher | null = null
+let fileWatcher: ReturnType<typeof chokidar.watch> | null = null
 let watchedDir: string | null = null           // 当前监听的目录
-let baseFolderPath: string | null = null       // 用户打开的根目录
+let _baseFolderPath: string | null = null      // 用户打开的根目录（保留备用）
 const watchedFiles = new Set<string>()         // 已打开的文件列表
 
 // v1.3：重命名检测
@@ -656,12 +656,12 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
     }
   })
 
-  fileWatcher.on('error', (error) => {
+  fileWatcher.on('error', (error: unknown) => {
     console.error('[WATCHER] Error:', error)
   })
 
   // 文件内容变化
-  fileWatcher.on('change', (filePath) => {
+  fileWatcher.on('change', (filePath: string) => {
     if (filePath.endsWith('.md')) {
       console.log(`[WATCHER] File changed: ${filePath}`)
       sender.send('file:changed', filePath)
@@ -669,7 +669,7 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
   })
 
   // 文件添加（可能是重命名的第二步）
-  fileWatcher.on('add', (filePath) => {
+  fileWatcher.on('add', (filePath: string) => {
     if (!filePath.endsWith('.md')) return
 
     if (pendingUnlink && Date.now() - pendingUnlink.timestamp < RENAME_THRESHOLD_MS) {
@@ -684,7 +684,7 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
   })
 
   // 文件删除（可能是重命名的第一步）
-  fileWatcher.on('unlink', (filePath) => {
+  fileWatcher.on('unlink', (filePath: string) => {
     if (!filePath.endsWith('.md')) return
 
     console.log(`[WATCHER] File unlinked: ${filePath}`)
@@ -701,26 +701,26 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
   })
 
   // 子目录添加
-  fileWatcher.on('addDir', (dirPath2) => {
-    if (dirPath2 !== dirPath) {
-      console.log(`[WATCHER] Directory added: ${dirPath2}`)
-      sender.send('folder:added', dirPath2)
+  fileWatcher.on('addDir', (addedDirPath: string) => {
+    if (addedDirPath !== dirPath) {
+      console.log(`[WATCHER] Directory added: ${addedDirPath}`)
+      sender.send('folder:added', addedDirPath)
     }
   })
 
   // 子目录删除
-  fileWatcher.on('unlinkDir', (dirPath2) => {
-    console.log(`[WATCHER] Directory removed: ${dirPath2}`)
-    sender.send('folder:removed', dirPath2)
+  fileWatcher.on('unlinkDir', (removedDirPath: string) => {
+    console.log(`[WATCHER] Directory removed: ${removedDirPath}`)
+    sender.send('folder:removed', removedDirPath)
   })
 }
 
 // 初始化文件夹监听（用户打开文件夹时调用）
 // 注意：这里不再监听整个目录树，只记录根路径
-ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
+ipcMain.handle('fs:watchFolder', async (_event, folderPath: string) => {
   try {
     validatePath(folderPath)
-    baseFolderPath = folderPath
+    _baseFolderPath = folderPath
     watchedFiles.clear()
 
     // 不立即监听任何目录，等用户点击文件时再监听该文件所在目录

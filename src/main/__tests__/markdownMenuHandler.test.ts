@@ -92,7 +92,7 @@ describe('markdownMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '导出 HTML')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('markdown:export-html')
       })
@@ -102,7 +102,7 @@ describe('markdownMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '导出 PDF')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('markdown:export-pdf')
       })
@@ -112,7 +112,7 @@ describe('markdownMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制为 Markdown')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('markdown:copy-source')
       })
@@ -122,7 +122,7 @@ describe('markdownMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制为纯文本')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('markdown:copy-plain-text')
       })
@@ -132,7 +132,7 @@ describe('markdownMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制为 HTML')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('markdown:copy-html')
       })
@@ -143,7 +143,7 @@ describe('markdownMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制选中内容')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.copy).toHaveBeenCalled()
       })

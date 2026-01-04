@@ -91,7 +91,7 @@ export function readFilesFromSystemClipboard(): ClipboardFile[] {
  * @param paths - 文件路径列表
  * @param isCut - 是否为剪切操作
  */
-export function writeFilesToSystemClipboard(paths: string[], isCut: boolean = false): boolean {
+export function writeFilesToSystemClipboard(paths: string[], _isCut: boolean = false): boolean {
   const platform = os.platform()
 
   try {

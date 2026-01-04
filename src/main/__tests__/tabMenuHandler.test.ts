@@ -7,7 +7,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
 import { BrowserWindow, Menu, shell, clipboard } from 'electron'
-import * as path from 'path'
 
 // Mock Electron 模块
 vi.mock('electron', () => ({
@@ -128,7 +127,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const closeItem = template.find((item: any) => item.label === '关闭')
-        closeItem?.click?.()
+        closeItem?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('tab:close', 'tab-1')
       })
@@ -138,7 +137,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '关闭其他标签')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('tab:close-others', 'tab-1')
       })
@@ -148,7 +147,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '关闭所有标签')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('tab:close-all')
       })
@@ -158,7 +157,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '关闭左侧标签')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('tab:close-left', 'tab-1')
       })
@@ -168,7 +167,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '关闭右侧标签')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('tab:close-right', 'tab-1')
       })
@@ -178,7 +177,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '在 Finder 中显示')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(shell.showItemInFolder).toHaveBeenCalledWith('/Users/test/docs/README.md')
       })
@@ -188,7 +187,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制文件路径')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(clipboard.writeText).toHaveBeenCalledWith('/Users/test/docs/README.md')
       })
@@ -198,7 +197,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制相对路径')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(clipboard.writeText).toHaveBeenCalledWith('README.md')
       })
@@ -214,7 +213,7 @@ describe('tabMenuHandler', () => {
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '在 Finder 中显示')
-        item?.click?.()
+        item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('error:show', {
           message: '无法在 Finder 中显示：文件不存在'

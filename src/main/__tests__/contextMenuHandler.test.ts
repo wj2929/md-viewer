@@ -4,7 +4,7 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { BrowserWindow, Menu, shell, clipboard } from 'electron'
+import { Menu, shell, clipboard } from 'electron'
 import { showContextMenu } from '../contextMenuHandler'
 import * as security from '../security'
 

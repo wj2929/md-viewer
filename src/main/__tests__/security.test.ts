@@ -3,6 +3,7 @@
  * @description 测试路径校验和受保护路径检测功能
  */
 
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   setAllowedBasePath,
   getAllowedBasePath,
