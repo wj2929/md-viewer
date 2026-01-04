@@ -43,6 +43,14 @@ const api = {
   queryClipboardState: () =>
     ipcRenderer.invoke('clipboard:query-state') as Promise<{ files: string[]; isCut: boolean; hasFiles: boolean }>,
 
+  // v1.3 阶段 6：跨应用剪贴板
+  readSystemClipboard: () =>
+    ipcRenderer.invoke('clipboard:read-system') as Promise<Array<{ path: string; exists: boolean; isAllowed: boolean; reason?: string }>>,
+  writeSystemClipboard: (paths: string[], isCut: boolean) =>
+    ipcRenderer.invoke('clipboard:write-system', paths, isCut) as Promise<boolean>,
+  hasSystemClipboardFiles: () =>
+    ipcRenderer.invoke('clipboard:has-system-files') as Promise<boolean>,
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),

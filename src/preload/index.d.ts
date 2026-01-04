@@ -44,6 +44,11 @@ declare global {
       syncClipboardState: (files: string[], isCut: boolean) => Promise<void>
       queryClipboardState: () => Promise<{ files: string[]; isCut: boolean; hasFiles: boolean }>
 
+      // v1.3 阶段 6：跨应用剪贴板
+      readSystemClipboard: () => Promise<Array<{ path: string; exists: boolean; isAllowed: boolean; reason?: string }>>
+      writeSystemClipboard: (paths: string[], isCut: boolean) => Promise<boolean>
+      hasSystemClipboardFiles: () => Promise<boolean>
+
       // 文件操作 (v1.2 阶段 2)
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>

@@ -11,6 +11,7 @@ import { showTabContextMenu, TabMenuContext } from './tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from './markdownMenuHandler'
 import { syncClipboardState, getClipboardState } from './clipboardState'
 import { registerWindowShortcuts } from './shortcuts'
+import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from './clipboardManager'
 
 // 定义存储的数据结构
 interface AppState {
@@ -922,4 +923,23 @@ ipcMain.handle('clipboard:sync-state', async (_, files: string[], isCut: boolean
 // 查询剪贴板状态
 ipcMain.handle('clipboard:query-state', async () => {
   return getClipboardState()
+})
+
+// v1.3 阶段 6：从系统剪贴板读取文件
+ipcMain.handle('clipboard:read-system', async () => {
+  const files = readFilesFromSystemClipboard()
+  console.log('[CLIPBOARD] Read from system:', files.length, 'files')
+  return files
+})
+
+// v1.3 阶段 6：写入文件到系统剪贴板
+ipcMain.handle('clipboard:write-system', async (_, paths: string[], isCut: boolean) => {
+  const result = writeFilesToSystemClipboard(paths, isCut)
+  console.log('[CLIPBOARD] Write to system:', paths.length, 'files, success:', result)
+  return result
+})
+
+// v1.3 阶段 6：检查系统剪贴板是否有文件
+ipcMain.handle('clipboard:has-system-files', async () => {
+  return hasFilesInSystemClipboard()
 })
