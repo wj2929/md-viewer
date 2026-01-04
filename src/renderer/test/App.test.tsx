@@ -25,6 +25,27 @@ const mockApi = {
   onFileChanged: vi.fn(() => vi.fn()),
   onFileAdded: vi.fn(() => vi.fn()),
   onFileRemoved: vi.fn(() => vi.fn()),
+  // v1.3 新增：文件夹和重命名事件
+  onFolderAdded: vi.fn(() => vi.fn()),
+  onFolderRemoved: vi.fn(() => vi.fn()),
+  onFileRenamed: vi.fn(() => vi.fn()),
+  // v1.3 新增：Tab 右键菜单
+  showTabContextMenu: vi.fn().mockResolvedValue({ success: true }),
+  onTabClose: vi.fn(() => vi.fn()),
+  onTabCloseOthers: vi.fn(() => vi.fn()),
+  onTabCloseAll: vi.fn(() => vi.fn()),
+  onTabCloseLeft: vi.fn(() => vi.fn()),
+  onTabCloseRight: vi.fn(() => vi.fn()),
+  // v1.3 阶段 2：Markdown 右键菜单
+  showMarkdownContextMenu: vi.fn().mockResolvedValue({ success: true }),
+  onMarkdownExportHTML: vi.fn(() => vi.fn()),
+  onMarkdownExportPDF: vi.fn(() => vi.fn()),
+  onMarkdownCopySource: vi.fn(() => vi.fn()),
+  onMarkdownCopyPlainText: vi.fn(() => vi.fn()),
+  onMarkdownCopyHTML: vi.fn(() => vi.fn()),
+  // v1.3 阶段 3：剪贴板状态同步
+  syncClipboardState: vi.fn().mockResolvedValue(undefined),
+  queryClipboardState: vi.fn().mockResolvedValue({ files: [], isCut: false, hasFiles: false }),
   // v1.2 阶段 1：右键菜单事件
   onFileDeleted: vi.fn(() => vi.fn()),
   onFileStartRename: vi.fn(() => vi.fn()),

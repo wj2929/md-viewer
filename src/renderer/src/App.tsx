@@ -12,6 +12,11 @@ function App(): JSX.Element {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  // v1.3 阶段 5：多选状态
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  // 侧边栏宽度（可拖拽调整）
+  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [isResizing, setIsResizing] = useState(false)
   const toast = useToast()
   const { theme, setTheme } = useTheme()
 
@@ -81,15 +86,23 @@ function App(): JSX.Element {
       toast.error(error.message)
     })
 
-    // 剪贴板事件 (v1.2 阶段 2)
+    // 剪贴板事件 (v1.2 阶段 2, v1.3 阶段 5 多选支持)
     const unsubscribeCopy = window.api.onClipboardCopy((paths: string[]) => {
-      copy(paths)
-      toast.success(`已复制 ${paths.length} 个文件`)
+      // v1.3：如果有多选，使用多选的路径；否则使用传入的路径
+      const pathsToCopy = selectedPaths.size > 0 ? Array.from(selectedPaths) : paths
+      copy(pathsToCopy)
+      toast.success(`已复制 ${pathsToCopy.length} 个文件`)
+      // 复制后清空多选
+      setSelectedPaths(new Set())
     })
 
     const unsubscribeCut = window.api.onClipboardCut((paths: string[]) => {
-      cut(paths)
-      toast.success(`已剪切 ${paths.length} 个文件`)
+      // v1.3：如果有多选，使用多选的路径；否则使用传入的路径
+      const pathsToCut = selectedPaths.size > 0 ? Array.from(selectedPaths) : paths
+      cut(pathsToCut)
+      toast.success(`已剪切 ${pathsToCut.length} 个文件`)
+      // 剪切后清空多选
+      setSelectedPaths(new Set())
     })
 
     const unsubscribePaste = window.api.onClipboardPaste(async (targetDir: string) => {
@@ -116,7 +129,7 @@ function App(): JSX.Element {
       unsubscribeCut()
       unsubscribePaste()
     }
-  }, [folderPath, copy, cut, paste, toast])
+  }, [folderPath, copy, cut, paste, toast, selectedPaths])
 
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
@@ -211,6 +224,48 @@ function App(): JSX.Element {
     })
   }, [activeTabId])
 
+  // v1.3 新增：Tab 右键菜单事件监听
+  useEffect(() => {
+    // 检查 API 是否存在（兼容旧版本）
+    if (!window.api.onTabClose) return
+
+    const unsubscribeTabClose = window.api.onTabClose((tabId: string) => {
+      handleTabClose(tabId)
+    })
+
+    const unsubscribeTabCloseOthers = window.api.onTabCloseOthers((tabId: string) => {
+      setTabs(prev => prev.filter(tab => tab.id === tabId))
+      setActiveTabId(tabId)
+    })
+
+    const unsubscribeTabCloseAll = window.api.onTabCloseAll(() => {
+      setTabs([])
+      setActiveTabId(null)
+    })
+
+    const unsubscribeTabCloseLeft = window.api.onTabCloseLeft((tabId: string) => {
+      setTabs(prev => {
+        const index = prev.findIndex(tab => tab.id === tabId)
+        return index >= 0 ? prev.slice(index) : prev
+      })
+    })
+
+    const unsubscribeTabCloseRight = window.api.onTabCloseRight((tabId: string) => {
+      setTabs(prev => {
+        const index = prev.findIndex(tab => tab.id === tabId)
+        return index >= 0 ? prev.slice(0, index + 1) : prev
+      })
+    })
+
+    return () => {
+      unsubscribeTabClose()
+      unsubscribeTabCloseOthers()
+      unsubscribeTabCloseAll()
+      unsubscribeTabCloseLeft()
+      unsubscribeTabCloseRight()
+    }
+  }, [handleTabClose])
+
   // 文件监听 - 自动刷新功能
   // 只在 folderPath 改变时重新订阅，使用 ref 访问最新的 tabs
   useEffect(() => {
@@ -263,6 +318,59 @@ function App(): JSX.Element {
       }
     })
 
+    // v1.3 新增：监听文件夹添加 - 刷新文件树
+    const unsubscribeFolderAdded = window.api.onFolderAdded(async (dirPath: string) => {
+      console.log('[App] Folder added:', dirPath)
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
+    // v1.3 新增：监听文件夹删除 - 刷新文件树 + 关闭相关标签
+    const unsubscribeFolderRemoved = window.api.onFolderRemoved(async (dirPath: string) => {
+      console.log('[App] Folder removed:', dirPath)
+      // 关闭该文件夹下的所有标签
+      setTabs(prev => prev.filter(tab => !tab.file.path.startsWith(dirPath + '/')))
+
+      // 刷新文件树
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
+    // v1.3 新增：监听文件重命名 - 刷新文件树 + 更新标签
+    const unsubscribeRenamed = window.api.onFileRenamed(async ({ oldPath, newPath }) => {
+      console.log('[App] File renamed:', oldPath, '->', newPath)
+      // 更新标签中的文件路径
+      setTabs(prev => prev.map(tab => {
+        if (tab.file.path === oldPath) {
+          return {
+            ...tab,
+            file: {
+              ...tab.file,
+              path: newPath,
+              name: newPath.split('/').pop() || tab.file.name
+            }
+          }
+        }
+        return tab
+      }))
+
+      // 刷新文件树
+      try {
+        const fileList = await window.api.readDir(folderPath)
+        setFiles(fileList)
+      } catch (error) {
+        console.error('Failed to refresh file list:', error)
+      }
+    })
+
     // 清理：停止监听
     return () => {
       window.api.unwatchFolder().catch(error => {
@@ -271,6 +379,9 @@ function App(): JSX.Element {
       unsubscribeChanged()
       unsubscribeAdded()
       unsubscribeRemoved()
+      unsubscribeFolderAdded()
+      unsubscribeFolderRemoved()
+      unsubscribeRenamed()
     }
   }, [folderPath])  // 只依赖 folderPath！
 
@@ -427,6 +538,86 @@ function App(): JSX.Element {
     activeTabId
   ])
 
+  // v1.3 阶段 2：Markdown 右键菜单事件监听
+  useEffect(() => {
+    // 检查 API 是否存在
+    if (!window.api.onMarkdownExportHTML) return
+
+    const unsubscribeExportHTML = window.api.onMarkdownExportHTML(() => {
+      handleExportHTML()
+    })
+
+    const unsubscribeExportPDF = window.api.onMarkdownExportPDF(() => {
+      handleExportPDF()
+    })
+
+    const unsubscribeCopySource = window.api.onMarkdownCopySource(() => {
+      if (activeTab) {
+        navigator.clipboard.writeText(activeTab.content)
+        toast.success('已复制 Markdown 源码')
+      }
+    })
+
+    const unsubscribeCopyPlainText = window.api.onMarkdownCopyPlainText(() => {
+      if (activeTab) {
+        // 简单移除 Markdown 标记获取纯文本
+        const plainText = activeTab.content
+          .replace(/#{1,6}\s+/g, '')  // 标题
+          .replace(/\*\*([^*]+)\*\*/g, '$1')  // 粗体
+          .replace(/\*([^*]+)\*/g, '$1')  // 斜体
+          .replace(/`([^`]+)`/g, '$1')  // 行内代码
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // 链接
+          .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')  // 图片
+        navigator.clipboard.writeText(plainText)
+        toast.success('已复制纯文本')
+      }
+    })
+
+    const unsubscribeCopyHTML = window.api.onMarkdownCopyHTML(() => {
+      if (activeTab) {
+        const md = createMarkdownRenderer()
+        const html = md.render(activeTab.content)
+        navigator.clipboard.writeText(html)
+        toast.success('已复制 HTML')
+      }
+    })
+
+    return () => {
+      unsubscribeExportHTML()
+      unsubscribeExportPDF()
+      unsubscribeCopySource()
+      unsubscribeCopyPlainText()
+      unsubscribeCopyHTML()
+    }
+  }, [activeTab, handleExportHTML, handleExportPDF, toast])
+
+  // 侧边栏拖拽调整宽度
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.min(Math.max(e.clientX, 180), 500) // 限制 180-500px
+      setSidebarWidth(newWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
+
   return (
     <ErrorBoundary>
       <div className="app">
@@ -452,8 +643,8 @@ function App(): JSX.Element {
             </button>
           </div>
         ) : (
-          <div className="workspace">
-            <aside className="sidebar">
+          <div className={`workspace ${isResizing ? 'resizing' : ''}`}>
+            <aside className="sidebar" style={{ width: sidebarWidth }}>
               <div className="sidebar-header">
                 <div className="sidebar-header-top">
                   <span className="folder-name">{folderPath.split('/').pop()}</span>
@@ -483,30 +674,28 @@ function App(): JSX.Element {
                     selectedPath={activeTab?.file.path}
                     basePath={folderPath}
                     onFileRenamed={handleFileRenamed}
+                    selectedPaths={selectedPaths}
+                    onSelectionChange={setSelectedPaths}
                   />
                 )}
               </div>
             </aside>
+            {/* 可拖拽分隔条 */}
+            <div className="resize-handle" onMouseDown={handleResizeStart} />
             <section className="editor-area">
               <TabBar
                 tabs={tabs}
                 activeTabId={activeTabId}
                 onTabClick={handleTabClick}
                 onTabClose={handleTabClose}
+                basePath={folderPath || undefined}
               />
               <div className="preview">
                 {activeTab ? (
-                  <>
-                    <div className="preview-toolbar">
-                      <button onClick={handleExportHTML} className="export-btn">
-                        导出 HTML
-                      </button>
-                      <button onClick={handleExportPDF} className="export-btn">
-                        导出 PDF
-                      </button>
-                    </div>
-                    <VirtualizedMarkdown content={activeTab.content} />
-                  </>
+                  <VirtualizedMarkdown
+                    content={activeTab.content}
+                    filePath={activeTab.file.path}
+                  />
                 ) : (
                   <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                 )}

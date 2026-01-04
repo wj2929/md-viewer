@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useClipboardStore } from '../stores/clipboardStore'
 
 interface FileInfo {
@@ -14,6 +14,9 @@ interface FileTreeProps {
   selectedPath?: string
   basePath: string
   onFileRenamed?: (oldPath: string, newName: string) => void
+  // v1.3 阶段 5：多选支持
+  selectedPaths?: Set<string>
+  onSelectionChange?: (paths: Set<string>) => void
 }
 
 interface FileTreeItemProps {
@@ -23,15 +26,21 @@ interface FileTreeItemProps {
   selectedPath?: string
   basePath: string
   onFileRenamed?: (oldPath: string, newName: string) => void
+  // v1.3 阶段 5：多选支持
+  selectedPaths?: Set<string>
+  onMultiSelect?: (path: string, event: React.MouseEvent) => void
+  flatIndex: number
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex }: FileTreeItemProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
   const isSelected = selectedPath === item.path
+  // v1.3 阶段 5：多选状态检查
+  const isMultiSelected = selectedPaths?.has(item.path) ?? false
 
   // 检查是否在剪贴板中（剪切状态）
   const isInClipboard = useClipboardStore(state => state.isInClipboard(item.path))
@@ -64,18 +73,30 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
     }
   }, [isRenaming, item.name])
 
-  const handleClick = useCallback(() => {
-    if (item.isDirectory) {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    // v1.3 阶段 5：多选逻辑
+    const isMultiSelectKey = e.metaKey || e.ctrlKey || e.shiftKey
+
+    if (isMultiSelectKey && onMultiSelect) {
+      // 多选模式：不打开文件，只更新选择
+      onMultiSelect(item.path, e)
+    } else if (item.isDirectory) {
       setIsExpanded(prev => !prev)
     } else {
       onFileSelect(item)
     }
-  }, [item, onFileSelect])
+  }, [item, onFileSelect, onMultiSelect])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
-      handleClick()
+      // 创建一个模拟的 MouseEvent 来处理键盘事件
+      const syntheticEvent = {
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey
+      } as React.MouseEvent
+      handleClick(syntheticEvent)
     }
   }, [handleClick])
 
@@ -115,7 +136,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   return (
     <div className="file-tree-item">
       <div
-        className={`file-tree-row ${isSelected ? 'selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''}`}
+        className={`file-tree-row ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
@@ -123,7 +144,8 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
         role="treeitem"
         tabIndex={0}
         aria-expanded={item.isDirectory ? isExpanded : undefined}
-        aria-selected={isSelected}
+        aria-selected={isSelected || isMultiSelected}
+        data-flat-index={flatIndex}
       >
         {/* 展开/折叠图标 */}
         {item.isDirectory && (
@@ -161,10 +183,10 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
         )}
       </div>
 
-      {/* 子项 */}
+      {/* 子项 - 注意：flatIndex 需要在父组件计算并传递 */}
       {item.isDirectory && isExpanded && item.children && (
         <div className="file-tree-children" role="group">
-          {item.children.map(child => (
+          {item.children.map((child, idx) => (
             <FileTreeItem
               key={child.path}
               item={child}
@@ -173,6 +195,9 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               selectedPath={selectedPath}
               basePath={basePath}
               onFileRenamed={onFileRenamed}
+              selectedPaths={selectedPaths}
+              onMultiSelect={onMultiSelect}
+              flatIndex={flatIndex + idx + 1}
             />
           ))}
         </div>
@@ -181,8 +206,91 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   )
 }
 
+/**
+ * 将嵌套的文件树结构扁平化为数组
+ * 用于 Shift+点击区间选择
+ */
+function flattenFileTree(files: FileInfo[]): FileInfo[] {
+  const result: FileInfo[] = []
+
+  function traverse(items: FileInfo[]) {
+    for (const item of items) {
+      result.push(item)
+      if (item.isDirectory && item.children) {
+        traverse(item.children)
+      }
+    }
+  }
+
+  traverse(files)
+  return result
+}
+
 // 文件树组件
-export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed }: FileTreeProps): JSX.Element {
+export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onSelectionChange }: FileTreeProps): JSX.Element {
+  // v1.3 阶段 5：扁平化文件列表用于区间选择
+  const flatFiles = useMemo(() => flattenFileTree(files), [files])
+
+  // 最后一个选择的路径（用于 Shift 区间选择）
+  const lastSelectedRef = useRef<string | null>(null)
+
+  // 多选处理逻辑
+  const handleMultiSelect = useCallback((path: string, event: React.MouseEvent) => {
+    if (!onSelectionChange) return
+
+    const currentSelection = selectedPaths || new Set<string>()
+
+    if (event.shiftKey && lastSelectedRef.current) {
+      // Shift+点击：区间选择
+      const lastIndex = flatFiles.findIndex(f => f.path === lastSelectedRef.current)
+      const currentIndex = flatFiles.findIndex(f => f.path === path)
+
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex)
+        const end = Math.max(lastIndex, currentIndex)
+        const newSelection = new Set(currentSelection)
+
+        for (let i = start; i <= end; i++) {
+          newSelection.add(flatFiles[i].path)
+        }
+
+        onSelectionChange(newSelection)
+      }
+    } else if (event.metaKey || event.ctrlKey) {
+      // Cmd/Ctrl+点击：追加/取消选择
+      const newSelection = new Set(currentSelection)
+      if (newSelection.has(path)) {
+        newSelection.delete(path)
+      } else {
+        newSelection.add(path)
+      }
+      onSelectionChange(newSelection)
+      lastSelectedRef.current = path
+    } else {
+      // 普通点击：清空选择，只选中当前项
+      onSelectionChange(new Set([path]))
+      lastSelectedRef.current = path
+    }
+  }, [flatFiles, selectedPaths, onSelectionChange])
+
+  // v1.3 阶段 5：键盘快捷键（Cmd+A 全选，Escape 取消）
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!onSelectionChange) return
+
+    if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+      e.preventDefault()
+      // Cmd/Ctrl+A：全选所有文件（不包括目录）
+      const allFilePaths = flatFiles
+        .filter(f => !f.isDirectory)
+        .map(f => f.path)
+      onSelectionChange(new Set(allFilePaths))
+    } else if (e.key === 'Escape') {
+      // Escape：清空选择
+      onSelectionChange(new Set())
+      lastSelectedRef.current = null
+    }
+  }, [flatFiles, onSelectionChange])
+
   if (files.length === 0) {
     return (
       <div className="file-tree-empty">
@@ -192,8 +300,14 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
   }
 
   return (
-    <div className="file-tree" role="tree" aria-label="文件列表">
-      {files.map(file => (
+    <div
+      className="file-tree"
+      role="tree"
+      aria-label="文件列表"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+    >
+      {files.map((file, index) => (
         <FileTreeItem
           key={file.path}
           item={file}
@@ -202,6 +316,9 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
           selectedPath={selectedPath}
           basePath={basePath}
           onFileRenamed={onFileRenamed}
+          selectedPaths={selectedPaths}
+          onMultiSelect={handleMultiSelect}
+          flatIndex={index}
         />
       ))}
     </div>

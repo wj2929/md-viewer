@@ -359,6 +359,91 @@ describe('FileTree', () => {
     })
   })
 
+  // v1.3 阶段 5：多文件选择测试
+  describe('多文件选择 (v1.3)', () => {
+    it('Cmd/Ctrl+点击应该切换选择', async () => {
+      const files = [
+        createMockFile('file1.md', '/file1.md'),
+        createMockFile('file2.md', '/file2.md'),
+        createMockFile('file3.md', '/file3.md')
+      ]
+      const selectedPaths = new Set<string>()
+      const mockSelectionChange = vi.fn()
+
+      const { container } = render(
+        <FileTree
+          files={files}
+          onFileSelect={mockOnFileSelect}
+          basePath={basePath}
+          selectedPaths={selectedPaths}
+          onSelectionChange={mockSelectionChange}
+        />
+      )
+
+      const file1 = screen.getByText('file1.md').closest('.file-tree-row')!
+
+      // Cmd+点击添加选择
+      fireEvent.click(file1, { metaKey: true })
+
+      expect(mockSelectionChange).toHaveBeenCalledWith(new Set(['/file1.md']))
+    })
+
+    it('空的 selectedPaths 应该正常渲染', () => {
+      const files = [createMockFile('file1.md', '/file1.md')]
+
+      const { container } = render(
+        <FileTree
+          files={files}
+          onFileSelect={mockOnFileSelect}
+          basePath={basePath}
+          selectedPaths={new Set()}
+          onSelectionChange={vi.fn()}
+        />
+      )
+
+      expect(screen.getByText('file1.md')).toBeInTheDocument()
+    })
+
+    it('选中的文件应该有 multi-selected 类', () => {
+      const files = [
+        createMockFile('file1.md', '/file1.md'),
+        createMockFile('file2.md', '/file2.md')
+      ]
+      const selectedPaths = new Set(['/file1.md'])
+
+      const { container } = render(
+        <FileTree
+          files={files}
+          onFileSelect={mockOnFileSelect}
+          basePath={basePath}
+          selectedPaths={selectedPaths}
+          onSelectionChange={vi.fn()}
+        />
+      )
+
+      const file1Row = screen.getByText('file1.md').closest('.file-tree-row')
+      const file2Row = screen.getByText('file2.md').closest('.file-tree-row')
+
+      expect(file1Row).toHaveClass('multi-selected')
+      expect(file2Row).not.toHaveClass('multi-selected')
+    })
+
+    it('没有 onSelectionChange 时普通点击正常工作', async () => {
+      const files = [createMockFile('file1.md', '/file1.md')]
+
+      render(
+        <FileTree
+          files={files}
+          onFileSelect={mockOnFileSelect}
+          basePath={basePath}
+        />
+      )
+
+      await userEvent.click(screen.getByText('file1.md'))
+      expect(mockOnFileSelect).toHaveBeenCalled()
+    })
+  })
+
   // v1.2 阶段 1：右键菜单测试
   describe('右键菜单 (v1.2)', () => {
     it('右键点击文件应该显示上下文菜单', async () => {

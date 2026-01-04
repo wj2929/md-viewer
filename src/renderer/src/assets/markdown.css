@@ -1,92 +1,189 @@
-/* Markdown 样式 */
+/*
+ * Markdown 样式 - 基于 MPE (Markdown Preview Enhanced) GitHub 主题
+ * 源码: https://github.com/shd101wyy/mume/blob/master/styles/preview_theme/github.less
+ */
+
 .markdown-body {
+  font-family: 'Helvetica Neue', Helvetica, 'Segoe UI', Arial, freesans, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
   color: var(--text-primary);
-  font-size: 15px;
-  line-height: 1.7;
+  background-color: var(--bg-primary);
+  overflow: initial;
+  box-sizing: border-box;
   word-wrap: break-word;
 }
 
-/* 标题 */
+.markdown-body > :first-child {
+  margin-top: 0 !important;
+}
+
+/* ============================================
+   标题 Headings
+   ============================================ */
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin-top: 24px;
+  line-height: 1.2;
+  margin-top: 1em;
   margin-bottom: 16px;
+  color: var(--text-strong);
   font-weight: 600;
-  line-height: 1.25;
-  color: var(--text-primary);
 }
 
 .markdown-body h1 {
-  font-size: 2em;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 8px;
+  font-size: 2.25em;
+  font-weight: 300;
+  padding-bottom: 0.3em;
+  /* MPE: H1 也没有下划线 */
 }
 
 .markdown-body h2 {
-  font-size: 1.5em;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 6px;
+  font-size: 1.75em;
+  font-weight: 400;
+  padding-bottom: 0.3em;
+  /* MPE: H2 没有下划线 */
 }
 
 .markdown-body h3 {
-  font-size: 1.25em;
+  font-size: 1.5em;
+  font-weight: 500;
 }
 
 .markdown-body h4 {
-  font-size: 1em;
+  font-size: 1.25em;
+  font-weight: 600;
 }
 
 .markdown-body h5 {
-  font-size: 0.875em;
+  font-size: 1em;
+  font-weight: 600;
 }
 
 .markdown-body h6 {
-  font-size: 0.85em;
+  font-size: 1em;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
-/* 段落 */
-.markdown-body p {
-  margin-top: 0;
-  margin-bottom: 16px;
+/* ============================================
+   强调 Emphasis
+   ============================================ */
+.markdown-body strong {
+  color: var(--text-strong);
+  font-weight: 600;
 }
 
-/* 链接 */
+.markdown-body del {
+  color: var(--text-secondary);
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+/* ============================================
+   链接 Links
+   ============================================ */
+.markdown-body a:not([href]) {
+  color: inherit;
+  text-decoration: none;
+}
+
 .markdown-body a {
-  color: var(--accent-color);
+  color: #08c;
   text-decoration: none;
 }
 
 .markdown-body a:hover {
-  text-decoration: underline;
+  color: #0050a3;
+  text-decoration: none;
 }
 
-/* 列表 */
-.markdown-body ul,
-.markdown-body ol {
+/* ============================================
+   图片 Images
+   ============================================ */
+.markdown-body img {
+  max-width: 100%;
+}
+
+/* ============================================
+   段落 Paragraph
+   ============================================ */
+.markdown-body > p {
   margin-top: 0;
   margin-bottom: 16px;
+  word-wrap: break-word;
+}
+
+/* ============================================
+   列表 List
+   ============================================ */
+.markdown-body > ul,
+.markdown-body > ol {
+  margin-bottom: 16px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
   padding-left: 2em;
 }
 
+.markdown-body ul {
+  list-style: disc;
+}
+
+.markdown-body ol {
+  list-style: decimal;
+}
+
+.markdown-body ul.no-list,
+.markdown-body ol.no-list {
+  padding: 0;
+  list-style-type: none;
+}
+
+.markdown-body ul ul,
+.markdown-body ul ol,
+.markdown-body ol ol,
+.markdown-body ol ul {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
 .markdown-body li {
-  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.markdown-body li.task-list-item {
+  list-style: none;
 }
 
 .markdown-body li > p {
-  margin-bottom: 8px;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
-/* 引用 */
+.markdown-body .task-list-item-checkbox {
+  margin: 0 0.2em 0.25em -1.8em;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+/* ============================================
+   引用 Blockquotes - MPE 风格：深色背景 + 左边框
+   ============================================ */
 .markdown-body blockquote {
   margin: 16px 0;
-  padding: 0 1em;
+  font-size: inherit;
+  padding: 10px 15px;
   color: var(--text-secondary);
-  border-left: 4px solid var(--border-color);
+  background-color: var(--blockquote-bg);
+  border-left: 4px solid var(--blockquote-border);
+  border-radius: 0;
 }
 
 .markdown-body blockquote > :first-child {
@@ -97,64 +194,153 @@
   margin-bottom: 0;
 }
 
-/* 水平分隔线 */
+/* ============================================
+   水平分割线 HR - 细淡风格
+   ============================================ */
 .markdown-body hr {
   height: 1px;
-  padding: 0;
   margin: 24px 0;
-  background-color: var(--border-color);
-  border: 0;
+  background-color: var(--hr-color);
+  border: 0 none;
 }
 
-/* 表格 */
+/* ============================================
+   表格 Table - MPE 风格：有外边框 + 自适应宽度
+   ============================================ */
 .markdown-body table {
-  border-spacing: 0;
+  margin: 10px 0 15px 0;
   border-collapse: collapse;
-  margin-top: 0;
-  margin-bottom: 16px;
-  width: 100%;
+  border-spacing: 0;
+  display: table;
+  width: auto;
+  max-width: 100%;
   overflow: auto;
-}
-
-.markdown-body table th {
-  font-weight: 600;
-  background-color: var(--bg-secondary);
-}
-
-.markdown-body table th,
-.markdown-body table td {
-  padding: 6px 13px;
+  word-break: normal;
+  word-break: keep-all;
   border: 1px solid var(--border-color);
 }
 
-.markdown-body table tr {
-  background-color: var(--bg-primary);
-  border-top: 1px solid var(--border-color);
+.markdown-body table th {
+  font-weight: bold;
+  color: var(--text-strong);
+  background-color: var(--table-header-bg);
 }
 
-.markdown-body table tr:nth-child(2n) {
-  background-color: var(--bg-secondary);
+.markdown-body table td,
+.markdown-body table th {
+  border: 1px solid var(--border-color);
+  padding: 6px 13px;
 }
 
-/* 图片 */
-.markdown-body img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 4px;
-  margin: 16px 0;
+/* ============================================
+   定义列表 Definition List
+   ============================================ */
+.markdown-body dl {
+  padding: 0;
 }
 
-/* 任务列表 */
-.markdown-body .task-list-item {
-  list-style-type: none;
+.markdown-body dl dt {
+  padding: 0;
+  margin-top: 16px;
+  font-size: 1em;
+  font-style: italic;
+  font-weight: bold;
 }
 
-.markdown-body .task-list-item input[type="checkbox"] {
-  margin: 0 6px 0 -20px;
-  vertical-align: middle;
+.markdown-body dl dd {
+  padding: 0 16px;
+  margin-bottom: 16px;
 }
 
-/* KaTeX 数学公式 */
+/* ============================================
+   代码 Code
+   ============================================ */
+.markdown-body code {
+  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-size: 0.85em;
+  color: var(--text-strong);
+  background-color: var(--inline-code-bg);
+  border-radius: 3px;
+  padding: 0.2em 0;
+}
+
+.markdown-body code::before,
+.markdown-body code::after {
+  letter-spacing: -0.2em;
+  content: '\00a0';
+}
+
+/* Code tags within code blocks (<pre>s) */
+.markdown-body pre > code {
+  padding: 0;
+  margin: 0;
+  word-break: normal;
+  white-space: pre;
+  background: transparent;
+  border: 0;
+}
+
+.markdown-body pre > code::before,
+.markdown-body pre > code::after {
+  content: normal;
+}
+
+.markdown-body .highlight {
+  margin-bottom: 16px;
+}
+
+.markdown-body .highlight pre,
+.markdown-body pre {
+  padding: 1em;
+  overflow: auto;
+  line-height: 1.45;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+}
+
+.markdown-body .highlight pre {
+  margin-bottom: 0;
+  word-break: normal;
+}
+
+.markdown-body pre code,
+.markdown-body pre tt {
+  display: inline;
+  max-width: initial;
+  padding: 0;
+  margin: 0;
+  overflow: initial;
+  line-height: inherit;
+  word-wrap: normal;
+  background-color: transparent;
+  border: 0;
+}
+
+.markdown-body p,
+.markdown-body blockquote,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body dl,
+.markdown-body pre {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+/* ============================================
+   键盘标签 KBD
+   ============================================ */
+.markdown-body kbd {
+  color: var(--text-strong);
+  border: 1px solid var(--border-color);
+  border-bottom: 2px solid var(--kbd-border-bottom);
+  padding: 2px 4px;
+  background-color: var(--inline-code-bg);
+  border-radius: 3px;
+}
+
+/* ============================================
+   KaTeX 数学公式
+   ============================================ */
 .katex {
   font-size: 1.1em;
 }
@@ -172,31 +358,27 @@
   border-radius: 3px;
 }
 
-/* 强调 */
-.markdown-body strong {
-  font-weight: 600;
+/* ============================================
+   Mermaid 图表
+   ============================================ */
+.mermaid-container {
+  margin: 20px 0;
+  padding: 16px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow-x: auto;
+  text-align: center;
 }
 
-.markdown-body em {
-  font-style: italic;
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
 }
 
-/* 删除线 */
-.markdown-body del {
-  text-decoration: line-through;
-}
-
-/* 首个元素上边距 */
-.markdown-body > *:first-child {
-  margin-top: 0 !important;
-}
-
-/* 最后元素下边距 */
-.markdown-body > *:last-child {
-  margin-bottom: 0 !important;
-}
-
-/* 渲染错误样式 */
+/* ============================================
+   渲染错误样式
+   ============================================ */
 .render-error {
   padding: 20px;
   background-color: #fff3cd;
@@ -222,7 +404,9 @@
   color: #6c757d !important;
 }
 
-/* 内容警告样式 */
+/* ============================================
+   内容警告样式
+   ============================================ */
 .content-warning {
   padding: 16px;
   background-color: #fff3cd;
@@ -241,26 +425,45 @@
   font-size: 15px;
 }
 
-/* Mermaid 图表样式 */
-.mermaid-container {
-  margin: 20px 0;
-  padding: 16px;
-  background-color: var(--bg-color, #ffffff);
-  border: 1px solid var(--border-color, #e1e4e8);
-  border-radius: 6px;
-  overflow-x: auto;
-  text-align: center;
-}
+/* ============================================
+   打印样式
+   ============================================ */
+@media print {
+  .markdown-body {
+    background-color: #fff;
+  }
 
-.mermaid-container svg {
-  max-width: 100%;
-  height: auto;
-}
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    color: #000;
+    page-break-after: avoid;
+  }
 
-/* 暗色模式下的 Mermaid */
-@media (prefers-color-scheme: dark) {
-  .mermaid-container {
-    --bg-color: #1e1e1e;
-    --border-color: #3e3e3e;
+  .markdown-body blockquote {
+    color: #666;
+  }
+
+  .markdown-body pre {
+    page-break-inside: avoid;
+  }
+
+  .markdown-body table {
+    display: table;
+  }
+
+  .markdown-body img {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  .markdown-body pre,
+  .markdown-body code {
+    word-wrap: break-word;
+    white-space: pre;
   }
 }

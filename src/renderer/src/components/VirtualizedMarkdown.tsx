@@ -31,20 +31,21 @@ interface Section {
 }
 
 /**
- * 虚拟滚动阈值配置
+ * 虚拟滚动已禁用
+ * 原因：分段渲染存在问题，且对于 Markdown 预览场景收益有限
+ * 保留代码但设置不可能达到的阈值
  */
 const VIRTUALIZATION_THRESHOLD = {
-  /** 小于此行数不启用虚拟滚动 */
-  MIN_LINES: 500,
-  /** 小于此字符数不启用虚拟滚动 */
-  MIN_CHARS: 50000,
-  /** 每个分段的最大行数 */
-  MAX_SECTION_LINES: 100
+  /** 禁用：设置为不可能达到的值 */
+  MIN_LINES: Infinity,
+  MIN_CHARS: Infinity,
+  MAX_SECTION_LINES: 200
 }
 
 interface VirtualizedMarkdownProps {
   content: string
   className?: string
+  filePath?: string  // v1.3 阶段 2：用于右键菜单
 }
 
 /**
@@ -273,8 +274,24 @@ const SectionRenderer = memo(function SectionRenderer({
 /**
  * 虚拟滚动 Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '' }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown({ content, className = '', filePath }: VirtualizedMarkdownProps): JSX.Element {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
+
+  // v1.3 阶段 2：右键菜单处理
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!filePath) return
+
+    const selection = window.getSelection()
+    const hasSelection = selection !== null && selection.toString().trim().length > 0
+
+    window.api.showMarkdownContextMenu({
+      filePath,
+      hasSelection
+    }).catch(error => {
+      console.error('[VirtualizedMarkdown] Failed to show context menu:', error)
+    })
+  }, [filePath])
 
   // 初始化 Mermaid
   useEffect(() => {
@@ -325,18 +342,29 @@ export function VirtualizedMarkdown({ content, className = '' }: VirtualizedMark
 
   // 小文件直接渲染（不使用虚拟滚动）
   if (!shouldVirtualize) {
-    return <NonVirtualizedMarkdown content={content} md={md} className={className} />
+    return (
+      <NonVirtualizedMarkdown
+        content={content}
+        md={md}
+        className={className}
+        onContextMenu={handleContextMenu}
+      />
+    )
   }
 
   // 大文件使用虚拟滚动
   return (
-    <div className={`markdown-body virtualized ${className}`}>
+    <div
+      className={`markdown-body virtualized ${className}`}
+      onContextMenu={handleContextMenu}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
       <div className="virtualized-info">
         <span>📄 大文件模式：{sections.length} 个分段，共 {content.split('\n').length} 行</span>
       </div>
       <Virtuoso
         ref={virtuosoRef}
-        style={{ height: '100%' }}
+        style={{ flex: 1, minHeight: 0 }}
         data={sections}
         itemContent={(index, section) => (
           <SectionRenderer
@@ -358,11 +386,13 @@ export function VirtualizedMarkdown({ content, className = '' }: VirtualizedMark
 const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   content,
   md,
-  className
+  className,
+  onContextMenu
 }: {
   content: string
   md: MarkdownIt
   className: string
+  onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -423,6 +453,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
       ref={containerRef}
       className={`markdown-body ${className}`}
       dangerouslySetInnerHTML={{ __html: html }}
+      onContextMenu={onContextMenu}
     />
   )
 })

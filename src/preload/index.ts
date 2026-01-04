@@ -22,6 +22,35 @@ const api = {
     ipcRenderer.invoke('context-menu:show', file, basePath),
   renameFile: (oldPath: string, newName: string) => ipcRenderer.invoke('fs:rename', oldPath, newName),
 
+  // v1.3 新增：Tab 右键菜单
+  showTabContextMenu: (ctx: {
+    tabId: string
+    filePath: string
+    basePath: string
+    tabCount: number
+    tabIndex: number
+  }) => ipcRenderer.invoke('tab:show-context-menu', ctx),
+
+  // v1.3 阶段 2：Markdown 右键菜单
+  showMarkdownContextMenu: (ctx: {
+    filePath: string
+    hasSelection: boolean
+  }) => ipcRenderer.invoke('markdown:show-context-menu', ctx),
+
+  // v1.3 阶段 3：剪贴板状态同步
+  syncClipboardState: (files: string[], isCut: boolean) =>
+    ipcRenderer.invoke('clipboard:sync-state', files, isCut),
+  queryClipboardState: () =>
+    ipcRenderer.invoke('clipboard:query-state') as Promise<{ files: string[]; isCut: boolean; hasFiles: boolean }>,
+
+  // v1.3 阶段 6：跨应用剪贴板
+  readSystemClipboard: () =>
+    ipcRenderer.invoke('clipboard:read-system') as Promise<Array<{ path: string; exists: boolean; isAllowed: boolean; reason?: string }>>,
+  writeSystemClipboard: (paths: string[], isCut: boolean) =>
+    ipcRenderer.invoke('clipboard:write-system', paths, isCut) as Promise<boolean>,
+  hasSystemClipboardFiles: () =>
+    ipcRenderer.invoke('clipboard:has-system-files') as Promise<boolean>,
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),
@@ -59,11 +88,94 @@ const api = {
     return () => ipcRenderer.removeListener('file:removed', handler)
   },
 
+  // v1.3 新增：文件夹添加事件
+  onFolderAdded: (callback: (dirPath: string) => void) => {
+    const handler = (_event: unknown, dirPath: string) => callback(dirPath)
+    ipcRenderer.on('folder:added', handler)
+    return () => ipcRenderer.removeListener('folder:added', handler)
+  },
+
+  // v1.3 新增：文件夹删除事件
+  onFolderRemoved: (callback: (dirPath: string) => void) => {
+    const handler = (_event: unknown, dirPath: string) => callback(dirPath)
+    ipcRenderer.on('folder:removed', handler)
+    return () => ipcRenderer.removeListener('folder:removed', handler)
+  },
+
+  // v1.3 新增：文件重命名事件
+  onFileRenamed: (callback: (data: { oldPath: string; newPath: string }) => void) => {
+    const handler = (_event: unknown, data: { oldPath: string; newPath: string }) => callback(data)
+    ipcRenderer.on('file:renamed', handler)
+    return () => ipcRenderer.removeListener('file:renamed', handler)
+  },
+
   // 监听恢复文件夹事件
   onRestoreFolder: (callback: (folderPath: string) => void) => {
     const handler = (_event: unknown, folderPath: string) => callback(folderPath)
     ipcRenderer.on('restore-folder', handler)
     return () => ipcRenderer.removeListener('restore-folder', handler)
+  },
+
+  // v1.3 新增：Tab 右键菜单事件
+  onTabClose: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close', handler)
+    return () => ipcRenderer.removeListener('tab:close', handler)
+  },
+
+  onTabCloseOthers: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close-others', handler)
+    return () => ipcRenderer.removeListener('tab:close-others', handler)
+  },
+
+  onTabCloseAll: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('tab:close-all', handler)
+    return () => ipcRenderer.removeListener('tab:close-all', handler)
+  },
+
+  onTabCloseLeft: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close-left', handler)
+    return () => ipcRenderer.removeListener('tab:close-left', handler)
+  },
+
+  onTabCloseRight: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close-right', handler)
+    return () => ipcRenderer.removeListener('tab:close-right', handler)
+  },
+
+  // v1.3 阶段 2：Markdown 右键菜单事件
+  onMarkdownExportHTML: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:export-html', handler)
+    return () => ipcRenderer.removeListener('markdown:export-html', handler)
+  },
+
+  onMarkdownExportPDF: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:export-pdf', handler)
+    return () => ipcRenderer.removeListener('markdown:export-pdf', handler)
+  },
+
+  onMarkdownCopySource: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:copy-source', handler)
+    return () => ipcRenderer.removeListener('markdown:copy-source', handler)
+  },
+
+  onMarkdownCopyPlainText: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:copy-plain-text', handler)
+    return () => ipcRenderer.removeListener('markdown:copy-plain-text', handler)
+  },
+
+  onMarkdownCopyHTML: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:copy-html', handler)
+    return () => ipcRenderer.removeListener('markdown:copy-html', handler)
   },
 
   // 右键菜单事件 (v1.2 阶段 1 新增)

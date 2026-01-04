@@ -10,14 +10,26 @@
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f5;
   --bg-tertiary: #e8e8e8;
-  --text-primary: #1a1a1a;
+  --text-primary: #333333;
   --text-secondary: #666666;
   --text-muted: #999999;
+  --text-strong: #000000;
   --border-color: #e0e0e0;
   --accent-color: #007aff;
   --accent-hover: #0056b3;
+  --accent-color-alpha: rgba(0, 122, 255, 0.15);
+  --accent-color-alpha-hover: rgba(0, 122, 255, 0.25);
   --sidebar-width: 280px;
   --titlebar-height: 52px;
+  /* Markdown 样式变量 - MPE GitHub 主题 */
+  --blockquote-bg: #f6f8fa;
+  --blockquote-border: #dfe2e5;
+  --inline-code-bg: #f6f8fa;
+  --code-block-bg: #f6f8fa;
+  --table-header-bg: #f6f8fa;
+  --heading-border: #eaecef;
+  --hr-color: #eaecef;
+  --kbd-border-bottom: #d4d4d4;
 }
 
 /* 暗色主题 - 通过 data-theme 属性控制 */
@@ -25,12 +37,24 @@
   --bg-primary: #1e1e1e;
   --bg-secondary: #252525;
   --bg-tertiary: #2d2d2d;
-  --text-primary: #e0e0e0;
-  --text-secondary: #a0a0a0;
+  --text-primary: #cccccc;
+  --text-secondary: #888888;
   --text-muted: #666666;
+  --text-strong: #ffffff;
   --border-color: #404040;
   --accent-color: #0a84ff;
   --accent-hover: #409cff;
+  --accent-color-alpha: rgba(10, 132, 255, 0.2);
+  --accent-color-alpha-hover: rgba(10, 132, 255, 0.3);
+  /* Markdown 样式变量 - MPE GitHub 主题 (暗色) */
+  --blockquote-bg: #2d333b;
+  --blockquote-border: #444c56;
+  --inline-code-bg: #2d333b;
+  --code-block-bg: #2d333b;
+  --table-header-bg: #2d333b;
+  --heading-border: #373e47;
+  --hr-color: #373e47;
+  --kbd-border-bottom: #555555;
 }
 
 /* 自动模式：跟随系统（当没有 data-theme 或 data-theme="light" 时生效） */
@@ -39,12 +63,24 @@
     --bg-primary: #1e1e1e;
     --bg-secondary: #252525;
     --bg-tertiary: #2d2d2d;
-    --text-primary: #e0e0e0;
-    --text-secondary: #a0a0a0;
+    --text-primary: #cccccc;
+    --text-secondary: #888888;
     --text-muted: #666666;
+    --text-strong: #ffffff;
     --border-color: #404040;
     --accent-color: #0a84ff;
     --accent-hover: #409cff;
+    --accent-color-alpha: rgba(10, 132, 255, 0.2);
+    --accent-color-alpha-hover: rgba(10, 132, 255, 0.3);
+    /* Markdown 样式变量 - MPE GitHub 主题 (暗色) */
+    --blockquote-bg: #2d333b;
+    --blockquote-border: #444c56;
+    --inline-code-bg: #2d333b;
+    --code-block-bg: #2d333b;
+    --table-header-bg: #2d333b;
+    --heading-border: #373e47;
+    --hr-color: #373e47;
+    --kbd-border-bottom: #555555;
   }
 }
 
@@ -164,10 +200,33 @@ body {
 /* 侧边栏 */
 .sidebar {
   width: var(--sidebar-width);
+  min-width: 180px;
+  max-width: 500px;
   background-color: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  border-right: none;  /* 边框移到 resize-handle */
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* 可拖拽分隔条 */
+.resize-handle {
+  width: 4px;
+  background-color: var(--border-color);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background-color 0.15s;
+}
+
+.resize-handle:hover,
+.workspace.resizing .resize-handle {
+  background-color: var(--accent-color);
+}
+
+/* 拖拽时禁用文本选择 */
+.workspace.resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 
 .sidebar-header {
@@ -360,6 +419,16 @@ body {
   color: var(--text-muted);
 }
 
+/* 多选状态样式（v1.3 阶段 5） */
+.file-tree-row.multi-selected {
+  background-color: var(--accent-color-alpha);
+  border-left: 3px solid var(--accent-color);
+}
+
+.file-tree-row.multi-selected:hover {
+  background-color: var(--accent-color-alpha-hover);
+}
+
 /* 编辑区域 */
 .editor-area {
   flex: 1;
@@ -451,6 +520,12 @@ body {
   overflow-y: auto;
   padding: 24px 32px;
   background-color: var(--bg-primary);
+}
+
+/* 当使用虚拟滚动时，禁用父容器的滚动，让 Virtuoso 接管 */
+.preview:has(.virtualized) {
+  overflow: hidden;
+  padding: 0;
 }
 
 .file-content {
@@ -866,7 +941,7 @@ body {
 }
 
 /* ============================================
-   虚拟滚动样式 (v1.2 阶段 4)
+   虚拟滚动样式 (v1.2 阶段 4, v1.3 阶段 4 优化)
    ============================================ */
 
 /* 虚拟滚动容器 */
@@ -887,20 +962,61 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
-/* 虚拟滚动分段 */
+/* 虚拟滚动分段 - v1.3 优化：消除分段间隔 */
 .virtualized-section {
-  padding: 0 32px 24px 32px;
+  /* 水平 padding 保持一致，移除底部间隔 */
+  padding: 0 32px;
+  /* 保持分段内容连续性 */
+  margin: 0;
 }
 
+/* 首个分段的顶部 padding */
 .virtualized-section:first-child {
   padding-top: 24px;
+}
+
+/* 最后一个分段的底部 padding */
+.virtualized-section:last-child {
+  padding-bottom: 24px;
+}
+
+/* 分段内的标题间距优化 */
+.virtualized-section > h1:first-child,
+.virtualized-section > h2:first-child {
+  /* 非首个分段的标题保持正常上边距 */
+  margin-top: 1.5em;
+}
+
+/* 首个分段的首个标题不需要额外上边距 */
+.virtualized-section:first-child > h1:first-child,
+.virtualized-section:first-child > h2:first-child {
+  margin-top: 0;
+}
+
+/* 分段内的段落和其他元素保持正常间距 */
+.virtualized-section > p:last-child,
+.virtualized-section > ul:last-child,
+.virtualized-section > ol:last-child,
+.virtualized-section > pre:last-child,
+.virtualized-section > blockquote:last-child,
+.virtualized-section > table:last-child {
+  margin-bottom: 0;
 }
 
 /* 确保 Virtuoso 容器填满剩余空间 */
 .markdown-body.virtualized > [data-virtuoso-scroller] {
   flex: 1;
+  overflow-y: auto;
+}
+
+/* Virtuoso 列表项容器 */
+.markdown-body.virtualized [data-virtuoso-item-list] {
+  /* 确保列表项无额外间距 */
+  margin: 0;
+  padding: 0;
 }
 
 /* 大文件内容警告 */

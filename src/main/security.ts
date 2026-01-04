@@ -70,9 +70,10 @@ export function validatePath(targetPath: string): void {
 /**
  * 受保护的系统路径模式
  * 这些路径即使在允许的基础路径内也不允许操作
+ * v1.3 扩展：30+ 条规则
  */
 const PROTECTED_PATTERNS = [
-  // Unix/Linux/macOS 系统目录
+  // ========== Unix/Linux/macOS 系统目录 ==========
   /^\/etc\//,
   /^\/usr\//,
   /^\/System\//,
@@ -81,21 +82,66 @@ const PROTECTED_PATTERNS = [
   /^\/sbin\//,
   /^\/var\//,
   /^\/private\//,
+  /^\/opt\//,
+  /^\/root\//,
 
-  // Windows 系统目录
+  // ========== Windows 系统目录 ==========
   /^C:\\Windows\\/i,
   /^C:\\Program Files/i,
   /^C:\\ProgramData/i,
+  /^C:\\Users\\[^\\]+\\AppData\\/i,
 
-  // 敏感配置目录
-  /\.ssh\//,
-  /\.gnupg\//,
-  /\.aws\//,
-  /\.kube\//,
+  // ========== 用户敏感目录（凭证和密钥）==========
+  /\/\.ssh\//,           // SSH 密钥
+  /\/\.gnupg\//,         // GPG 密钥
+  /\/\.aws\//,           // AWS 凭证
+  /\/\.kube\//,          // Kubernetes 配置
+  /\/\.docker\//,        // Docker 配置
+  /\/\.azure\//,         // Azure 凭证
+  /\/\.gcloud\//,        // Google Cloud 凭证
+  /\/\.config\/gh\//,    // GitHub CLI 凭证
+  /\/\.config\/gcloud\//,  // Google Cloud 配置
+  /\/\.config\/heroku\//,  // Heroku 配置
 
-  // 系统隐藏目录
-  /\/\.[^/]+\/.*\.key$/,  // 任何 .xxx 目录下的 .key 文件
-  /\/\.[^/]+\/.*\.pem$/   // 任何 .xxx 目录下的 .pem 文件
+  // ========== 敏感配置文件 ==========
+  /\/\.npmrc$/,          // NPM Token
+  /\/\.pypirc$/,         // PyPI Token
+  /\/\.netrc$/,          // FTP/网络凭证
+  /\/\.gitconfig$/,      // Git 全局配置（可能含凭证）
+  /\/\.git-credentials$/, // Git 凭证存储
+  /\/\.env$/,            // 环境变量文件
+  /\/\.env\.[^/]+$/,     // .env.local, .env.production 等
+
+  // ========== macOS 特定敏感路径 ==========
+  /\/Library\/Keychains\//,     // 钥匙串
+  /\/Library\/Cookies\//,       // Cookies
+  /\/Library\/Safari\//,        // Safari 数据
+  /\/Library\/Application Support\/Google\/Chrome\/.*Login Data/i,  // Chrome 密码
+  /\/Library\/Application Support\/Firefox\/Profiles\/.*logins\.json/i,  // Firefox 密码
+
+  // ========== 敏感文件扩展名（私钥和证书）==========
+  /\/id_rsa$/,           // SSH 私钥
+  /\/id_ed25519$/,       // Ed25519 私钥
+  /\/id_ecdsa$/,         // ECDSA 私钥
+  /\/id_dsa$/,           // DSA 私钥
+  /\.pem$/,              // 证书私钥
+  /\.p12$/,              // PKCS#12 证书
+  /\.pfx$/,              // 证书
+  /\.key$/,              // 通用私钥
+  /\.keystore$/,         // Java 密钥库
+  /\.jks$/,              // Java KeyStore
+
+  // ========== 数据库和密码存储 ==========
+  /\.kdbx?$/,            // KeePass 数据库
+  /\.1pux$/,             // 1Password 导出
+  /password/i,           // 任何包含 password 的文件
+
+  // ========== 系统隐藏目录下的敏感文件 ==========
+  /\/\.[^/]+\/.*\.key$/,
+  /\/\.[^/]+\/.*\.pem$/,
+  /\/\.[^/]+\/.*credentials/i,
+  /\/\.[^/]+\/.*secret/i,
+  /\/\.[^/]+\/.*token/i
 ]
 
 /**

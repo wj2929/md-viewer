@@ -1,93 +1,399 @@
-/* Prism 代码高亮主题 (VSCode Dark+) */
+/**
+ * Prism.js GitHub 主题 - 基于 MPE (Markdown Preview Enhanced)
+ * 源码: https://github.com/shd101wyy/mume/blob/master/styles/prism_theme/github.css
+ * @author Sam Clarke
+ */
+
+code[class*="language-"],
 pre[class*="language-"] {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 16px;
-  margin: 16px 0;
-  overflow-x: auto;
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-code[class*="language-"] {
   color: var(--text-primary);
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
-  font-size: 13px;
+  background: none;
+  font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  line-height: 1.4;
+
+  -moz-tab-size: 4;
+  -o-tab-size: 4;
+  tab-size: 4;
+
+  -webkit-hyphens: none;
+  -moz-hyphens: none;
+  -ms-hyphens: none;
+  hyphens: none;
 }
 
-/* 行内代码 */
-:not(pre) > code {
-  background-color: var(--bg-secondary);
-  color: var(--accent-color);
-  padding: 2px 6px;
+/* Code blocks */
+pre[class*="language-"] {
+  padding: 1em;
+  overflow: auto;
   border-radius: 3px;
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
-  font-size: 0.9em;
+  background: var(--code-block-bg, #f6f8fa);
+  border: 1px solid var(--border-color, #e1e4e8);
 }
 
-/* Prism 语法高亮颜色 */
+/* Inline code */
+:not(pre) > code[class*="language-"] {
+  padding: .1em;
+  border-radius: .3em;
+  white-space: normal;
+  background: var(--inline-code-bg);
+}
+
+/* ============================================
+   Token 颜色
+   ============================================ */
+
 .token.comment,
-.token.prolog,
-.token.doctype,
+.token.blockquote {
+  color: #969896;
+}
+
 .token.cdata {
-  color: #6a9955;
+  color: #183691;
 }
 
-.token.punctuation {
-  color: var(--text-secondary);
-}
-
-.token.property,
-.token.tag,
-.token.boolean,
-.token.number,
-.token.constant,
-.token.symbol,
-.token.deleted {
-  color: #b5cea8;
-}
-
-.token.selector,
-.token.attr-name,
-.token.string,
-.token.char,
-.token.builtin,
-.token.inserted {
-  color: #ce9178;
+.token.doctype,
+.token.punctuation,
+.token.variable,
+.token.macro.property {
+  color: var(--text-primary);
 }
 
 .token.operator,
-.token.entity,
-.token.url,
-.language-css .token.string,
-.style .token.string {
-  color: #d4d4d4;
+.token.important,
+.token.keyword,
+.token.rule,
+.token.builtin {
+  color: #a71d5d;
 }
 
+.token.string,
+.token.url,
+.token.regex,
+.token.attr-value {
+  color: #183691;
+}
+
+.token.property,
+.token.number,
+.token.boolean,
+.token.entity,
 .token.atrule,
-.token.attr-value,
-.token.keyword {
-  color: #c586c0;
+.token.constant,
+.token.symbol,
+.token.command,
+.token.code {
+  color: #0086b3;
+}
+
+.token.tag,
+.token.selector,
+.token.prolog {
+  color: #63a35c;
 }
 
 .token.function,
-.token.class-name {
-  color: #dcdcaa;
+.token.namespace,
+.token.pseudo-element,
+.token.class,
+.token.class-name,
+.token.pseudo-class,
+.token.id,
+.token.url-reference .token.variable,
+.token.attr-name {
+  color: #795da3;
 }
 
-.token.regex,
-.token.important,
-.token.variable {
-  color: #d16969;
+.token.entity {
+  cursor: help;
 }
 
-.token.important,
+.token.title,
+.token.title .token.punctuation {
+  font-weight: bold;
+  color: #1d3e81;
+}
+
+.token.list {
+  color: #ed6a43;
+}
+
+.token.inserted {
+  background-color: #eaffea;
+  color: #55a532;
+}
+
+.token.deleted {
+  background-color: #ffecec;
+  color: #bd2c00;
+}
+
 .token.bold {
   font-weight: bold;
 }
 
 .token.italic {
   font-style: italic;
+}
+
+/* ============================================
+   语言特定样式
+   ============================================ */
+
+/* JSON */
+.language-json .token.property {
+  color: #183691;
+}
+
+.language-markup .token.tag .token.punctuation {
+  color: var(--text-primary);
+}
+
+/* CSS */
+code.language-css,
+.language-css .token.function {
+  color: #0086b3;
+}
+
+/* YAML */
+.language-yaml .token.atrule {
+  color: #63a35c;
+}
+
+code.language-yaml {
+  color: #183691;
+}
+
+/* Ruby */
+.language-ruby .token.function {
+  color: var(--text-primary);
+}
+
+/* Markdown */
+.language-markdown .token.url {
+  color: #795da3;
+}
+
+/* Makefile */
+.language-makefile .token.symbol {
+  color: #795da3;
+}
+
+.language-makefile .token.variable {
+  color: #183691;
+}
+
+.language-makefile .token.builtin {
+  color: #0086b3;
+}
+
+/* Bash */
+.language-bash .token.keyword {
+  color: #0086b3;
+}
+
+/* ============================================
+   行高亮
+   ============================================ */
+
+pre[data-line] {
+  position: relative;
+  padding: 1em 0 1em 3em;
+}
+
+pre[data-line] .line-highlight-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: transparent;
+  display: block;
+  width: 100%;
+}
+
+pre[data-line] .line-highlight {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: inherit 0;
+  margin-top: 1em;
+  background: hsla(24, 20%, 50%, .08);
+  background: linear-gradient(to right, hsla(24, 20%, 50%, .1) 70%, hsla(24, 20%, 50%, 0));
+  pointer-events: none;
+  line-height: inherit;
+  white-space: pre;
+}
+
+pre[data-line] .line-highlight:before,
+pre[data-line] .line-highlight[data-end]:after {
+  content: attr(data-start);
+  position: absolute;
+  top: .4em;
+  left: .6em;
+  min-width: 1em;
+  padding: 0 .5em;
+  background-color: hsla(24, 20%, 50%, .4);
+  color: hsl(24, 20%, 95%);
+  font: bold 65%/1.5 sans-serif;
+  text-align: center;
+  vertical-align: .3em;
+  border-radius: 999px;
+  text-shadow: none;
+  box-shadow: 0 1px white;
+}
+
+pre[data-line] .line-highlight[data-end]:after {
+  content: attr(data-end);
+  top: auto;
+  bottom: .4em;
+}
+
+/* ============================================
+   暗色主题适配
+   ============================================ */
+
+:root[data-theme="dark"] {
+  --code-block-bg: #2d2d2d;
+}
+
+:root[data-theme="dark"] .token.comment,
+:root[data-theme="dark"] .token.blockquote {
+  color: #6a9955;
+}
+
+:root[data-theme="dark"] .token.cdata,
+:root[data-theme="dark"] .token.string,
+:root[data-theme="dark"] .token.url,
+:root[data-theme="dark"] .token.regex,
+:root[data-theme="dark"] .token.attr-value {
+  color: #ce9178;
+}
+
+:root[data-theme="dark"] .token.operator,
+:root[data-theme="dark"] .token.important,
+:root[data-theme="dark"] .token.keyword,
+:root[data-theme="dark"] .token.rule,
+:root[data-theme="dark"] .token.builtin {
+  color: #c586c0;
+}
+
+:root[data-theme="dark"] .token.property,
+:root[data-theme="dark"] .token.number,
+:root[data-theme="dark"] .token.boolean,
+:root[data-theme="dark"] .token.entity,
+:root[data-theme="dark"] .token.atrule,
+:root[data-theme="dark"] .token.constant,
+:root[data-theme="dark"] .token.symbol,
+:root[data-theme="dark"] .token.command,
+:root[data-theme="dark"] .token.code {
+  color: #b5cea8;
+}
+
+:root[data-theme="dark"] .token.tag,
+:root[data-theme="dark"] .token.selector,
+:root[data-theme="dark"] .token.prolog {
+  color: #4ec9b0;
+}
+
+:root[data-theme="dark"] .token.function,
+:root[data-theme="dark"] .token.namespace,
+:root[data-theme="dark"] .token.pseudo-element,
+:root[data-theme="dark"] .token.class,
+:root[data-theme="dark"] .token.class-name,
+:root[data-theme="dark"] .token.pseudo-class,
+:root[data-theme="dark"] .token.id,
+:root[data-theme="dark"] .token.url-reference .token.variable,
+:root[data-theme="dark"] .token.attr-name {
+  color: #dcdcaa;
+}
+
+:root[data-theme="dark"] .token.title,
+:root[data-theme="dark"] .token.title .token.punctuation {
+  color: #569cd6;
+}
+
+:root[data-theme="dark"] .token.inserted {
+  background-color: rgba(85, 165, 50, 0.2);
+  color: #b5cea8;
+}
+
+:root[data-theme="dark"] .token.deleted {
+  background-color: rgba(189, 44, 0, 0.2);
+  color: #ce9178;
+}
+
+/* 自动模式：跟随系统 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --code-block-bg: #2d2d2d;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.comment,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.blockquote {
+    color: #6a9955;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.cdata,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.string,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.url,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.regex,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.attr-value {
+    color: #ce9178;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.operator,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.important,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.keyword,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.rule,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.builtin {
+    color: #c586c0;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.property,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.number,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.boolean,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.entity,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.atrule,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.constant,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.symbol,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.command,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.code {
+    color: #b5cea8;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.tag,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.selector,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.prolog {
+    color: #4ec9b0;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.function,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.namespace,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.pseudo-element,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.class,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.class-name,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.pseudo-class,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.id,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.url-reference .token.variable,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.attr-name {
+    color: #dcdcaa;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.title,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.title .token.punctuation {
+    color: #569cd6;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.inserted {
+    background-color: rgba(85, 165, 50, 0.2);
+    color: #b5cea8;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .token.deleted {
+    background-color: rgba(189, 44, 0, 0.2);
+    color: #ce9178;
+  }
 }

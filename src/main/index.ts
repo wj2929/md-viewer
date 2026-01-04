@@ -7,7 +7,11 @@ import Store from 'electron-store'
 import chokidar from 'chokidar'
 import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
 import { showContextMenu } from './contextMenuHandler'
+import { showTabContextMenu, TabMenuContext } from './tabMenuHandler'
+import { showMarkdownContextMenu, MarkdownMenuContext } from './markdownMenuHandler'
+import { syncClipboardState, getClipboardState } from './clipboardState'
 import { registerWindowShortcuts } from './shortcuts'
+import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from './clipboardManager'
 
 // 定义存储的数据结构
 interface AppState {
@@ -608,70 +612,137 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
   }
 })
 
-// 文件监听器 - 只监听已打开的文件，而不是整个目录
+// ============================================================
+// 文件监听器 - 简化版：只监听当前打开文件所在的单个目录
+// ============================================================
 let fileWatcher: chokidar.FSWatcher | null = null
-let watchedFolder: string | null = null
-const watchedFiles = new Set<string>()
+let watchedDir: string | null = null           // 当前监听的目录
+let baseFolderPath: string | null = null       // 用户打开的根目录
+const watchedFiles = new Set<string>()         // 已打开的文件列表
 
-// 开始监听文件夹（轻量级：只记录路径，不实际监听整个目录）
+// v1.3：重命名检测
+let pendingUnlink: { path: string; timestamp: number } | null = null
+const RENAME_THRESHOLD_MS = 500
+
+/**
+ * 监听单个目录（当前打开文件所在目录）
+ * 不递归，只监听该目录下的直接子文件
+ */
+function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
+  // 如果已经在监听这个目录，跳过
+  if (watchedDir === dirPath && fileWatcher) {
+    return
+  }
+
+  // 关闭之前的监听
+  if (fileWatcher) {
+    fileWatcher.close()
+    fileWatcher = null
+  }
+  watchedDir = dirPath
+  pendingUnlink = null
+
+  console.log(`[WATCHER] Watching directory: ${dirPath}`)
+
+  // 只监听这一个目录，depth: 0 表示不递归
+  fileWatcher = chokidar.watch(dirPath, {
+    persistent: true,
+    ignoreInitial: true,
+    depth: 0,              // ✅ 关键：不递归，只监听当前目录
+    ignored: ['**/.*'],    // 忽略隐藏文件
+    awaitWriteFinish: {
+      stabilityThreshold: 200,
+      pollInterval: 50
+    }
+  })
+
+  fileWatcher.on('error', (error) => {
+    console.error('[WATCHER] Error:', error)
+  })
+
+  // 文件内容变化
+  fileWatcher.on('change', (filePath) => {
+    if (filePath.endsWith('.md')) {
+      console.log(`[WATCHER] File changed: ${filePath}`)
+      sender.send('file:changed', filePath)
+    }
+  })
+
+  // 文件添加（可能是重命名的第二步）
+  fileWatcher.on('add', (filePath) => {
+    if (!filePath.endsWith('.md')) return
+
+    if (pendingUnlink && Date.now() - pendingUnlink.timestamp < RENAME_THRESHOLD_MS) {
+      // 重命名操作
+      console.log(`[WATCHER] File renamed: ${pendingUnlink.path} -> ${filePath}`)
+      sender.send('file:renamed', { oldPath: pendingUnlink.path, newPath: filePath })
+      pendingUnlink = null
+    } else {
+      console.log(`[WATCHER] File added: ${filePath}`)
+      sender.send('file:added', filePath)
+    }
+  })
+
+  // 文件删除（可能是重命名的第一步）
+  fileWatcher.on('unlink', (filePath) => {
+    if (!filePath.endsWith('.md')) return
+
+    console.log(`[WATCHER] File unlinked: ${filePath}`)
+    pendingUnlink = { path: filePath, timestamp: Date.now() }
+
+    setTimeout(() => {
+      if (pendingUnlink && pendingUnlink.path === filePath) {
+        console.log(`[WATCHER] File removed: ${filePath}`)
+        sender.send('file:removed', filePath)
+        watchedFiles.delete(filePath)
+        pendingUnlink = null
+      }
+    }, RENAME_THRESHOLD_MS + 50)
+  })
+
+  // 子目录添加
+  fileWatcher.on('addDir', (dirPath2) => {
+    if (dirPath2 !== dirPath) {
+      console.log(`[WATCHER] Directory added: ${dirPath2}`)
+      sender.send('folder:added', dirPath2)
+    }
+  })
+
+  // 子目录删除
+  fileWatcher.on('unlinkDir', (dirPath2) => {
+    console.log(`[WATCHER] Directory removed: ${dirPath2}`)
+    sender.send('folder:removed', dirPath2)
+  })
+}
+
+// 初始化文件夹监听（用户打开文件夹时调用）
+// 注意：这里不再监听整个目录树，只记录根路径
 ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
   try {
-    // ✅ 安全校验：检查路径是否在允许范围内
     validatePath(folderPath)
-
-    // 停止之前的监听
-    if (fileWatcher) {
-      await fileWatcher.close()
-      fileWatcher = null
-    }
+    baseFolderPath = folderPath
     watchedFiles.clear()
-    watchedFolder = folderPath
 
-    // 创建空的 watcher，后续通过 watchFile 添加具体文件
-    fileWatcher = chokidar.watch([], {
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 300,
-        pollInterval: 100
-      }
-    })
-
-    // 错误处理
-    fileWatcher.on('error', (error) => {
-      console.error('File watcher error:', error)
-      event.sender.send('file:watch-error', error.message)
-    })
-
-    // 文件变化事件
-    fileWatcher.on('change', (filePath) => {
-      event.sender.send('file:changed', filePath)
-    })
-
-    // 文件删除事件
-    fileWatcher.on('unlink', (filePath) => {
-      event.sender.send('file:removed', filePath)
-      watchedFiles.delete(filePath)
-    })
-
-    console.log(`[MAIN] Folder watch initialized for: ${folderPath}`)
+    // 不立即监听任何目录，等用户点击文件时再监听该文件所在目录
+    console.log(`[MAIN] Base folder set: ${folderPath}`)
     return { success: true }
   } catch (error) {
-    console.error('Failed to init folder watch:', error)
+    console.error('Failed to set base folder:', error)
     throw error
   }
 })
 
-// 添加单个文件到监听列表
-ipcMain.handle('fs:watchFile', async (_, filePath: string) => {
-  // ✅ 安全校验：检查路径是否在允许范围内
+// 当用户打开文件时，监听该文件所在目录
+ipcMain.handle('fs:watchFile', async (event, filePath: string) => {
   validatePath(filePath)
 
-  if (fileWatcher && !watchedFiles.has(filePath)) {
-    fileWatcher.add(filePath)
-    watchedFiles.add(filePath)
-    console.log(`[MAIN] Now watching file: ${filePath}`)
-  }
+  watchedFiles.add(filePath)
+
+  // 获取文件所在目录，开始监听
+  const dirPath = path.dirname(filePath)
+  watchDirectory(dirPath, event.sender)
+
+  console.log(`[MAIN] File opened: ${filePath}, watching dir: ${dirPath}`)
   return { success: true }
 })
 
@@ -686,7 +757,7 @@ ipcMain.handle('fs:unwatchFolder', async () => {
 
 // ============== 右键菜单 Handlers ==============
 
-// 显示右键菜单
+// 显示文件树右键菜单
 ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: string) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) {
@@ -694,6 +765,35 @@ ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: stri
   }
 
   showContextMenu(window, file, basePath)
+  return { success: true }
+})
+
+// v1.3 新增：显示 Tab 右键菜单
+ipcMain.handle('tab:show-context-menu', async (event, ctx: TabMenuContext) => {
+  // ⚠️ 安全校验（安全审计师要求）
+  validatePath(ctx.filePath)
+  validatePath(ctx.basePath)
+
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (!window) {
+    throw new Error('无法获取窗口实例')
+  }
+
+  showTabContextMenu(window, ctx)
+  return { success: true }
+})
+
+// v1.3 阶段 2：显示 Markdown 右键菜单
+ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuContext) => {
+  // ⚠️ 安全校验
+  validatePath(ctx.filePath)
+
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (!window) {
+    throw new Error('无法获取窗口实例')
+  }
+
+  showMarkdownContextMenu(window, ctx)
   return { success: true }
 })
 
@@ -823,4 +923,35 @@ ipcMain.handle('fs:isDirectory', async (_, filePath: string) => {
     console.error('Failed to check if directory:', error)
     return false
   }
+})
+
+// ============== v1.3 阶段 3：剪贴板状态同步 ==============
+
+// 同步剪贴板状态
+ipcMain.handle('clipboard:sync-state', async (_, files: string[], isCut: boolean) => {
+  syncClipboardState(files, isCut)
+})
+
+// 查询剪贴板状态
+ipcMain.handle('clipboard:query-state', async () => {
+  return getClipboardState()
+})
+
+// v1.3 阶段 6：从系统剪贴板读取文件
+ipcMain.handle('clipboard:read-system', async () => {
+  const files = readFilesFromSystemClipboard()
+  console.log('[CLIPBOARD] Read from system:', files.length, 'files')
+  return files
+})
+
+// v1.3 阶段 6：写入文件到系统剪贴板
+ipcMain.handle('clipboard:write-system', async (_, paths: string[], isCut: boolean) => {
+  const result = writeFilesToSystemClipboard(paths, isCut)
+  console.log('[CLIPBOARD] Write to system:', paths.length, 'files, success:', result)
+  return result
+})
+
+// v1.3 阶段 6：检查系统剪贴板是否有文件
+ipcMain.handle('clipboard:has-system-files', async () => {
+  return hasFilesInSystemClipboard()
 })

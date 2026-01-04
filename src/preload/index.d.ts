@@ -25,6 +25,30 @@ declare global {
       ) => Promise<{ success: boolean }>
       renameFile: (oldPath: string, newName: string) => Promise<string>
 
+      // v1.3 新增：Tab 右键菜单
+      showTabContextMenu: (ctx: {
+        tabId: string
+        filePath: string
+        basePath: string
+        tabCount: number
+        tabIndex: number
+      }) => Promise<{ success: boolean }>
+
+      // v1.3 阶段 2：Markdown 右键菜单
+      showMarkdownContextMenu: (ctx: {
+        filePath: string
+        hasSelection: boolean
+      }) => Promise<{ success: boolean }>
+
+      // v1.3 阶段 3：剪贴板状态同步
+      syncClipboardState: (files: string[], isCut: boolean) => Promise<void>
+      queryClipboardState: () => Promise<{ files: string[]; isCut: boolean; hasFiles: boolean }>
+
+      // v1.3 阶段 6：跨应用剪贴板
+      readSystemClipboard: () => Promise<Array<{ path: string; exists: boolean; isAllowed: boolean; reason?: string }>>
+      writeSystemClipboard: (paths: string[], isCut: boolean) => Promise<boolean>
+      hasSystemClipboardFiles: () => Promise<boolean>
+
       // 文件操作 (v1.2 阶段 2)
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>
@@ -44,6 +68,25 @@ declare global {
       onFileChanged: (callback: (filePath: string) => void) => () => void
       onFileAdded: (callback: (filePath: string) => void) => () => void
       onFileRemoved: (callback: (filePath: string) => void) => () => void
+
+      // v1.3 新增文件监听事件
+      onFolderAdded: (callback: (dirPath: string) => void) => () => void
+      onFolderRemoved: (callback: (dirPath: string) => void) => () => void
+      onFileRenamed: (callback: (data: { oldPath: string; newPath: string }) => void) => () => void
+
+      // v1.3 新增：Tab 右键菜单事件
+      onTabClose: (callback: (tabId: string) => void) => () => void
+      onTabCloseOthers: (callback: (tabId: string) => void) => () => void
+      onTabCloseAll: (callback: () => void) => () => void
+      onTabCloseLeft: (callback: (tabId: string) => void) => () => void
+      onTabCloseRight: (callback: (tabId: string) => void) => () => void
+
+      // v1.3 阶段 2：Markdown 右键菜单事件
+      onMarkdownExportHTML: (callback: () => void) => () => void
+      onMarkdownExportPDF: (callback: () => void) => () => void
+      onMarkdownCopySource: (callback: () => void) => () => void
+      onMarkdownCopyPlainText: (callback: () => void) => () => void
+      onMarkdownCopyHTML: (callback: () => void) => () => void
 
       // 右键菜单事件 (v1.2 阶段 1)
       onFileDeleted: (callback: (filePath: string) => void) => () => void

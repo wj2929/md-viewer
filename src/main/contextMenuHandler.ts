@@ -2,11 +2,13 @@
  * 右键菜单处理器
  * @module contextMenuHandler
  * @description 处理文件树右键菜单的显示和操作
+ * v1.3 阶段 3：使用剪贴板状态动态控制粘贴菜单
  */
 
 import { Menu, shell, clipboard, BrowserWindow } from 'electron'
 import * as path from 'path'
 import { validatePath, validateSecurePath } from './security'
+import { getClipboardState } from './clipboardState'
 
 /**
  * 文件信息接口
@@ -103,13 +105,13 @@ export function showContextMenu(
         window.webContents.send('clipboard:cut', [file.path])
       }
     },
-    // 粘贴（仅文件夹）
+    // 粘贴（仅文件夹 + v1.3 剪贴板有内容时启用）
     ...(file.isDirectory
       ? [
           {
             label: i18n.paste,
             accelerator: 'CmdOrCtrl+V' as const,
-            enabled: true, // v1.2 阶段 2 已启用
+            enabled: getClipboardState().hasFiles, // v1.3：动态检查剪贴板状态
             click: () => {
               window.webContents.send('clipboard:paste', file.path)
             }

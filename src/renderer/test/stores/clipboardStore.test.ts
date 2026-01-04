@@ -7,7 +7,8 @@ const mockApi = {
   isDirectory: vi.fn(),
   copyFile: vi.fn(),
   copyDir: vi.fn(),
-  moveFile: vi.fn()
+  moveFile: vi.fn(),
+  syncClipboardState: vi.fn()  // v1.3 阶段 3 新增
 }
 
 // 设置全局 window.api
@@ -195,10 +196,11 @@ describe('clipboardStore', () => {
 
   describe('paste 方法', () => {
     describe('空剪贴板', () => {
-      it('应该直接返回不执行任何操作', async () => {
+      it('应该抛出剪贴板为空的错误', async () => {
         const { paste } = useClipboardStore.getState()
-        await paste('/target')
 
+        // v1.3：空剪贴板时抛出错误
+        await expect(paste('/target')).rejects.toThrow('剪贴板为空')
         expect(mockApi.copyFile).not.toHaveBeenCalled()
         expect(mockApi.moveFile).not.toHaveBeenCalled()
       })
@@ -284,13 +286,16 @@ describe('clipboardStore', () => {
     })
 
     describe('错误处理', () => {
-      it('目标文件已存在时应该跳过并收集错误', async () => {
+      it('目标文件已存在时应该跳过并记录在 failed 中', async () => {
         mockApi.fileExists.mockResolvedValue(true)
 
         const { copy, paste } = useClipboardStore.getState()
         copy(['/source/file.md'])
 
-        await expect(paste('/target')).rejects.toThrow('file.md 已存在')
+        // v1.3 事务性：不抛出错误，记录在 result.failed 中
+        const result = await paste('/target')
+        expect(result.failed.length).toBe(1)
+        expect(result.failed[0].error).toContain('已存在')
       })
 
       it('粘贴到自身时应该跳过', async () => {
@@ -303,16 +308,19 @@ describe('clipboardStore', () => {
         expect(mockApi.copyFile).not.toHaveBeenCalled()
       })
 
-      it('粘贴到子目录时应该报错', async () => {
+      it('粘贴到子目录时应该记录失败', async () => {
         mockApi.fileExists.mockResolvedValue(false)
 
         const { copy, paste } = useClipboardStore.getState()
         copy(['/source/folder'])
 
-        await expect(paste('/source/folder/subfolder')).rejects.toThrow('子目录')
+        // v1.3 事务性：不抛出错误，返回 PasteResult
+        const result = await paste('/source/folder/subfolder')
+        expect(result.failed.length).toBe(1)
+        expect(result.failed[0].error).toContain('子目录')
       })
 
-      it('API 错误应该被捕获并报告', async () => {
+      it('API 错误应该被捕获并记录在 failed 中', async () => {
         mockApi.fileExists.mockResolvedValue(false)
         mockApi.isDirectory.mockResolvedValue(false)
         mockApi.copyFile.mockRejectedValue(new Error('Permission denied'))
@@ -320,7 +328,10 @@ describe('clipboardStore', () => {
         const { copy, paste } = useClipboardStore.getState()
         copy(['/source/file.md'])
 
-        await expect(paste('/target')).rejects.toThrow('Permission denied')
+        // v1.3 事务性：错误记录在 result.failed 中
+        const result = await paste('/target')
+        expect(result.failed.length).toBe(1)
+        expect(result.failed[0].error).toBe('Permission denied')
       })
 
       it('多个文件部分失败时应该收集所有错误', async () => {
@@ -333,7 +344,11 @@ describe('clipboardStore', () => {
         const { copy, paste } = useClipboardStore.getState()
         copy(['/source/file1.md', '/source/file2.md'])
 
-        await expect(paste('/target')).rejects.toThrow('file2.md 已存在')
+        // v1.3 事务性：返回包含成功和失败的 PasteResult
+        const result = await paste('/target')
+        expect(result.success.length).toBe(1)
+        expect(result.failed.length).toBe(1)
+        expect(result.failed[0].error).toContain('已存在')
         expect(mockApi.copyFile).toHaveBeenCalledTimes(1)
       })
     })
