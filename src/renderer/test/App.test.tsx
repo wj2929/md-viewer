@@ -29,6 +29,13 @@ const mockApi = {
   onFolderAdded: vi.fn(() => vi.fn()),
   onFolderRemoved: vi.fn(() => vi.fn()),
   onFileRenamed: vi.fn(() => vi.fn()),
+  // v1.3 新增：Tab 右键菜单
+  showTabContextMenu: vi.fn().mockResolvedValue({ success: true }),
+  onTabClose: vi.fn(() => vi.fn()),
+  onTabCloseOthers: vi.fn(() => vi.fn()),
+  onTabCloseAll: vi.fn(() => vi.fn()),
+  onTabCloseLeft: vi.fn(() => vi.fn()),
+  onTabCloseRight: vi.fn(() => vi.fn()),
   // v1.2 阶段 1：右键菜单事件
   onFileDeleted: vi.fn(() => vi.fn()),
   onFileStartRename: vi.fn(() => vi.fn()),

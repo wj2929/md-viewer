@@ -211,6 +211,48 @@ function App(): JSX.Element {
     })
   }, [activeTabId])
 
+  // v1.3 新增：Tab 右键菜单事件监听
+  useEffect(() => {
+    // 检查 API 是否存在（兼容旧版本）
+    if (!window.api.onTabClose) return
+
+    const unsubscribeTabClose = window.api.onTabClose((tabId: string) => {
+      handleTabClose(tabId)
+    })
+
+    const unsubscribeTabCloseOthers = window.api.onTabCloseOthers((tabId: string) => {
+      setTabs(prev => prev.filter(tab => tab.id === tabId))
+      setActiveTabId(tabId)
+    })
+
+    const unsubscribeTabCloseAll = window.api.onTabCloseAll(() => {
+      setTabs([])
+      setActiveTabId(null)
+    })
+
+    const unsubscribeTabCloseLeft = window.api.onTabCloseLeft((tabId: string) => {
+      setTabs(prev => {
+        const index = prev.findIndex(tab => tab.id === tabId)
+        return index >= 0 ? prev.slice(index) : prev
+      })
+    })
+
+    const unsubscribeTabCloseRight = window.api.onTabCloseRight((tabId: string) => {
+      setTabs(prev => {
+        const index = prev.findIndex(tab => tab.id === tabId)
+        return index >= 0 ? prev.slice(0, index + 1) : prev
+      })
+    })
+
+    return () => {
+      unsubscribeTabClose()
+      unsubscribeTabCloseOthers()
+      unsubscribeTabCloseAll()
+      unsubscribeTabCloseLeft()
+      unsubscribeTabCloseRight()
+    }
+  }, [handleTabClose])
+
   // 文件监听 - 自动刷新功能
   // 只在 folderPath 改变时重新订阅，使用 ref 访问最新的 tabs
   useEffect(() => {
@@ -549,6 +591,7 @@ function App(): JSX.Element {
                 activeTabId={activeTabId}
                 onTabClick={handleTabClick}
                 onTabClose={handleTabClose}
+                basePath={folderPath || undefined}
               />
               <div className="preview">
                 {activeTab ? (

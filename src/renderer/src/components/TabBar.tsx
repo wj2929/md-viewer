@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { FileInfo } from './FileTree'
 
 export interface Tab {
@@ -11,9 +12,10 @@ interface TabBarProps {
   activeTabId: string | null
   onTabClick: (tabId: string) => void
   onTabClose: (tabId: string) => void
+  basePath?: string  // v1.3 新增
 }
 
-export function TabBar({ tabs, activeTabId, onTabClick, onTabClose }: TabBarProps): JSX.Element {
+export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, basePath }: TabBarProps): JSX.Element {
   if (tabs.length === 0) {
     return <div className="tabs" />
   }
@@ -23,13 +25,32 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose }: TabBarProp
     onTabClose(tabId)
   }
 
+  // v1.3 新增：右键菜单
+  const handleContextMenu = useCallback((e: React.MouseEvent, tab: Tab, index: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (!basePath) return
+
+    window.api.showTabContextMenu({
+      tabId: tab.id,
+      filePath: tab.file.path,
+      basePath,
+      tabCount: tabs.length,
+      tabIndex: index
+    }).catch(error => {
+      console.error('[TabBar] Failed to show context menu:', error)
+    })
+  }, [tabs.length, basePath])
+
   return (
     <div className="tabs">
-      {tabs.map(tab => (
+      {tabs.map((tab, index) => (
         <div
           key={tab.id}
           className={`tab ${tab.id === activeTabId ? 'active' : ''}`}
           onClick={() => onTabClick(tab.id)}
+          onContextMenu={(e) => handleContextMenu(e, tab, index)}
           role="tab"
           aria-selected={tab.id === activeTabId}
           tabIndex={0}

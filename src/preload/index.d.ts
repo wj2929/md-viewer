@@ -25,6 +25,15 @@ declare global {
       ) => Promise<{ success: boolean }>
       renameFile: (oldPath: string, newName: string) => Promise<string>
 
+      // v1.3 新增：Tab 右键菜单
+      showTabContextMenu: (ctx: {
+        tabId: string
+        filePath: string
+        basePath: string
+        tabCount: number
+        tabIndex: number
+      }) => Promise<{ success: boolean }>
+
       // 文件操作 (v1.2 阶段 2)
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>
@@ -49,6 +58,13 @@ declare global {
       onFolderAdded: (callback: (dirPath: string) => void) => () => void
       onFolderRemoved: (callback: (dirPath: string) => void) => () => void
       onFileRenamed: (callback: (data: { oldPath: string; newPath: string }) => void) => () => void
+
+      // v1.3 新增：Tab 右键菜单事件
+      onTabClose: (callback: (tabId: string) => void) => () => void
+      onTabCloseOthers: (callback: (tabId: string) => void) => () => void
+      onTabCloseAll: (callback: () => void) => () => void
+      onTabCloseLeft: (callback: (tabId: string) => void) => () => void
+      onTabCloseRight: (callback: (tabId: string) => void) => () => void
 
       // 右键菜单事件 (v1.2 阶段 1)
       onFileDeleted: (callback: (filePath: string) => void) => () => void

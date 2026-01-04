@@ -7,6 +7,7 @@ import Store from 'electron-store'
 import chokidar from 'chokidar'
 import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
 import { showContextMenu } from './contextMenuHandler'
+import { showTabContextMenu, TabMenuContext } from './tabMenuHandler'
 import { registerWindowShortcuts } from './shortcuts'
 
 // 定义存储的数据结构
@@ -741,7 +742,7 @@ ipcMain.handle('fs:unwatchFolder', async () => {
 
 // ============== 右键菜单 Handlers ==============
 
-// 显示右键菜单
+// 显示文件树右键菜单
 ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: string) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) {
@@ -749,6 +750,21 @@ ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: stri
   }
 
   showContextMenu(window, file, basePath)
+  return { success: true }
+})
+
+// v1.3 新增：显示 Tab 右键菜单
+ipcMain.handle('tab:show-context-menu', async (event, ctx: TabMenuContext) => {
+  // ⚠️ 安全校验（安全审计师要求）
+  validatePath(ctx.filePath)
+  validatePath(ctx.basePath)
+
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (!window) {
+    throw new Error('无法获取窗口实例')
+  }
+
+  showTabContextMenu(window, ctx)
   return { success: true }
 })
 

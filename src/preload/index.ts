@@ -22,6 +22,15 @@ const api = {
     ipcRenderer.invoke('context-menu:show', file, basePath),
   renameFile: (oldPath: string, newName: string) => ipcRenderer.invoke('fs:rename', oldPath, newName),
 
+  // v1.3 新增：Tab 右键菜单
+  showTabContextMenu: (ctx: {
+    tabId: string
+    filePath: string
+    basePath: string
+    tabCount: number
+    tabIndex: number
+  }) => ipcRenderer.invoke('tab:show-context-menu', ctx),
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),
@@ -85,6 +94,37 @@ const api = {
     const handler = (_event: unknown, folderPath: string) => callback(folderPath)
     ipcRenderer.on('restore-folder', handler)
     return () => ipcRenderer.removeListener('restore-folder', handler)
+  },
+
+  // v1.3 新增：Tab 右键菜单事件
+  onTabClose: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close', handler)
+    return () => ipcRenderer.removeListener('tab:close', handler)
+  },
+
+  onTabCloseOthers: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close-others', handler)
+    return () => ipcRenderer.removeListener('tab:close-others', handler)
+  },
+
+  onTabCloseAll: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('tab:close-all', handler)
+    return () => ipcRenderer.removeListener('tab:close-all', handler)
+  },
+
+  onTabCloseLeft: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close-left', handler)
+    return () => ipcRenderer.removeListener('tab:close-left', handler)
+  },
+
+  onTabCloseRight: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:close-right', handler)
+    return () => ipcRenderer.removeListener('tab:close-right', handler)
   },
 
   // 右键菜单事件 (v1.2 阶段 1 新增)
