@@ -37,6 +37,12 @@ const api = {
     hasSelection: boolean
   }) => ipcRenderer.invoke('markdown:show-context-menu', ctx),
 
+  // v1.3 阶段 3：剪贴板状态同步
+  syncClipboardState: (files: string[], isCut: boolean) =>
+    ipcRenderer.invoke('clipboard:sync-state', files, isCut),
+  queryClipboardState: () =>
+    ipcRenderer.invoke('clipboard:query-state') as Promise<{ files: string[]; isCut: boolean; hasFiles: boolean }>,
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),

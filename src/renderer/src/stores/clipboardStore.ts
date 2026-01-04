@@ -1,10 +1,18 @@
 /**
  * 应用内剪贴板 Store
  * @module clipboardStore
- * @description 使用 Zustand 管理文件复制/剪切/粘贴状态
+ * @description v1.3 阶段 3 重构 - 单一数据源架构 + 事务性粘贴
  */
 
 import { create } from 'zustand'
+
+/**
+ * 粘贴结果接口
+ */
+export interface PasteResult {
+  success: string[]
+  failed: { path: string; error: string }[]
+}
 
 /**
  * 剪贴板状态接口
@@ -18,18 +26,21 @@ interface ClipboardState {
   copy: (paths: string[]) => void
   /** 剪切文件到剪贴板 */
   cut: (paths: string[]) => void
-  /** 粘贴文件到目标目录 */
-  paste: (targetDir: string) => Promise<void>
+  /** 粘贴文件到目标目录（事务性） */
+  paste: (targetDir: string) => Promise<PasteResult>
   /** 清空剪贴板 */
   clear: () => void
   /** 检查剪贴板是否有文件 */
   hasFiles: () => boolean
   /** 检查指定路径是否在剪贴板中 */
   isInClipboard: (filePath: string) => boolean
+  /** 获取剪贴板状态（用于主进程同步） */
+  getState: () => { files: string[]; isCut: boolean; hasFiles: boolean }
 }
 
 /**
  * 创建剪贴板 Store
+ * v1.3 重构：渲染进程作为唯一数据源
  */
 export const useClipboardStore = create<ClipboardState>((set, get) => ({
   files: new Set(),
@@ -42,6 +53,8 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
   copy: (paths: string[]) => {
     console.log('[Clipboard] Copy:', paths)
     set({ files: new Set(paths), isCut: false })
+    // v1.3：同步状态到主进程（用于右键菜单查询）
+    window.api.syncClipboardState?.(paths, false)
   },
 
   /**
@@ -51,23 +64,26 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
   cut: (paths: string[]) => {
     console.log('[Clipboard] Cut:', paths)
     set({ files: new Set(paths), isCut: true })
+    // v1.3：同步状态到主进程
+    window.api.syncClipboardState?.(paths, true)
   },
 
   /**
-   * 粘贴文件到目标目录
+   * 粘贴文件到目标目录（事务性 - 前端专家要求）
+   * 只有全部成功才清空剪贴板，失败时不丢失数据
    * @param targetDir - 目标目录路径
+   * @returns 粘贴结果
    */
-  paste: async (targetDir: string) => {
+  paste: async (targetDir: string): Promise<PasteResult> => {
     const { files, isCut } = get()
+    const result: PasteResult = { success: [], failed: [] }
 
     if (files.size === 0) {
       console.warn('[Clipboard] Paste failed: clipboard is empty')
-      return
+      throw new Error('剪贴板为空')
     }
 
     console.log(`[Clipboard] Paste to ${targetDir}, isCut: ${isCut}`)
-
-    const errors: string[] = []
 
     for (const srcPath of files) {
       try {
@@ -84,7 +100,7 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
         // 检查是否粘贴到自己的子目录
         if (destPath.startsWith(srcPath + '/') || destPath.startsWith(srcPath + '\\')) {
           console.error(`[Clipboard] Cannot paste into subdirectory: ${srcPath} -> ${destPath}`)
-          errors.push(`无法将 ${fileName} 粘贴到其子目录中`)
+          result.failed.push({ path: srcPath, error: '无法粘贴到子目录' })
           continue
         }
 
@@ -92,7 +108,7 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
         const exists = await window.api.fileExists(destPath)
         if (exists) {
           console.error(`[Clipboard] Target file already exists: ${destPath}`)
-          errors.push(`文件 ${fileName} 已存在`)
+          result.failed.push({ path: srcPath, error: '目标文件已存在' })
           continue
         }
 
@@ -113,24 +129,31 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
             console.log(`[Clipboard] Copied file: ${srcPath} -> ${destPath}`)
           }
         }
+
+        result.success.push(srcPath)
       } catch (error) {
-        const fileName = srcPath.split('/').pop() || srcPath.split('\\').pop() || 'unknown'
         const errorMsg = error instanceof Error ? error.message : '未知错误'
         console.error(`[Clipboard] Failed to ${isCut ? 'move' : 'copy'} ${srcPath}:`, error)
-        errors.push(`${fileName}: ${errorMsg}`)
+        result.failed.push({ path: srcPath, error: errorMsg })
       }
     }
 
-    // 剪切后清空剪贴板，复制后保留
-    if (isCut) {
+    // v1.3 事务性：只有剪切且全部成功才清空剪贴板
+    if (isCut && result.failed.length === 0 && result.success.length > 0) {
       set({ files: new Set(), isCut: false })
-      console.log('[Clipboard] Cleared after cut')
+      console.log('[Clipboard] Cleared after successful cut')
+      // 同步空状态到主进程
+      window.api.syncClipboardState?.([], false)
+    } else if (isCut && result.success.length > 0) {
+      // 部分成功：只移除成功的文件
+      const remainingFiles = new Set(files)
+      result.success.forEach(path => remainingFiles.delete(path))
+      set({ files: remainingFiles })
+      console.log('[Clipboard] Partial success, remaining:', Array.from(remainingFiles))
+      window.api.syncClipboardState?.(Array.from(remainingFiles), true)
     }
 
-    // 如果有错误，抛出异常
-    if (errors.length > 0) {
-      throw new Error(errors.join('\n'))
-    }
+    return result
   },
 
   /**
@@ -139,6 +162,8 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
   clear: () => {
     console.log('[Clipboard] Cleared')
     set({ files: new Set(), isCut: false })
+    // 同步到主进程
+    window.api.syncClipboardState?.([], false)
   },
 
   /**
@@ -156,5 +181,18 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
    */
   isInClipboard: (filePath: string) => {
     return get().files.has(filePath)
+  },
+
+  /**
+   * 获取剪贴板状态（用于主进程同步）
+   * @returns 剪贴板状态快照
+   */
+  getState: () => {
+    const state = get()
+    return {
+      files: Array.from(state.files),
+      isCut: state.isCut,
+      hasFiles: state.files.size > 0
+    }
   }
 }))

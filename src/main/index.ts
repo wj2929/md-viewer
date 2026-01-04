@@ -9,6 +9,7 @@ import { setAllowedBasePath, validateSecurePath, validatePath } from './security
 import { showContextMenu } from './contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from './tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from './markdownMenuHandler'
+import { syncClipboardState, getClipboardState } from './clipboardState'
 import { registerWindowShortcuts } from './shortcuts'
 
 // 定义存储的数据结构
@@ -909,4 +910,16 @@ ipcMain.handle('fs:isDirectory', async (_, filePath: string) => {
     console.error('Failed to check if directory:', error)
     return false
   }
+})
+
+// ============== v1.3 阶段 3：剪贴板状态同步 ==============
+
+// 同步剪贴板状态
+ipcMain.handle('clipboard:sync-state', async (_, files: string[], isCut: boolean) => {
+  syncClipboardState(files, isCut)
+})
+
+// 查询剪贴板状态
+ipcMain.handle('clipboard:query-state', async () => {
+  return getClipboardState()
 })

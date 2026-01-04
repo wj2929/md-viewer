@@ -26,6 +26,11 @@ vi.mock('electron', () => ({
   BrowserWindow: vi.fn()
 }))
 
+// Mock clipboardState module (v1.3 阶段 3)
+vi.mock('../clipboardState', () => ({
+  getClipboardState: vi.fn(() => ({ files: ['/some/file.md'], isCut: false, hasFiles: true }))
+}))
+
 // Mock security module
 vi.mock('../security', () => ({
   validatePath: vi.fn(),

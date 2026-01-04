@@ -40,6 +40,10 @@ declare global {
         hasSelection: boolean
       }) => Promise<{ success: boolean }>
 
+      // v1.3 阶段 3：剪贴板状态同步
+      syncClipboardState: (files: string[], isCut: boolean) => Promise<void>
+      queryClipboardState: () => Promise<{ files: string[]; isCut: boolean; hasFiles: boolean }>
+
       // 文件操作 (v1.2 阶段 2)
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>
