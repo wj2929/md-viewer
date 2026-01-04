@@ -37,3 +37,23 @@ temp/
 .env
 .env.local
 .env.*.local
+
+# Internal development docs (not for public)
+PROGRESS.md
+CONTEXT-RECOVERY.md
+*-IMPLEMENTATION-PLAN*.md
+*-PLAN.md
+*-REVIEW-REPORT.md
+COVERAGE_ANALYSIS.md
+QA_GUIDE.md
+REGRESSION_TEST_CHECKLIST.md
+TEST_REPORT.md
+TEST_SUMMARY.md
+TESTING_GUIDE.md
+TESTING_V1.1.md
+SECURITY_AUDIT.md
+RELEASE_*.md
+
+# Playwright
+playwright-report/
+test-results/
