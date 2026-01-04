@@ -97,7 +97,9 @@ describe('VirtualizedMarkdown', () => {
     })
   })
 
-  describe('大文件处理', () => {
+  // 注意：虚拟滚动功能已在 v1.3 中禁用（存在分段渲染 Bug）
+  // 以下测试已跳过，待虚拟滚动功能修复后重新启用
+  describe.skip('大文件处理（虚拟滚动已禁用）', () => {
     it('应该对超过 50000 字符的文件启用虚拟滚动', () => {
       // 创建超过 50000 字符的内容
       const longLine = 'x'.repeat(200)
@@ -128,7 +130,7 @@ describe('VirtualizedMarkdown', () => {
     })
   })
 
-  describe('虚拟滚动模式', () => {
+  describe.skip('虚拟滚动模式（虚拟滚动已禁用）', () => {
     it('应该对超过 500 行的文件启用虚拟滚动', () => {
       const lines = Array(501).fill('# 标题内容')
       const content = lines.join('\n')
@@ -166,7 +168,7 @@ describe('VirtualizedMarkdown', () => {
     })
   })
 
-  describe('分段策略', () => {
+  describe.skip('分段策略（虚拟滚动已禁用）', () => {
     it('应该按 H1 标题分段', () => {
       const lines = [
         '# 第一章',
@@ -270,7 +272,8 @@ describe('VirtualizedMarkdown', () => {
       vi.restoreAllMocks()
     })
 
-    it('应该在虚拟滚动模式下也支持右键菜单', () => {
+    // 虚拟滚动已禁用，跳过此测试
+    it.skip('应该在虚拟滚动模式下也支持右键菜单（虚拟滚动已禁用）', () => {
       // 确保没有选中文本
       vi.spyOn(window, 'getSelection').mockReturnValue(null)
 
@@ -409,7 +412,8 @@ fn main() {}
   })
 
   describe('性能优化', () => {
-    it('SectionRenderer 应该使用 memo', () => {
+    // 虚拟滚动已禁用，跳过此测试
+    it.skip('SectionRenderer 应该使用 memo（虚拟滚动已禁用）', () => {
       // 通过检查组件是否正常渲染来间接验证
       const lines = Array(501).fill('# 内容')
       const content = lines.join('\n')
