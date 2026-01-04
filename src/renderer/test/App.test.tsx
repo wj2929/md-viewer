@@ -36,6 +36,13 @@ const mockApi = {
   onTabCloseAll: vi.fn(() => vi.fn()),
   onTabCloseLeft: vi.fn(() => vi.fn()),
   onTabCloseRight: vi.fn(() => vi.fn()),
+  // v1.3 阶段 2：Markdown 右键菜单
+  showMarkdownContextMenu: vi.fn().mockResolvedValue({ success: true }),
+  onMarkdownExportHTML: vi.fn(() => vi.fn()),
+  onMarkdownExportPDF: vi.fn(() => vi.fn()),
+  onMarkdownCopySource: vi.fn(() => vi.fn()),
+  onMarkdownCopyPlainText: vi.fn(() => vi.fn()),
+  onMarkdownCopyHTML: vi.fn(() => vi.fn()),
   // v1.2 阶段 1：右键菜单事件
   onFileDeleted: vi.fn(() => vi.fn()),
   onFileStartRename: vi.fn(() => vi.fn()),

@@ -8,6 +8,7 @@ import chokidar from 'chokidar'
 import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
 import { showContextMenu } from './contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from './tabMenuHandler'
+import { showMarkdownContextMenu, MarkdownMenuContext } from './markdownMenuHandler'
 import { registerWindowShortcuts } from './shortcuts'
 
 // 定义存储的数据结构
@@ -765,6 +766,20 @@ ipcMain.handle('tab:show-context-menu', async (event, ctx: TabMenuContext) => {
   }
 
   showTabContextMenu(window, ctx)
+  return { success: true }
+})
+
+// v1.3 阶段 2：显示 Markdown 右键菜单
+ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuContext) => {
+  // ⚠️ 安全校验
+  validatePath(ctx.filePath)
+
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (!window) {
+    throw new Error('无法获取窗口实例')
+  }
+
+  showMarkdownContextMenu(window, ctx)
   return { success: true }
 })
 

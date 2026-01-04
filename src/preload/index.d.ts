@@ -34,6 +34,12 @@ declare global {
         tabIndex: number
       }) => Promise<{ success: boolean }>
 
+      // v1.3 阶段 2：Markdown 右键菜单
+      showMarkdownContextMenu: (ctx: {
+        filePath: string
+        hasSelection: boolean
+      }) => Promise<{ success: boolean }>
+
       // 文件操作 (v1.2 阶段 2)
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>
@@ -65,6 +71,13 @@ declare global {
       onTabCloseAll: (callback: () => void) => () => void
       onTabCloseLeft: (callback: (tabId: string) => void) => () => void
       onTabCloseRight: (callback: (tabId: string) => void) => () => void
+
+      // v1.3 阶段 2：Markdown 右键菜单事件
+      onMarkdownExportHTML: (callback: () => void) => () => void
+      onMarkdownExportPDF: (callback: () => void) => () => void
+      onMarkdownCopySource: (callback: () => void) => () => void
+      onMarkdownCopyPlainText: (callback: () => void) => () => void
+      onMarkdownCopyHTML: (callback: () => void) => () => void
 
       // 右键菜单事件 (v1.2 阶段 1)
       onFileDeleted: (callback: (filePath: string) => void) => () => void

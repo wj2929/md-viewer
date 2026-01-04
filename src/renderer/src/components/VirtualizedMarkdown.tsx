@@ -45,6 +45,7 @@ const VIRTUALIZATION_THRESHOLD = {
 interface VirtualizedMarkdownProps {
   content: string
   className?: string
+  filePath?: string  // v1.3 阶段 2：用于右键菜单
 }
 
 /**
@@ -273,8 +274,24 @@ const SectionRenderer = memo(function SectionRenderer({
 /**
  * 虚拟滚动 Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '' }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown({ content, className = '', filePath }: VirtualizedMarkdownProps): JSX.Element {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
+
+  // v1.3 阶段 2：右键菜单处理
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!filePath) return
+
+    const selection = window.getSelection()
+    const hasSelection = selection !== null && selection.toString().trim().length > 0
+
+    window.api.showMarkdownContextMenu({
+      filePath,
+      hasSelection
+    }).catch(error => {
+      console.error('[VirtualizedMarkdown] Failed to show context menu:', error)
+    })
+  }, [filePath])
 
   // 初始化 Mermaid
   useEffect(() => {
@@ -325,12 +342,19 @@ export function VirtualizedMarkdown({ content, className = '' }: VirtualizedMark
 
   // 小文件直接渲染（不使用虚拟滚动）
   if (!shouldVirtualize) {
-    return <NonVirtualizedMarkdown content={content} md={md} className={className} />
+    return (
+      <NonVirtualizedMarkdown
+        content={content}
+        md={md}
+        className={className}
+        onContextMenu={handleContextMenu}
+      />
+    )
   }
 
   // 大文件使用虚拟滚动
   return (
-    <div className={`markdown-body virtualized ${className}`}>
+    <div className={`markdown-body virtualized ${className}`} onContextMenu={handleContextMenu}>
       <div className="virtualized-info">
         <span>📄 大文件模式：{sections.length} 个分段，共 {content.split('\n').length} 行</span>
       </div>
@@ -358,11 +382,13 @@ export function VirtualizedMarkdown({ content, className = '' }: VirtualizedMark
 const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   content,
   md,
-  className
+  className,
+  onContextMenu
 }: {
   content: string
   md: MarkdownIt
   className: string
+  onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -423,6 +449,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
       ref={containerRef}
       className={`markdown-body ${className}`}
       dangerouslySetInnerHTML={{ __html: html }}
+      onContextMenu={onContextMenu}
     />
   )
 })

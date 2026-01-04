@@ -31,6 +31,12 @@ const api = {
     tabIndex: number
   }) => ipcRenderer.invoke('tab:show-context-menu', ctx),
 
+  // v1.3 阶段 2：Markdown 右键菜单
+  showMarkdownContextMenu: (ctx: {
+    filePath: string
+    hasSelection: boolean
+  }) => ipcRenderer.invoke('markdown:show-context-menu', ctx),
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),
@@ -125,6 +131,37 @@ const api = {
     const handler = (_event: unknown, tabId: string) => callback(tabId)
     ipcRenderer.on('tab:close-right', handler)
     return () => ipcRenderer.removeListener('tab:close-right', handler)
+  },
+
+  // v1.3 阶段 2：Markdown 右键菜单事件
+  onMarkdownExportHTML: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:export-html', handler)
+    return () => ipcRenderer.removeListener('markdown:export-html', handler)
+  },
+
+  onMarkdownExportPDF: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:export-pdf', handler)
+    return () => ipcRenderer.removeListener('markdown:export-pdf', handler)
+  },
+
+  onMarkdownCopySource: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:copy-source', handler)
+    return () => ipcRenderer.removeListener('markdown:copy-source', handler)
+  },
+
+  onMarkdownCopyPlainText: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:copy-plain-text', handler)
+    return () => ipcRenderer.removeListener('markdown:copy-plain-text', handler)
+  },
+
+  onMarkdownCopyHTML: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:copy-html', handler)
+    return () => ipcRenderer.removeListener('markdown:copy-html', handler)
   },
 
   // 右键菜单事件 (v1.2 阶段 1 新增)

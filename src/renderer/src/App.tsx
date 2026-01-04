@@ -525,6 +525,59 @@ function App(): JSX.Element {
     activeTabId
   ])
 
+  // v1.3 阶段 2：Markdown 右键菜单事件监听
+  useEffect(() => {
+    // 检查 API 是否存在
+    if (!window.api.onMarkdownExportHTML) return
+
+    const unsubscribeExportHTML = window.api.onMarkdownExportHTML(() => {
+      handleExportHTML()
+    })
+
+    const unsubscribeExportPDF = window.api.onMarkdownExportPDF(() => {
+      handleExportPDF()
+    })
+
+    const unsubscribeCopySource = window.api.onMarkdownCopySource(() => {
+      if (activeTab) {
+        navigator.clipboard.writeText(activeTab.content)
+        toast.success('已复制 Markdown 源码')
+      }
+    })
+
+    const unsubscribeCopyPlainText = window.api.onMarkdownCopyPlainText(() => {
+      if (activeTab) {
+        // 简单移除 Markdown 标记获取纯文本
+        const plainText = activeTab.content
+          .replace(/#{1,6}\s+/g, '')  // 标题
+          .replace(/\*\*([^*]+)\*\*/g, '$1')  // 粗体
+          .replace(/\*([^*]+)\*/g, '$1')  // 斜体
+          .replace(/`([^`]+)`/g, '$1')  // 行内代码
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // 链接
+          .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')  // 图片
+        navigator.clipboard.writeText(plainText)
+        toast.success('已复制纯文本')
+      }
+    })
+
+    const unsubscribeCopyHTML = window.api.onMarkdownCopyHTML(() => {
+      if (activeTab) {
+        const md = createMarkdownRenderer()
+        const html = md.render(activeTab.content)
+        navigator.clipboard.writeText(html)
+        toast.success('已复制 HTML')
+      }
+    })
+
+    return () => {
+      unsubscribeExportHTML()
+      unsubscribeExportPDF()
+      unsubscribeCopySource()
+      unsubscribeCopyPlainText()
+      unsubscribeCopyHTML()
+    }
+  }, [activeTab, handleExportHTML, handleExportPDF, toast])
+
   return (
     <ErrorBoundary>
       <div className="app">
@@ -595,17 +648,10 @@ function App(): JSX.Element {
               />
               <div className="preview">
                 {activeTab ? (
-                  <>
-                    <div className="preview-toolbar">
-                      <button onClick={handleExportHTML} className="export-btn">
-                        导出 HTML
-                      </button>
-                      <button onClick={handleExportPDF} className="export-btn">
-                        导出 PDF
-                      </button>
-                    </div>
-                    <VirtualizedMarkdown content={activeTab.content} />
-                  </>
+                  <VirtualizedMarkdown
+                    content={activeTab.content}
+                    filePath={activeTab.file.path}
+                  />
                 ) : (
                   <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                 )}
