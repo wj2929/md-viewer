@@ -82,17 +82,17 @@ jobs:
 
       - name: 打包应用 (macOS)
         if: matrix.platform == 'mac'
-        run: npm run build:mac
+        run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: 打包应用 (Linux)
         if: matrix.platform == 'linux'
-        run: npm run build:linux
+        run: npx electron-builder --linux --publish never
 
       - name: 打包应用 (Windows)
-        if: matrix.platform == 'windows'
-        run: npm run build:win
+        if: matrix.platform == 'win'
+        run: npx electron-builder --win --publish never
 
       - name: 上传构建产物 (macOS)
         if: matrix.platform == 'mac'
