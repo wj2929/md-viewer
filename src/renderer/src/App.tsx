@@ -12,6 +12,8 @@ function App(): JSX.Element {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  // v1.3 阶段 5：多选状态
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const toast = useToast()
   const { theme, setTheme } = useTheme()
 
@@ -81,15 +83,23 @@ function App(): JSX.Element {
       toast.error(error.message)
     })
 
-    // 剪贴板事件 (v1.2 阶段 2)
+    // 剪贴板事件 (v1.2 阶段 2, v1.3 阶段 5 多选支持)
     const unsubscribeCopy = window.api.onClipboardCopy((paths: string[]) => {
-      copy(paths)
-      toast.success(`已复制 ${paths.length} 个文件`)
+      // v1.3：如果有多选，使用多选的路径；否则使用传入的路径
+      const pathsToCopy = selectedPaths.size > 0 ? Array.from(selectedPaths) : paths
+      copy(pathsToCopy)
+      toast.success(`已复制 ${pathsToCopy.length} 个文件`)
+      // 复制后清空多选
+      setSelectedPaths(new Set())
     })
 
     const unsubscribeCut = window.api.onClipboardCut((paths: string[]) => {
-      cut(paths)
-      toast.success(`已剪切 ${paths.length} 个文件`)
+      // v1.3：如果有多选，使用多选的路径；否则使用传入的路径
+      const pathsToCut = selectedPaths.size > 0 ? Array.from(selectedPaths) : paths
+      cut(pathsToCut)
+      toast.success(`已剪切 ${pathsToCut.length} 个文件`)
+      // 剪切后清空多选
+      setSelectedPaths(new Set())
     })
 
     const unsubscribePaste = window.api.onClipboardPaste(async (targetDir: string) => {
@@ -116,7 +126,7 @@ function App(): JSX.Element {
       unsubscribeCut()
       unsubscribePaste()
     }
-  }, [folderPath, copy, cut, paste, toast])
+  }, [folderPath, copy, cut, paste, toast, selectedPaths])
 
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
@@ -634,6 +644,8 @@ function App(): JSX.Element {
                     selectedPath={activeTab?.file.path}
                     basePath={folderPath}
                     onFileRenamed={handleFileRenamed}
+                    selectedPaths={selectedPaths}
+                    onSelectionChange={setSelectedPaths}
                   />
                 )}
               </div>
