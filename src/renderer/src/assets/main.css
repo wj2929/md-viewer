@@ -866,7 +866,7 @@ body {
 }
 
 /* ============================================
-   虚拟滚动样式 (v1.2 阶段 4)
+   虚拟滚动样式 (v1.2 阶段 4, v1.3 阶段 4 优化)
    ============================================ */
 
 /* 虚拟滚动容器 */
@@ -887,20 +887,61 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
-/* 虚拟滚动分段 */
+/* 虚拟滚动分段 - v1.3 优化：消除分段间隔 */
 .virtualized-section {
-  padding: 0 32px 24px 32px;
+  /* 水平 padding 保持一致，移除底部间隔 */
+  padding: 0 32px;
+  /* 保持分段内容连续性 */
+  margin: 0;
 }
 
+/* 首个分段的顶部 padding */
 .virtualized-section:first-child {
   padding-top: 24px;
+}
+
+/* 最后一个分段的底部 padding */
+.virtualized-section:last-child {
+  padding-bottom: 24px;
+}
+
+/* 分段内的标题间距优化 */
+.virtualized-section > h1:first-child,
+.virtualized-section > h2:first-child {
+  /* 非首个分段的标题保持正常上边距 */
+  margin-top: 1.5em;
+}
+
+/* 首个分段的首个标题不需要额外上边距 */
+.virtualized-section:first-child > h1:first-child,
+.virtualized-section:first-child > h2:first-child {
+  margin-top: 0;
+}
+
+/* 分段内的段落和其他元素保持正常间距 */
+.virtualized-section > p:last-child,
+.virtualized-section > ul:last-child,
+.virtualized-section > ol:last-child,
+.virtualized-section > pre:last-child,
+.virtualized-section > blockquote:last-child,
+.virtualized-section > table:last-child {
+  margin-bottom: 0;
 }
 
 /* 确保 Virtuoso 容器填满剩余空间 */
 .markdown-body.virtualized > [data-virtuoso-scroller] {
   flex: 1;
+  overflow-y: auto;
+}
+
+/* Virtuoso 列表项容器 */
+.markdown-body.virtualized [data-virtuoso-item-list] {
+  /* 确保列表项无额外间距 */
+  margin: 0;
+  padding: 0;
 }
 
 /* 大文件内容警告 */
