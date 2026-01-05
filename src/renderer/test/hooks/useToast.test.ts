@@ -52,7 +52,7 @@ describe('useToast Hook', () => {
       const { result } = renderHook(() => useToast())
 
       act(() => {
-        result.current.success('Test', 5000)
+        result.current.success('Test', { duration: 5000 })
       })
 
       expect(result.current.messages[0].duration).toBe(5000)
@@ -76,7 +76,7 @@ describe('useToast Hook', () => {
       const { result } = renderHook(() => useToast())
 
       act(() => {
-        result.current.error('Error', 10000)
+        result.current.error('Error', { duration: 10000 })
       })
 
       expect(result.current.messages[0].duration).toBe(10000)
@@ -274,7 +274,7 @@ describe('useToast Hook', () => {
       const { result } = renderHook(() => useToast())
 
       act(() => {
-        result.current.success('Test', 0)
+        result.current.success('Test', { duration: 0 })
       })
 
       expect(result.current.messages[0].duration).toBe(0)
@@ -284,7 +284,7 @@ describe('useToast Hook', () => {
       const { result } = renderHook(() => useToast())
 
       act(() => {
-        result.current.success('Test', undefined)
+        result.current.success('Test', {})
       })
 
       expect(result.current.messages[0].duration).toBeUndefined()

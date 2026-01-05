@@ -426,6 +426,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
     return md.render(content)
   }, [md, content])
 
+  // Mermaid 图表渲染
   useEffect(() => {
     if (!containerRef.current) return
 
@@ -446,6 +447,62 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         console.error('Mermaid render error:', error)
       }
     })
+  }, [html])
+
+  // ✅ 为标题添加 id 属性，支持目录锚点跳转
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const headings = containerRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
+    const usedIds = new Set<string>()
+
+    headings.forEach((heading) => {
+      if (heading.id) return  // 已有 id，跳过
+
+      const text = heading.textContent || ''
+      let slug = text
+        .toLowerCase()
+        .trim()
+        .replace(/[^\p{L}\p{N}\s-]/gu, '')  // 保留字母、数字、空格、连字符
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+
+      // 确保 id 唯一
+      let uniqueSlug = slug
+      let counter = 1
+      while (usedIds.has(uniqueSlug)) {
+        uniqueSlug = `${slug}-${counter}`
+        counter++
+      }
+      usedIds.add(uniqueSlug)
+      heading.id = uniqueSlug
+    })
+  }, [html])
+
+  // ✅ 处理锚点链接点击
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      const anchor = target.closest('a')
+      if (!anchor) return
+
+      const href = anchor.getAttribute('href')
+      if (!href || !href.startsWith('#')) return
+
+      e.preventDefault()
+      const targetId = decodeURIComponent(href.slice(1))
+      const targetElement = document.getElementById(targetId)
+
+      if (targetElement) {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
+
+    containerRef.current.addEventListener('click', handleClick)
+    return () => containerRef.current?.removeEventListener('click', handleClick)
   }, [html])
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, memo } from 'react'
+import { useEffect, useRef, useMemo, memo, useCallback } from 'react'
 import MarkdownIt from 'markdown-it'
 import Prism from 'prismjs'
 import katex from 'katex'
@@ -241,6 +241,94 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       }
     })
   }, [html])
+
+  // ✅ 为标题添加 id 属性，支持目录锚点跳转
+  useEffect(() => {
+    console.log('[Anchor] useEffect 触发, containerRef:', containerRef.current)
+
+    if (!containerRef.current) {
+      console.log('[Anchor] containerRef.current 为空，退出')
+      return
+    }
+
+    // 查找所有标题元素
+    const headings = containerRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
+    console.log('[Anchor] 找到标题数量:', headings.length)
+
+    const usedIds = new Set<string>()
+
+    headings.forEach((heading, index) => {
+      // 如果已经有 id，跳过
+      if (heading.id) {
+        console.log(`[Anchor] 标题 ${index} 已有 id:`, heading.id)
+        return
+      }
+
+      const text = heading.textContent || ''
+      console.log(`[Anchor] 处理标题 ${index}:`, text)
+
+      // 生成 slug：转小写，移除标点，空格变连字符
+      let slug = text
+        .toLowerCase()
+        .trim()
+        .replace(/[^\p{L}\p{N}\s-]/gu, '')  // 保留字母、数字、空格、连字符
+        .replace(/\s+/g, '-')  // 空格变连字符
+        .replace(/-+/g, '-')   // 多个连字符合并
+        .replace(/^-|-$/g, '') // 移除首尾连字符
+
+      console.log(`[Anchor] 生成 slug:`, slug)
+
+      // 确保 id 唯一
+      let uniqueSlug = slug
+      let counter = 1
+      while (usedIds.has(uniqueSlug)) {
+        uniqueSlug = `${slug}-${counter}`
+        counter++
+      }
+      usedIds.add(uniqueSlug)
+
+      // 设置 id
+      heading.id = uniqueSlug
+      console.log(`[Anchor] 设置 id 完成:`, heading.id, '元素:', heading)
+    })
+
+    console.log('[Anchor] 处理完成，共处理', headings.length, '个标题')
+  }, [html])
+
+  // ✅ 处理锚点链接点击，实现页内跳转
+  const handleClick = useCallback((e: MouseEvent) => {
+    const target = e.target as HTMLElement
+    const anchor = target.closest('a')
+
+    if (!anchor) return
+
+    const href = anchor.getAttribute('href')
+    if (!href || !href.startsWith('#')) return
+
+    // 阻止默认行为（防止 Electron 尝试导航）
+    e.preventDefault()
+
+    // 获取目标 id（解码 URL 编码）
+    const targetId = decodeURIComponent(href.slice(1))
+
+    // 使用 getElementById 而不是 querySelector，因为 CSS.escape 对中文处理有问题
+    const targetElement = document.getElementById(targetId)
+
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else {
+      console.warn('[MarkdownRenderer] 未找到锚点目标:', targetId)
+    }
+  }, [])
+
+  // 绑定点击事件
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    container.addEventListener('click', handleClick)
+    return () => container.removeEventListener('click', handleClick)
+  }, [handleClick])
 
   return (
     <div

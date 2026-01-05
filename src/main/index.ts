@@ -185,7 +185,8 @@ async function scanMarkdownFiles(rootPath: string): Promise<FileInfo[]> {
   const root: Map<string, FileInfo> = new Map()
 
   for (const relativePath of mdFiles) {
-    const parts = relativePath.split('/')
+    // 兼容 Windows 和 Unix 路径分隔符
+    const parts = relativePath.split(/[\\/]/)
     const fileName = parts.pop()!
     const fullPath = path.join(rootPath, relativePath)
 
@@ -261,7 +262,8 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
   const dirMap = new Map<string, FileInfo>()
 
   for (const relativePath of relativePaths) {
-    const parts = relativePath.split('/')
+    // 兼容 Windows 和 Unix 路径分隔符
+    const parts = relativePath.split(/[\\/]/)
     const fileName = parts.pop()!
     const fullPath = path.join(rootPath, relativePath)
 
@@ -390,6 +392,291 @@ ipcMain.handle('fs:readFile', async (_, filePath: string) => {
   }
 })
 
+// 获取导出用的完整 CSS（包含所有必需的变量和样式）
+async function getExportStyles(): Promise<{ markdownCss: string; prismCss: string }> {
+  let markdownCss = ''
+  let prismCss = ''
+
+  try {
+    // 开发环境路径
+    if (is.dev) {
+      const srcPath = join(__dirname, '../../src/renderer/src/assets')
+      markdownCss = await fs.readFile(join(srcPath, 'markdown.css'), 'utf-8')
+      prismCss = await fs.readFile(join(srcPath, 'prism-theme.css'), 'utf-8')
+    } else {
+      // 生产环境：尝试多个可能的路径
+      const possiblePaths = [
+        join(__dirname, '../renderer/assets'),
+        join(__dirname, '../renderer'),
+        join(app.getAppPath(), 'out/renderer/assets'),
+        join(app.getAppPath(), 'out/renderer')
+      ]
+
+      for (const assetsPath of possiblePaths) {
+        try {
+          // 尝试直接读取文件
+          markdownCss = await fs.readFile(join(assetsPath, 'markdown.css'), 'utf-8')
+          prismCss = await fs.readFile(join(assetsPath, 'prism-theme.css'), 'utf-8')
+          break
+        } catch {
+          // 尝试读取合并后的 CSS 文件（Vite 可能会重命名）
+          try {
+            const files = await fs.readdir(assetsPath)
+            const cssFile = files.find(f => f.endsWith('.css') && f.startsWith('index'))
+            if (cssFile) {
+              const combinedCss = await fs.readFile(join(assetsPath, cssFile), 'utf-8')
+              // 提取 markdown-body 和 token 相关样式
+              markdownCss = combinedCss
+              prismCss = ''
+              break
+            }
+          } catch {
+            continue
+          }
+        }
+      }
+    }
+  } catch (cssError) {
+    console.error('Failed to read CSS files:', cssError)
+  }
+
+  // 如果仍然没有样式，使用内嵌的完整样式
+  if (!markdownCss) {
+    markdownCss = getBuiltinMarkdownCSS()
+    prismCss = getBuiltinPrismCSS()
+  }
+
+  return { markdownCss, prismCss }
+}
+
+// 内置的完整 Markdown 样式
+function getBuiltinMarkdownCSS(): string {
+  return `
+.markdown-body {
+  font-family: 'Helvetica Neue', Helvetica, 'Segoe UI', Arial, freesans, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  word-wrap: break-word;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  line-height: 1.2;
+  margin-top: 1em;
+  margin-bottom: 16px;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.markdown-body h1 { font-size: 2.25em; font-weight: 300; }
+.markdown-body h2 { font-size: 1.75em; font-weight: 400; }
+.markdown-body h3 { font-size: 1.5em; font-weight: 500; }
+.markdown-body h4 { font-size: 1.25em; }
+.markdown-body h5, .markdown-body h6 { font-size: 1em; }
+.markdown-body h6 { color: var(--text-secondary); }
+
+.markdown-body strong { color: var(--text-strong); font-weight: 600; }
+.markdown-body a { color: #08c; text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+
+.markdown-body p, .markdown-body ul, .markdown-body ol,
+.markdown-body blockquote, .markdown-body table, .markdown-body pre {
+  margin-bottom: 16px;
+}
+
+.markdown-body ul, .markdown-body ol { padding-left: 2em; }
+.markdown-body li + li { margin-top: 0.25em; }
+
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: var(--text-secondary);
+  border-left: 4px solid var(--blockquote-border);
+  background: var(--blockquote-bg);
+}
+
+.markdown-body code {
+  font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 85%;
+  background: var(--inline-code-bg);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+}
+
+.markdown-body pre {
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  background: var(--code-block-bg);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.markdown-body th, .markdown-body td {
+  padding: 6px 13px;
+  border: 1px solid var(--border-color);
+}
+
+.markdown-body th {
+  font-weight: 600;
+  background: var(--table-header-bg);
+}
+
+.markdown-body tr:nth-child(2n) {
+  background: var(--bg-secondary);
+}
+
+.markdown-body hr {
+  height: 0.25em;
+  padding: 0;
+  margin: 24px 0;
+  background-color: var(--hr-color);
+  border: 0;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  box-sizing: content-box;
+}
+
+.markdown-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+`
+}
+
+// 内置的 Prism 代码高亮样式
+function getBuiltinPrismCSS(): string {
+  return `
+code[class*="language-"], pre[class*="language-"] {
+  color: var(--text-primary);
+  font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  line-height: 1.4;
+  tab-size: 4;
+}
+
+.token.comment, .token.blockquote { color: #969896; }
+.token.cdata { color: #183691; }
+.token.doctype, .token.punctuation, .token.variable { color: var(--text-primary); }
+.token.operator, .token.important, .token.keyword, .token.rule, .token.builtin { color: #a71d5d; }
+.token.string, .token.url, .token.regex, .token.attr-value { color: #183691; }
+.token.property, .token.number, .token.boolean, .token.entity, .token.atrule,
+.token.constant, .token.symbol, .token.command, .token.code { color: #0086b3; }
+.token.tag, .token.selector, .token.prolog { color: #63a35c; }
+.token.function, .token.namespace, .token.pseudo-element, .token.class,
+.token.class-name, .token.pseudo-class, .token.id, .token.url-reference .token.variable,
+.token.attr-name { color: #795da3; }
+.token.entity { cursor: help; }
+.token.title, .token.title .token.punctuation { font-weight: bold; color: #1d3e81; }
+.token.list { color: #ed6a43; }
+.token.inserted { background-color: #eaffea; color: #55a532; }
+.token.deleted { background-color: #ffecec; color: #bd2c00; }
+.token.bold { font-weight: bold; }
+.token.italic { font-style: italic; }
+`
+}
+
+// 生成导出用的完整 HTML 模板
+function generateExportHTML(content: string, title: string, markdownCss: string, prismCss: string): string {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <style>
+    :root {
+      /* 完整的亮色主题变量 */
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --text-strong: #000000;
+      --border-color: #e0e0e0;
+      --accent-color: #007aff;
+      /* Markdown 样式变量 */
+      --blockquote-bg: #f6f8fa;
+      --blockquote-border: #dfe2e5;
+      --inline-code-bg: #f6f8fa;
+      --code-block-bg: #f6f8fa;
+      --table-header-bg: #f6f8fa;
+      --heading-border: #eaecef;
+      --hr-color: #eaecef;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #1e1e1e;
+        --bg-secondary: #252525;
+        --text-primary: #cccccc;
+        --text-secondary: #888888;
+        --text-strong: #ffffff;
+        --border-color: #404040;
+        --accent-color: #0a84ff;
+        --blockquote-bg: #2d333b;
+        --blockquote-border: #444c56;
+        --inline-code-bg: #2d333b;
+        --code-block-bg: #2d333b;
+        --table-header-bg: #2d333b;
+        --heading-border: #373e47;
+        --hr-color: #373e47;
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      padding: 40px 20px;
+      background: var(--bg-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: var(--text-primary);
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: var(--bg-primary);
+      padding: 40px;
+    }
+
+    @media print {
+      body { padding: 0; }
+      .container { padding: 20px; max-width: none; }
+    }
+
+    ${markdownCss}
+    ${prismCss}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="markdown-body">
+      ${content}
+    </div>
+  </div>
+</body>
+</html>`
+}
+
 // 导出 HTML
 ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) => {
   try {
@@ -405,84 +692,8 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
       return null
     }
 
-    // 读取 CSS 文件 - 使用正确的路径
-    let markdownCss = ''
-    let prismCss = ''
-
-    try {
-      // 开发环境路径
-      if (is.dev) {
-        const srcPath = join(__dirname, '../../src/renderer/src/assets')
-        markdownCss = await fs.readFile(join(srcPath, 'markdown.css'), 'utf-8')
-        prismCss = await fs.readFile(join(srcPath, 'prism-theme.css'), 'utf-8')
-      } else {
-        // 生产环境路径
-        const assetsPath = join(__dirname, '../renderer/assets')
-        markdownCss = await fs.readFile(join(assetsPath, 'markdown.css'), 'utf-8')
-        prismCss = await fs.readFile(join(assetsPath, 'prism-theme.css'), 'utf-8')
-      }
-    } catch (cssError) {
-      console.error('Failed to read CSS files:', cssError)
-      // 如果CSS文件读取失败，使用内联的基础样式
-      markdownCss = `
-        .markdown-body { font-size: 16px; line-height: 1.6; }
-        .markdown-body h1 { font-size: 2em; margin: 0.67em 0; }
-        .markdown-body h2 { font-size: 1.5em; margin: 0.75em 0; }
-        .markdown-body pre { background: #f6f8fa; padding: 16px; border-radius: 6px; }
-        .markdown-body code { background: #f6f8fa; padding: 2px 4px; border-radius: 3px; }
-      `
-      prismCss = ''
-    }
-
-    // KaTeX CSS (使用 CDN)
-    const katexCss = '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">'
-
-    // 生成完整 HTML
-    const fullHtml = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${fileName}</title>
-  ${katexCss}
-  <style>
-    :root {
-      --text-primary: #24292f;
-      --text-secondary: #57606a;
-      --bg-primary: #ffffff;
-      --bg-secondary: #f6f8fa;
-      --border-color: #d0d7de;
-      --accent-color: #0969da;
-    }
-
-    body {
-      margin: 0;
-      padding: 20px;
-      background: var(--bg-primary);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    }
-
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      background: white;
-      padding: 40px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      border-radius: 6px;
-    }
-
-    ${markdownCss}
-    ${prismCss}
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="markdown-body">
-      ${htmlContent}
-    </div>
-  </div>
-</body>
-</html>`
+    const { markdownCss, prismCss } = await getExportStyles()
+    const fullHtml = generateExportHTML(htmlContent, fileName, markdownCss, prismCss)
 
     await fs.writeFile(result.filePath, fullHtml, 'utf-8')
     return result.filePath
@@ -491,6 +702,93 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
     throw error
   }
 })
+
+// 生成 PDF 专用的 HTML 模板（用于打印）
+function generatePDFHTML(content: string, markdownCss: string, prismCss: string): string {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <style>
+    :root {
+      /* ✅ PDF 使用固定的亮色主题 - 完整版本 */
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --text-strong: #000000;
+      --border-color: #e0e0e0;
+      --accent-color: #007aff;
+
+      /* ✅ Markdown 样式变量（完整） */
+      --blockquote-bg: #f6f8fa;
+      --blockquote-border: #dfe2e5;
+      --inline-code-bg: #f6f8fa;
+      --code-block-bg: #f6f8fa;
+      --table-header-bg: #f6f8fa;
+      --heading-border: #eaecef;
+      --hr-color: #eaecef;
+
+      /* ✅ Prism 主题需要的变量 */
+      --kbd-border-bottom: #b8b8b8;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      padding: 10mm;  /* ✅ 减小内边距（因为 printToPDF 已设置 15mm 边距） */
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: white;
+      color: var(--text-primary);
+      line-height: 1.6;  /* ✅ 提升可读性 */
+    }
+
+    ${markdownCss}
+    ${prismCss}
+
+    /* ✅ 增强 PDF 打印样式 */
+    @media print {
+      body {
+        padding: 0;  /* 打印时去除内边距（避免双重边距） */
+      }
+
+      .markdown-body {
+        max-width: none;
+      }
+
+      /* 防止元素跨页断裂 */
+      .markdown-body h1,
+      .markdown-body h2,
+      .markdown-body h3,
+      .markdown-body h4,
+      .markdown-body h5,
+      .markdown-body h6 {
+        page-break-after: avoid;
+      }
+
+      .markdown-body pre,
+      .markdown-body table,
+      .markdown-body blockquote {
+        page-break-inside: avoid;
+      }
+
+      /* 优化代码块显示 */
+      .markdown-body pre {
+        white-space: pre-wrap;       /* ✅ 自动换行 */
+        word-wrap: break-word;
+        overflow-x: visible;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="markdown-body">
+    ${content}
+  </div>
+</body>
+</html>`
+}
 
 // 导出 PDF
 ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string) => {
@@ -521,84 +819,69 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
       }
     })
 
-    // 读取 CSS 文件
-    let markdownCss = ''
-    let prismCss = ''
-
-    try {
-      if (is.dev) {
-        const srcPath = join(__dirname, '../../src/renderer/src/assets')
-        markdownCss = await fs.readFile(join(srcPath, 'markdown.css'), 'utf-8')
-        prismCss = await fs.readFile(join(srcPath, 'prism-theme.css'), 'utf-8')
-      } else {
-        const assetsPath = join(__dirname, '../renderer/assets')
-        markdownCss = await fs.readFile(join(assetsPath, 'markdown.css'), 'utf-8')
-        prismCss = await fs.readFile(join(assetsPath, 'prism-theme.css'), 'utf-8')
-      }
-    } catch (cssError) {
-      console.error('Failed to read CSS files:', cssError)
-      markdownCss = `
-        .markdown-body { font-size: 16px; line-height: 1.6; }
-        .markdown-body h1 { font-size: 2em; margin: 0.67em 0; }
-        .markdown-body h2 { font-size: 1.5em; margin: 0.75em 0; }
-        .markdown-body pre { background: #f6f8fa; padding: 16px; border-radius: 6px; }
-        .markdown-body code { background: #f6f8fa; padding: 2px 4px; border-radius: 3px; }
-      `
-      prismCss = ''
-    }
-
-    // 生成 PDF 专用的 HTML
-    const pdfHtml = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      margin: 20mm;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: white;
-    }
-
-    :root {
-      --text-primary: #24292f;
-      --text-secondary: #57606a;
-      --bg-primary: #ffffff;
-      --bg-secondary: #f6f8fa;
-      --border-color: #d0d7de;
-      --accent-color: #0969da;
-    }
-
-    ${markdownCss}
-    ${prismCss}
-
-    /* PDF 专用样式 */
-    @media print {
-      body { margin: 0; }
-      .markdown-body { max-width: none; }
-    }
-  </style>
-</head>
-<body>
-  <div class="markdown-body">
-    ${htmlContent}
-  </div>
-</body>
-</html>`
+    // 获取样式
+    const { markdownCss, prismCss } = await getExportStyles()
+    const pdfHtml = generatePDFHTML(htmlContent, markdownCss, prismCss)
 
     // 加载 HTML 内容
     await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pdfHtml)}`)
 
-    // 等待页面加载完成
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // ✅ 等待 KaTeX 渲染完成（智能检测，而不是硬编码时间）
+    await printWindow.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        // 检查 KaTeX 是否渲染完成
+        const checkKatex = () => {
+          const katexElements = document.querySelectorAll('.katex')
+
+          // 如果没有 KaTeX 元素，直接完成
+          if (katexElements.length === 0) {
+            resolve(true)
+            return
+          }
+
+          // 检查所有 KaTeX 元素是否都已渲染
+          const allRendered = Array.from(katexElements).every(el => {
+            // KaTeX 渲染完成后会包含 <math> 或 <mrow> 元素
+            return el.querySelector('math') || el.querySelector('mrow') || el.querySelector('span.katex-html')
+          })
+
+          if (allRendered) {
+            resolve(true)
+          } else {
+            // 每 100ms 检查一次
+            setTimeout(checkKatex, 100)
+          }
+        }
+
+        // 最多等待 5 秒，防止无限等待
+        setTimeout(() => resolve(false), 5000)
+
+        // 开始检查
+        if (document.readyState === 'complete') {
+          checkKatex()
+        } else {
+          window.addEventListener('load', checkKatex)
+        }
+      })
+    `)
+
+    // ✅ 额外等待 500ms 确保字体完全加载（CDN 字体可能需要额外时间）
+    await new Promise(resolve => setTimeout(resolve, 500))
 
     // 打印为 PDF
+    // ⚠️ Electron printToPDF margins 单位是英寸（inches）
+    // 10mm ≈ 0.39 inches (10 / 25.4)
+    const marginInInches = 10 / 25.4  // 10mm ≈ 0.39 inches
     const pdfData = await printWindow.webContents.printToPDF({
       pageSize: 'A4',
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
-      printBackground: true
+      margins: {
+        top: marginInInches,     // ✅ 10mm 上边距
+        bottom: marginInInches,  // ✅ 10mm 下边距
+        left: marginInInches,    // ✅ 10mm 左边距
+        right: marginInInches    // ✅ 10mm 右边距
+      },
+      printBackground: true,
+      preferCSSPageSize: false  // ✅ 强制使用 PDF 边距设置
     })
 
     // 关闭打印窗口
@@ -954,4 +1237,16 @@ ipcMain.handle('clipboard:write-system', async (_, paths: string[], isCut: boole
 // v1.3 阶段 6：检查系统剪贴板是否有文件
 ipcMain.handle('clipboard:has-system-files', async () => {
   return hasFilesInSystemClipboard()
+})
+
+// v1.4：在 Finder/Explorer 中显示文件
+ipcMain.handle('shell:showItemInFolder', async (_, filePath: string) => {
+  try {
+    // 使用 shell.showItemInFolder 在文件管理器中显示并选中文件
+    shell.showItemInFolder(filePath)
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to show item in folder:', error)
+    throw error
+  }
 })

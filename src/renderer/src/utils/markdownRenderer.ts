@@ -18,6 +18,19 @@ import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
 
 /**
+ * 生成 slug（用于标题 id）
+ */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')  // 保留字母、数字、空格、连字符
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+/**
  * 创建配置完整的 markdown-it 实例（包含 KaTeX 和 Prism 支持）
  */
 export function createMarkdownRenderer(): MarkdownIt {
@@ -136,6 +149,41 @@ export function createMarkdownRenderer(): MarkdownIt {
     state.line = lastLine + 1
     return true
   })
+
+  // ✅ 自定义标题渲染，为标题添加 id 属性支持目录跳转
+  md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
+    const token = tokens[idx]
+    const nextToken = tokens[idx + 1]
+
+    // 每次 render 调用时在 env 中初始化 usedIds
+    if (!env._usedIds) {
+      env._usedIds = new Set<string>()
+    }
+
+    // 获取标题文本
+    let titleText = ''
+    if (nextToken && nextToken.type === 'inline' && nextToken.children) {
+      titleText = nextToken.children
+        .filter(t => t.type === 'text' || t.type === 'code_inline')
+        .map(t => t.content)
+        .join('')
+    }
+
+    // 生成唯一 id
+    let slug = slugify(titleText)
+    let uniqueSlug = slug
+    let counter = 1
+    while (env._usedIds.has(uniqueSlug)) {
+      uniqueSlug = `${slug}-${counter}`
+      counter++
+    }
+    env._usedIds.add(uniqueSlug)
+
+    // 添加 id 属性
+    token.attrSet('id', uniqueSlug)
+
+    return self.renderToken(tokens, idx, options)
+  }
 
   return md
 }

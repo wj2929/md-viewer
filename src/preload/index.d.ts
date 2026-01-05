@@ -49,6 +49,9 @@ declare global {
       writeSystemClipboard: (paths: string[], isCut: boolean) => Promise<boolean>
       hasSystemClipboardFiles: () => Promise<boolean>
 
+      // v1.4：Shell 操作
+      showItemInFolder: (filePath: string) => Promise<{ success: boolean }>
+
       // 文件操作 (v1.2 阶段 2)
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>

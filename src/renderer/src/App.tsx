@@ -69,10 +69,36 @@ function App(): JSX.Element {
           // 调用导出 API
           if (data.type === 'html') {
             const result = await window.api.exportHTML(htmlContent, fileName)
-            if (result) toast.success(`HTML 已导出到：${result}`)
+            if (result) {
+              toast.success('HTML 已导出', {
+                action: {
+                  label: '点击查看',
+                  onClick: async () => {
+                    try {
+                      await window.api.showItemInFolder(result)
+                    } catch (error) {
+                      console.error('Failed to show item:', error)
+                    }
+                  }
+                }
+              })
+            }
           } else {
             const result = await window.api.exportPDF(htmlContent, fileName)
-            if (result) toast.success(`PDF 已导出到：${result}`)
+            if (result) {
+              toast.success('PDF 已导出', {
+                action: {
+                  label: '点击查看',
+                  onClick: async () => {
+                    try {
+                      await window.api.showItemInFolder(result)
+                    } catch (error) {
+                      console.error('Failed to show item:', error)
+                    }
+                  }
+                }
+              })
+            }
           }
         } catch (error) {
           console.error('导出失败:', error)
@@ -438,7 +464,18 @@ function App(): JSX.Element {
 
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
       if (filePath) {
-        toast.success(`HTML 已导出到：${filePath}`)
+        toast.success(`HTML 已导出`, {
+          action: {
+            label: '点击查看',
+            onClick: async () => {
+              try {
+                await window.api.showItemInFolder(filePath)
+              } catch (error) {
+                console.error('Failed to show item:', error)
+              }
+            }
+          }
+        })
       }
     } catch (error) {
       console.error('导出 HTML 失败:', error)
@@ -457,7 +494,18 @@ function App(): JSX.Element {
 
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
       if (filePath) {
-        toast.success(`PDF 已导出到：${filePath}`)
+        toast.success(`PDF 已导出`, {
+          action: {
+            label: '点击查看',
+            onClick: async () => {
+              try {
+                await window.api.showItemInFolder(filePath)
+              } catch (error) {
+                console.error('Failed to show item:', error)
+              }
+            }
+          }
+        })
       }
     } catch (error) {
       console.error('导出 PDF 失败:', error)

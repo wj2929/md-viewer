@@ -51,6 +51,10 @@ const api = {
   hasSystemClipboardFiles: () =>
     ipcRenderer.invoke('clipboard:has-system-files') as Promise<boolean>,
 
+  // v1.4：Shell 操作
+  showItemInFolder: (filePath: string) =>
+    ipcRenderer.invoke('shell:showItemInFolder', filePath) as Promise<{ success: boolean }>,
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),

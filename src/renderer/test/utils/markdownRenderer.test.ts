@@ -35,9 +35,10 @@ describe('markdownRenderer 工具函数测试', () => {
 
   describe('基本 Markdown 渲染', () => {
     it('应该渲染标题', () => {
-      expect(md.render('# H1')).toContain('<h1>')
-      expect(md.render('## H2')).toContain('<h2>')
-      expect(md.render('### H3')).toContain('<h3>')
+      // 标题现在带有 id 属性
+      expect(md.render('# H1')).toContain('<h1 id="h1">')
+      expect(md.render('## H2')).toContain('<h2 id="h2">')
+      expect(md.render('### H3')).toContain('<h3 id="h3">')
     })
 
     it('应该渲染粗体', () => {
@@ -188,8 +189,8 @@ $$
 `
       const result = md.render(content)
 
-      expect(result).toContain('<h1>')
-      expect(result).toContain('<h2>')
+      expect(result).toContain('<h1 id="title">')
+      expect(result).toContain('<h2 id="code-example">')  // 第一个 h2 是 "Code Example"
       expect(result).toContain('<strong>bold</strong>')
       expect(result).toContain('<em>italic</em>')
       expect(result).toContain('language-javascript')
@@ -239,7 +240,7 @@ $$
     it('应该处理非常长的文档', () => {
       const longContent = '# Title\n\n' + 'Paragraph.\n\n'.repeat(1000)
       const result = md.render(longContent)
-      expect(result).toContain('<h1>')
+      expect(result).toContain('<h1 id="title">')
     })
 
     it('应该处理深层嵌套列表', () => {

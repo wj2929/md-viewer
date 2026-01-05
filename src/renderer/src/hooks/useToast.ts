@@ -1,31 +1,42 @@
 import { useState, useCallback } from 'react'
-import { ToastMessage, ToastType } from '../components/Toast'
+import { ToastMessage, ToastType, ToastAction } from '../components/Toast'
 
 let toastId = 0
+
+export interface ToastOptions {
+  duration?: number
+  action?: ToastAction
+}
 
 export function useToast() {
   const [messages, setMessages] = useState<ToastMessage[]>([])
 
-  const showToast = useCallback((type: ToastType, message: string, duration?: number) => {
+  const showToast = useCallback((type: ToastType, message: string, options?: ToastOptions) => {
     const id = `toast-${++toastId}`
-    setMessages(prev => [...prev, { id, type, message, duration }])
+    setMessages(prev => [...prev, {
+      id,
+      type,
+      message,
+      duration: options?.duration,
+      action: options?.action
+    }])
     return id
   }, [])
 
-  const success = useCallback((message: string, duration?: number) => {
-    return showToast('success', message, duration)
+  const success = useCallback((message: string, options?: ToastOptions) => {
+    return showToast('success', message, options)
   }, [showToast])
 
-  const error = useCallback((message: string, duration?: number) => {
-    return showToast('error', message, duration)
+  const error = useCallback((message: string, options?: ToastOptions) => {
+    return showToast('error', message, options)
   }, [showToast])
 
-  const warning = useCallback((message: string, duration?: number) => {
-    return showToast('warning', message, duration)
+  const warning = useCallback((message: string, options?: ToastOptions) => {
+    return showToast('warning', message, options)
   }, [showToast])
 
-  const info = useCallback((message: string, duration?: number) => {
-    return showToast('info', message, duration)
+  const info = useCallback((message: string, options?: ToastOptions) => {
+    return showToast('info', message, options)
   }, [showToast])
 
   const closeToast = useCallback((id: string) => {

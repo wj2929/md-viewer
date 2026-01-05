@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.0-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.3.3-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -22,6 +22,7 @@
 - 👀 **实时监听** - 文件修改自动刷新，无需手动重载
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
 - 💾 **导出功能** - 右键菜单导出 HTML 和 PDF
+- 📑 **目录导航** - 点击目录跳转到对应章节
 - 🌓 **主题自适应** - 自动跟随系统明暗主题
 - ⚡ **极速体验** - Vite 热重载，秒级启动
 - 📋 **多文件选择** - Cmd+点击、Shift+点击、Cmd+A 全选
@@ -39,13 +40,13 @@ _（待添加）_
 ## 📦 下载
 
 ### macOS
-- [MD Viewer-1.3.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases) (Apple Silicon)
+- [MD Viewer-1.3.3-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3) (Apple Silicon)
 
 ### Windows
-- [MD Viewer-1.3.0.exe](https://github.com/wj2929/md-viewer/releases)
+- [MD Viewer Setup 1.3.3.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3)
 
 ### Linux
-- [MD Viewer-1.3.0.AppImage](https://github.com/wj2929/md-viewer/releases)
+- [MD Viewer-1.3.3.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3)
 
 ---
 
@@ -278,6 +279,9 @@ npm run build:linux
 - [x] 跨应用剪贴板（Finder ↔ MD Viewer）
 - [x] 可调侧边栏宽度（拖拽分隔条）
 - [x] MPE GitHub 主题样式
+- [x] 目录锚点跳转（预览 + 导出 HTML/PDF）
+- [x] PDF 边距优化（10mm）
+- [x] 搜索性能优化（Web Worker + 防抖 300ms）
 - [x] 测试覆盖率 71.71%
 
 ### v2.0 (计划中)
