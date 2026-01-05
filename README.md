@@ -40,7 +40,27 @@ _（待添加）_
 ## 📦 下载
 
 ### macOS
+
+**下载：**
 - [MD Viewer-1.3.3-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3) (Apple Silicon)
+
+⚠️ **首次安装说明**
+
+由于本项目为开源软件，未经过 Apple 公证。首次打开时可能提示"已损坏"，这是正常的安全提示。
+
+**解决方法**（二选一）：
+
+**方法 1：命令行移除隔离属性（推荐）**
+```bash
+xattr -cr /Applications/MD\ Viewer.app
+```
+
+**方法 2：系统设置允许**
+1. 双击打开 dmg，系统提示"已损坏"
+2. 进入「系统偏好设置」→「安全性与隐私」
+3. 点击「仍要打开」
+
+之后就能正常使用了。
 
 ### Windows
 - [MD Viewer Setup 1.3.3.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3)
