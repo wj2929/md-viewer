@@ -64,7 +64,12 @@ const mockApi = {
   onShortcutFocusSearch: vi.fn(() => vi.fn()),
   onShortcutNextTab: vi.fn(() => vi.fn()),
   onShortcutPrevTab: vi.fn(() => vi.fn()),
-  onShortcutSwitchTab: vi.fn(() => vi.fn())
+  onShortcutSwitchTab: vi.fn(() => vi.fn()),
+  // v1.3.4：历史文件夹
+  getFolderHistory: vi.fn().mockResolvedValue([]),
+  removeFolderFromHistory: vi.fn().mockResolvedValue(undefined),
+  clearFolderHistory: vi.fn().mockResolvedValue(undefined),
+  setFolderPath: vi.fn().mockResolvedValue(true)
 }
 
 // Mock 全局 window.api

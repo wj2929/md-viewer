@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { useToast } from './hooks/useToast'
@@ -29,6 +29,8 @@ function App(): JSX.Element {
 
   // 搜索栏 ref (用于快捷键聚焦)
   const searchBarRef = useRef<SearchBarHandle>(null)
+  // 预览区域 ref (用于滚动重置)
+  const previewRef = useRef<HTMLDivElement>(null)
 
   // 监听恢复文件夹事件
   useEffect(() => {
@@ -169,6 +171,14 @@ function App(): JSX.Element {
     } catch (error) {
       console.error('Failed to open folder:', error)
     }
+  }, [])
+
+  // 从历史选择文件夹
+  const handleSelectHistoryFolder = useCallback(async (path: string) => {
+    await window.api.setFolderPath(path)
+    setFolderPath(path)
+    setTabs([])
+    setActiveTabId(null)
   }, [])
 
   // 加载文件列表
@@ -453,6 +463,13 @@ function App(): JSX.Element {
     return tabs.find(tab => tab.id === activeTabId)
   }, [tabs, activeTabId])
 
+  // ✅ 切换文件时重置滚动位置
+  useEffect(() => {
+    if (previewRef.current && activeTabId) {
+      previewRef.current.scrollTop = 0
+    }
+  }, [activeTabId])
+
   // 导出 HTML
   const handleExportHTML = useCallback(async () => {
     if (!activeTab) return
@@ -686,9 +703,15 @@ function App(): JSX.Element {
             <div className="welcome-icon">📁</div>
             <h2>欢迎使用 MD Viewer</h2>
             <p>一个简洁的 Markdown 预览工具</p>
-            <button className="open-folder-btn" onClick={handleOpenFolder}>
-              打开文件夹
-            </button>
+            <div className="welcome-actions">
+              <button className="open-folder-btn" onClick={handleOpenFolder}>
+                打开文件夹
+              </button>
+              <FolderHistoryDropdown
+                onSelectFolder={handleSelectHistoryFolder}
+                onOpenFolder={handleOpenFolder}
+              />
+            </div>
           </div>
         ) : (
           <div className={`workspace ${isResizing ? 'resizing' : ''}`}>
@@ -705,9 +728,10 @@ function App(): JSX.Element {
                     >
                       🔄
                     </button>
-                    <button className="change-folder-btn" onClick={handleOpenFolder}>
-                      切换
-                    </button>
+                    <FolderHistoryDropdown
+                      onSelectFolder={handleSelectHistoryFolder}
+                      onOpenFolder={handleOpenFolder}
+                    />
                   </div>
                 </div>
                 <SearchBar ref={searchBarRef} files={files} onFileSelect={handleFileSelect} />
@@ -738,7 +762,7 @@ function App(): JSX.Element {
                 onTabClose={handleTabClose}
                 basePath={folderPath || undefined}
               />
-              <div className="preview">
+              <div className="preview" ref={previewRef}>
                 {activeTab ? (
                   <VirtualizedMarkdown
                     key={activeTab.file.path}

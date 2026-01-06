@@ -55,6 +55,16 @@ const api = {
   showItemInFolder: (filePath: string) =>
     ipcRenderer.invoke('shell:showItemInFolder', filePath) as Promise<{ success: boolean }>,
 
+  // v1.3.4：历史文件夹
+  getFolderHistory: () =>
+    ipcRenderer.invoke('folder-history:get') as Promise<Array<{ path: string; name: string; lastOpened: number }>>,
+  removeFolderFromHistory: (folderPath: string) =>
+    ipcRenderer.invoke('folder-history:remove', folderPath),
+  clearFolderHistory: () =>
+    ipcRenderer.invoke('folder-history:clear'),
+  setFolderPath: (folderPath: string) =>
+    ipcRenderer.invoke('folder:setPath', folderPath) as Promise<boolean>,
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),

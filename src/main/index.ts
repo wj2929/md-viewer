@@ -12,6 +12,7 @@ import { showMarkdownContextMenu, MarkdownMenuContext } from './markdownMenuHand
 import { syncClipboardState, getClipboardState } from './clipboardState'
 import { registerWindowShortcuts } from './shortcuts'
 import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from './clipboardManager'
+import { folderHistoryManager } from './folderHistoryManager'
 
 // 定义存储的数据结构
 interface AppState {
@@ -153,6 +154,9 @@ ipcMain.handle('dialog:openFolder', async () => {
   // 保存最后打开的文件夹
   const folderPath = result.filePaths[0]
   store.set('lastOpenedFolder', folderPath)
+
+  // ✅ 添加到历史文件夹列表
+  await folderHistoryManager.addFolder(folderPath)
 
   // ✅ 设置安全白名单基础路径
   setAllowedBasePath(folderPath)
@@ -1249,4 +1253,25 @@ ipcMain.handle('shell:showItemInFolder', async (_, filePath: string) => {
     console.error('Failed to show item in folder:', error)
     throw error
   }
+})
+
+// v1.3.4：历史文件夹管理
+ipcMain.handle('folder-history:get', async () => {
+  return folderHistoryManager.getHistory()
+})
+
+ipcMain.handle('folder-history:remove', async (_, folderPath: string) => {
+  folderHistoryManager.removeFolder(folderPath)
+})
+
+ipcMain.handle('folder-history:clear', async () => {
+  folderHistoryManager.clearHistory()
+})
+
+// v1.3.4：设置当前文件夹（从历史选择时调用）
+ipcMain.handle('folder:setPath', async (_, folderPath: string) => {
+  setAllowedBasePath(folderPath)
+  store.set('lastOpenedFolder', folderPath)
+  await folderHistoryManager.addFolder(folderPath)
+  return true
 })
