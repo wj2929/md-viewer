@@ -429,4 +429,174 @@ fn main() {}
       expect(container.querySelector('.markdown-body')).toBeInTheDocument()
     })
   })
+
+  describe('滚动位置重置 (v1.3.4 修复)', () => {
+    it('使用 key prop 时，切换文件应重新挂载组件', () => {
+      const { rerender, container } = render(
+        <VirtualizedMarkdown
+          key="/file1.md"
+          content="# File 1\n\nContent of file 1"
+          filePath="/file1.md"
+        />
+      )
+
+      const firstInstance = container.firstChild
+
+      // 切换到不同的文件
+      rerender(
+        <VirtualizedMarkdown
+          key="/file2.md"
+          content="# File 2\n\nContent of file 2"
+          filePath="/file2.md"
+        />
+      )
+
+      const secondInstance = container.firstChild
+
+      // 验证是不同的 DOM 实例（说明组件被重新挂载）
+      expect(firstInstance).not.toBe(secondInstance)
+    })
+
+    it('相同文件路径但内容变化时，不应重新挂载组件', () => {
+      const { rerender, container } = render(
+        <VirtualizedMarkdown
+          key="/file1.md"
+          content="# File 1\n\nOriginal content"
+          filePath="/file1.md"
+        />
+      )
+
+      const firstInstance = container.firstChild
+
+      // 相同文件，内容变化（模拟外部编辑）
+      rerender(
+        <VirtualizedMarkdown
+          key="/file1.md"
+          content="# File 1\n\nModified content"
+          filePath="/file1.md"
+        />
+      )
+
+      const secondInstance = container.firstChild
+
+      // 验证是同一个 DOM 实例（组件未重新挂载，只是内容更新）
+      expect(firstInstance).toBe(secondInstance)
+    })
+
+    it('切换文件时应渲染新文件的内容', () => {
+      const { rerender } = render(
+        <VirtualizedMarkdown
+          key="/file1.md"
+          content="# File 1"
+          filePath="/file1.md"
+        />
+      )
+
+      // 验证第一个文件的内容
+      expect(screen.getByText('File 1')).toBeInTheDocument()
+
+      // 切换到第二个文件
+      rerender(
+        <VirtualizedMarkdown
+          key="/file2.md"
+          content="# File 2"
+          filePath="/file2.md"
+        />
+      )
+
+      // 验证第二个文件的内容
+      expect(screen.getByText('File 2')).toBeInTheDocument()
+    })
+
+    it('快速切换多个文件时应保持稳定', () => {
+      const files = [
+        { path: '/file1.md', content: '# File 1' },
+        { path: '/file2.md', content: '# File 2' },
+        { path: '/file3.md', content: '# File 3' },
+        { path: '/file4.md', content: '# File 4' },
+        { path: '/file5.md', content: '# File 5' }
+      ]
+
+      const { rerender } = render(
+        <VirtualizedMarkdown
+          key={files[0].path}
+          content={files[0].content}
+          filePath={files[0].path}
+        />
+      )
+
+      // 快速切换文件
+      files.forEach((file, index) => {
+        if (index === 0) return // 跳过第一个（已渲染）
+
+        rerender(
+          <VirtualizedMarkdown
+            key={file.path}
+            content={file.content}
+            filePath={file.path}
+          />
+        )
+
+        // 验证每次切换都渲染正确的内容
+        expect(screen.getByText(`File ${index + 1}`)).toBeInTheDocument()
+      })
+    })
+
+    it('组件重新挂载时滚动位置应重置为 0', async () => {
+      const { rerender } = render(
+        <VirtualizedMarkdown
+          key="/file1.md"
+          content={'# File 1\n\n' + 'Line\n'.repeat(100)}
+          filePath="/file1.md"
+        />
+      )
+
+      const container = screen.getByText('File 1').closest('.markdown-body')?.parentElement as HTMLElement
+
+      // 模拟用户滚动到底部
+      if (container && container.scrollHeight > 0) {
+        container.scrollTop = container.scrollHeight
+        expect(container.scrollTop).toBeGreaterThan(0)
+      }
+
+      // 切换到新文件
+      rerender(
+        <VirtualizedMarkdown
+          key="/file2.md"
+          content={'# File 2\n\n' + 'Line\n'.repeat(100)}
+          filePath="/file2.md"
+        />
+      )
+
+      // 新组件的滚动位置应该是 0
+      const newContainer = screen.getByText('File 2').closest('.markdown-body')?.parentElement as HTMLElement
+      if (newContainer) {
+        expect(newContainer.scrollTop).toBe(0)
+      }
+    })
+
+    it('无 key prop 时，切换文件不会重新挂载组件（旧行为）', () => {
+      const { rerender, container } = render(
+        <VirtualizedMarkdown
+          content="# File 1"
+          filePath="/file1.md"
+        />
+      )
+
+      const firstInstance = container.firstChild
+
+      // 切换到不同的文件，但没有 key prop
+      rerender(
+        <VirtualizedMarkdown
+          content="# File 2"
+          filePath="/file2.md"
+        />
+      )
+
+      const secondInstance = container.firstChild
+
+      // 验证是同一个 DOM 实例（组件未重新挂载，只是 props 更新）
+      expect(firstInstance).toBe(secondInstance)
+    })
+  })
 })

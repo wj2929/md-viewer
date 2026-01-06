@@ -741,6 +741,7 @@ function App(): JSX.Element {
               <div className="preview">
                 {activeTab ? (
                   <VirtualizedMarkdown
+                    key={activeTab.file.path}
                     content={activeTab.content}
                     filePath={activeTab.file.path}
                   />

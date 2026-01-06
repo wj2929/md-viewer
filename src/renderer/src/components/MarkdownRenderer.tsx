@@ -3,6 +3,7 @@ import MarkdownIt from 'markdown-it'
 import Prism from 'prismjs'
 import katex from 'katex'
 import mermaid from 'mermaid'
+import DOMPurify from 'dompurify'
 
 // 导入 Prism 语言支持
 import 'prismjs/components/prism-javascript'
@@ -18,6 +19,28 @@ import 'prismjs/components/prism-json'
 import 'prismjs/components/prism-yaml'
 import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
+
+/**
+ * DOMPurify 配置（防御 XSS 攻击）
+ */
+const DOMPURIFY_CONFIG = {
+  ALLOWED_TAGS: [
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'ul', 'ol', 'li',
+    'code', 'pre', 'blockquote', 'table', 'thead', 'tbody', 'tr',
+    'th', 'td', 'img', 'strong', 'em', 'del', 's', 'br', 'hr', 'input',
+    'div', 'span', 'sup', 'sub'
+  ],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'type', 'checked', 'disabled'],
+  FORBID_ATTR: ['onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur'],
+  ALLOW_DATA_ATTR: false
+}
+
+/**
+ * 安全的 HTML 消毒函数
+ */
+function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, DOMPURIFY_CONFIG)
+}
 
 interface MarkdownRendererProps {
   content: string
@@ -199,9 +222,10 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       const lines = content.split('\n')
       if (lines.length > 10000) {
         const truncated = lines.slice(0, 10000).join('\n')
-        const renderedHtml = md.render(truncated)
+        const rawHtml = md.render(truncated)
+        const sanitizedHtml = sanitizeHtml(rawHtml)  // ✅ XSS 防护
         return `
-          ${renderedHtml}
+          ${sanitizedHtml}
           <div class="content-warning">
             <p><strong>内容过长，已截断显示</strong></p>
             <p>完整内容共 ${lines.length} 行，当前仅显示前 10000 行。</p>
@@ -210,7 +234,8 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       }
 
       // 正常渲染
-      return md.render(content)
+      const rawHtml = md.render(content)
+      return sanitizeHtml(rawHtml)  // ✅ XSS 防护
     } catch (error) {
       console.error('[MarkdownRenderer] Render error:', error)
       return `<pre style="color: red;">渲染错误: ${error}</pre>`
