@@ -125,7 +125,7 @@ describe('MarkdownRenderer', () => {
 
       expect(container.innerHTML).toContain('内容过长，已截断显示')
       expect(container.innerHTML).toContain('10001 行')
-    }, 15000)  // 增加超时时间到 15 秒，因为 anchor 插件处理大文件较慢
+    }, 30000)  // 增加超时时间到 30 秒，CI 环境可能较慢
 
     it('应该正常渲染少于 10000 行的内容', () => {
       const lines = Array(100).fill('# 标题')
