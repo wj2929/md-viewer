@@ -190,6 +190,8 @@ export function isMermaidCode(code: string): boolean {
     'statediagram-v2', 'erdiagram', 'journey', 'gantt',
     'pie', 'gitgraph', 'mindmap', 'timeline',
     'quadrantchart', 'sankey', 'xychart', 'block',
+    // C4 架构图
+    'c4context', 'c4container', 'c4component', 'c4dynamic', 'c4deployment',
   ]
 
   return standaloneCharts.some(chart =>

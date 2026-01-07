@@ -128,7 +128,9 @@ export function createMarkdownRenderer(): MarkdownIt {
 
     if (!silent) {
       const content = state.getLines(startLine, lastLine + 1, 0, false)
-      const latex = content.slice(firstLine.length, content.lastIndexOf('$$')).trim()
+      // 跳过开头的 $$ 和 firstLine 内容，取到结尾 $$ 之前的内容
+      const startOffset = 2 + firstLine.length  // "$$" 占 2 个字符
+      const latex = content.slice(startOffset, content.lastIndexOf('$$')).trim()
       try {
         const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
         const token = state.push('html_block', '', 0)

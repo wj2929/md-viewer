@@ -23,17 +23,34 @@ import 'prismjs/components/prism-css'
 
 /**
  * DOMPurify 配置（防御 XSS 攻击）
+ * 需要允许 KaTeX 使用的 MathML 和 SVG 标签
  */
 const DOMPURIFY_CONFIG = {
   ALLOWED_TAGS: [
+    // 基础 HTML 标签
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'ul', 'ol', 'li',
     'code', 'pre', 'blockquote', 'table', 'thead', 'tbody', 'tr',
     'th', 'td', 'img', 'strong', 'em', 'del', 's', 'br', 'hr', 'input',
-    'div', 'span', 'sup', 'sub'
+    'div', 'span', 'sup', 'sub',
+    // KaTeX MathML 标签
+    'math', 'semantics', 'mrow', 'mi', 'mn', 'mo', 'msup', 'msub',
+    'msubsup', 'mfrac', 'mroot', 'msqrt', 'mtext', 'mspace', 'mtable',
+    'mtr', 'mtd', 'mover', 'munder', 'munderover', 'annotation',
+    // SVG 标签 (KaTeX 根号等需要)
+    'svg', 'path', 'line', 'rect', 'circle', 'g', 'use', 'defs',
+    'clipPath', 'mask', 'pattern', 'symbol'
   ],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'type', 'checked', 'disabled'],
+  ALLOWED_ATTR: [
+    'href', 'src', 'alt', 'title', 'class', 'id', 'type', 'checked', 'disabled',
+    // KaTeX 需要的属性
+    'style', 'aria-hidden', 'xmlns', 'encoding', 'display',
+    // SVG 属性
+    'd', 'viewBox', 'preserveAspectRatio', 'fill', 'stroke', 'stroke-width',
+    'width', 'height', 'x', 'y', 'transform', 'clip-path', 'xlink:href'
+  ],
   FORBID_ATTR: ['onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur'],
-  ALLOW_DATA_ATTR: false
+  ALLOW_DATA_ATTR: false,
+  ADD_URI_SAFE_ATTR: ['xlink:href']
 }
 
 /**

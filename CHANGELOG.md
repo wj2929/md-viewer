@@ -36,10 +36,15 @@
 
 ### 修复
 
+- 🐛 **KaTeX 块级公式修复** (2026-01-07)
+  - 修复 `$$...$$` 块级公式导出时 `$$` 未正确移除的问题
+  - 修复应用内 KaTeX 渲染错乱问题（DOMPurify 配置添加 MathML/SVG 标签支持）
+
 - 🐛 **Mermaid 导出修复** (2026-01-07)
   - 修复 HTML 导出时 Mermaid 未渲染问题
   - 修复 Mermaid 中文文本不显示问题
   - 修复 Mermaid 箭头消失问题（SVG path d 属性保留）
+  - 添加 C4 架构图类型支持（c4context, c4container, c4component, c4dynamic, c4deployment）
 
 ### 新增文件
 
