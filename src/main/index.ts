@@ -687,14 +687,27 @@ code[class*="language-"], pre[class*="language-"] {
 `
 }
 
-// 生成导出用的完整 HTML 模板
+// HTML 转义（用于标题等用户输入）
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }
+  return text.replace(/[&<>"']/g, c => map[c])
+}
+
+// 生成导出用的完整 HTML 模板（含 CSP 和 Mermaid 支持）
 function generateExportHTML(content: string, title: string, markdownCss: string, prismCss: string): string {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; font-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self';">
+  <title>${escapeHtml(title)}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <style>
     :root {
@@ -754,6 +767,37 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
     @media print {
       body { padding: 0; }
       .container { padding: 20px; max-width: none; }
+    }
+
+    /* Mermaid 图表样式 */
+    .mermaid-container {
+      display: flex;
+      justify-content: center;
+      margin: 1.5em 0;
+      overflow-x: auto;
+    }
+
+    .mermaid-container svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .mermaid-error {
+      color: #c53030;
+      background: #fff5f5;
+      border: 1px solid #feb2b2;
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin: 1em 0;
+      font-size: 14px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .mermaid-error {
+        color: #fc8181;
+        background: #2d1f1f;
+        border-color: #822727;
+      }
     }
 
     ${markdownCss}

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, SettingsPanel } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, SettingsPanel, FloatingNav } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
+import { processMermaidInHtml } from './utils/mermaidRenderer'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
 import { useClipboardStore } from './stores/clipboardStore'
@@ -66,8 +67,11 @@ function App(): JSX.Element {
           // 读取文件内容
           const content = await window.api.readFile(data.path)
           const md = createMarkdownRenderer()
-          const htmlContent = md.render(content)
+          let htmlContent = md.render(content)
           const fileName = data.path.split('/').pop() || 'export'
+
+          // 将 Mermaid 代码块转换为 SVG
+          htmlContent = await processMermaidInHtml(htmlContent)
 
           // 调用导出 API
           if (data.type === 'html') {
@@ -489,7 +493,10 @@ function App(): JSX.Element {
     try {
       // 使用完整配置的 markdown 渲染器（包含 KaTeX 和 Prism）
       const md = createMarkdownRenderer()
-      const htmlContent = md.render(activeTab.content)
+      let htmlContent = md.render(activeTab.content)
+
+      // 将 Mermaid 代码块转换为 SVG（用于静态 HTML 导出）
+      htmlContent = await processMermaidInHtml(htmlContent)
 
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
       if (filePath) {
@@ -519,7 +526,10 @@ function App(): JSX.Element {
     try {
       // 使用完整配置的 markdown 渲染器（包含 KaTeX 和 Prism）
       const md = createMarkdownRenderer()
-      const htmlContent = md.render(activeTab.content)
+      let htmlContent = md.render(activeTab.content)
+
+      // 将 Mermaid 代码块转换为 SVG（用于静态 PDF 导出）
+      htmlContent = await processMermaidInHtml(htmlContent)
 
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
       if (filePath) {
@@ -776,15 +786,23 @@ function App(): JSX.Element {
                 onTabClose={handleTabClose}
                 basePath={folderPath || undefined}
               />
-              <div className="preview" ref={previewRef}>
-                {activeTab ? (
-                  <VirtualizedMarkdown
-                    key={activeTab.file.path}
-                    content={activeTab.content}
-                    filePath={activeTab.file.path}
+              <div className="preview-container">
+                <div className="preview" ref={previewRef}>
+                  {activeTab ? (
+                    <VirtualizedMarkdown
+                      key={activeTab.file.path}
+                      content={activeTab.content}
+                      filePath={activeTab.file.path}
+                    />
+                  ) : (
+                    <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                  )}
+                </div>
+                {activeTab && (
+                  <FloatingNav
+                    containerRef={previewRef}
+                    markdown={activeTab.content}
                   />
-                ) : (
-                  <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                 )}
               </div>
             </section>

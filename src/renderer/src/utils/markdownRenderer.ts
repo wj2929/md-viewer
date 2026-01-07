@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it'
 import Prism from 'prismjs'
 import katex from 'katex'
+import { slugify } from './slugify'
 
 // 导入 Prism 语言支持
 import 'prismjs/components/prism-javascript'
@@ -18,19 +19,6 @@ import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
 
 /**
- * 生成 slug（用于标题 id）
- */
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')  // 保留字母、数字、空格、连字符
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
-/**
  * 创建配置完整的 markdown-it 实例（包含 KaTeX 和 Prism 支持）
  */
 export function createMarkdownRenderer(): MarkdownIt {
@@ -40,6 +28,11 @@ export function createMarkdownRenderer(): MarkdownIt {
     typographer: true,
     breaks: true,
     highlight: (str: string, lang: string) => {
+      // Mermaid 特殊处理：保留原始代码，标记为 mermaid（用于 HTML 导出时转换为 SVG）
+      if (lang === 'mermaid') {
+        return `<pre class="language-mermaid"><code class="language-mermaid">${md.utils.escapeHtml(str)}</code></pre>`
+      }
+
       if (lang && Prism.languages[lang]) {
         try {
           return `<pre class="language-${lang}"><code class="language-${lang}">${Prism.highlight(str, Prism.languages[lang], lang)}</code></pre>`

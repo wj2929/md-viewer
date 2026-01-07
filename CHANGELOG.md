@@ -7,6 +7,71 @@
 
 ---
 
+## [1.3.5] - 2026-01-07
+
+> **状态**: ✅ 已发布
+
+### 新增
+
+- ✨ **浮动导航栏** - 预览区右侧快捷导航
+  - 返回顶部/跳到底部按钮
+  - 目录大纲面板（点击跳转）
+  - 当前位置高亮显示
+  - 响应式设计（移动端底部横向布局）
+  - 完整 ARIA 无障碍支持
+
+- ✨ **HTML/PDF 导出增强**
+  - Mermaid 图表安全渲染为 SVG（静态导出）
+  - 添加 CSP (Content Security Policy) 头
+  - Mermaid 代码验证和危险模式检测
+  - 支持中文文本正确显示
+
+- ✨ **共享 slug 生成模块**
+  - `src/renderer/src/utils/slugify.ts` - 提取公共逻辑
+  - 确保目录 ID 与渲染 ID 100% 一致
+
+- ✨ **目录提取模块**
+  - `src/renderer/src/utils/tocExtractor.ts` - 基于 Token 流提取
+  - 自动处理重复标题
+
+### 修复
+
+- 🐛 **Mermaid 导出修复** (2026-01-07)
+  - 修复 HTML 导出时 Mermaid 未渲染问题
+  - 修复 Mermaid 中文文本不显示问题
+  - 修复 Mermaid 箭头消失问题（SVG path d 属性保留）
+
+### 新增文件
+
+- `src/renderer/src/utils/slugify.ts` - Slug 生成模块
+- `src/renderer/src/utils/tocExtractor.ts` - 目录提取模块
+- `src/renderer/src/utils/mermaidRenderer.ts` - Mermaid 安全渲染模块
+- `src/renderer/src/hooks/useTableOfContents.ts` - 目录状态管理 Hook
+- `src/renderer/src/hooks/useActiveHeading.ts` - 当前位置追踪 Hook
+- `src/renderer/src/components/FloatingNav.tsx` - 浮动导航组件
+- `src/renderer/src/components/TocPanel.tsx` - 目录面板组件
+- `src/renderer/test/utils/slugify.test.ts` - Slug 模块测试
+- `src/renderer/test/utils/tocExtractor.test.ts` - 目录提取测试
+- `src/renderer/test/utils/mermaidRenderer.test.ts` - Mermaid 渲染测试
+- `src/renderer/test/hooks/useTableOfContents.test.ts` - 目录 Hook 测试
+- `src/renderer/test/components/FloatingNav.test.tsx` - 浮动导航测试
+- `src/renderer/test/components/TocPanel.test.tsx` - 目录面板测试
+
+### 变更
+
+- ♻️ **markdownRenderer.ts** - 使用共享 slugify 模块
+- ♻️ **main/index.ts** - HTML 导出添加 CSP 和 Mermaid 样式
+- ♻️ **main.css** - 添加浮动导航和目录面板样式
+
+### 技术细节
+
+- 使用 IntersectionObserver 追踪当前可视标题
+- 使用 useDebouncedValue 防抖优化目录解析
+- Mermaid 渲染使用 strict 安全模式
+- 支持中文标题 slug（Unicode 兼容）
+
+---
+
 ## [1.3.4] - 2026-01-07
 
 > **状态**: ✅ 已发布
@@ -992,4 +1057,4 @@ a06289d feat(toast): 添加 Toast 通知组件替代 alert
 
 ---
 
-**最后更新**: 2026-01-05 09:30
+**最后更新**: 2026-01-07
