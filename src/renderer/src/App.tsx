@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, SettingsPanel } from './components'
 import { readFileWithCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { useToast } from './hooks/useToast'
@@ -17,6 +17,7 @@ function App(): JSX.Element {
   // 侧边栏宽度（可拖拽调整）
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [isResizing, setIsResizing] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const toast = useToast()
   const { theme, setTheme } = useTheme()
 
@@ -453,6 +454,17 @@ function App(): JSX.Element {
     }
   }, [toast])
 
+  // v1.3.4：监听打开特定文件事件
+  useEffect(() => {
+    const cleanup = window.api.onOpenSpecificFile(async (filePath: string) => {
+      console.log('[App] Open specific file:', filePath)
+      const fileName = filePath.split('/').pop() || filePath
+      const file: FileInfo = { name: fileName, path: filePath, isDirectory: false }
+      await handleFileSelect(file)
+    })
+    return cleanup
+  }, [handleFileSelect])
+
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => {
     setActiveTabId(tabId)
@@ -687,11 +699,13 @@ function App(): JSX.Element {
     <ErrorBoundary>
       <div className="app">
       <ToastContainer messages={toast.messages} onClose={toast.close} />
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       {/* 标题栏 (macOS 拖拽区域) */}
       <header className="titlebar">
         <div className="titlebar-drag-region" />
         <h1 className="app-title">MD Viewer</h1>
         <div className="titlebar-actions">
+          <button className="settings-btn" onClick={() => setShowSettings(true)} title="设置">⚙️</button>
           <ThemeToggle theme={theme} onThemeChange={setTheme} />
         </div>
       </header>

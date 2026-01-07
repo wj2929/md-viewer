@@ -7,6 +7,63 @@
 
 ---
 
+## [1.3.4] - 2026-01-07
+
+> **状态**: ✅ 已发布
+
+### 新增
+
+- ✨ **系统右键菜单集成** - 在 Finder/Explorer 中右键打开 .md 文件或文件夹
+  - macOS: Automator Workflow（快速操作）
+  - Windows: 注册表集成
+  - Linux: .desktop 文件
+
+- ✨ **设置面板** - 管理右键菜单安装/卸载
+  - 新增 `src/renderer/src/components/SettingsPanel.tsx`
+
+- ✨ **路径验证器** - 安全的启动参数验证
+  - 新增 `src/main/security/pathValidator.ts`
+  - 验证文件扩展名、路径遍历、空字节等
+
+- ✨ **启动参数处理** - 支持从右键菜单启动并打开文件/文件夹
+
+- ✨ **安装成功引导模态框** - macOS 用户引导
+  - 告知用户需手动启用 Finder 扩展
+  - 提供步骤说明
+
+- ✨ **打开系统设置按钮** - 一键跳转 Finder 扩展设置
+  - 新增 `system:openSettings` IPC 接口
+  - 支持 macOS 深度链接
+
+- ✨ **用户确认机制** - 状态管理优化
+  - 新增 `userConfirmedEnabled` 状态字段
+  - 三种状态：未安装/待启用/已启用
+
+### 新增文件
+
+- `src/main/security/pathValidator.ts` - 路径验证器
+- `src/main/contextMenuInstaller.ts` - 右键菜单安装器
+- `src/main/contextMenuManager.ts` - 右键菜单状态管理
+- `src/renderer/src/components/SettingsPanel.tsx` - 设置面板
+- `src/renderer/test/components/SettingsPanel.test.tsx` - 设置面板测试
+- `docs/V1.3.4-SETTINGS-PANEL-OPTIMIZATION.md` - 设置面板优化方案
+
+### 修改文件
+
+- `src/main/index.ts` - IPC 接口 + 启动参数处理 + system:openSettings
+- `src/preload/index.ts` - preload API
+- `src/preload/index.d.ts` - 类型定义
+- `src/renderer/src/App.tsx` - 设置面板集成
+- `src/renderer/src/assets/main.css` - 设置面板样式（含引导模态框）
+
+### 测试
+
+- ✅ 293/293 通过
+- ⚠️ 13 跳过（虚拟滚动已禁用）
+- 📊 覆盖率：71.71%
+
+---
+
 ## [1.3.3.2] - 2026-01-06
 
 > **状态**: 🚧 待发布

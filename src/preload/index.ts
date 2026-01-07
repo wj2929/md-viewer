@@ -65,6 +65,34 @@ const api = {
   setFolderPath: (folderPath: string) =>
     ipcRenderer.invoke('folder:setPath', folderPath) as Promise<boolean>,
 
+  // v1.3.4：右键菜单安装
+  checkContextMenuStatus: () =>
+    ipcRenderer.invoke('context-menu:check-status') as Promise<{
+      installed: boolean
+      platform: string
+      installedAt?: number
+      userConfirmedEnabled?: boolean
+    }>,
+  installContextMenu: () =>
+    ipcRenderer.invoke('context-menu:install') as Promise<{
+      success: boolean
+      error?: string
+    }>,
+  uninstallContextMenu: () =>
+    ipcRenderer.invoke('context-menu:uninstall') as Promise<{
+      success: boolean
+      error?: string
+    }>,
+  openSystemSettings: (section: string) =>
+    ipcRenderer.invoke('system:openSettings', section) as Promise<{
+      success: boolean
+      error?: string
+    }>,
+  confirmContextMenuEnabled: () =>
+    ipcRenderer.invoke('context-menu:confirm-enabled') as Promise<{
+      success: boolean
+    }>,
+
   // 文件操作 (v1.2 阶段 2 新增)
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),
@@ -128,6 +156,13 @@ const api = {
     const handler = (_event: unknown, folderPath: string) => callback(folderPath)
     ipcRenderer.on('restore-folder', handler)
     return () => ipcRenderer.removeListener('restore-folder', handler)
+  },
+
+  // v1.3.4：监听打开特定文件事件
+  onOpenSpecificFile: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('open-specific-file', handler)
+    return () => ipcRenderer.removeListener('open-specific-file', handler)
   },
 
   // v1.3 新增：Tab 右键菜单事件

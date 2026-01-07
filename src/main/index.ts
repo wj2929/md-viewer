@@ -13,6 +13,8 @@ import { syncClipboardState, getClipboardState } from './clipboardState'
 import { registerWindowShortcuts } from './shortcuts'
 import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from './clipboardManager'
 import { folderHistoryManager } from './folderHistoryManager'
+import * as contextMenuManager from './contextMenuManager'
+import { validateSecurePath as validateLaunchPath } from './security/pathValidator'
 
 // 定义存储的数据结构
 interface AppState {
@@ -36,11 +38,14 @@ const store = new Store<AppState>({
   }
 })
 
+// 模块级窗口引用（用于启动参数处理）
+let mainWindow: BrowserWindow | null = null
+
 function createWindow(): void {
   // 从 store 恢复窗口大小和位置
   const savedBounds = store.get('windowBounds')
 
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: savedBounds.width,
     height: savedBounds.height,
     x: savedBounds.x,
@@ -102,6 +107,73 @@ function createWindow(): void {
   }
 }
 
+// 存储待处理的启动路径
+let pendingLaunchPath: string | null = null
+
+// 处理启动参数
+async function handleLaunchArgs(args: string[]): Promise<void> {
+  const userArgs = args.filter(arg =>
+    !arg.startsWith('--') &&
+    !arg.startsWith('-') &&
+    arg !== '.' &&
+    !arg.toLowerCase().includes('electron') &&
+    !arg.endsWith('.js')
+  )
+
+  if (userArgs.length === 0) return
+
+  const targetPath = userArgs[userArgs.length - 1]
+  console.log('[Launch] Processing path:', targetPath)
+
+  const validation = await validateLaunchPath(targetPath)
+  if (!validation.valid) {
+    console.error('[Launch] Invalid path:', validation.error)
+    return
+  }
+
+  if (mainWindow) {
+    openPathInWindow(validation.normalizedPath, validation.type)
+  } else {
+    pendingLaunchPath = validation.normalizedPath
+  }
+}
+
+// 在窗口中打开路径
+function openPathInWindow(targetPath: string, type: 'md-file' | 'directory'): void {
+  if (!mainWindow) return
+
+  if (type === 'directory') {
+    setAllowedBasePath(targetPath)
+    store.set('lastOpenedFolder', targetPath)
+    folderHistoryManager.addFolder(targetPath)
+    mainWindow.webContents.send('restore-folder', targetPath)
+  } else {
+    const folderPath = path.dirname(targetPath)
+    setAllowedBasePath(folderPath)
+    store.set('lastOpenedFolder', folderPath)
+    folderHistoryManager.addFolder(folderPath)
+    mainWindow.webContents.send('restore-folder', folderPath)
+    setTimeout(() => {
+      mainWindow?.webContents.send('open-specific-file', targetPath)
+    }, 500)
+  }
+}
+
+// macOS: 处理 open-file 事件（在 app ready 之前也可能触发）
+app.on('open-file', async (event, filePath) => {
+  event.preventDefault()
+  console.log('[macOS] open-file event received:', filePath)
+  console.log('[macOS] mainWindow exists:', !!mainWindow)
+  console.log('[macOS] app.isReady:', app.isReady())
+  await handleLaunchArgs([filePath])
+})
+
+// macOS: 处理 open-url 事件
+app.on('open-url', async (event, url) => {
+  event.preventDefault()
+  console.log('[macOS] open-url event:', url)
+})
+
 app.whenReady().then(() => {
   // 设置 app user model id (Windows)
   electronApp.setAppUserModelId('com.mdviewer')
@@ -128,6 +200,23 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // 处理待处理的启动路径
+  if (pendingLaunchPath) {
+    setTimeout(async () => {
+      if (pendingLaunchPath) {
+        const validation = await validateLaunchPath(pendingLaunchPath)
+        if (validation.valid) {
+          openPathInWindow(validation.normalizedPath, validation.type)
+        }
+        pendingLaunchPath = null
+      }
+    }, 1000)
+  }
+
+  // 所有平台：处理命令行参数
+  // macOS 的 open -a 命令也会通过命令行参数传递路径
+  handleLaunchArgs(process.argv.slice(1))
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -1274,4 +1363,47 @@ ipcMain.handle('folder:setPath', async (_, folderPath: string) => {
   store.set('lastOpenedFolder', folderPath)
   await folderHistoryManager.addFolder(folderPath)
   return true
+})
+
+// v1.3.4：右键菜单安装
+ipcMain.handle('context-menu:check-status', async () => {
+  return contextMenuManager.checkStatus()
+})
+
+ipcMain.handle('context-menu:install', async () => {
+  return contextMenuManager.install()
+})
+
+ipcMain.handle('context-menu:uninstall', async () => {
+  return contextMenuManager.uninstall()
+})
+
+// v1.3.4：打开系统设置
+ipcMain.handle('system:openSettings', async (_event, section: string) => {
+  try {
+    if (process.platform === 'darwin') {
+      // macOS 系统设置深度链接
+      const urlMap: Record<string, string> = {
+        'extensions': 'x-apple.systempreferences:com.apple.preferences.extensions',
+        'finder-extensions': 'x-apple.systempreferences:com.apple.preferences.extensions?Finder',
+        'security': 'x-apple.systempreferences:com.apple.preference.security'
+      }
+      const url = urlMap[section] || urlMap['extensions']
+      await shell.openExternal(url)
+      return { success: true }
+    } else if (process.platform === 'win32') {
+      // Windows 默认程序设置
+      await shell.openExternal('ms-settings:defaultapps')
+      return { success: true }
+    }
+    return { success: false, error: '不支持的平台' }
+  } catch (error) {
+    console.error('[System] Failed to open settings:', error)
+    return { success: false, error: String(error) }
+  }
+})
+
+// v1.3.4：用户确认右键菜单已启用
+ipcMain.handle('context-menu:confirm-enabled', async () => {
+  return contextMenuManager.confirmEnabled()
 })

@@ -69,7 +69,13 @@ const mockApi = {
   getFolderHistory: vi.fn().mockResolvedValue([]),
   removeFolderFromHistory: vi.fn().mockResolvedValue(undefined),
   clearFolderHistory: vi.fn().mockResolvedValue(undefined),
-  setFolderPath: vi.fn().mockResolvedValue(true)
+  setFolderPath: vi.fn().mockResolvedValue(true),
+  // v1.3.4：打开特定文件
+  onOpenSpecificFile: vi.fn(() => vi.fn()),
+  // v1.3.4：右键菜单安装
+  checkContextMenuStatus: vi.fn().mockResolvedValue({ installed: false, platform: 'darwin' }),
+  installContextMenu: vi.fn().mockResolvedValue({ success: true }),
+  uninstallContextMenu: vi.fn().mockResolvedValue({ success: true })
 }
 
 // Mock 全局 window.api

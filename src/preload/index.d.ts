@@ -52,6 +52,24 @@ declare global {
       // v1.4：Shell 操作
       showItemInFolder: (filePath: string) => Promise<{ success: boolean }>
 
+      // v1.3.4：历史文件夹
+      getFolderHistory: () => Promise<Array<{ path: string; name: string; lastOpened: number }>>
+      removeFolderFromHistory: (folderPath: string) => Promise<void>
+      clearFolderHistory: () => Promise<void>
+      setFolderPath: (folderPath: string) => Promise<boolean>
+
+      // v1.3.4：右键菜单安装
+      checkContextMenuStatus: () => Promise<{
+        installed: boolean
+        platform: string
+        installedAt?: number
+        userConfirmedEnabled?: boolean
+      }>
+      installContextMenu: () => Promise<{ success: boolean; error?: string }>
+      uninstallContextMenu: () => Promise<{ success: boolean; error?: string }>
+      openSystemSettings: (section: string) => Promise<{ success: boolean; error?: string }>
+      confirmContextMenuEnabled: () => Promise<{ success: boolean }>
+
       // 文件操作 (v1.2 阶段 2)
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>
@@ -106,6 +124,9 @@ declare global {
 
       // 其他事件
       onRestoreFolder: (callback: (folderPath: string) => void) => () => void
+
+      // v1.3.4：打开特定文件事件
+      onOpenSpecificFile: (callback: (filePath: string) => void) => () => void
 
       // 快捷键事件 (v1.2.1)
       onShortcutOpenFolder: (callback: () => void) => () => void

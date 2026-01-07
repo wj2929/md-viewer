@@ -1267,3 +1267,363 @@ body {
   font-size: 14px;
   line-height: 1;
 }
+
+/* 设置按钮 */
+.settings-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 16px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.settings-btn:hover {
+  opacity: 1;
+}
+
+/* 设置面板 */
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.settings-panel {
+  background: var(--bg-primary);
+  border-radius: 8px;
+  width: 400px;
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.settings-header .close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.settings-content {
+  padding: 16px;
+}
+
+.settings-section h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+.setting-info h4 {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+}
+
+.setting-info p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.setting-status {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.setting-actions button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  background: var(--accent-color);
+  color: white;
+}
+
+.setting-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.setting-actions .btn-danger {
+  background: #dc3545;
+}
+
+/* v1.3.4：设置面板优化样式 */
+
+/* 状态指示器 */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+.status-indicator.gray {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.status-indicator.yellow {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.status-indicator.green {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+/* 警告消息 */
+.warning-message {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #856404;
+}
+
+/* 设置描述 */
+.setting-description {
+  margin: 4px 0 !important;
+  line-height: 1.4;
+}
+
+/* 按钮样式 */
+.btn-primary {
+  padding: 8px 16px !important;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px !important;
+  background: #007AFF !important;
+  color: white !important;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #0051D5 !important;
+}
+
+.btn-secondary {
+  padding: 8px 16px !important;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px !important;
+  background: #f0f0f0 !important;
+  color: #333 !important;
+  transition: background 0.2s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #e0e0e0 !important;
+}
+
+.btn-danger-outline {
+  padding: 8px 16px !important;
+  border: 1px solid #dc3545 !important;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px !important;
+  background: transparent !important;
+  color: #dc3545 !important;
+  transition: all 0.2s;
+}
+
+.btn-danger-outline:hover:not(:disabled) {
+  background: #dc3545 !important;
+  color: white !important;
+}
+
+.btn-link {
+  background: none !important;
+  border: none;
+  color: #666 !important;
+  cursor: pointer;
+  font-size: 13px !important;
+  margin-top: 12px;
+  padding: 4px 8px !important;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  color: #333 !important;
+}
+
+/* 设置动作区域布局 */
+.setting-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+.setting-item {
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 0 !important;
+}
+
+/* 使用说明区域 */
+.usage-instructions {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.usage-instructions h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.usage-instructions ol {
+  margin: 0;
+  padding-left: 20px;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.usage-instructions li {
+  margin: 6px 0;
+}
+
+.usage-instructions li.highlight {
+  color: #856404;
+  font-weight: 500;
+}
+
+/* 引导模态框 */
+.enable-guide-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.enable-guide-content {
+  background: white;
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 460px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.enable-guide-content h2 {
+  margin: 0 0 20px 0;
+  font-size: 22px;
+  color: #155724;
+}
+
+.guide-warning {
+  text-align: left;
+  margin-bottom: 20px;
+}
+
+.guide-warning p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.5;
+}
+
+.guide-warning strong {
+  color: #856404;
+}
+
+.enable-guide-steps {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 20px 0;
+  text-align: left;
+}
+
+.enable-guide-steps ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.enable-guide-steps li {
+  margin: 10px 0;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.enable-guide-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 24px;
+}
+
