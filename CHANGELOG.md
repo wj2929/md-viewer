@@ -46,6 +46,17 @@
   - 修复 Mermaid 箭头消失问题（SVG path d 属性保留）
   - 添加 C4 架构图类型支持（c4context, c4container, c4component, c4dynamic, c4deployment）
 
+- 🐛 **Mermaid 错误显示修复** (2026-01-08)
+  - 修复 Mermaid 语法错误时原生错误消息显示在页面底部遮挡 UI 的问题
+  - 添加 `suppressErrorRendering: true` 配置
+  - 语法错误时显示原始代码块而非空白
+
+- 🐛 **文件缓存失效问题修复** (2026-01-08)
+  - 修复外部修改文件后关闭 Tab 重新打开仍显示旧内容的问题
+  - LRUCache 添加 `delete` 方法支持单文件缓存清除
+  - 文件变化时自动清除该文件缓存
+  - 关闭 Tab 时清除对应文件缓存
+
 ### 新增文件
 
 - `src/renderer/src/utils/slugify.ts` - Slug 生成模块

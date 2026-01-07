@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, SettingsPanel, FloatingNav } from './components'
-import { readFileWithCache } from './utils/fileCache'
+import { readFileWithCache, clearFileCache, invalidateAndReload } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
 import { useToast } from './hooks/useToast'
@@ -248,6 +248,12 @@ function App(): JSX.Element {
   // 关闭标签 (必须在 useEffect 文件监听之前定义)
   const handleTabClose = useCallback((tabId: string) => {
     setTabs(prev => {
+      // 找到要关闭的 tab，清除其缓存
+      const closingTab = prev.find(tab => tab.id === tabId)
+      if (closingTab) {
+        clearFileCache(closingTab.file.path)
+      }
+
       const newTabs = prev.filter(tab => tab.id !== tabId)
 
       // 如果关闭的是当前标签，切换到下一个或上一个
@@ -319,6 +325,9 @@ function App(): JSX.Element {
 
     // 监听文件变化 - 刷新已打开的标签页
     const unsubscribeChanged = window.api.onFileChanged(async (changedPath: string) => {
+      // 清除该文件的缓存
+      clearFileCache(changedPath)
+
       // 使用 ref 获取最新的 tabs，避免闭包陷阱
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === changedPath)

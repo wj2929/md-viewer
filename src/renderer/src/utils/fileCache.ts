@@ -36,6 +36,10 @@ class LRUCache<K, V> {
     return this.cache.has(key)
   }
 
+  delete(key: K): boolean {
+    return this.cache.delete(key)
+  }
+
   clear(): void {
     this.cache.clear()
   }
@@ -67,15 +71,26 @@ export async function readFileWithCache(filePath: string): Promise<string> {
   return content
 }
 
-// 清除缓存（可选：在关闭标签时使用）
+// 清除缓存
 export function clearFileCache(filePath?: string): void {
   if (filePath) {
-    // 清除特定文件的缓存（目前 LRUCache 没有 delete 方法，可以扩展）
-    fileContentCache.clear()
+    // 清除特定文件的缓存
+    fileContentCache.delete(filePath)
+    console.log(`Cache cleared for: ${filePath}`)
   } else {
     // 清除所有缓存
     fileContentCache.clear()
+    console.log('Cache cleared: all')
   }
+}
+
+// 使缓存失效并重新读取文件
+export async function invalidateAndReload(filePath: string): Promise<string> {
+  fileContentCache.delete(filePath)
+  console.log(`Cache invalidated: ${filePath}`)
+  const content = await window.api.readFile(filePath)
+  fileContentCache.set(filePath, content)
+  return content
 }
 
 // 获取缓存状态（用于调试）

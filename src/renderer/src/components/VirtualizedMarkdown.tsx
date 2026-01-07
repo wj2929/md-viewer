@@ -339,7 +339,8 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
     mermaid.initialize({
       startOnLoad: false,
       theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
-      securityLevel: 'loose'
+      securityLevel: 'loose',
+      suppressErrorRendering: true  // 禁止在页面底部显示错误
     })
   }, [])
 
@@ -377,6 +378,11 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
         block.replaceWith(wrapper)
       } catch (error) {
         console.error('Mermaid render error:', error)
+        // 显示原始代码块，而不是空白
+        const wrapper = document.createElement('pre')
+        wrapper.className = 'language-mermaid mermaid-error-fallback'
+        wrapper.textContent = code
+        block.replaceWith(wrapper)
       }
     })
   }, [])
@@ -488,6 +494,11 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         block.replaceWith(wrapper)
       } catch (error) {
         console.error('Mermaid render error:', error)
+        // 显示原始代码块，而不是空白
+        const wrapper = document.createElement('pre')
+        wrapper.className = 'language-mermaid mermaid-error-fallback'
+        wrapper.textContent = code
+        block.replaceWith(wrapper)
       }
     })
   }, [html])
