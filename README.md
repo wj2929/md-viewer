@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.3-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.3.5-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -18,11 +18,13 @@
 - 🎨 **完整 Markdown 支持** - 标题、列表、表格、引用等，GitHub 风格样式
 - 💻 **代码高亮** - 支持 15+ 编程语言，GitHub 主题
 - 📐 **数学公式** - KaTeX 渲染 LaTeX 公式
-- 📊 **Mermaid 图表** - 支持流程图、时序图、甘特图等
+- 📊 **Mermaid 图表** - 支持流程图、时序图、甘特图、C4 架构图等
 - 👀 **实时监听** - 文件修改自动刷新，无需手动重载
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
-- 💾 **导出功能** - 右键菜单导出 HTML 和 PDF
+- 💾 **导出功能** - 右键菜单导出 HTML 和 PDF（支持 Mermaid 图表）
 - 📑 **目录导航** - 点击目录跳转到对应章节
+- 🧭 **浮动导航** - 快速返回顶部/底部 + 目录大纲 (v1.3.5+)
+- 🖱️ **系统右键菜单** - Finder/Explorer 中右键打开文件 (v1.3.4+)
 - 🌓 **主题自适应** - 自动跟随系统明暗主题
 - ⚡ **极速体验** - Vite 热重载，秒级启动
 - 📋 **多文件选择** - Cmd+点击、Shift+点击、Cmd+A 全选
@@ -42,7 +44,7 @@ _（待添加）_
 ### macOS
 
 **下载：**
-- [MD Viewer-1.3.3-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3) (Apple Silicon)
+- [MD Viewer-1.3.5-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.3.5) (Apple Silicon)
 
 ⚠️ **首次安装说明**
 
@@ -63,10 +65,10 @@ xattr -cr /Applications/MD\ Viewer.app
 之后就能正常使用了。
 
 ### Windows
-- [MD Viewer Setup 1.3.3.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3)
+- [MD Viewer Setup 1.3.5.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.3.5)
 
 ### Linux
-- [MD Viewer-1.3.3.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.3.3)
+- [MD Viewer-1.3.5.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.3.5)
 
 ---
 
@@ -302,6 +304,10 @@ npm run build:linux
 - [x] 目录锚点跳转（预览 + 导出 HTML/PDF）
 - [x] PDF 边距优化（10mm）
 - [x] 搜索性能优化（Web Worker + 防抖 300ms）
+- [x] 系统右键菜单集成（Finder/Explorer 直接打开）(v1.3.4)
+- [x] 浮动导航栏（到顶/到底/目录大纲）(v1.3.5)
+- [x] HTML/PDF 导出 Mermaid 图表支持 (v1.3.5)
+- [x] C4 架构图支持 (v1.3.5)
 - [x] 测试覆盖率 71.71%
 
 ### v2.0 (计划中)
