@@ -720,10 +720,16 @@ function App(): JSX.Element {
     }
 
     // 优先级 3: 尝试通过滚动位置
-    if (bookmark.scrollPosition !== undefined) {
+    if (bookmark.scrollPosition !== undefined && bookmark.scrollPosition > 0) {
       const container = previewRef.current
       const scrollTop = container.scrollHeight * bookmark.scrollPosition
       container.scrollTo({ top: scrollTop, behavior: 'smooth' })
+      return
+    }
+
+    // 优先级 4: 如果是文件书签（无标题），跳转到顶部
+    if (!bookmark.headingId && !bookmark.headingText) {
+      previewRef.current.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
 
