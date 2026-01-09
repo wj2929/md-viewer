@@ -238,7 +238,8 @@ describe('VirtualizedMarkdown', () => {
         filePath: '/test/file.md',
         headingId: null,
         headingText: null,
-        headingLevel: null
+        headingLevel: null,
+        hasSelection: false
       })
     })
 
@@ -269,9 +270,37 @@ describe('VirtualizedMarkdown', () => {
           filePath: '/test/file.md',
           headingId: 'test-heading',
           headingText: '测试标题',
-          headingLevel: 'h1'
+          headingLevel: 'h1',
+          hasSelection: false
         })
       }
+    })
+
+    it('应该检测文本选择状态', () => {
+      // Mock window.getSelection
+      const mockSelection = {
+        toString: () => '选中的文本'
+      }
+      vi.spyOn(window, 'getSelection').mockReturnValue(mockSelection as Selection)
+
+      const content = '# 测试内容'
+      const { container } = render(
+        <VirtualizedMarkdown content={content} filePath="/test/file.md" />
+      )
+
+      const markdownBody = container.querySelector('.markdown-body')
+      fireEvent.contextMenu(markdownBody!)
+
+      expect(mockShowPreviewContextMenu).toHaveBeenCalledWith({
+        filePath: '/test/file.md',
+        headingId: null,
+        headingText: null,
+        headingLevel: null,
+        hasSelection: true
+      })
+
+      // 恢复 mock
+      vi.restoreAllMocks()
     })
 
     // 虚拟滚动已禁用，跳过此测试

@@ -38,12 +38,13 @@ const api = {
     hasSelection: boolean
   }) => ipcRenderer.invoke('markdown:show-context-menu', ctx),
 
-  // v1.3.7：预览区域右键菜单（添加书签）
+  // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
   showPreviewContextMenu: (params: {
     filePath: string
     headingId: string | null
     headingText: string | null
     headingLevel: string | null
+    hasSelection: boolean
   }) => ipcRenderer.invoke('preview:show-context-menu', params),
 
   // v1.3 阶段 3：剪贴板状态同步

@@ -188,6 +188,7 @@ declare global {
         headingId: string | null
         headingText: string | null
         headingLevel: string | null
+        hasSelection: boolean
       }) => Promise<void>
       onAddBookmarkFromPreview: (callback: (params: {
         filePath: string

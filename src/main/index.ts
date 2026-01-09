@@ -1221,20 +1221,22 @@ ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuCont
   return { success: true }
 })
 
-// v1.3.7：预览区域右键菜单（添加书签）
+// v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
 ipcMain.handle('preview:show-context-menu', async (event, params: {
   filePath: string
   headingId: string | null
   headingText: string | null
   headingLevel: string | null
+  hasSelection: boolean
 }) => {
   // ⚠️ 安全校验
   validatePath(params.filePath)
 
-  const { filePath, headingId, headingText, headingLevel } = params
+  const { filePath, headingId, headingText, headingLevel, hasSelection } = params
 
   const menuTemplate: MenuItemConstructorOptions[] = []
 
+  // v1.3.7: 书签功能
   // 如果右键点击的是标题，添加"添加标题书签"
   if (headingId && headingText) {
     menuTemplate.push({
@@ -1261,17 +1263,52 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     }
   })
 
-  // 分隔线
   menuTemplate.push({ type: 'separator' })
 
-  // 复制
+  // v1.3 原有功能：导出功能
   menuTemplate.push({
-    label: '📋 复制',
-    role: 'copy'
+    label: '导出 HTML',
+    accelerator: 'CmdOrCtrl+E',
+    click: () => event.sender.send('markdown:export-html')
   })
 
-  // 如果有标题，添加"复制链接"
+  menuTemplate.push({
+    label: '导出 PDF',
+    accelerator: 'CmdOrCtrl+Shift+E',
+    click: () => event.sender.send('markdown:export-pdf')
+  })
+
+  menuTemplate.push({ type: 'separator' })
+
+  // v1.3 原有功能：复制功能
+  menuTemplate.push({
+    label: '复制为 Markdown',
+    click: () => event.sender.send('markdown:copy-source')
+  })
+
+  menuTemplate.push({
+    label: '复制为纯文本',
+    click: () => event.sender.send('markdown:copy-plain-text')
+  })
+
+  menuTemplate.push({
+    label: '复制为 HTML',
+    click: () => event.sender.send('markdown:copy-html')
+  })
+
+  // 如果有选中内容，添加复制选中内容选项
+  if (hasSelection) {
+    menuTemplate.push({ type: 'separator' })
+    menuTemplate.push({
+      label: '复制选中内容',
+      accelerator: 'CmdOrCtrl+C',
+      click: () => event.sender.copy()
+    })
+  }
+
+  // v1.3.7: 如果有标题，添加"复制链接"
   if (headingId) {
+    menuTemplate.push({ type: 'separator' })
     menuTemplate.push({
       label: '🔗 复制链接',
       click: () => {
