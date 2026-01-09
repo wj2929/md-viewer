@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.5-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.3.7-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -268,6 +268,60 @@ npm run build:linux
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启 Pull Request
+
+### 发布流程
+
+**发布新版本前，必须运行发布检查脚本：**
+
+```bash
+# 运行发布检查
+./scripts/release-check.sh
+```
+
+**检查脚本会验证：**
+- ✅ package.json 版本号与 Git tag 匹配
+- ✅ 工作区干净（无未提交修改）
+- ✅ 本地与远程同步
+- ✅ GitHub Release 已发布（非 Draft）
+- ✅ Git tag 已推送到远程
+
+**只有所有检查通过后，才能标记为"已发布"！**
+
+**完整发布流程：**
+
+1. **更新版本号**
+   ```bash
+   # 手动编辑 package.json，更新 version 字段
+   vim package.json
+   ```
+
+2. **提交并打 tag**
+   ```bash
+   git add package.json
+   git commit -m "chore: 更新版本号到 x.x.x"
+   git tag -a vx.x.x -m "vx.x.x"
+   git push origin main
+   git push origin vx.x.x
+   ```
+
+3. **创建 GitHub Release**
+   ```bash
+   gh release create vx.x.x --title "vx.x.x" --notes "Release notes"
+   ```
+
+4. **发布 Release**
+   ```bash
+   gh release edit vx.x.x --draft=false --latest
+   ```
+
+5. **运行发布检查**
+   ```bash
+   ./scripts/release-check.sh
+   ```
+
+6. **检查通过后，更新文档**
+   - 更新 `PROGRESS.md` 标记为"已发布"
+   - 更新 `CONTEXT-RECOVERY.md` 最新状态
 
 ---
 
