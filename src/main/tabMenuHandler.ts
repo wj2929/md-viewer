@@ -16,6 +16,7 @@ export interface TabMenuContext {
   basePath: string
   tabCount: number   // 用于动态启用菜单项
   tabIndex: number   // 用于动态启用菜单项
+  isPinned?: boolean // v1.3.6 新增：是否已固定
 }
 
 /**
@@ -24,12 +25,25 @@ export interface TabMenuContext {
  * @param ctx - Tab 上下文信息
  */
 export function showTabContextMenu(window: BrowserWindow, ctx: TabMenuContext): void {
-  const { tabId, filePath, basePath, tabCount, tabIndex } = ctx
+  const { tabId, filePath, basePath, tabCount, tabIndex, isPinned } = ctx
 
   const menu = Menu.buildFromTemplate([
+    // v1.3.6：固定/取消固定
+    {
+      label: isPinned ? '取消固定' : '固定此标签',
+      click: () => window.webContents.send(isPinned ? 'tab:unpin' : 'tab:pin', tabId)
+    },
+    // v1.3.6：添加到书签
+    {
+      label: '添加到书签',
+      accelerator: 'CmdOrCtrl+D',
+      click: () => window.webContents.send('tab:add-bookmark', { tabId, filePath })
+    },
+    { type: 'separator' },
     {
       label: '关闭',
       accelerator: 'CmdOrCtrl+W',
+      enabled: !isPinned,  // v1.3.6：固定标签不能直接关闭
       click: () => window.webContents.send('tab:close', tabId)
     },
     {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, SettingsPanel, FloatingNav } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar } from './components'
 import { readFileWithCache, clearFileCache, invalidateAndReload } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
@@ -19,6 +19,14 @@ function App(): JSX.Element {
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [isResizing, setIsResizing] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  // v1.3.6：书签面板状态
+  const [bookmarkPanelCollapsed, setBookmarkPanelCollapsed] = useState(false)
+  const [bookmarkPanelWidth, setBookmarkPanelWidth] = useState(240)
+  // v1.3.6：书签栏状态（混合方案 - 默认折叠保持简洁）
+  const [bookmarkBarCollapsed, setBookmarkBarCollapsed] = useState(true)
+  // v1.3.6：统一书签数据（共享给 BookmarkBar 和 BookmarkPanel）
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
+  const [bookmarksLoading, setBookmarksLoading] = useState(true)
   const toast = useToast()
   const { theme, setTheme } = useTheme()
 
@@ -33,11 +41,95 @@ function App(): JSX.Element {
   const searchBarRef = useRef<SearchBarHandle>(null)
   // 预览区域 ref (用于滚动重置)
   const previewRef = useRef<HTMLDivElement>(null)
+  // v1.3.6：书签面板和书签栏现在由 App 统一管理数据，不再需要 ref
+
+  // v1.3.6：加载书签设置（面板 + 栏）
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const settings = await window.api.getAppSettings()
+        setBookmarkPanelCollapsed(settings.bookmarkPanelCollapsed)
+        setBookmarkPanelWidth(settings.bookmarkPanelWidth)
+        // 书签栏折叠状态（默认折叠）
+        if (settings.bookmarkBarCollapsed !== undefined) {
+          setBookmarkBarCollapsed(settings.bookmarkBarCollapsed)
+        }
+      } catch (error) {
+        console.error('[App] Failed to load settings:', error)
+      }
+    }
+    loadSettings()
+  }, [])
+
+  // v1.3.6：加载书签数据（统一管理）
+  const loadBookmarks = useCallback(async () => {
+    setBookmarksLoading(true)
+    try {
+      const items = await window.api.getBookmarks()
+      setBookmarks(items.sort((a, b) => a.order - b.order))
+    } catch (error) {
+      console.error('[App] Failed to load bookmarks:', error)
+    } finally {
+      setBookmarksLoading(false)
+    }
+  }, [])
+
+  // 初始加载书签
+  useEffect(() => {
+    loadBookmarks()
+  }, [loadBookmarks])
+
+  // v1.3.6：响应式布局 - 窗口小于 1200px 时自动折叠书签栏和书签面板
+  useEffect(() => {
+    const BREAKPOINT = 1200
+    const mediaQuery = window.matchMedia(`(max-width: ${BREAKPOINT}px)`)
+
+    const handleMediaChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      if (e.matches) {
+        // 小屏幕：自动折叠
+        setBookmarkBarCollapsed(true)
+        setBookmarkPanelCollapsed(true)
+      }
+      // 大屏幕时不自动展开，保持用户手动设置的状态
+    }
+
+    // 初始检查
+    handleMediaChange(mediaQuery)
+
+    // 监听变化
+    mediaQuery.addEventListener('change', handleMediaChange)
+    return () => mediaQuery.removeEventListener('change', handleMediaChange)
+  }, [])
 
   // 监听恢复文件夹事件
   useEffect(() => {
-    const cleanup = window.api.onRestoreFolder((folderPath) => {
-      setFolderPath(folderPath)
+    const cleanup = window.api.onRestoreFolder(async (restoredFolderPath) => {
+      setFolderPath(restoredFolderPath)
+      // v1.3.6：恢复该文件夹的固定标签
+      try {
+        const pinnedTabs = await window.api.getPinnedTabsForFolder(restoredFolderPath)
+        if (pinnedTabs.length > 0) {
+          const newTabs: Tab[] = []
+          for (const pinned of pinnedTabs) {
+            try {
+              const content = await readFileWithCache(pinned.path)
+              const fileName = pinned.path.split('/').pop() || ''
+              newTabs.push({
+                id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                file: { name: fileName, path: pinned.path, isDirectory: false },
+                content,
+                isPinned: true
+              })
+            } catch { /* 忽略 */ }
+          }
+          if (newTabs.length > 0) {
+            setTabs(newTabs)
+            setActiveTabId(newTabs[0].id)
+          }
+        }
+      } catch (err) {
+        console.error('[App] Failed to restore pinned tabs on folder restore:', err)
+      }
     })
     return cleanup
   }, [])
@@ -164,6 +256,37 @@ function App(): JSX.Element {
     }
   }, [folderPath, copy, cut, paste, toast, selectedPaths])
 
+  // v1.3.6：恢复固定标签
+  const restorePinnedTabs = useCallback(async (targetFolderPath: string) => {
+    try {
+      const pinnedTabs = await window.api.getPinnedTabsForFolder(targetFolderPath)
+      if (pinnedTabs.length === 0) return
+
+      const newTabs: Tab[] = []
+      for (const pinned of pinnedTabs) {
+        try {
+          const content = await readFileWithCache(pinned.path)
+          const fileName = pinned.path.split('/').pop() || ''
+          newTabs.push({
+            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file: { name: fileName, path: pinned.path, isDirectory: false },
+            content,
+            isPinned: true
+          })
+        } catch (err) {
+          console.warn('[App] Failed to restore pinned tab:', pinned.path, err)
+        }
+      }
+
+      if (newTabs.length > 0) {
+        setTabs(newTabs)
+        setActiveTabId(newTabs[0].id)
+      }
+    } catch (error) {
+      console.error('[App] Failed to restore pinned tabs:', error)
+    }
+  }, [])
+
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -172,11 +295,13 @@ function App(): JSX.Element {
         setFolderPath(path)
         setTabs([])
         setActiveTabId(null)
+        // v1.3.6：恢复该文件夹的固定标签
+        await restorePinnedTabs(path)
       }
     } catch (error) {
       console.error('Failed to open folder:', error)
     }
-  }, [])
+  }, [restorePinnedTabs])
 
   // 从历史选择文件夹
   const handleSelectHistoryFolder = useCallback(async (path: string) => {
@@ -184,7 +309,98 @@ function App(): JSX.Element {
     setFolderPath(path)
     setTabs([])
     setActiveTabId(null)
-  }, [])
+    // v1.3.6：恢复该文件夹的固定标签
+    await restorePinnedTabs(path)
+  }, [restorePinnedTabs])
+
+  // v1.3.6：从最近文件选择
+  const handleSelectRecentFile = useCallback(async (filePath: string) => {
+    // 提取文件夹路径
+    const parts = filePath.split('/')
+    const fileName = parts.pop() || ''
+    const fileFolder = parts.join('/')
+
+    // 如果当前没有打开文件夹，或者文件不在当前文件夹中
+    if (!folderPath || !filePath.startsWith(folderPath)) {
+      // 先切换到文件所在的文件夹
+      await window.api.setFolderPath(fileFolder)
+      setFolderPath(fileFolder)
+      setTabs([])
+      setActiveTabId(null)
+
+      // 等待文件树加载完成后恢复固定标签并打开文件
+      setTimeout(async () => {
+        try {
+          // 先恢复固定标签
+          const pinnedTabs = await window.api.getPinnedTabsForFolder(fileFolder)
+          const restoredTabs: Tab[] = []
+
+          for (const pinned of pinnedTabs) {
+            if (pinned.path === filePath) continue // 跳过目标文件，后面单独处理
+            try {
+              const content = await readFileWithCache(pinned.path)
+              const name = pinned.path.split('/').pop() || ''
+              restoredTabs.push({
+                id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                file: { name, path: pinned.path, isDirectory: false },
+                content,
+                isPinned: true
+              })
+            } catch { /* 忽略无法读取的文件 */ }
+          }
+
+          // 打开目标文件
+          const content = await readFileWithCache(filePath)
+          const isPinned = pinnedTabs.some(t => t.path === filePath)
+          const newTab: Tab = {
+            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file: { name: fileName, path: filePath, isDirectory: false },
+            content,
+            isPinned
+          }
+
+          setTabs([...restoredTabs, newTab])
+          setActiveTabId(newTab.id)
+
+          // 添加到最近文件
+          window.api.addRecentFile({
+            path: filePath,
+            name: fileName,
+            folderPath: fileFolder
+          }).catch(err => console.error('Failed to add to recent files:', err))
+        } catch (error) {
+          toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+        }
+      }, 500)
+    } else {
+      // 文件在当前文件夹中，直接打开
+      const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
+      if (existingTab) {
+        setActiveTabId(existingTab.id)
+        return
+      }
+
+      try {
+        const content = await readFileWithCache(filePath)
+        const newTab: Tab = {
+          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file: { name: fileName, path: filePath, isDirectory: false },
+          content
+        }
+        setTabs(prev => [...prev, newTab])
+        setActiveTabId(newTab.id)
+
+        // 添加到最近文件
+        window.api.addRecentFile({
+          path: filePath,
+          name: fileName,
+          folderPath: folderPath
+        }).catch(err => console.error('Failed to add to recent files:', err))
+      } catch (error) {
+        toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    }
+  }, [folderPath, toast])
 
   // 加载文件列表
   useEffect(() => {
@@ -281,13 +497,22 @@ function App(): JSX.Element {
     })
 
     const unsubscribeTabCloseOthers = window.api.onTabCloseOthers((tabId: string) => {
-      setTabs(prev => prev.filter(tab => tab.id === tabId))
+      // v1.3.6：保留固定标签和当前标签
+      setTabs(prev => prev.filter(tab => tab.id === tabId || tab.isPinned))
       setActiveTabId(tabId)
     })
 
     const unsubscribeTabCloseAll = window.api.onTabCloseAll(() => {
-      setTabs([])
-      setActiveTabId(null)
+      // v1.3.6：保留固定标签
+      setTabs(prev => {
+        const pinnedTabs = prev.filter(tab => tab.isPinned)
+        if (pinnedTabs.length > 0) {
+          setActiveTabId(pinnedTabs[0].id)
+          return pinnedTabs
+        }
+        setActiveTabId(null)
+        return []
+      })
     })
 
     const unsubscribeTabCloseLeft = window.api.onTabCloseLeft((tabId: string) => {
@@ -304,14 +529,239 @@ function App(): JSX.Element {
       })
     })
 
+    // v1.3.6：固定标签
+    const unsubscribeTabPin = window.api.onTabPin((tabId: string) => {
+      setTabs(prev => prev.map(tab =>
+        tab.id === tabId ? { ...tab, isPinned: true } : tab
+      ))
+      // 持久化到主进程
+      const tab = tabsRef.current.find(t => t.id === tabId)
+      if (tab) {
+        window.api.addPinnedTab(tab.file.path).catch(err => {
+          console.error('Failed to persist pinned tab:', err)
+        })
+      }
+    })
+
+    // v1.3.6：取消固定标签
+    const unsubscribeTabUnpin = window.api.onTabUnpin((tabId: string) => {
+      setTabs(prev => prev.map(tab =>
+        tab.id === tabId ? { ...tab, isPinned: false } : tab
+      ))
+      // 从主进程移除
+      const tab = tabsRef.current.find(t => t.id === tabId)
+      if (tab) {
+        window.api.removePinnedTab(tab.file.path).catch(err => {
+          console.error('Failed to remove pinned tab:', err)
+        })
+      }
+    })
+
     return () => {
       unsubscribeTabClose()
       unsubscribeTabCloseOthers()
       unsubscribeTabCloseAll()
       unsubscribeTabCloseLeft()
       unsubscribeTabCloseRight()
+      unsubscribeTabPin()
+      unsubscribeTabUnpin()
     }
   }, [handleTabClose])
+
+  // v1.3.6：书签面板事件处理
+  useEffect(() => {
+    if (!window.api.onTabAddBookmark) return
+
+    const unsubscribeAddBookmark = window.api.onTabAddBookmark(async ({ tabId, filePath }) => {
+      const tab = tabsRef.current.find(t => t.id === tabId)
+      if (!tab) return
+
+      try {
+        await window.api.addBookmark({
+          filePath: tab.file.path,
+          fileName: tab.file.name
+        })
+        toast.success('已添加到书签')
+        // 刷新书签数据（统一管理）
+        loadBookmarks()
+      } catch (error) {
+        console.error('[App] Failed to add bookmark:', error)
+        toast.error(`添加书签失败：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    })
+
+    return () => {
+      unsubscribeAddBookmark()
+    }
+  }, [toast, loadBookmarks])
+
+  // v1.3.6：快捷键添加书签
+  useEffect(() => {
+    if (!window.api.onShortcutAddBookmark) return
+
+    const unsubscribe = window.api.onShortcutAddBookmark(async () => {
+      if (!activeTabId) return
+
+      const tab = tabsRef.current.find(t => t.id === activeTabId)
+      if (!tab) return
+
+      try {
+        await window.api.addBookmark({
+          filePath: tab.file.path,
+          fileName: tab.file.name
+        })
+        toast.success('已添加到书签')
+        // 刷新书签数据（统一管理）
+        loadBookmarks()
+      } catch (error) {
+        console.error('[App] Failed to add bookmark:', error)
+        toast.error(`添加书签失败：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    })
+
+    return unsubscribe
+  }, [activeTabId, toast, loadBookmarks])
+
+  // v1.3.6：书签面板宽度变化时保存
+  const handleBookmarkPanelWidthChange = useCallback((newWidth: number) => {
+    setBookmarkPanelWidth(newWidth)
+    window.api.updateAppSettings({ bookmarkPanelWidth: newWidth }).catch(err => {
+      console.error('[App] Failed to save bookmark panel width:', err)
+    })
+  }, [])
+
+  // v1.3.6：书签面板折叠状态变化时保存
+  const handleBookmarkPanelToggle = useCallback(() => {
+    const newState = !bookmarkPanelCollapsed
+    setBookmarkPanelCollapsed(newState)
+    window.api.updateAppSettings({ bookmarkPanelCollapsed: newState }).catch(err => {
+      console.error('[App] Failed to save bookmark panel collapsed state:', err)
+    })
+  }, [bookmarkPanelCollapsed])
+
+  // v1.3.6：书签栏折叠状态变化时保存（混合方案）
+  const handleBookmarkBarToggle = useCallback(() => {
+    const newState = !bookmarkBarCollapsed
+    setBookmarkBarCollapsed(newState)
+    window.api.updateAppSettings({ bookmarkBarCollapsed: newState }).catch(err => {
+      console.error('[App] Failed to save bookmark bar collapsed state:', err)
+    })
+  }, [bookmarkBarCollapsed])
+
+  // v1.3.6 Phase 3：展开书签栏（从 TabBar 触发）
+  const handleShowBookmarkBar = useCallback(() => {
+    setBookmarkBarCollapsed(false)
+    window.api.updateAppSettings({ bookmarkBarCollapsed: false }).catch(err => {
+      console.error('[App] Failed to save bookmark bar collapsed state:', err)
+    })
+  }, [])
+
+  // v1.3.6：点击"更多"按钮时，展开右侧书签面板
+  const handleShowMoreBookmarks = useCallback(() => {
+    if (bookmarkPanelCollapsed) {
+      setBookmarkPanelCollapsed(false)
+      window.api.updateAppSettings({ bookmarkPanelCollapsed: false }).catch(err => {
+        console.error('[App] Failed to save bookmark panel collapsed state:', err)
+      })
+    }
+  }, [bookmarkPanelCollapsed])
+
+  // v1.3.6：书签跳转（带容错）
+  const handleSelectBookmark = useCallback(async (bookmark: Bookmark) => {
+    // 1. 检查文件是否已打开
+    const existingTab = tabsRef.current.find(tab => tab.file.path === bookmark.filePath)
+
+    if (!existingTab) {
+      // 打开文件
+      try {
+        const content = await readFileWithCache(bookmark.filePath)
+        const newTab: Tab = {
+          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
+          content
+        }
+        setTabs(prev => [...prev, newTab])
+        setActiveTabId(newTab.id)
+
+        // 等待渲染完成后跳转
+        setTimeout(() => navigateToBookmarkPosition(bookmark), 300)
+      } catch (error) {
+        toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    } else {
+      // 切换到已打开的标签
+      setActiveTabId(existingTab.id)
+      // 等待切换完成后跳转
+      setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
+    }
+  }, [toast])
+
+  // v1.3.6：跳转到书签位置（容错逻辑）
+  const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
+    if (!previewRef.current) return
+
+    // 优先级 1: 尝试通过锚点 ID 跳转
+    if (bookmark.headingId) {
+      const element = document.getElementById(bookmark.headingId)
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+
+    // 优先级 2: 尝试通过标题文本模糊匹配
+    if (bookmark.headingText) {
+      const headings = previewRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
+      const bestMatch = findBestHeadingMatch(bookmark.headingText, Array.from(headings))
+      if (bestMatch) {
+        bestMatch.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+
+    // 优先级 3: 尝试通过滚动位置
+    if (bookmark.scrollPosition !== undefined) {
+      const container = previewRef.current
+      const scrollTop = container.scrollHeight * bookmark.scrollPosition
+      container.scrollTo({ top: scrollTop, behavior: 'smooth' })
+      return
+    }
+
+    // 如果都失败，提示用户
+    toast.warning('书签位置可能已失效')
+  }, [toast])
+
+  // 模糊匹配标题（简单的相似度算法）
+  const findBestHeadingMatch = (targetText: string, headings: Element[]): Element | null => {
+    if (headings.length === 0) return null
+
+    const normalize = (text: string) => text.toLowerCase().trim().replace(/\s+/g, ' ')
+    const normalizedTarget = normalize(targetText)
+
+    let bestMatch: Element | null = null
+    let bestScore = 0
+
+    for (const heading of headings) {
+      const headingText = normalize(heading.textContent || '')
+
+      // 完全匹配
+      if (headingText === normalizedTarget) {
+        return heading
+      }
+
+      // 包含匹配
+      if (headingText.includes(normalizedTarget) || normalizedTarget.includes(headingText)) {
+        const score = Math.min(headingText.length, normalizedTarget.length) / Math.max(headingText.length, normalizedTarget.length)
+        if (score > bestScore) {
+          bestScore = score
+          bestMatch = heading
+        }
+      }
+    }
+
+    // 只有相似度超过 60% 才返回
+    return bestScore > 0.6 ? bestMatch : null
+  }
 
   // 文件监听 - 自动刷新功能
   // 只在 folderPath 改变时重新订阅，使用 ref 访问最新的 tabs
@@ -449,13 +899,27 @@ function App(): JSX.Element {
     // 读取文件内容
     try {
       const content = await readFileWithCache(file.path)
+
+      // v1.3.6：检查是否是固定标签
+      const isPinned = await window.api.isTabPinned(file.path)
+
       const newTab: Tab = {
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         file,
-        content
+        content,
+        isPinned
       }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(newTab.id)
+
+      // v1.3.6：添加到最近文件
+      window.api.addRecentFile({
+        path: file.path,
+        name: file.name,
+        folderPath: folderPath
+      }).catch(err => {
+        console.error('Failed to add to recent files:', err)
+      })
 
       // 将文件添加到监听列表（只监听已打开的文件）
       window.api.watchFile(file.path).catch(err => {
@@ -465,7 +929,7 @@ function App(): JSX.Element {
       console.error('Failed to read file:', error)
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [toast])
+  }, [toast, folderPath])
 
   // v1.3.4：监听打开特定文件事件
   useEffect(() => {
@@ -719,19 +1183,11 @@ function App(): JSX.Element {
       <div className="app">
       <ToastContainer messages={toast.messages} onClose={toast.close} />
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
-      {/* 标题栏 (macOS 拖拽区域) */}
-      <header className="titlebar">
-        <div className="titlebar-drag-region" />
-        <h1 className="app-title">MD Viewer</h1>
-        <div className="titlebar-actions">
-          <button className="settings-btn" onClick={() => setShowSettings(true)} title="设置">⚙️</button>
-          <ThemeToggle theme={theme} onThemeChange={setTheme} />
-        </div>
-      </header>
 
       {/* 主内容区 */}
       <main className="main-content">
         {!folderPath ? (
+          /* 欢迎页：无 Header，保持原样 */
           <div className="welcome">
             <div className="welcome-icon">📁</div>
             <h2>欢迎使用 MD Viewer</h2>
@@ -744,77 +1200,114 @@ function App(): JSX.Element {
                 onSelectFolder={handleSelectHistoryFolder}
                 onOpenFolder={handleOpenFolder}
               />
+              <RecentFilesDropdown onSelectFile={handleSelectRecentFile} />
             </div>
           </div>
         ) : (
-          <div className={`workspace ${isResizing ? 'resizing' : ''}`}>
-            <aside className="sidebar" style={{ width: sidebarWidth }}>
-              <div className="sidebar-header">
-                <div className="sidebar-header-top">
-                  <span className="folder-name">{folderPath.split('/').pop()}</span>
-                  <div className="sidebar-header-buttons">
-                    <button
-                      className="refresh-btn"
-                      onClick={handleRefreshFiles}
-                      title="刷新文件列表"
-                      disabled={isLoading}
-                    >
-                      🔄
-                    </button>
-                    <FolderHistoryDropdown
-                      onSelectFolder={handleSelectHistoryFolder}
-                      onOpenFolder={handleOpenFolder}
-                    />
-                  </div>
-                </div>
-                <SearchBar ref={searchBarRef} files={files} onFileSelect={handleFileSelect} />
-              </div>
-              <div className="file-tree-container">
-                {isLoading ? (
-                  <p className="placeholder">加载中...</p>
-                ) : (
-                  <FileTree
-                    files={files}
-                    onFileSelect={handleFileSelect}
-                    selectedPath={activeTab?.file.path}
-                    basePath={folderPath}
-                    onFileRenamed={handleFileRenamed}
-                    selectedPaths={selectedPaths}
-                    onSelectionChange={setSelectedPaths}
-                  />
-                )}
-              </div>
-            </aside>
-            {/* 可拖拽分隔条 */}
-            <div className="resize-handle" onMouseDown={handleResizeStart} />
-            <section className="editor-area">
-              <TabBar
-                tabs={tabs}
-                activeTabId={activeTabId}
-                onTabClick={handleTabClick}
-                onTabClose={handleTabClose}
-                basePath={folderPath || undefined}
+          /* 工作区：Header + 主内容 */
+          <div className="workspace-container">
+            {/* v1.3.6：新 Header（NavigationBar + TabBar） */}
+            <Header>
+              <NavigationBar
+                folderPath={folderPath}
+                files={files}
+                theme={theme}
+                searchBarRef={searchBarRef}
+                onOpenFolder={handleOpenFolder}
+                onSelectHistoryFolder={handleSelectHistoryFolder}
+                onSelectRecentFile={handleSelectRecentFile}
+                onFileSelect={handleFileSelect}
+                onSettingsClick={() => setShowSettings(true)}
+                onThemeChange={setTheme}
+                onRefreshFiles={handleRefreshFiles}
+                isLoading={isLoading}
               />
-              <div className="preview-container">
-                <div className="preview" ref={previewRef}>
-                  {activeTab ? (
-                    <VirtualizedMarkdown
-                      key={activeTab.file.path}
-                      content={activeTab.content}
-                      filePath={activeTab.file.path}
-                    />
+              {/* v1.3.6 Phase 3：只有打开标签时才显示 TabBar 和 BookmarkBar */}
+              {tabs.length > 0 && (
+                <>
+                  <TabBar
+                    tabs={tabs}
+                    activeTabId={activeTabId}
+                    onTabClick={handleTabClick}
+                    onTabClose={handleTabClose}
+                    basePath={folderPath || undefined}
+                    bookmarkBarCollapsed={bookmarkBarCollapsed}
+                    bookmarkCount={bookmarks.length}
+                    onShowBookmarkBar={handleShowBookmarkBar}
+                  />
+                  <BookmarkBar
+                    bookmarks={bookmarks}
+                    isLoading={bookmarksLoading}
+                    isCollapsed={bookmarkBarCollapsed}
+                    onToggleCollapse={handleBookmarkBarToggle}
+                    onSelectBookmark={handleSelectBookmark}
+                    onShowMoreClick={handleShowMoreBookmarks}
+                    currentFilePath={activeTab?.file.path}
+                  />
+                </>
+              )}
+            </Header>
+
+            {/* 工作区主体 */}
+            <div className={`workspace ${isResizing ? 'resizing' : ''}`}>
+              {/* 左侧边栏：文件树 */}
+              <aside className="sidebar" style={{ width: sidebarWidth }}>
+                <div className="file-tree-container">
+                  {isLoading ? (
+                    <p className="placeholder">加载中...</p>
                   ) : (
-                    <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                    <FileTree
+                      files={files}
+                      onFileSelect={handleFileSelect}
+                      selectedPath={activeTab?.file.path}
+                      basePath={folderPath}
+                      onFileRenamed={handleFileRenamed}
+                      selectedPaths={selectedPaths}
+                      onSelectionChange={setSelectedPaths}
+                    />
                   )}
                 </div>
-                {activeTab && (
-                  <FloatingNav
-                    containerRef={previewRef}
-                    markdown={activeTab.content}
-                  />
-                )}
-              </div>
-            </section>
+              </aside>
+
+              {/* 左侧分隔条 */}
+              <div className="resize-handle" onMouseDown={handleResizeStart} />
+
+              {/* 内容区（中间） */}
+              <section className="content-area">
+                <div className="preview-container">
+                  <div className="preview" ref={previewRef}>
+                    {activeTab ? (
+                      <VirtualizedMarkdown
+                        key={activeTab.file.path}
+                        content={activeTab.content}
+                        filePath={activeTab.file.path}
+                      />
+                    ) : (
+                      <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                    )}
+                  </div>
+                  {activeTab && (
+                    <FloatingNav
+                      containerRef={previewRef}
+                      markdown={activeTab.content}
+                    />
+                  )}
+                </div>
+              </section>
+
+              {/* v1.3.6：右侧书签面板 */}
+              <BookmarkPanel
+                bookmarks={bookmarks}
+                isLoading={bookmarksLoading}
+                isCollapsed={bookmarkPanelCollapsed}
+                width={bookmarkPanelWidth}
+                onToggleCollapse={handleBookmarkPanelToggle}
+                onWidthChange={handleBookmarkPanelWidthChange}
+                onSelectBookmark={handleSelectBookmark}
+                onBookmarksChange={loadBookmarks}
+                currentFilePath={activeTab?.file.path}
+              />
+            </div>
           </div>
         )}
       </main>

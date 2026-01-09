@@ -5,6 +5,7 @@ export interface Tab {
   id: string
   file: FileInfo
   content: string
+  isPinned?: boolean  // v1.3.6 新增：是否固定
 }
 
 interface TabBarProps {
@@ -12,17 +13,56 @@ interface TabBarProps {
   activeTabId: string | null
   onTabClick: (tabId: string) => void
   onTabClose: (tabId: string) => void
-  basePath?: string  // v1.3 新增
+  onTabPin?: (tabId: string) => void      // v1.3.6 新增
+  onTabUnpin?: (tabId: string) => void    // v1.3.6 新增
+  basePath?: string
+  // v1.3.6 Phase 3：书签栏触发按钮
+  bookmarkBarCollapsed?: boolean
+  bookmarkCount?: number
+  onShowBookmarkBar?: () => void
 }
 
-export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, basePath }: TabBarProps): JSX.Element {
+export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, onTabUnpin, basePath, bookmarkBarCollapsed, bookmarkCount, onShowBookmarkBar }: TabBarProps): JSX.Element {
+  // v1.3.6 Phase 3：即使没有标签，也要显示书签触发按钮
   if (tabs.length === 0) {
-    return <div className="tabs" />
+    return (
+      <div className="tabs">
+        {/* 书签触发按钮（折叠状态显示） */}
+        {bookmarkBarCollapsed && onShowBookmarkBar && (
+          <button
+            className="tab-bar-bookmark-trigger"
+            onClick={onShowBookmarkBar}
+            title={
+              bookmarkCount && bookmarkCount > 0
+                ? `显示书签栏 (${bookmarkCount} 个书签)`
+                : '显示书签栏（右键标签添加书签）'
+            }
+            aria-label="显示书签栏"
+            aria-expanded="false"
+          >
+            <span className="tab-bar-bookmark-icon">⭐</span>
+            {/* 只有书签数量 > 0 时才显示 Badge */}
+            {bookmarkCount && bookmarkCount > 0 && (
+              <span className="tab-bar-bookmark-badge">{bookmarkCount}</span>
+            )}
+          </button>
+        )}
+      </div>
+    )
   }
 
-  const handleCloseClick = (e: React.MouseEvent, tabId: string) => {
+  // v1.3.6：对标签排序，固定的在前面
+  const sortedTabs = [...tabs].sort((a, b) => {
+    if (a.isPinned && !b.isPinned) return -1
+    if (!a.isPinned && b.isPinned) return 1
+    return 0
+  })
+
+  const handleCloseClick = (e: React.MouseEvent, tab: Tab) => {
     e.stopPropagation()
-    onTabClose(tabId)
+    // v1.3.6：固定标签不显示关闭按钮，但如果点击了也要处理
+    if (tab.isPinned) return
+    onTabClose(tab.id)
   }
 
   // v1.3 新增：右键菜单
@@ -37,7 +77,8 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, basePath }: 
       filePath: tab.file.path,
       basePath,
       tabCount: tabs.length,
-      tabIndex: index
+      tabIndex: index,
+      isPinned: tab.isPinned  // v1.3.6 新增
     }).catch(error => {
       console.error('[TabBar] Failed to show context menu:', error)
     })
@@ -45,10 +86,10 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, basePath }: 
 
   return (
     <div className="tabs">
-      {tabs.map((tab, index) => (
+      {sortedTabs.map((tab, index) => (
         <div
           key={tab.id}
-          className={`tab ${tab.id === activeTabId ? 'active' : ''}`}
+          className={`tab ${tab.id === activeTabId ? 'active' : ''} ${tab.isPinned ? 'pinned' : ''}`}
           onClick={() => onTabClick(tab.id)}
           onContextMenu={(e) => handleContextMenu(e, tab, index)}
           role="tab"
@@ -61,22 +102,51 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, basePath }: 
             }
           }}
         >
-          <span className="tab-icon">📄</span>
+          {/* v1.3.6：固定标签显示图钉图标 */}
+          {tab.isPinned ? (
+            <span className="tab-pin-icon" title="已固定">📌</span>
+          ) : (
+            <span className="tab-icon">📄</span>
+          )}
           <span className="tab-name" title={tab.file.path}>
             {tab.file.name}
           </span>
-          <button
-            className="tab-close"
-            onClick={(e) => handleCloseClick(e, tab.id)}
-            aria-label={`关闭 ${tab.file.name}`}
-            title="关闭标签"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          {/* v1.3.6：固定标签不显示关闭按钮 */}
+          {!tab.isPinned && (
+            <button
+              className="tab-close"
+              onClick={(e) => handleCloseClick(e, tab)}
+              aria-label={`关闭 ${tab.file.name}`}
+              title="关闭标签"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
         </div>
       ))}
+
+      {/* v1.3.6 Phase 3：书签栏触发按钮（折叠状态显示） */}
+      {bookmarkBarCollapsed && onShowBookmarkBar && (
+        <button
+          className="tab-bar-bookmark-trigger"
+          onClick={onShowBookmarkBar}
+          title={
+            bookmarkCount && bookmarkCount > 0
+              ? `显示书签栏 (${bookmarkCount} 个书签)`
+              : '显示书签栏（右键标签添加书签）'
+          }
+          aria-label="显示书签栏"
+          aria-expanded="false"
+        >
+          <span className="tab-bar-bookmark-icon">⭐</span>
+          {/* 只有书签数量 > 0 时才显示 Badge */}
+          {bookmarkCount && bookmarkCount > 0 && (
+            <span className="tab-bar-bookmark-badge">{bookmarkCount}</span>
+          )}
+        </button>
+      )}
     </div>
   )
 }

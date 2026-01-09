@@ -1,0 +1,193 @@
+/**
+ * 最近文件下拉菜单样式
+ * v1.3.6 新增
+ */
+
+.recent-files-dropdown {
+  position: relative;
+  display: inline-flex;
+  margin-left: 8px;
+}
+
+.recent-files-btn {
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 16px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.recent-files-btn:hover {
+  background-color: var(--bg-tertiary, #e0e0e0);
+}
+
+.recent-files-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 320px;
+  max-width: 400px;
+  max-height: 400px;
+  overflow: hidden;
+  z-index: 1000;
+}
+
+.recent-files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  background: var(--bg-secondary, #f5f5f5);
+}
+
+.clear-all-btn {
+  background: transparent;
+  border: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary, #666);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.clear-all-btn:hover {
+  background: var(--bg-tertiary, #e0e0e0);
+  color: var(--text-primary, #333);
+}
+
+.recent-files-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary, #999);
+  font-size: 13px;
+}
+
+.recent-files-list {
+  overflow-y: auto;
+  max-height: 350px;
+}
+
+.recent-file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  border-bottom: 1px solid var(--border-color-light, #f0f0f0);
+}
+
+.recent-file-item:last-child {
+  border-bottom: none;
+}
+
+.recent-file-item:hover {
+  background-color: var(--bg-hover, #f5f5f5);
+}
+
+.recent-file-info {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 10px;
+}
+
+.recent-file-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.recent-file-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.recent-file-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #333);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-file-path {
+  font-size: 11px;
+  color: var(--text-secondary, #999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.recent-file-time {
+  font-size: 11px;
+  color: var(--text-tertiary, #aaa);
+  white-space: nowrap;
+}
+
+.recent-file-remove-btn {
+  background: transparent;
+  border: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 14px;
+  color: var(--text-secondary, #999);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.recent-file-item:hover .recent-file-remove-btn {
+  opacity: 1;
+}
+
+.recent-file-remove-btn:hover {
+  background: var(--bg-tertiary, #e0e0e0);
+  color: var(--text-primary, #333);
+}
+
+/* 暗色主题适配 */
+[data-theme="dark"] .recent-files-menu {
+  background: var(--bg-primary, #1e1e1e);
+  border-color: var(--border-color, #3d3d3d);
+}
+
+[data-theme="dark"] .recent-files-header {
+  background: var(--bg-secondary, #252525);
+  border-color: var(--border-color, #3d3d3d);
+}
+
+[data-theme="dark"] .recent-file-item:hover {
+  background-color: var(--bg-hover, #2d2d2d);
+}
+
+[data-theme="dark"] .recent-file-item {
+  border-color: var(--border-color-light, #2d2d2d);
+}

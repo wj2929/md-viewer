@@ -110,6 +110,13 @@ export function registerWindowShortcuts(window: BrowserWindow): void {
         return
       }
     }
+
+    // v1.3.6: Cmd/Ctrl + D: 添加书签
+    if (cmdOrCtrl && input.key.toLowerCase() === 'd' && !input.shift && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:add-bookmark')
+      return
+    }
   })
 
   console.log('[SHORTCUTS] Window shortcuts registered')

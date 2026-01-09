@@ -29,6 +29,7 @@ const api = {
     basePath: string
     tabCount: number
     tabIndex: number
+    isPinned?: boolean  // v1.3.6 新增
   }) => ipcRenderer.invoke('tab:show-context-menu', ctx),
 
   // v1.3 阶段 2：Markdown 右键菜单
@@ -64,6 +65,89 @@ const api = {
     ipcRenderer.invoke('folder-history:clear'),
   setFolderPath: (folderPath: string) =>
     ipcRenderer.invoke('folder:setPath', folderPath) as Promise<boolean>,
+
+  // v1.3.6：最近文件
+  getRecentFiles: () =>
+    ipcRenderer.invoke('recent-files:get') as Promise<Array<{ path: string; name: string; folderPath: string; lastOpened: number }>>,
+  addRecentFile: (file: { path: string; name: string; folderPath: string }) =>
+    ipcRenderer.invoke('recent-files:add', file),
+  removeRecentFile: (filePath: string) =>
+    ipcRenderer.invoke('recent-files:remove', filePath),
+  clearRecentFiles: () =>
+    ipcRenderer.invoke('recent-files:clear'),
+
+  // v1.3.6：固定标签（按文件夹分组）
+  getPinnedTabsForFolder: (folderPath: string) =>
+    ipcRenderer.invoke('pinned-tabs:get-for-folder', folderPath) as Promise<Array<{ path: string; order: number }>>,
+  addPinnedTab: (filePath: string) =>
+    ipcRenderer.invoke('pinned-tabs:add', filePath) as Promise<boolean>,
+  removePinnedTab: (filePath: string) =>
+    ipcRenderer.invoke('pinned-tabs:remove', filePath),
+  isTabPinned: (filePath: string) =>
+    ipcRenderer.invoke('pinned-tabs:is-pinned', filePath) as Promise<boolean>,
+
+  // v1.3.6：应用设置
+  getAppSettings: () =>
+    ipcRenderer.invoke('settings:get') as Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>,
+  updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>) =>
+    ipcRenderer.invoke('settings:update', updates),
+
+  // v1.3.6：书签管理
+  getBookmarks: () =>
+    ipcRenderer.invoke('bookmarks:get') as Promise<Array<{
+      id: string
+      filePath: string
+      fileName: string
+      title?: string
+      headingId?: string
+      headingText?: string
+      scrollPosition?: number
+      createdAt: number
+      order: number
+    }>>,
+  addBookmark: (bookmark: {
+    filePath: string
+    fileName: string
+    title?: string
+    headingId?: string
+    headingText?: string
+    scrollPosition?: number
+  }) =>
+    ipcRenderer.invoke('bookmarks:add', bookmark) as Promise<{
+      id: string
+      filePath: string
+      fileName: string
+      title?: string
+      headingId?: string
+      headingText?: string
+      scrollPosition?: number
+      createdAt: number
+      order: number
+    }>,
+  updateBookmark: (id: string, updates: {
+    title?: string
+    headingId?: string
+    headingText?: string
+    scrollPosition?: number
+    order?: number
+  }) =>
+    ipcRenderer.invoke('bookmarks:update', id, updates),
+  removeBookmark: (id: string) =>
+    ipcRenderer.invoke('bookmarks:remove', id),
+  updateAllBookmarks: (bookmarks: Array<{
+    id: string
+    filePath: string
+    fileName: string
+    title?: string
+    headingId?: string
+    headingText?: string
+    scrollPosition?: number
+    createdAt: number
+    order: number
+  }>) =>
+    ipcRenderer.invoke('bookmarks:update-all', bookmarks),
+  clearBookmarks: () =>
+    ipcRenderer.invoke('bookmarks:clear'),
 
   // v1.3.4：右键菜单安装
   checkContextMenuStatus: () =>
@@ -196,6 +280,26 @@ const api = {
     return () => ipcRenderer.removeListener('tab:close-right', handler)
   },
 
+  // v1.3.6：Tab 固定/取消固定事件
+  onTabPin: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:pin', handler)
+    return () => ipcRenderer.removeListener('tab:pin', handler)
+  },
+
+  onTabUnpin: (callback: (tabId: string) => void) => {
+    const handler = (_event: unknown, tabId: string) => callback(tabId)
+    ipcRenderer.on('tab:unpin', handler)
+    return () => ipcRenderer.removeListener('tab:unpin', handler)
+  },
+
+  // v1.3.6：添加书签事件
+  onTabAddBookmark: (callback: (data: { tabId: string; filePath: string }) => void) => {
+    const handler = (_event: unknown, data: { tabId: string; filePath: string }) => callback(data)
+    ipcRenderer.on('tab:add-bookmark', handler)
+    return () => ipcRenderer.removeListener('tab:add-bookmark', handler)
+  },
+
   // v1.3 阶段 2：Markdown 右键菜单事件
   onMarkdownExportHTML: (callback: () => void) => {
     const handler = () => callback()
@@ -324,6 +428,13 @@ const api = {
     const handler = (_event: unknown, tabIndex: number) => callback(tabIndex)
     ipcRenderer.on('shortcut:switch-tab', handler)
     return () => ipcRenderer.removeListener('shortcut:switch-tab', handler)
+  },
+
+  // v1.3.6：添加书签快捷键
+  onShortcutAddBookmark: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:add-bookmark', handler)
+    return () => ipcRenderer.removeListener('shortcut:add-bookmark', handler)
   }
 }
 

@@ -1,0 +1,156 @@
+/**
+ * BookmarkBar 样式
+ * v1.3.6 混合方案 Phase 3
+ */
+
+.bookmark-bar {
+  height: 40px; /* 与 TabBar 保持一致（原 36px → 40px） */
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px; /* 与 TabBar 保持一致（左右各 8px） */
+  background: var(--bg-secondary); /* 与 TabBar 保持一致（灰色背景） */
+  border-bottom: 1px solid var(--border-color);
+  overflow: hidden;
+  /* v1.3.6 Phase 3：展开动画 */
+  animation: slideDown 0.2s ease-out;
+}
+
+/* v1.3.6 Phase 3：展开动画 */
+@keyframes slideDown {
+  from {
+    height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    height: 40px; /* 与 BookmarkBar 高度一致（原 36px → 40px） */
+    opacity: 1;
+  }
+}
+
+/* 折叠状态 - 完全消失（0px，触发按钮移到 TabBar 中） */
+.bookmark-bar.collapsed {
+  display: none;
+}
+
+/* 折叠/展开按钮 */
+.bookmark-bar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.bookmark-bar-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.bookmark-bar-toggle-icon {
+  font-size: 14px;
+}
+
+.bookmark-bar-toggle-count {
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+}
+
+/* 书签列表容器 */
+.bookmark-bar-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 加载状态 */
+.bookmark-bar-loading {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 空状态 */
+.bookmark-bar-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 书签项 */
+.bookmark-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: none;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-primary);
+  transition: all 0.15s;
+  max-width: 180px;
+  flex-shrink: 0;
+}
+
+.bookmark-bar-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.bookmark-bar-item.active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.bookmark-bar-item-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.bookmark-bar-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 更多按钮 */
+.bookmark-bar-more {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.bookmark-bar-more:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-color);
+  color: var(--text-primary);
+}
+
+/* 响应式：小屏幕时自动隐藏 */
+@media (max-width: 1200px) {
+  .bookmark-bar {
+    display: none;
+  }
+}

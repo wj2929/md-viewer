@@ -1,0 +1,25 @@
+/**
+ * Header 样式
+ * v1.3.6 混合方案
+ */
+
+.app-header {
+  width: 100%;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+/* Header 内的 TabBar 样式调整 */
+.app-header .tabs {
+  border-bottom: none;
+  background: var(--bg-primary);
+}
+
+/* NavigationBar（第一行）样式由 NavigationBar.css 控制 */
+/* TabBar（第二行）样式保持原有，但移除顶部边框 */
+/* BookmarkBar（第三行）样式后续单独定义 */

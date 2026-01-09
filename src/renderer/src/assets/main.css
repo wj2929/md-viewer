@@ -103,7 +103,15 @@ body {
   height: 100%;
 }
 
-/* 标题栏 */
+/* v1.3.6：工作区容器（Header + 主内容） */
+.workspace-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 旧标题栏（已弃用，保留兼容） */
 .titlebar {
   height: var(--titlebar-height);
   background-color: var(--bg-secondary);
@@ -565,8 +573,16 @@ body {
   background-color: var(--accent-color-alpha-hover);
 }
 
-/* 编辑区域 */
+/* 编辑区域（旧版，保留兼容） */
 .editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* v1.3.6：内容区域（新版，TabBar 已移到 Header） */
+.content-area {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -649,6 +665,63 @@ body {
 
 .tab.active .tab-close {
   opacity: 1;
+}
+
+/* v1.3.6：固定标签样式 */
+.tab.pinned {
+  background-color: var(--bg-secondary);
+  border-left: 2px solid var(--accent-color, #007aff);
+  padding-left: 10px;
+}
+
+.tab.pinned .tab-pin-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tab.pinned:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.tab.pinned.active {
+  background-color: var(--bg-primary);
+}
+
+/* v1.3.6 Phase 3：书签栏触发按钮（在 TabBar 中） */
+.tab-bar-bookmark-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  margin-left: auto; /* 推到右侧 */
+  border: none;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.tab-bar-bookmark-trigger:hover {
+  background: var(--accent-color-alpha-hover);
+  color: var(--accent-color);
+}
+
+.tab-bar-bookmark-icon {
+  font-size: 14px;
+}
+
+.tab-bar-bookmark-badge {
+  font-size: 11px;
+  background: var(--accent-color);
+  color: white;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 500;
+  min-width: 18px;
+  text-align: center;
 }
 
 .preview-container {

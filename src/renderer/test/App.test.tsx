@@ -75,7 +75,23 @@ const mockApi = {
   // v1.3.4：右键菜单安装
   checkContextMenuStatus: vi.fn().mockResolvedValue({ installed: false, platform: 'darwin' }),
   installContextMenu: vi.fn().mockResolvedValue({ success: true }),
-  uninstallContextMenu: vi.fn().mockResolvedValue({ success: true })
+  uninstallContextMenu: vi.fn().mockResolvedValue({ success: true }),
+  // v1.3.6：标签固定功能
+  onTabPin: vi.fn(() => vi.fn()),
+  onTabUnpin: vi.fn(() => vi.fn()),
+  getPinnedTabs: vi.fn().mockResolvedValue([]),
+  savePinnedTabs: vi.fn().mockResolvedValue(undefined),
+  // v1.3.6：书签功能
+  onTabAddBookmark: vi.fn(() => vi.fn()),
+  getBookmarks: vi.fn().mockResolvedValue([]),
+  addBookmark: vi.fn().mockResolvedValue({ id: 'bookmark-1', filePath: '/test/file.md', fileName: 'file.md', createdAt: Date.now(), order: 0 }),
+  deleteBookmark: vi.fn().mockResolvedValue(undefined),
+  updateBookmarkOrder: vi.fn().mockResolvedValue(undefined),
+  // v1.3.6：快捷键 - 添加书签
+  onShortcutAddBookmark: vi.fn(() => vi.fn()),
+  // v1.3.6：最近文件
+  getRecentFiles: vi.fn().mockResolvedValue([]),
+  addRecentFile: vi.fn().mockResolvedValue(undefined)
 }
 
 // Mock 全局 window.api
@@ -126,7 +142,8 @@ describe('App 集成测试', () => {
 
     it('应该显示应用标题', () => {
       render(<App />)
-      expect(screen.getByText('MD Viewer')).toBeInTheDocument()
+      // v1.3.6：欢迎页面时没有 NavigationBar，应该显示欢迎文本
+      expect(screen.getByText('欢迎使用 MD Viewer')).toBeInTheDocument()
     })
 
     it('应该注册文件夹恢复监听器', () => {
@@ -134,10 +151,23 @@ describe('App 集成测试', () => {
       expect(mockApi.onRestoreFolder).toHaveBeenCalled()
     })
 
-    it('应该显示主题切换按钮', () => {
+    it('应该显示主题切换按钮', async () => {
+      // v1.3.6：主题切换按钮只在打开文件夹后的 NavigationBar 中显示
+      // 初始状态下（欢迎页面）没有主题切换按钮
+      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.readDir.mockResolvedValue([])
+
       render(<App />)
-      const themeToggle = document.querySelector('.theme-toggle')
-      expect(themeToggle).toBeInTheDocument()
+
+      // 打开文件夹
+      const button = screen.getByRole('button', { name: '打开文件夹' })
+      fireEvent.click(button)
+
+      // 等待 NavigationBar 渲染，然后查找主题切换按钮
+      await waitFor(() => {
+        const themeToggles = screen.queryAllByRole('radio', { name: /自动|亮色|暗色/ })
+        expect(themeToggles.length).toBeGreaterThan(0)
+      })
     })
 
     it('应该注册快捷键监听器', () => {
@@ -210,7 +240,10 @@ describe('App 集成测试', () => {
       fireEvent.click(button)
 
       await waitFor(() => {
-        expect(screen.getByText('my-folder')).toBeInTheDocument()
+        // v1.3.6：文件夹名称在 NavigationBar 的 .nav-folder-path 中，格式是 "📂 my-folder"
+        const folderPath = document.querySelector('.nav-folder-path')
+        expect(folderPath).toBeInTheDocument()
+        expect(folderPath?.textContent).toContain('my-folder')
       })
     })
 
@@ -392,19 +425,32 @@ describe('App 集成测试', () => {
 
   describe('主题切换 (v1.2)', () => {
     it('应该能切换主题', async () => {
+      // v1.3.6：主题切换按钮只在打开文件夹后显示
+      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.readDir.mockResolvedValue([])
+
       render(<App />)
 
-      const themeToggle = document.querySelector('.theme-toggle')
-      expect(themeToggle).toBeInTheDocument()
+      // 打开文件夹
+      const button = screen.getByRole('button', { name: '打开文件夹' })
+      fireEvent.click(button)
 
-      if (themeToggle) {
-        fireEvent.click(themeToggle)
-        // 点击后主题应该变化（不检查 localStorage，因为 mock 的行为可能不同）
-        // 只验证点击不会导致错误
-        await waitFor(() => {
-          expect(themeToggle).toBeInTheDocument()
-        })
-      }
+      // 等待 NavigationBar 渲染
+      await waitFor(() => {
+        const themeToggles = screen.queryAllByRole('radio', { name: /自动|亮色|暗色/ })
+        expect(themeToggles.length).toBeGreaterThan(0)
+
+        // 点击第一个主题切换按钮
+        if (themeToggles.length > 0) {
+          fireEvent.click(themeToggles[0])
+        }
+      })
+
+      // 验证点击不会导致错误
+      await waitFor(() => {
+        const themeToggles = screen.queryAllByRole('radio', { name: /自动|亮色|暗色/ })
+        expect(themeToggles.length).toBeGreaterThan(0)
+      })
     })
   })
 
@@ -421,14 +467,17 @@ describe('App 集成测试', () => {
       fireEvent.click(openButton)
 
       await waitFor(() => {
-        expect(screen.getByText('folder')).toBeInTheDocument()
+        // v1.3.6：文件夹名称在 NavigationBar 中
+        const folderPath = document.querySelector('.nav-folder-path')
+        expect(folderPath).toBeInTheDocument()
+        expect(folderPath?.textContent).toContain('folder')
       })
 
       // 清空调用记录
       mockApi.readDir.mockClear()
 
-      // 点击刷新按钮
-      const refreshBtn = document.querySelector('.refresh-btn')
+      // v1.3.6：刷新按钮在 NavigationBar 的 .nav-refresh-btn 中
+      const refreshBtn = document.querySelector('.nav-refresh-btn')
       if (refreshBtn) {
         fireEvent.click(refreshBtn)
 
@@ -480,7 +529,10 @@ describe('App 集成测试', () => {
       })
 
       await waitFor(() => {
-        expect(screen.getByText('folder')).toBeInTheDocument()
+        // v1.3.6：文件夹名称在 NavigationBar 中
+        const folderPath = document.querySelector('.nav-folder-path')
+        expect(folderPath).toBeInTheDocument()
+        expect(folderPath?.textContent).toContain('folder')
       })
     })
   })
@@ -489,7 +541,8 @@ describe('App 集成测试', () => {
     it('应该被 ErrorBoundary 包裹', () => {
       render(<App />)
       // App 组件应该正常渲染，说明 ErrorBoundary 工作正常
-      expect(screen.getByText('MD Viewer')).toBeInTheDocument()
+      // v1.3.6：欢迎页面时检查欢迎文本
+      expect(screen.getByText('欢迎使用 MD Viewer')).toBeInTheDocument()
     })
   })
 
@@ -520,8 +573,10 @@ describe('App 边界条件测试', () => {
     fireEvent.click(button)
 
     await waitFor(() => {
-      // 文件夹名称是路径最后一部分
-      expect(screen.getByText('folder')).toBeInTheDocument()
+      // v1.3.6：文件夹名称在 NavigationBar 的 .nav-folder-path 中
+      const folderPath = document.querySelector('.nav-folder-path')
+      expect(folderPath).toBeInTheDocument()
+      expect(folderPath?.textContent).toContain('folder')
     })
 
     // 应该显示空状态提示

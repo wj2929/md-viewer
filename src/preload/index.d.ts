@@ -1,5 +1,18 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
+// v1.3.6：书签接口
+interface Bookmark {
+  id: string
+  filePath: string
+  fileName: string
+  title?: string
+  headingId?: string
+  headingText?: string
+  scrollPosition?: number
+  createdAt: number
+  order: number
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -58,6 +71,30 @@ declare global {
       clearFolderHistory: () => Promise<void>
       setFolderPath: (folderPath: string) => Promise<boolean>
 
+      // v1.3.6：最近文件
+      getRecentFiles: () => Promise<Array<{ path: string; name: string; folderPath: string; lastOpened: number }>>
+      addRecentFile: (file: { path: string; name: string; folderPath: string }) => Promise<void>
+      removeRecentFile: (filePath: string) => Promise<void>
+      clearRecentFiles: () => Promise<void>
+
+      // v1.3.6：固定标签（按文件夹分组）
+      getPinnedTabsForFolder: (folderPath: string) => Promise<Array<{ path: string; order: number }>>
+      addPinnedTab: (filePath: string) => Promise<boolean>
+      removePinnedTab: (filePath: string) => Promise<void>
+      isTabPinned: (filePath: string) => Promise<boolean>
+
+      // v1.3.6：应用设置
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>) => Promise<void>
+
+      // v1.3.6：书签管理
+      getBookmarks: () => Promise<Array<Bookmark>>
+      addBookmark: (bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'order'>) => Promise<Bookmark>
+      updateBookmark: (id: string, updates: Partial<Omit<Bookmark, 'id' | 'createdAt'>>) => Promise<void>
+      removeBookmark: (id: string) => Promise<void>
+      updateAllBookmarks: (bookmarks: Bookmark[]) => Promise<void>
+      clearBookmarks: () => Promise<void>
+
       // v1.3.4：右键菜单安装
       checkContextMenuStatus: () => Promise<{
         installed: boolean
@@ -102,6 +139,11 @@ declare global {
       onTabCloseLeft: (callback: (tabId: string) => void) => () => void
       onTabCloseRight: (callback: (tabId: string) => void) => () => void
 
+      // v1.3.6：Tab 固定/取消固定事件
+      onTabPin: (callback: (tabId: string) => void) => () => void
+      onTabUnpin: (callback: (tabId: string) => void) => () => void
+      onTabAddBookmark: (callback: (data: { tabId: string; filePath: string }) => void) => () => void
+
       // v1.3 阶段 2：Markdown 右键菜单事件
       onMarkdownExportHTML: (callback: () => void) => () => void
       onMarkdownExportPDF: (callback: () => void) => () => void
@@ -138,6 +180,7 @@ declare global {
       onShortcutNextTab: (callback: () => void) => () => void
       onShortcutPrevTab: (callback: () => void) => () => void
       onShortcutSwitchTab: (callback: (tabIndex: number) => void) => () => void
+      onShortcutAddBookmark: (callback: () => void) => () => void
     }
   }
 

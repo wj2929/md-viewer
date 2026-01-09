@@ -1,0 +1,131 @@
+/**
+ * NavigationBar 样式
+ * v1.3.6 混合方案
+ */
+
+.navigation-bar {
+  height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px 0 80px; /* 左侧留出 macOS 红绿灯按钮空间 */
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  position: relative;
+}
+
+/* macOS 拖拽区域 */
+.titlebar-drag-region {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  -webkit-app-region: drag;
+  z-index: 0;
+}
+
+/* 所有可交互元素需要禁用拖拽 */
+.navigation-bar button,
+.navigation-bar input,
+.navigation-bar select {
+  -webkit-app-region: no-drag;
+}
+
+/* Logo */
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+  z-index: 1;
+  -webkit-app-region: no-drag;
+}
+
+.nav-logo-icon {
+  font-size: 18px;
+}
+
+.nav-logo-text {
+  font-weight: 600;
+}
+
+/* 文件夹区域 */
+.nav-folder-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  z-index: 1;
+}
+
+.nav-folder-path {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-refresh-btn {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.nav-refresh-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.nav-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 搜索区域 */
+.nav-search-section {
+  flex: 1;
+  max-width: 400px;
+  z-index: 1;
+}
+
+/* 右侧操作区 */
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  z-index: 1;
+}
+
+.nav-settings-btn {
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  transition: background 0.15s;
+}
+
+.nav-settings-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+/* 响应式：小屏幕时隐藏文件夹名称 */
+@media (max-width: 1200px) {
+  .nav-folder-path {
+    display: none;
+  }
+
+  .nav-search-section {
+    max-width: 300px;
+  }
+}

@@ -5,7 +5,7 @@ import * as fs from 'fs-extra'
 import * as path from 'path'
 import Store from 'electron-store'
 import chokidar from 'chokidar'
-import { setAllowedBasePath, validateSecurePath, validatePath } from './security'
+import { setAllowedBasePath, getAllowedBasePath, validateSecurePath, validatePath } from './security'
 import { showContextMenu } from './contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from './tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from './markdownMenuHandler'
@@ -15,6 +15,7 @@ import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSy
 import { folderHistoryManager } from './folderHistoryManager'
 import * as contextMenuManager from './contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from './security/pathValidator'
+import { appDataManager } from './appDataManager'
 
 // 定义存储的数据结构
 interface AppState {
@@ -200,6 +201,9 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // v1.3.6：后台验证最近文件路径有效性（不阻塞启动）
+  appDataManager.validateRecentFilesInBackground()
 
   // 处理待处理的启动路径
   if (pendingLaunchPath) {
@@ -1450,4 +1454,107 @@ ipcMain.handle('system:openSettings', async (_event, section: string) => {
 // v1.3.4：用户确认右键菜单已启用
 ipcMain.handle('context-menu:confirm-enabled', async () => {
   return contextMenuManager.confirmEnabled()
+})
+
+// ============== v1.3.6：最近文件管理 ==============
+
+ipcMain.handle('recent-files:get', async () => {
+  return appDataManager.getRecentFiles()
+})
+
+ipcMain.handle('recent-files:add', async (_, file: { path: string; name: string; folderPath: string }) => {
+  await appDataManager.addRecentFile(file)
+})
+
+ipcMain.handle('recent-files:remove', async (_, filePath: string) => {
+  appDataManager.removeRecentFile(filePath)
+})
+
+ipcMain.handle('recent-files:clear', async () => {
+  appDataManager.clearRecentFiles()
+})
+
+// ============== v1.3.6：固定标签管理（按文件夹分组） ==============
+
+ipcMain.handle('pinned-tabs:get-for-folder', async (_, folderPath: string) => {
+  return appDataManager.getPinnedTabsForFolder(folderPath)
+})
+
+ipcMain.handle('pinned-tabs:add', async (_, filePath: string) => {
+  const basePath = getAllowedBasePath()
+  if (!basePath) return false
+  return appDataManager.addPinnedTabForFolder(filePath, basePath)
+})
+
+ipcMain.handle('pinned-tabs:remove', async (_, filePath: string) => {
+  const basePath = getAllowedBasePath()
+  if (!basePath) return
+  appDataManager.removePinnedTabForFolder(filePath, basePath)
+})
+
+ipcMain.handle('pinned-tabs:is-pinned', async (_, filePath: string) => {
+  const basePath = getAllowedBasePath()
+  if (!basePath) return false
+  return appDataManager.isTabPinnedInFolder(filePath, basePath)
+})
+
+// ============== v1.3.6：应用设置管理 ==============
+
+ipcMain.handle('settings:get', async () => {
+  return appDataManager.getSettings()
+})
+
+ipcMain.handle('settings:update', async (_, updates: Record<string, unknown>) => {
+  appDataManager.updateSettings(updates)
+})
+
+// ============== v1.3.6：书签管理 ==============
+
+ipcMain.handle('bookmarks:get', async () => {
+  return appDataManager.getBookmarks()
+})
+
+ipcMain.handle('bookmarks:add', async (_, bookmark: {
+  filePath: string
+  fileName: string
+  title?: string
+  headingId?: string
+  headingText?: string
+  scrollPosition?: number
+}) => {
+  // 安全校验
+  validatePath(bookmark.filePath)
+  return appDataManager.addBookmark(bookmark)
+})
+
+ipcMain.handle('bookmarks:update', async (_, id: string, updates: {
+  title?: string
+  headingId?: string
+  headingText?: string
+  scrollPosition?: number
+  order?: number
+}) => {
+  appDataManager.updateBookmark(id, updates)
+})
+
+ipcMain.handle('bookmarks:remove', async (_, id: string) => {
+  appDataManager.removeBookmark(id)
+})
+
+ipcMain.handle('bookmarks:update-all', async (_, bookmarks: Array<{
+  id: string
+  filePath: string
+  fileName: string
+  title?: string
+  headingId?: string
+  headingText?: string
+  scrollPosition?: number
+  createdAt: number
+  order: number
+}>) => {
+  appDataManager.updateBookmarks(bookmarks)
+})
+
+ipcMain.handle('bookmarks:clear', async () => {
+  appDataManager.clearBookmarks()
 })

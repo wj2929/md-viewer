@@ -1,0 +1,253 @@
+/**
+ * 书签面板样式
+ * v1.3.6 Phase 3 - 右侧布局
+ */
+
+.bookmark-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary, #ffffff);
+  border-left: 1px solid var(--border-color, #e0e0e0); /* 改为左边框 */
+  position: relative;
+  flex-shrink: 0;
+  transition: width 0.2s ease;
+}
+
+.bookmark-panel.collapsed {
+  width: 40px !important;
+  align-items: center;
+  padding-top: 8px;
+}
+
+.bookmark-panel.resizing {
+  transition: none;
+  user-select: none;
+}
+
+/* 折叠状态的按钮 */
+.bookmark-toggle-btn {
+  background: transparent;
+  border: none;
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.bookmark-toggle-btn:hover {
+  background-color: var(--bg-hover, #f0f0f0);
+}
+
+/* 头部 */
+.bookmark-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  background: var(--bg-secondary, #f8f8f8);
+}
+
+.bookmark-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #333);
+}
+
+.bookmark-collapse-btn {
+  background: transparent;
+  border: none;
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  color: var(--text-secondary, #666);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.bookmark-collapse-btn:hover {
+  background-color: var(--bg-tertiary, #e8e8e8);
+  color: var(--text-primary, #333);
+}
+
+/* 内容区 */
+.bookmark-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.bookmark-loading,
+.bookmark-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  color: var(--text-secondary, #999);
+  text-align: center;
+  gap: 8px;
+}
+
+.bookmark-empty-icon {
+  font-size: 32px;
+  opacity: 0.6;
+}
+
+.bookmark-empty-hint {
+  font-size: 11px;
+  color: var(--text-tertiary, #aaa);
+  max-width: 160px;
+}
+
+/* 书签列表 */
+.bookmark-list {
+  padding: 8px 0;
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  border-left: 3px solid transparent;
+  gap: 10px;
+}
+
+.bookmark-item:hover {
+  background-color: var(--bg-hover, #f5f5f5);
+}
+
+.bookmark-item.active {
+  background-color: var(--accent-bg, #e8f4fd);
+  border-left-color: var(--accent-color, #007aff);
+}
+
+.bookmark-item.dragging {
+  opacity: 0.5;
+  background-color: var(--bg-tertiary, #e8e8e8);
+}
+
+.bookmark-item.drag-over {
+  border-top: 2px solid var(--accent-color, #007aff);
+  padding-top: 8px;
+}
+
+.bookmark-item-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.bookmark-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bookmark-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #333);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bookmark-item-path {
+  font-size: 11px;
+  color: var(--text-secondary, #999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bookmark-item-remove {
+  background: transparent;
+  border: none;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+  color: var(--text-secondary, #999);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.bookmark-item:hover .bookmark-item-remove {
+  opacity: 1;
+}
+
+.bookmark-item-remove:hover {
+  background: var(--bg-tertiary, #e0e0e0);
+  color: var(--danger-color, #d9534f);
+}
+
+/* 宽度调整手柄（右侧面板：从左边缘调整） */
+.bookmark-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px; /* 改为左边 */
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 10;
+}
+
+.bookmark-resize-handle:hover {
+  background: var(--accent-color, #007aff);
+  opacity: 0.3;
+}
+
+.bookmark-panel.resizing .bookmark-resize-handle {
+  background: var(--accent-color, #007aff);
+  opacity: 0.5;
+}
+
+/* 暗色主题适配 */
+[data-theme="dark"] .bookmark-panel {
+  background: var(--bg-primary, #1e1e1e);
+  border-color: var(--border-color, #3d3d3d);
+}
+
+[data-theme="dark"] .bookmark-header {
+  background: var(--bg-secondary, #252525);
+  border-color: var(--border-color, #3d3d3d);
+}
+
+[data-theme="dark"] .bookmark-toggle-btn:hover,
+[data-theme="dark"] .bookmark-collapse-btn:hover {
+  background-color: var(--bg-hover, #333);
+}
+
+[data-theme="dark"] .bookmark-item:hover {
+  background-color: var(--bg-hover, #2a2a2a);
+}
+
+[data-theme="dark"] .bookmark-item.active {
+  background-color: var(--accent-bg, rgba(0, 122, 255, 0.15));
+}
+
+[data-theme="dark"] .bookmark-item.dragging {
+  background-color: var(--bg-tertiary, #333);
+}
+
+[data-theme="dark"] .bookmark-item-remove:hover {
+  background: var(--bg-tertiary, #404040);
+}
