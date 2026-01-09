@@ -9,11 +9,21 @@
 
 ## [1.3.6] - 2026-01-09
 
-> **状态**: 🚧 **UI 优化中（BookmarkBar 折叠状态待评审）**
+> **状态**: ✅ **完成，已推送到 GitHub（feature/v1.3.6）**
+> **提交**: `9524a21` | **PR**: https://github.com/wj2929/md-viewer/pull/new/feature/v1.3.6
 
-### 架构变更 - Phase 3 (混合方案) ✅
+### 🎉 核心亮点
 
-- 🏗️ **重大架构重构：混合方案**
+- 🏗️ **混合方案架构**：TabBar + BookmarkBar（顶部） + BookmarkPanel（右侧）
+- 🎨 **UI 完整优化**：基于 4 轮用户反馈迭代，达到专业级 UX 标准
+- 📐 **渐进式展示**：无标签时隐藏 TabBar，有标签时显示
+- ✅ **测试通过**：379 个单元测试，0 失败
+
+### Added (新增功能)
+
+#### 架构变更 - Phase 3 (混合方案) ✅
+
+- 🏗️ **重大架构重构：混合方案**（7 天工作量）
   - 背景：Phase 1-2 完成后，书签面板位置不合理（左侧太窄）
   - 决策：采用混合方案（TabBar + BookmarkBar + 右侧 BookmarkPanel）
   - 启动专业 Agent 评审（architect-review + ui-ux-designer）
