@@ -67,7 +67,7 @@ describe('TabBar 组件测试', () => {
       expect(tabs[2]).not.toHaveClass('active')
     })
 
-    it('空标签列表应该渲染空 div', () => {
+    it('空标签列表且无书签时不应该渲染任何内容', () => {
       const onTabClick = vi.fn()
       const onTabClose = vi.fn()
 
@@ -77,11 +77,36 @@ describe('TabBar 组件测试', () => {
           activeTabId={null}
           onTabClick={onTabClick}
           onTabClose={onTabClose}
+          bookmarkCount={0}
         />
       )
 
-      expect(container.querySelector('.tabs')).toBeInTheDocument()
+      // v1.3.6 Day 7.6: 0 标签 + 0 书签时完全不渲染
+      expect(container.querySelector('.tabs')).not.toBeInTheDocument()
       expect(container.querySelector('.tab')).not.toBeInTheDocument()
+    })
+
+    it('空标签列表但有书签时应该显示触发按钮', () => {
+      const onTabClick = vi.fn()
+      const onTabClose = vi.fn()
+      const onShowBookmarkBar = vi.fn()
+
+      const { container } = render(
+        <TabBar
+          tabs={[]}
+          activeTabId={null}
+          onTabClick={onTabClick}
+          onTabClose={onTabClose}
+          bookmarkBarCollapsed={true}
+          bookmarkCount={5}
+          onShowBookmarkBar={onShowBookmarkBar}
+        />
+      )
+
+      // v1.3.6 Day 7.6: 0 标签但有书签时显示触发按钮
+      expect(container.querySelector('.tabs')).toBeInTheDocument()
+      expect(container.querySelector('.tab-bar-bookmark-trigger')).toBeInTheDocument()
+      expect(container.querySelector('.tab-bar-bookmark-badge')).toHaveTextContent('5')
     })
 
     it('应该显示文件图标', () => {

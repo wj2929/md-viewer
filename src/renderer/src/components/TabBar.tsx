@@ -23,30 +23,26 @@ interface TabBarProps {
 }
 
 export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, onTabUnpin, basePath, bookmarkBarCollapsed, bookmarkCount, onShowBookmarkBar }: TabBarProps): JSX.Element {
-  // v1.3.6 Phase 3：即使没有标签，也要显示书签触发按钮
+  // v1.3.6 Day 7.6：无标签时，如果没有书签，完全不渲染（避免空 TabBar）
   if (tabs.length === 0) {
+    // 只有书签数量 > 0 时才显示触发按钮
+    if (!bookmarkBarCollapsed || !bookmarkCount || bookmarkCount === 0) {
+      return <></>  // 完全不渲染
+    }
+
     return (
       <div className="tabs">
         {/* 书签触发按钮（折叠状态显示） */}
-        {bookmarkBarCollapsed && onShowBookmarkBar && (
-          <button
-            className="tab-bar-bookmark-trigger"
-            onClick={onShowBookmarkBar}
-            title={
-              bookmarkCount && bookmarkCount > 0
-                ? `显示书签栏 (${bookmarkCount} 个书签)`
-                : '显示书签栏（右键标签添加书签）'
-            }
-            aria-label="显示书签栏"
-            aria-expanded="false"
-          >
-            <span className="tab-bar-bookmark-icon">⭐</span>
-            {/* 只有书签数量 > 0 时才显示 Badge */}
-            {bookmarkCount && bookmarkCount > 0 && (
-              <span className="tab-bar-bookmark-badge">{bookmarkCount}</span>
-            )}
-          </button>
-        )}
+        <button
+          className="tab-bar-bookmark-trigger"
+          onClick={onShowBookmarkBar}
+          title={`显示书签栏 (${bookmarkCount} 个书签)`}
+          aria-label="显示书签栏"
+          aria-expanded="false"
+        >
+          <span className="tab-bar-bookmark-icon">⭐</span>
+          <span className="tab-bar-bookmark-badge">{bookmarkCount}</span>
+        </button>
       </div>
     )
   }

@@ -19,8 +19,8 @@ function App(): JSX.Element {
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [isResizing, setIsResizing] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  // v1.3.6：书签面板状态
-  const [bookmarkPanelCollapsed, setBookmarkPanelCollapsed] = useState(false)
+  // v1.3.6：书签面板状态（Day 7.6: 0 书签时默认折叠）
+  const [bookmarkPanelCollapsed, setBookmarkPanelCollapsed] = useState(true)
   const [bookmarkPanelWidth, setBookmarkPanelWidth] = useState(240)
   // v1.3.6：书签栏状态（混合方案 - 默认折叠保持简洁）
   const [bookmarkBarCollapsed, setBookmarkBarCollapsed] = useState(true)
@@ -78,6 +78,17 @@ function App(): JSX.Element {
   useEffect(() => {
     loadBookmarks()
   }, [loadBookmarks])
+
+  // v1.3.6 Day 7.6：监听书签数量变化，首次添加书签时自动展开 BookmarkPanel（可选增强体验）
+  useEffect(() => {
+    // 如果书签从 0 → 1，自动展开右侧面板（让用户发现新功能）
+    if (bookmarks.length === 1 && bookmarkPanelCollapsed) {
+      setBookmarkPanelCollapsed(false)
+      window.api.updateAppSettings({ bookmarkPanelCollapsed: false }).catch(err => {
+        console.error('[App] Failed to save bookmark panel state:', err)
+      })
+    }
+  }, [bookmarks.length, bookmarkPanelCollapsed])
 
   // v1.3.6：响应式布局 - 窗口小于 1200px 时自动折叠书签栏和书签面板
   useEffect(() => {
@@ -1228,29 +1239,30 @@ function App(): JSX.Element {
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
               />
-              {/* v1.3.6 Phase 3：只有打开标签时才显示 TabBar 和 BookmarkBar */}
+              {/* v1.3.6 Phase 3：渐进式展示 */}
               {tabs.length > 0 && (
-                <>
-                  <TabBar
-                    tabs={tabs}
-                    activeTabId={activeTabId}
-                    onTabClick={handleTabClick}
-                    onTabClose={handleTabClose}
-                    basePath={folderPath || undefined}
-                    bookmarkBarCollapsed={bookmarkBarCollapsed}
-                    bookmarkCount={bookmarks.length}
-                    onShowBookmarkBar={handleShowBookmarkBar}
-                  />
-                  <BookmarkBar
-                    bookmarks={bookmarks}
-                    isLoading={bookmarksLoading}
-                    isCollapsed={bookmarkBarCollapsed}
-                    onToggleCollapse={handleBookmarkBarToggle}
-                    onSelectBookmark={handleSelectBookmark}
-                    onShowMoreClick={handleShowMoreBookmarks}
-                    currentFilePath={activeTab?.file.path}
-                  />
-                </>
+                <TabBar
+                  tabs={tabs}
+                  activeTabId={activeTabId}
+                  onTabClick={handleTabClick}
+                  onTabClose={handleTabClose}
+                  basePath={folderPath || undefined}
+                  bookmarkBarCollapsed={bookmarkBarCollapsed}
+                  bookmarkCount={bookmarks.length}
+                  onShowBookmarkBar={handleShowBookmarkBar}
+                />
+              )}
+              {/* v1.3.6 Day 7.6: 只有书签数量 > 0 时才显示 BookmarkBar */}
+              {bookmarks.length > 0 && (
+                <BookmarkBar
+                  bookmarks={bookmarks}
+                  isLoading={bookmarksLoading}
+                  isCollapsed={bookmarkBarCollapsed}
+                  onToggleCollapse={handleBookmarkBarToggle}
+                  onSelectBookmark={handleSelectBookmark}
+                  onShowMoreClick={handleShowMoreBookmarks}
+                  currentFilePath={activeTab?.file.path}
+                />
               )}
             </Header>
 
