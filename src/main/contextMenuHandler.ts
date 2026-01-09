@@ -68,6 +68,20 @@ export function showContextMenu(
         }
       }
     },
+    // v1.3.7：添加到书签（仅 .md 文件）
+    ...(!file.isDirectory && file.name.endsWith('.md')
+      ? [
+          {
+            label: '🌟 添加到书签',
+            click: () => {
+              window.webContents.send('add-bookmark-from-file-tree', {
+                filePath: file.path,
+                fileName: file.name
+              })
+            }
+          }
+        ]
+      : []),
     { type: 'separator' },
     // 复制路径
     {

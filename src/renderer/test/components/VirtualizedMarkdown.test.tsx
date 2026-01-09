@@ -17,13 +17,15 @@ vi.mock('react-virtuoso', () => ({
 
 // Mock window.api
 const mockShowMarkdownContextMenu = vi.fn().mockResolvedValue({ success: true })
+const mockShowPreviewContextMenu = vi.fn().mockResolvedValue({ success: true })
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.restoreAllMocks()
   global.window.api = {
     ...global.window.api,
-    showMarkdownContextMenu: mockShowMarkdownContextMenu
+    showMarkdownContextMenu: mockShowMarkdownContextMenu,
+    showPreviewContextMenu: mockShowPreviewContextMenu
   } as typeof window.api
   // 默认没有选中文本
   vi.spyOn(window, 'getSelection').mockReturnValue(null)
@@ -222,7 +224,7 @@ describe('VirtualizedMarkdown', () => {
     })
   })
 
-  describe('右键菜单 (v1.3 阶段 2)', () => {
+  describe('右键菜单 (v1.3.7)', () => {
     it('应该在有 filePath 时显示右键菜单', async () => {
       const content = '# 测试'
       const { container } = render(
@@ -232,9 +234,11 @@ describe('VirtualizedMarkdown', () => {
       const markdownBody = container.querySelector('.markdown-body')
       fireEvent.contextMenu(markdownBody!)
 
-      expect(mockShowMarkdownContextMenu).toHaveBeenCalledWith({
+      expect(mockShowPreviewContextMenu).toHaveBeenCalledWith({
         filePath: '/test/file.md',
-        hasSelection: false
+        headingId: null,
+        headingText: null,
+        headingLevel: null
       })
     })
 
@@ -245,31 +249,29 @@ describe('VirtualizedMarkdown', () => {
       const markdownBody = container.querySelector('.markdown-body')
       fireEvent.contextMenu(markdownBody!)
 
-      expect(mockShowMarkdownContextMenu).not.toHaveBeenCalled()
+      expect(mockShowPreviewContextMenu).not.toHaveBeenCalled()
     })
 
-    it('应该检测文本选择状态', () => {
-      // Mock window.getSelection 先
-      const mockSelection = {
-        toString: () => '选中的文本'
-      }
-      vi.spyOn(window, 'getSelection').mockReturnValue(mockSelection as Selection)
-
-      const content = '# 测试内容'
+    it('应该检测标题元素', () => {
+      const content = '# 测试标题'
       const { container } = render(
         <VirtualizedMarkdown content={content} filePath="/test/file.md" />
       )
 
-      const markdownBody = container.querySelector('.markdown-body')
-      fireEvent.contextMenu(markdownBody!)
+      // 模拟右键点击标题
+      const heading = container.querySelector('h1')
+      if (heading) {
+        heading.id = 'test-heading'
+        heading.textContent = '测试标题'
+        fireEvent.contextMenu(heading)
 
-      expect(mockShowMarkdownContextMenu).toHaveBeenCalledWith({
-        filePath: '/test/file.md',
-        hasSelection: true
-      })
-
-      // 恢复 mock
-      vi.restoreAllMocks()
+        expect(mockShowPreviewContextMenu).toHaveBeenCalledWith({
+          filePath: '/test/file.md',
+          headingId: 'test-heading',
+          headingText: '测试标题',
+          headingLevel: 'h1'
+        })
+      }
     })
 
     // 虚拟滚动已禁用，跳过此测试

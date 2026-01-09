@@ -1221,6 +1221,72 @@ ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuCont
   return { success: true }
 })
 
+// v1.3.7：预览区域右键菜单（添加书签）
+ipcMain.handle('preview:show-context-menu', async (event, params: {
+  filePath: string
+  headingId: string | null
+  headingText: string | null
+  headingLevel: string | null
+}) => {
+  // ⚠️ 安全校验
+  validatePath(params.filePath)
+
+  const { filePath, headingId, headingText, headingLevel } = params
+
+  const menuTemplate: MenuItemConstructorOptions[] = []
+
+  // 如果右键点击的是标题，添加"添加标题书签"
+  if (headingId && headingText) {
+    menuTemplate.push({
+      label: '🔖 添加标题书签',
+      click: () => {
+        event.sender.send('add-bookmark-from-preview', {
+          filePath,
+          headingId,
+          headingText
+        })
+      }
+    })
+  }
+
+  // 添加"添加文件书签"
+  menuTemplate.push({
+    label: '📄 添加文件书签',
+    click: () => {
+      event.sender.send('add-bookmark-from-preview', {
+        filePath,
+        headingId: null,
+        headingText: null
+      })
+    }
+  })
+
+  // 分隔线
+  menuTemplate.push({ type: 'separator' })
+
+  // 复制
+  menuTemplate.push({
+    label: '📋 复制',
+    role: 'copy'
+  })
+
+  // 如果有标题，添加"复制链接"
+  if (headingId) {
+    menuTemplate.push({
+      label: '🔗 复制链接',
+      click: () => {
+        clipboard.writeText(`${filePath}#${headingId}`)
+      }
+    })
+  }
+
+  const menu = Menu.buildFromTemplate(menuTemplate)
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (window) {
+    menu.popup({ window })
+  }
+})
+
 // 重命名文件/文件夹 (v1.2 阶段 1)
 ipcMain.handle('fs:rename', async (_, oldPath: string, newName: string) => {
   try {

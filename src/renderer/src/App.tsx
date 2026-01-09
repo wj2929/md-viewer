@@ -633,6 +633,79 @@ function App(): JSX.Element {
     return unsubscribe
   }, [activeTabId, toast, loadBookmarks])
 
+  // v1.3.7：文件树右键添加书签
+  useEffect(() => {
+    if (!window.api.onAddBookmarkFromFileTree) return
+
+    const unsubscribe = window.api.onAddBookmarkFromFileTree(async (params) => {
+      const { filePath, fileName } = params
+
+      try {
+        // 添加文件书签（不包含标题信息）
+        await window.api.addBookmark({
+          filePath,
+          fileName
+        })
+
+        // 刷新书签列表
+        await loadBookmarks()
+
+        // 提示用户
+        toast.success(`已添加文件书签：${fileName}`)
+      } catch (error) {
+        console.error('[App] Failed to add bookmark:', error)
+        toast.error('添加书签失败')
+      }
+    })
+
+    return unsubscribe
+  }, [loadBookmarks, toast])
+
+  // v1.3.7：预览区域右键添加书签
+  useEffect(() => {
+    if (!window.api.onAddBookmarkFromPreview) return
+
+    const unsubscribe = window.api.onAddBookmarkFromPreview(async (params) => {
+      const { filePath, headingId, headingText } = params
+
+      try {
+        // 获取文件名
+        const fileName = filePath.split('/').pop() || ''
+
+        // 获取滚动位置（如果没有标题信息）
+        let scrollPosition: number | undefined
+        if (previewRef.current && !headingId) {
+          const container = previewRef.current
+          scrollPosition = container.scrollTop / container.scrollHeight
+        }
+
+        // 调用 API 添加书签
+        await window.api.addBookmark({
+          filePath,
+          fileName,
+          headingId: headingId || undefined,
+          headingText: headingText || undefined,
+          scrollPosition
+        })
+
+        // 刷新书签列表
+        await loadBookmarks()
+
+        // 提示用户
+        if (headingId) {
+          toast.success(`已添加标题书签：${headingText}`)
+        } else {
+          toast.success(`已添加文件书签：${fileName}`)
+        }
+      } catch (error) {
+        console.error('[App] Failed to add bookmark:', error)
+        toast.error('添加书签失败')
+      }
+    })
+
+    return unsubscribe
+  }, [loadBookmarks, toast])
+
   // v1.3.6：书签面板宽度变化时保存
   const handleBookmarkPanelWidthChange = useCallback((newWidth: number) => {
     setBookmarkPanelWidth(newWidth)

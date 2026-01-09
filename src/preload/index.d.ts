@@ -181,6 +181,25 @@ declare global {
       onShortcutPrevTab: (callback: () => void) => () => void
       onShortcutSwitchTab: (callback: (tabIndex: number) => void) => () => void
       onShortcutAddBookmark: (callback: () => void) => () => void
+
+      // v1.3.7：预览区域右键菜单
+      showPreviewContextMenu: (params: {
+        filePath: string
+        headingId: string | null
+        headingText: string | null
+        headingLevel: string | null
+      }) => Promise<void>
+      onAddBookmarkFromPreview: (callback: (params: {
+        filePath: string
+        headingId: string | null
+        headingText: string | null
+      }) => void) => () => void
+
+      // v1.3.7：文件树右键添加书签
+      onAddBookmarkFromFileTree: (callback: (params: {
+        filePath: string
+        fileName: string
+      }) => void) => () => void
     }
   }
 

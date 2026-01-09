@@ -318,17 +318,21 @@ const SectionRenderer = memo(function SectionRenderer({
 export function VirtualizedMarkdown({ content, className = '', filePath }: VirtualizedMarkdownProps): JSX.Element {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
 
-  // v1.3 阶段 2：右键菜单处理
+  // v1.3.7：右键菜单处理（添加书签）
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     if (!filePath) return
 
-    const selection = window.getSelection()
-    const hasSelection = selection !== null && selection.toString().trim().length > 0
+    // 判断右键点击的元素
+    const target = e.target as HTMLElement
+    const heading = target.closest('h1, h2, h3, h4, h5, h6')
 
-    window.api.showMarkdownContextMenu({
+    // 调用新的预览区域右键菜单（v1.3.7）
+    window.api.showPreviewContextMenu({
       filePath,
-      hasSelection
+      headingId: heading?.id || null,
+      headingText: heading?.textContent || null,
+      headingLevel: heading?.tagName.toLowerCase() || null
     }).catch(error => {
       console.error('[VirtualizedMarkdown] Failed to show context menu:', error)
     })
