@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, dialog, session } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, session, Menu, clipboard } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as fs from 'fs-extra'
