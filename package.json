@@ -1,6 +1,6 @@
 {
   "name": "md-viewer",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "A simple and powerful Markdown preview tool with Mermaid diagrams and file watching",
   "main": "./out/main/index.js",
   "scripts": {
@@ -37,11 +37,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "hardenedRuntime": false,
@@ -81,6 +87,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/dompurify": "^3.0.5",
     "@types/fs-extra": "^11.0.4",
+    "@types/lodash.debounce": "^4.0.9",
     "@types/mark.js": "^8.11.12",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
@@ -92,6 +99,7 @@
     "electron-vite": "^5.0.0",
     "happy-dom": "^20.0.11",
     "jsdom": "^27.4.0",
+    "lodash.debounce": "^4.0.8",
     "playwright": "^1.57.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

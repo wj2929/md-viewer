@@ -2057,3 +2057,103 @@ body {
     content: "";
   }
 }
+
+/* ===========================
+   v1.4.3：全屏查看模式
+   =========================== */
+
+/* 全屏模式：隐藏侧边栏和顶部 UI，保留浮动导航按钮 */
+.app.fullscreen .sidebar,
+.app.fullscreen .resize-handle,
+.app.fullscreen .bookmark-panel,
+.app.fullscreen .app-header,    /* 修复：Header 组件的类名是 .app-header */
+.app.fullscreen .tabs {           /* 隐藏 TabBar */
+  display: none !important;
+}
+
+/* 全屏模式：保留浮动导航按钮（返回顶部/底部/目录）*/
+/* 使用 fixed 定位确保始终可见 */
+.app.fullscreen .floating-nav {
+  position: fixed !important;  /* 改为 fixed，相对于视口定位 */
+  right: 16px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 10000 !important;   /* 确保在最上层 */
+  display: flex !important;     /* 强制显示 */
+}
+
+/* 全屏模式：内容区占满 */
+.app.fullscreen .workspace {
+  display: block !important;
+}
+
+.app.fullscreen .content-area {
+  width: 100% !important;
+  max-width: 1200px !important;
+  margin: 0 auto !important;
+  padding: 40px !important;
+}
+
+/* 全屏模式：Markdown 内容居中 */
+.app.fullscreen .markdown-body {
+  max-width: 900px !important;
+  margin: 0 auto !important;
+  padding: 40px !important;
+  line-height: 1.8 !important;
+}
+
+/* 全屏模式：工作区容器全屏 */
+.app.fullscreen .workspace-container {
+  height: 100vh !important;
+}
+
+/* 全屏模式：预览容器占满，确保可滚动 */
+.app.fullscreen .preview-container {
+  height: 100vh !important;
+  overflow: visible !important;  /* 允许子元素滚动 */
+  position: relative !important; /* 确保 FloatingNav 定位正确 */
+}
+
+/* 全屏模式：优化阅读体验，确保 .preview 可滚动 */
+.app.fullscreen .preview {
+  background-color: var(--bg-color);
+  padding: 40px 0;
+  overflow-y: auto !important;  /* 强制可滚动，覆盖所有其他规则 */
+  overflow-x: hidden !important; /* 隐藏横向滚动 */
+  height: 100vh !important;     /* 占满高度 */
+  flex: none !important;         /* 取消 flex 布局 */
+}
+
+/* 全屏模式：即使有虚拟滚动元素，也要允许滚动 */
+.app.fullscreen .preview:has(.virtualized) {
+  overflow-y: auto !important;  /* 覆盖虚拟滚动的 overflow: hidden */
+}
+
+/* 暗色模式下的全屏背景 */
+.app.fullscreen[data-theme="dark"] .preview {
+  background-color: var(--bg-color);
+}
+
+/* 全屏模式：ESC 提示（可选） */
+.app.fullscreen::before {
+  content: "按 ESC 或 Cmd+Ctrl+F 退出全屏";
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 9999;
+  opacity: 0;
+  animation: fade-hint 5s ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes fade-hint {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { opacity: 0; }
+}

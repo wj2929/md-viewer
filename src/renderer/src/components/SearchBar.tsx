@@ -169,12 +169,13 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
   }, [])
 
   // 配置 Fuse.js 模糊搜索 - 文件名（主线程备用）
+  // v1.4.3: 优化搜索准确性 - 放宽阈值，增加路径搜索
   const filenameFuse = useMemo(() => {
     return new Fuse(flatFiles, {
       keys: ['name', 'path'],
-      threshold: 0.3,
-      distance: 100,
-      minMatchCharLength: 2
+      threshold: 0.4,          // ✅ v1.4.3: 放宽阈值（0.3 → 0.4）
+      distance: 100,           // ✅ 增加搜索距离
+      minMatchCharLength: 2    // ✅ 最小匹配长度
     })
   }, [flatFiles])
 

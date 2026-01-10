@@ -1754,6 +1754,25 @@ ipcMain.handle('window:toggleAlwaysOnTop', async () => {
   return newState
 })
 
+// ============== v1.4.3：全屏查看 ==============
+
+ipcMain.handle('window:setFullScreen', async (_, flag: boolean) => {
+  if (!mainWindow) return false
+  mainWindow.setFullScreen(flag)
+  return flag
+})
+
+ipcMain.handle('window:isFullScreen', async () => {
+  return mainWindow?.isFullScreen() ?? false
+})
+
+ipcMain.handle('window:toggleFullScreen', async () => {
+  if (!mainWindow) return false
+  const newState = !mainWindow.isFullScreen()
+  mainWindow.setFullScreen(newState)
+  return newState
+})
+
 // ============== v1.4.2：打印功能 ==============
 
 ipcMain.handle('window:print', async () => {

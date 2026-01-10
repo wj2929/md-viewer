@@ -216,6 +216,11 @@ declare global {
       onAlwaysOnTopChanged: (callback: (flag: boolean) => void) => () => void
       onShortcutToggleAlwaysOnTop: (callback: () => void) => () => void
 
+      // v1.4.3：全屏查看
+      setFullScreen: (flag: boolean) => Promise<boolean>
+      isFullScreen: () => Promise<boolean>
+      toggleFullScreen: () => Promise<boolean>
+
       // v1.4.2：打印
       print: () => Promise<{ success: boolean }>
       onShortcutPrint: (callback: () => void) => () => void

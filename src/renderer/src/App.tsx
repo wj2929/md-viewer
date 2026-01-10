@@ -22,6 +22,8 @@ function App(): React.JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   // v1.4.0：快捷键帮助弹窗状态
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
+  // v1.4.3：全屏查看状态
+  const [isFullscreen, setIsFullscreen] = useState(false)
   // v1.3.6：书签面板状态（Day 7.6: 0 书签时默认折叠）
   const [bookmarkPanelCollapsed, setBookmarkPanelCollapsed] = useState(true)
   const [bookmarkPanelWidth, setBookmarkPanelWidth] = useState(240)
@@ -81,6 +83,42 @@ function App(): React.JSX.Element {
       cleanupAlwaysOnTop()
     }
   }, [initWindowStore, applyCSSVariable, syncAlwaysOnTop])
+
+  // v1.4.3：全屏查看快捷键监听（Cmd+F11 进入，ESC 退出）
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      // Cmd+F11 切换全屏（macOS 风格）
+      if (e.metaKey && e.key === 'F11') {
+        e.preventDefault()
+        const currentFullScreen = await window.api.isFullScreen()
+        setIsFullscreen(!currentFullScreen)
+        await window.api.setFullScreen(!currentFullScreen)
+      }
+      // ESC 退出全屏
+      else if (e.key === 'Escape' && isFullscreen) {
+        e.preventDefault()
+        setIsFullscreen(false)
+        await window.api.setFullScreen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreen])
+
+  // v1.4.3：监听系统全屏状态变化（ESC 退出时同步 CSS）
+  useEffect(() => {
+    const checkFullScreen = async () => {
+      const isSysFullScreen = await window.api.isFullScreen()
+      if (isFullscreen !== isSysFullScreen) {
+        setIsFullscreen(isSysFullScreen)
+      }
+    }
+
+    // 每 500ms 检查一次系统全屏状态
+    const interval = setInterval(checkFullScreen, 500)
+    return () => clearInterval(interval)
+  }, [isFullscreen])
 
   // v1.3.6：加载书签数据（统一管理）
   const loadBookmarks = useCallback(async () => {
@@ -1399,7 +1437,7 @@ function App(): React.JSX.Element {
 
   return (
     <ErrorBoundary>
-      <div className="app">
+      <div className={`app ${isFullscreen ? 'fullscreen' : ''}`}>
       <ToastContainer messages={toast.messages} onClose={toast.close} />
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       {/* v1.4.0：快捷键帮助弹窗 */}

@@ -504,6 +504,12 @@ const api = {
     return () => ipcRenderer.removeListener('shortcut:toggle-always-on-top', handler)
   },
 
+  // ============== v1.4.3：全屏查看 ==============
+
+  setFullScreen: (flag: boolean) => ipcRenderer.invoke('window:setFullScreen', flag) as Promise<boolean>,
+  isFullScreen: () => ipcRenderer.invoke('window:isFullScreen') as Promise<boolean>,
+  toggleFullScreen: () => ipcRenderer.invoke('window:toggleFullScreen') as Promise<boolean>,
+
   // ============== v1.4.2：打印 ==============
 
   print: () => ipcRenderer.invoke('window:print') as Promise<{ success: boolean }>,

@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.2-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.4.3-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -19,6 +19,7 @@
 - ⭐ **书签功能** - 侧边栏书签面板，拖拽排序，智能跳转容错 (v1.3.6+)
 - 🕐 **最近文件** - 快速访问最近打开的文件 (v1.3.6+)
 - 🔍 **页面内搜索** - Cmd+Shift+F 搜索当前文档，实时高亮匹配 (v1.4.0+)
+- 🖥️ **全屏查看** - Cmd+F11 沉浸式阅读，ESC 退出 (v1.4.3+)
 - 📌 **窗口置顶** - Cmd+Option+T 窗口固定在最上层 (v1.4.2+)
 - 🔤 **字体大小调节** - Cmd+/-/0 调节预览字体大小 (v1.4.2+)
 - 🖨️ **打印功能** - Cmd+P 打印当前文档 (v1.4.2+)
@@ -52,8 +53,8 @@ _（待添加）_
 ### macOS
 
 **下载：**
-- [MD Viewer-1.4.2-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.4.2.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2) (Intel Mac)
+- [MD Viewer-1.4.3-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.4.3.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -74,10 +75,10 @@ xattr -cr /Applications/MD\ Viewer.app
 之后就能正常使用了。
 
 ### Windows
-- [MD Viewer Setup 1.4.2.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2)
+- [MD Viewer Setup 1.4.3.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3)
 
 ### Linux
-- [MD Viewer-1.4.2.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2)
+- [MD Viewer-1.4.3.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3)
 
 ---
 

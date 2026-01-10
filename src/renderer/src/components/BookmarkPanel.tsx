@@ -75,8 +75,10 @@ export function BookmarkPanel({
   }
 
   // 拖拽经过
+  // v1.4.3: 修复拖拽偶尔失效 - 阻止事件冒泡
   const handleDragOver = (e: React.DragEvent, id: string) => {
     e.preventDefault()
+    e.stopPropagation()  // ✅ v1.4.3: 阻止事件冒泡，避免与 onClick 冲突
     e.dataTransfer.dropEffect = 'move'
     if (id !== draggedId) {
       setDragOverId(id)

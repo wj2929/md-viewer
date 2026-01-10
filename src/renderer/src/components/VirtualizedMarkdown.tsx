@@ -1,10 +1,11 @@
-import { useEffect, useRef, useMemo, memo, useCallback, forwardRef } from 'react'
+import { useEffect, useRef, useMemo, memo, useCallback, forwardRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import MarkdownIt from 'markdown-it'
 import Prism from 'prismjs'
 import katex from 'katex'
 import mermaid from 'mermaid'
 import DOMPurify from 'dompurify'
+import debounce from 'lodash.debounce'
 
 // v1.4.0: 页面内搜索
 import { useInPageSearch } from '../hooks/useInPageSearch'
@@ -478,6 +479,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
 /**
  * 非虚拟滚动渲染（小文件）
  * v1.4.0: 集成页面内搜索功能
+ * v1.4.3: 添加防抖优化，避免频繁渲染
  */
 const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   content,
@@ -492,8 +494,24 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // v1.4.3: 防抖状态 - 延迟渲染以提升性能
+  const [debouncedContent, setDebouncedContent] = useState(content)
+
+  // v1.4.3: 防抖更新内容（300ms 延迟）
+  useEffect(() => {
+    const debouncedUpdate = debounce(() => {
+      setDebouncedContent(content)
+    }, 300)
+
+    debouncedUpdate()
+
+    return () => {
+      debouncedUpdate.cancel()
+    }
+  }, [content])
+
   // v1.4.0: 页面内搜索
-  const search = useInPageSearch(containerRef, content.length)
+  const search = useInPageSearch(containerRef, debouncedContent.length)
 
   // v1.4.0: 监听 IPC 事件（从右键菜单触发页面内搜索）
   useEffect(() => {
@@ -540,20 +558,20 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   }, [search.clear, search.setVisible])
 
   const html = useMemo(() => {
-    if (!content || content.trim().length === 0) {
+    if (!debouncedContent || debouncedContent.trim().length === 0) {
       return '<p class="placeholder">文件内容为空</p>'
     }
 
-    if (content.length > 500000) {
+    if (debouncedContent.length > 500000) {
       return `
         <div class="content-warning">
           <p><strong>文件过大，无法渲染</strong></p>
-          <p>文件大小: ${(content.length / 1024).toFixed(2)} KB，最大支持: 500 KB</p>
+          <p>文件大小: ${(debouncedContent.length / 1024).toFixed(2)} KB，最大支持: 500 KB</p>
         </div>
       `
     }
 
-    const lines = content.split('\n')
+    const lines = debouncedContent.split('\n')
     if (lines.length > 10000) {
       const truncated = lines.slice(0, 10000).join('\n')
       const rawHtml = md.render(truncated)
@@ -567,9 +585,9 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
       `
     }
 
-    const rawHtml = md.render(content)
+    const rawHtml = md.render(debouncedContent)
     return sanitizeHtml(rawHtml)  // ✅ XSS 防护
-  }, [md, content])
+  }, [md, debouncedContent])
 
   // 注意：Mermaid 渲染、标题 ID、锚点点击逻辑已移到 MarkdownContent 组件中
 
