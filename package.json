@@ -1,6 +1,6 @@
 {
   "name": "md-viewer",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "A simple and powerful Markdown preview tool with Mermaid diagrams and file watching",
   "main": "./out/main/index.js",
   "scripts": {
