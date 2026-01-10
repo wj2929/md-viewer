@@ -97,8 +97,8 @@ const api = {
 
   // v1.3.6：应用设置
   getAppSettings: () =>
-    ipcRenderer.invoke('settings:get') as Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>,
-  updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>) =>
+    ipcRenderer.invoke('settings:get') as Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>,
+  updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>) =>
     ipcRenderer.invoke('settings:update', updates),
 
   // v1.3.6：书签管理
@@ -486,6 +486,49 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('shortcut:open-in-page-search', handler)
     return () => ipcRenderer.removeListener('shortcut:open-in-page-search', handler)
+  },
+
+  // ============== v1.4.2：窗口置顶 ==============
+
+  setAlwaysOnTop: (flag: boolean) => ipcRenderer.invoke('window:setAlwaysOnTop', flag),
+  getAlwaysOnTop: () => ipcRenderer.invoke('window:getAlwaysOnTop') as Promise<boolean>,
+  toggleAlwaysOnTop: () => ipcRenderer.invoke('window:toggleAlwaysOnTop') as Promise<boolean>,
+  onAlwaysOnTopChanged: (callback: (flag: boolean) => void) => {
+    const handler = (_event: unknown, flag: boolean) => callback(flag)
+    ipcRenderer.on('alwaysOnTop:changed', handler)
+    return () => ipcRenderer.removeListener('alwaysOnTop:changed', handler)
+  },
+  onShortcutToggleAlwaysOnTop: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:toggle-always-on-top', handler)
+    return () => ipcRenderer.removeListener('shortcut:toggle-always-on-top', handler)
+  },
+
+  // ============== v1.4.2：打印 ==============
+
+  print: () => ipcRenderer.invoke('window:print') as Promise<{ success: boolean }>,
+  onShortcutPrint: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:print', handler)
+    return () => ipcRenderer.removeListener('shortcut:print', handler)
+  },
+
+  // ============== v1.4.2：字体大小调节 ==============
+
+  onShortcutFontIncrease: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:font-increase', handler)
+    return () => ipcRenderer.removeListener('shortcut:font-increase', handler)
+  },
+  onShortcutFontDecrease: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:font-decrease', handler)
+    return () => ipcRenderer.removeListener('shortcut:font-decrease', handler)
+  },
+  onShortcutFontReset: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:font-reset', handler)
+    return () => ipcRenderer.removeListener('shortcut:font-reset', handler)
   }
 }
 

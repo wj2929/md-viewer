@@ -1,4 +1,8 @@
-import MarkdownIt from 'markdown-it'
+import MarkdownIt, { type Options as MdOptions } from 'markdown-it'
+import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs'
+import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs'
+import type Token from 'markdown-it/lib/token.mjs'
+import type Renderer from 'markdown-it/lib/renderer.mjs'
 import Prism from 'prismjs'
 import katex from 'katex'
 import { slugify } from './slugify'
@@ -22,12 +26,12 @@ import 'prismjs/components/prism-css'
  * 创建配置完整的 markdown-it 实例（包含 KaTeX 和 Prism 支持）
  */
 export function createMarkdownRenderer(): MarkdownIt {
-  const md = new MarkdownIt({
+  const md: MarkdownIt = new MarkdownIt({
     html: false,  // 🔒 安全修复: 禁用 HTML 以防止 XSS 攻击
     linkify: true,
     typographer: true,
     breaks: true,
-    highlight: (str: string, lang: string) => {
+    highlight: (str: string, lang: string): string => {
       // Mermaid 特殊处理：保留原始代码，标记为 mermaid（用于 HTML 导出时转换为 SVG）
       if (lang === 'mermaid') {
         return `<pre class="language-mermaid"><code class="language-mermaid">${md.utils.escapeHtml(str)}</code></pre>`
@@ -45,7 +49,7 @@ export function createMarkdownRenderer(): MarkdownIt {
   })
 
   // 行内数学公式 $...$
-  md.inline.ruler.before('escape', 'math_inline', (state, silent) => {
+  md.inline.ruler.before('escape', 'math_inline', (state: StateInline, silent: boolean): boolean => {
     if (state.src[state.pos] !== '$') return false
 
     const start = state.pos
@@ -79,7 +83,7 @@ export function createMarkdownRenderer(): MarkdownIt {
   })
 
   // 块级数学公式 $$...$$
-  md.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent) => {
+  md.block.ruler.before('fence', 'math_block', (state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean => {
     let pos = state.bMarks[startLine] + state.tShift[startLine]
     let max = state.eMarks[startLine]
 
@@ -146,7 +150,7 @@ export function createMarkdownRenderer(): MarkdownIt {
   })
 
   // ✅ 自定义标题渲染，为标题添加 id 属性支持目录跳转
-  md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
+  md.renderer.rules.heading_open = (tokens: Token[], idx: number, options: MdOptions, env: { _usedIds?: Set<string> }, self: Renderer): string => {
     const token = tokens[idx]
     const nextToken = tokens[idx + 1]
 
@@ -159,8 +163,8 @@ export function createMarkdownRenderer(): MarkdownIt {
     let titleText = ''
     if (nextToken && nextToken.type === 'inline' && nextToken.children) {
       titleText = nextToken.children
-        .filter(t => t.type === 'text' || t.type === 'code_inline')
-        .map(t => t.content)
+        .filter((t: Token) => t.type === 'text' || t.type === 'code_inline')
+        .map((t: Token) => t.content)
         .join('')
     }
 

@@ -36,19 +36,19 @@ export function showContextMenu(
   const i18n = {
     showInFolder:
       platform === 'darwin'
-        ? '在 Finder 中显示'
+        ? '📂 在 Finder 中显示'
         : platform === 'win32'
-        ? '在资源管理器中显示'
-        : '在文件管理器中显示',
-    copyPath: '复制路径',
-    copyRelativePath: '复制相对路径',
-    copy: '复制',
-    cut: '剪切',
-    paste: '粘贴',
-    rename: '重命名',
-    delete: '删除',
-    exportHTML: '导出 HTML',
-    exportPDF: '导出 PDF',
+        ? '📂 在资源管理器中显示'
+        : '📂 在文件管理器中显示',
+    copyPath: '📋 复制路径',
+    copyRelativePath: '📎 复制相对路径',
+    copy: '📄 复制',
+    cut: '✂️ 剪切',
+    paste: '📥 粘贴',
+    rename: '✏️ 重命名',
+    delete: '🗑️ 删除',
+    exportHTML: '📤 导出 HTML',
+    exportPDF: '📑 导出 PDF',
     separator: 'separator' as const
   }
 

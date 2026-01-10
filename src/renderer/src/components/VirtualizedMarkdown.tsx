@@ -585,6 +585,8 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         onNext={search.goNext}
         onPrev={search.goPrev}
         onClose={handleSearchClose}
+        caseSensitive={search.caseSensitive}
+        onToggleCaseSensitive={search.toggleCaseSensitive}
       />
 
       {/* Markdown 内容 - 使用 MarkdownContent 子组件避免重渲染覆盖 mark.js 高亮 */}

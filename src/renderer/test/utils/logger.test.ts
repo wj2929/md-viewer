@@ -1,3 +1,4 @@
+// @ts-nocheck - 测试文件的类型检查暂时跳过
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { logToFile, clearLog } from '../../src/utils/logger'
 

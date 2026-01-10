@@ -1,8 +1,9 @@
 /**
  * NavigationBar 组件 - 全局导航栏
  * v1.3.6 混合方案
+ * v1.4.2 添加窗口置顶按钮
  *
- * 包含：Logo + 当前文件夹路径 + 搜索 + 设置 + 主题切换
+ * 包含：Logo + 当前文件夹路径 + 搜索 + 置顶 + 设置 + 主题切换
  */
 
 import { ThemeToggle } from './ThemeToggle'
@@ -18,6 +19,9 @@ interface NavigationBarProps {
   files: FileInfo[]
   theme: 'light' | 'dark' | 'auto'
   searchBarRef: RefObject<SearchBarHandle | null>
+  // v1.4.2：窗口置顶
+  isAlwaysOnTop: boolean
+  onToggleAlwaysOnTop: () => void
   onOpenFolder: () => void
   onSelectHistoryFolder: (folderPath: string) => void
   onSelectRecentFile: (path: string) => void
@@ -33,6 +37,8 @@ export function NavigationBar({
   files,
   theme,
   searchBarRef,
+  isAlwaysOnTop,
+  onToggleAlwaysOnTop,
   onOpenFolder,
   onSelectHistoryFolder,
   onSelectRecentFile,
@@ -88,6 +94,16 @@ export function NavigationBar({
 
       {/* 右侧操作区 */}
       <div className="nav-actions">
+        {/* v1.4.2：窗口置顶按钮 */}
+        <button
+          className={`nav-always-on-top-btn ${isAlwaysOnTop ? 'active' : ''}`}
+          onClick={onToggleAlwaysOnTop}
+          title={isAlwaysOnTop ? '取消置顶 (⌘⌥T)' : '窗口置顶 (⌘⌥T)'}
+          aria-pressed={isAlwaysOnTop}
+          aria-label="窗口置顶"
+        >
+          {isAlwaysOnTop ? '📌' : '📍'}
+        </button>
         <button
           className="nav-settings-btn"
           onClick={onSettingsClick}

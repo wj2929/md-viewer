@@ -10,7 +10,7 @@ import TocPanel from './TocPanel'
 
 interface FloatingNavProps {
   /** 预览区容器 ref */
-  containerRef: React.RefObject<HTMLDivElement>
+  containerRef: React.RefObject<HTMLDivElement | null>
   /** Markdown 源文本 */
   markdown: string
 }

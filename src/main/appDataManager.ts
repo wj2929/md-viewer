@@ -68,6 +68,7 @@ export interface AppSettings {
   autoSave: boolean      // 自动保存，默认 true（失焦时保存）
   bookmarkPanelWidth: number     // 书签面板宽度
   bookmarkPanelCollapsed: boolean // 书签面板是否折叠
+  bookmarkBarCollapsed: boolean   // 书签栏是否折叠（v1.3.6）
 }
 
 /**
@@ -106,7 +107,8 @@ class AppDataManager {
           imageDir: 'assets',
           autoSave: true,
           bookmarkPanelWidth: 240,
-          bookmarkPanelCollapsed: false
+          bookmarkPanelCollapsed: false,
+          bookmarkBarCollapsed: true
         }
       }
     })

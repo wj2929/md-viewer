@@ -117,6 +117,41 @@ export function registerWindowShortcuts(window: BrowserWindow): void {
       webContents.send('shortcut:add-bookmark')
       return
     }
+
+    // v1.4.2: Cmd+Option+T / Ctrl+Alt+T: 切换窗口置顶
+    if (cmdOrCtrl && input.alt && input.key.toLowerCase() === 't' && !input.shift) {
+      event.preventDefault()
+      webContents.send('shortcut:toggle-always-on-top')
+      return
+    }
+
+    // v1.4.2: Cmd/Ctrl + P: 打印
+    if (cmdOrCtrl && input.key.toLowerCase() === 'p' && !input.shift && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:print')
+      return
+    }
+
+    // v1.4.2: Cmd/Ctrl + =: 放大字体
+    if (cmdOrCtrl && (input.key === '=' || input.key === '+') && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:font-increase')
+      return
+    }
+
+    // v1.4.2: Cmd/Ctrl + -: 缩小字体
+    if (cmdOrCtrl && input.key === '-' && !input.shift && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:font-decrease')
+      return
+    }
+
+    // v1.4.2: Cmd/Ctrl + 0: 重置字体大小
+    if (cmdOrCtrl && input.key === '0' && !input.shift && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:font-reset')
+      return
+    }
   })
 
   console.log('[SHORTCUTS] Window shortcuts registered')

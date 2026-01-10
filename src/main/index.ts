@@ -30,6 +30,8 @@ interface AppState {
     x?: number
     y?: number
   }
+  // v1.4.2: 窗口置顶状态
+  alwaysOnTop: boolean
 }
 
 // 初始化 electron-store
@@ -39,7 +41,9 @@ const store = new Store<AppState>({
     windowBounds: {
       width: 1200,
       height: 800
-    }
+    },
+    // v1.4.2: 默认不置顶
+    alwaysOnTop: false
   }
 })
 
@@ -72,7 +76,14 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    if (!mainWindow) return
     mainWindow.show()
+
+    // v1.4.2: 恢复窗口置顶状态
+    const alwaysOnTop = store.get('alwaysOnTop', false)
+    if (alwaysOnTop) {
+      mainWindow.setAlwaysOnTop(true)
+    }
 
     // 🔧 开发模式下自动打开 DevTools
     if (is.dev) {
@@ -95,6 +106,7 @@ function createWindow(): void {
 
   // 窗口关闭前保存状态
   mainWindow.on('close', () => {
+    if (!mainWindow) return
     const bounds = mainWindow.getBounds()
     store.set('windowBounds', bounds)
   })
@@ -137,7 +149,7 @@ async function handleLaunchArgs(args: string[]): Promise<void> {
   }
 
   if (mainWindow) {
-    openPathInWindow(validation.normalizedPath, validation.type)
+    openPathInWindow(validation.normalizedPath, validation.type as 'md-file' | 'directory')
   } else {
     pendingLaunchPath = validation.normalizedPath
   }
@@ -215,7 +227,7 @@ app.whenReady().then(() => {
       if (pendingLaunchPath) {
         const validation = await validateLaunchPath(pendingLaunchPath)
         if (validation.valid) {
-          openPathInWindow(validation.normalizedPath, validation.type)
+          openPathInWindow(validation.normalizedPath, validation.type as 'md-file' | 'directory')
         }
         pendingLaunchPath = null
       }
@@ -1227,6 +1239,7 @@ ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuCont
 
 // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
 // v1.4.0：新增页面内搜索和查看快捷键入口
+// v1.4.2：新增打印和字体大小调节
 ipcMain.handle('preview:show-context-menu', async (event, params: {
   filePath: string
   headingId: string | null
@@ -1283,32 +1296,63 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
 
   // v1.3 原有功能：导出功能
   menuTemplate.push({
-    label: '导出 HTML',
+    label: '📤 导出 HTML',
     accelerator: 'CmdOrCtrl+E',
     click: () => event.sender.send('markdown:export-html')
   })
 
   menuTemplate.push({
-    label: '导出 PDF',
+    label: '📑 导出 PDF',
     accelerator: 'CmdOrCtrl+Shift+E',
     click: () => event.sender.send('markdown:export-pdf')
+  })
+
+  // v1.4.2：打印功能
+  menuTemplate.push({
+    label: '🖨️ 打印',
+    accelerator: 'CmdOrCtrl+P',
+    click: () => event.sender.send('shortcut:print')
+  })
+
+  menuTemplate.push({ type: 'separator' })
+
+  // v1.4.2：字体大小调节（子菜单）
+  menuTemplate.push({
+    label: '🔤 字体大小',
+    submenu: [
+      {
+        label: '放大',
+        accelerator: 'CmdOrCtrl+Plus',
+        click: () => event.sender.send('shortcut:font-increase')
+      },
+      {
+        label: '缩小',
+        accelerator: 'CmdOrCtrl+-',
+        click: () => event.sender.send('shortcut:font-decrease')
+      },
+      {
+        label: '重置',
+        accelerator: 'CmdOrCtrl+0',
+        click: () => event.sender.send('shortcut:font-reset')
+      }
+    ]
   })
 
   menuTemplate.push({ type: 'separator' })
 
   // v1.3 原有功能：复制功能
   menuTemplate.push({
-    label: '复制为 Markdown',
+    label: '📋 复制为 Markdown',
     click: () => event.sender.send('markdown:copy-source')
   })
 
   menuTemplate.push({
-    label: '复制为纯文本',
+    label: '📝 复制为纯文本',
     click: () => event.sender.send('markdown:copy-plain-text')
   })
 
   menuTemplate.push({
-    label: '复制为 HTML',
+    label: '🌐 复制为 HTML',
     click: () => event.sender.send('markdown:copy-html')
   })
 
@@ -1316,7 +1360,7 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   if (hasSelection) {
     menuTemplate.push({ type: 'separator' })
     menuTemplate.push({
-      label: '复制选中内容',
+      label: '✂️ 复制选中内容',
       accelerator: 'CmdOrCtrl+C',
       click: () => event.sender.copy()
     })
@@ -1685,4 +1729,42 @@ ipcMain.handle('bookmarks:update-all', async (_, bookmarks: Array<{
 
 ipcMain.handle('bookmarks:clear', async () => {
   appDataManager.clearBookmarks()
+})
+
+// ============== v1.4.2：窗口置顶 ==============
+
+ipcMain.handle('window:setAlwaysOnTop', async (_, flag: boolean) => {
+  if (!mainWindow) return false
+  mainWindow.setAlwaysOnTop(flag)
+  store.set('alwaysOnTop', flag)
+  return flag
+})
+
+ipcMain.handle('window:getAlwaysOnTop', async () => {
+  return mainWindow?.isAlwaysOnTop() ?? false
+})
+
+ipcMain.handle('window:toggleAlwaysOnTop', async () => {
+  if (!mainWindow) return false
+  const newState = !mainWindow.isAlwaysOnTop()
+  mainWindow.setAlwaysOnTop(newState)
+  store.set('alwaysOnTop', newState)
+  // 通知渲染进程状态变化
+  mainWindow.webContents.send('alwaysOnTop:changed', newState)
+  return newState
+})
+
+// ============== v1.4.2：打印功能 ==============
+
+ipcMain.handle('window:print', async () => {
+  if (!mainWindow) return { success: false }
+
+  mainWindow.webContents.print({
+    silent: false,           // 显示打印对话框
+    printBackground: true,   // 打印背景色
+    margins: {
+      marginType: 'default'
+    }
+  })
+  return { success: true }
 })

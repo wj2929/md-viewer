@@ -1976,3 +1976,84 @@ body {
   }
 }
 
+
+
+/* ============================================
+   v1.4.2: 打印样式
+   ============================================ */
+
+@media print {
+  /* 隐藏非内容区域 */
+  .sidebar,
+  .file-tree,
+  .tab-bar,
+  .header,
+  .navigation-bar,
+  .floating-nav,
+  .bookmark-bar,
+  .bookmark-panel,
+  .in-page-search-box,
+  .resize-handle,
+  .settings-panel,
+  .toast-container,
+  .folder-dropdown,
+  .recent-files-dropdown {
+    display: none !important;
+  }
+
+  /* 重置 body 和 html */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  /* 内容区全宽 */
+  .app-container,
+  .main-layout,
+  .content-area,
+  .preview-container,
+  .main-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    position: static !important;
+    overflow: visible !important;
+  }
+
+  .markdown-body {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* 防止分页断裂 */
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    page-break-after: avoid;
+  }
+
+  .markdown-body pre,
+  .markdown-body table,
+  .markdown-body blockquote,
+  .markdown-body img {
+    page-break-inside: avoid;
+  }
+
+  /* 链接显示 URL */
+  .markdown-body a[href]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.9em;
+    color: #666;
+  }
+
+  /* 隐藏纯内部锚点链接的 URL */
+  .markdown-body a[href^="#"]::after {
+    content: "";
+  }
+}

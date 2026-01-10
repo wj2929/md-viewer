@@ -35,10 +35,20 @@ const SHORTCUTS_DATA = [
     ]
   },
   {
-    group: '导出',
+    group: '导出与打印',
     items: [
       { label: '导出 HTML', accelerator: 'CmdOrCtrl+E' },
-      { label: '导出 PDF', accelerator: 'CmdOrCtrl+Shift+E' }
+      { label: '导出 PDF', accelerator: 'CmdOrCtrl+Shift+E' },
+      { label: '打印当前文档', accelerator: 'CmdOrCtrl+P' }
+    ]
+  },
+  {
+    group: '视图',
+    items: [
+      { label: '放大字体', accelerator: 'CmdOrCtrl+=' },
+      { label: '缩小字体', accelerator: 'CmdOrCtrl+-' },
+      { label: '重置字体大小', accelerator: 'CmdOrCtrl+0' },
+      { label: '窗口置顶', accelerator: 'CmdOrCtrl+Alt+T' }
     ]
   }
 ]

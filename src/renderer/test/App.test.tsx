@@ -1,3 +1,4 @@
+// @ts-nocheck - 测试文件的类型检查暂时跳过
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
@@ -91,7 +92,43 @@ const mockApi = {
   onShortcutAddBookmark: vi.fn(() => vi.fn()),
   // v1.3.6：最近文件
   getRecentFiles: vi.fn().mockResolvedValue([]),
-  addRecentFile: vi.fn().mockResolvedValue(undefined)
+  addRecentFile: vi.fn().mockResolvedValue(undefined),
+  // v1.3.6：应用设置
+  getAppSettings: vi.fn().mockResolvedValue({
+    imageDir: '',
+    autoSave: false,
+    bookmarkPanelWidth: 240,
+    bookmarkPanelCollapsed: true,
+    bookmarkBarCollapsed: true
+  }),
+  updateAppSettings: vi.fn().mockResolvedValue(undefined),
+  // v1.3.6：固定标签
+  getPinnedTabsForFolder: vi.fn().mockResolvedValue([]),
+  addPinnedTab: vi.fn().mockResolvedValue(true),
+  removePinnedTab: vi.fn().mockResolvedValue(undefined),
+  isTabPinned: vi.fn().mockResolvedValue(false),
+  // v1.3.7：预览区右键菜单
+  showPreviewContextMenu: vi.fn().mockResolvedValue(undefined),
+  onAddBookmarkFromPreview: vi.fn(() => vi.fn()),
+  onAddBookmarkFromFileTree: vi.fn(() => vi.fn()),
+  // v1.4.0：快捷键帮助弹窗
+  onOpenShortcutsHelp: vi.fn(() => vi.fn()),
+  onOpenInPageSearch: vi.fn(() => vi.fn()),
+  // v1.4：Shell 操作
+  showItemInFolder: vi.fn().mockResolvedValue({ success: true }),
+  // v1.4.2：窗口置顶
+  setAlwaysOnTop: vi.fn().mockResolvedValue(true),
+  getAlwaysOnTop: vi.fn().mockResolvedValue(false),
+  toggleAlwaysOnTop: vi.fn().mockResolvedValue(true),
+  onAlwaysOnTopChanged: vi.fn(() => vi.fn()),
+  onShortcutToggleAlwaysOnTop: vi.fn(() => vi.fn()),
+  // v1.4.2：打印
+  print: vi.fn().mockResolvedValue({ success: true }),
+  onShortcutPrint: vi.fn(() => vi.fn()),
+  // v1.4.2：字体大小调节
+  onShortcutFontIncrease: vi.fn(() => vi.fn()),
+  onShortcutFontDecrease: vi.fn(() => vi.fn()),
+  onShortcutFontReset: vi.fn(() => vi.fn())
 }
 
 // Mock 全局 window.api

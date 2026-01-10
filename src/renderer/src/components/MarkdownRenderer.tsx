@@ -1,5 +1,7 @@
 import { useEffect, useRef, useMemo, memo, useCallback } from 'react'
 import MarkdownIt from 'markdown-it'
+import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs'
+import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs'
 import Prism from 'prismjs'
 import katex from 'katex'
 import mermaid from 'mermaid'
@@ -61,12 +63,12 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
 
   // 创建 markdown-it 实例
   const md = useMemo(() => {
-    const mdInstance = new MarkdownIt({
+    const mdInstance: MarkdownIt = new MarkdownIt({
       html: false,  // 🔒 安全修复: 禁用 HTML 以防止 XSS 攻击
       linkify: true,
       typographer: true,
       breaks: true,
-      highlight: (str: string, lang: string) => {
+      highlight: (str: string, lang: string): string => {
         // Mermaid 图表特殊处理 - 保留原始代码供后续渲染
         if (lang === 'mermaid') {
           return `<pre class="language-mermaid"><code class="language-mermaid">${mdInstance.utils.escapeHtml(str)}</code></pre>`
@@ -84,7 +86,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     })
 
     // 自定义渲染规则：行内数学公式 $...$
-    mdInstance.inline.ruler.before('escape', 'math_inline', (state, silent) => {
+    mdInstance.inline.ruler.before('escape', 'math_inline', (state: StateInline, silent: boolean): boolean => {
       if (state.src[state.pos] !== '$') return false
       // 避免匹配 $$ 块级公式
       if (state.src[state.pos + 1] === '$') return false
@@ -122,7 +124,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     })
 
     // 自定义渲染规则：块级数学公式 $$...$$
-    mdInstance.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent) => {
+    mdInstance.block.ruler.before('fence', 'math_block', (state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean => {
       let pos = state.bMarks[startLine] + state.tShift[startLine]
       let max = state.eMarks[startLine]
 

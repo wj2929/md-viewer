@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog } from './components'
 import { readFileWithCache, clearFileCache, invalidateAndReload } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
-import { useClipboardStore } from './stores/clipboardStore'
+// v1.4.2：使用 Zustand stores 替代独立 hooks
+import { useClipboardStore, useWindowStore, useUIStore } from './stores'
 
-function App(): JSX.Element {
+function App(): React.JSX.Element {
   const [folderPath, setFolderPath] = useState<string | null>(null)
   const [files, setFiles] = useState<FileInfo[]>([])
   const [tabs, setTabs] = useState<Tab[]>([])
@@ -31,6 +32,9 @@ function App(): JSX.Element {
   const [bookmarksLoading, setBookmarksLoading] = useState(true)
   const toast = useToast()
   const { theme, setTheme } = useTheme()
+  // v1.4.2：使用 Zustand stores
+  const { isAlwaysOnTop, toggleAlwaysOnTop, initialize: initWindowStore, syncFromMain: syncAlwaysOnTop } = useWindowStore()
+  const { increaseFontSize, decreaseFontSize, resetFontSize, applyCSSVariable } = useUIStore()
 
   // 剪贴板 Store (v1.2 阶段 2)
   const { copy, cut, paste } = useClipboardStore()
@@ -62,6 +66,21 @@ function App(): JSX.Element {
     }
     loadSettings()
   }, [])
+
+  // v1.4.2：初始化 Zustand stores
+  useEffect(() => {
+    // 初始化窗口状态
+    initWindowStore()
+    // 初始化 UI 状态（应用 CSS 变量）
+    applyCSSVariable()
+
+    // 监听主进程的置顶状态变化（快捷键触发时）
+    const cleanupAlwaysOnTop = window.api.onAlwaysOnTopChanged(syncAlwaysOnTop)
+
+    return () => {
+      cleanupAlwaysOnTop()
+    }
+  }, [initWindowStore, applyCSSVariable, syncAlwaysOnTop])
 
   // v1.3.6：加载书签数据（统一管理）
   const loadBookmarks = useCallback(async () => {
@@ -764,7 +783,58 @@ function App(): JSX.Element {
   }, [bookmarkPanelCollapsed])
 
   // v1.3.6：书签跳转（带容错）
+  // v1.4.2：支持跨文件夹书签，自动切换工作目录
   const handleSelectBookmark = useCallback(async (bookmark: Bookmark) => {
+    // 获取书签文件所在的文件夹
+    const bookmarkDir = bookmark.filePath.substring(0, bookmark.filePath.lastIndexOf('/'))
+
+    // 检查是否需要切换文件夹（书签文件不在当前工作目录下）
+    const needSwitchFolder = folderPath && !bookmark.filePath.startsWith(folderPath)
+
+    if (needSwitchFolder) {
+      // 先切换到书签文件所在的文件夹
+      toast.info(`正在切换到：${bookmarkDir.split('/').pop()}`)
+
+      try {
+        // 1. 设置新的文件夹路径
+        await window.api.setFolderPath(bookmarkDir)
+
+        // 2. 读取新文件夹的文件列表
+        const newFiles = await window.api.readDir(bookmarkDir)
+
+        // 3. 更新状态
+        setFolderPath(bookmarkDir)
+        setFiles(newFiles)
+        setTabs([]) // 清空标签页（因为切换了文件夹）
+        setActiveTabId(null)
+
+        // 4. 等待状态更新完成后，打开书签文件
+        setTimeout(async () => {
+          try {
+            const content = await readFileWithCache(bookmark.filePath)
+            const newTab: Tab = {
+              id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
+              content
+            }
+            setTabs([newTab])
+            setActiveTabId(newTab.id)
+
+            // 等待渲染完成后跳转到书签位置
+            setTimeout(() => navigateToBookmarkPosition(bookmark), 300)
+          } catch (error) {
+            toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+          }
+        }, 100)
+
+        return
+      } catch (error) {
+        toast.error(`切换文件夹失败：${error instanceof Error ? error.message : '未知错误'}`)
+        return
+      }
+    }
+
+    // 不需要切换文件夹的情况（原有逻辑）
     // 1. 检查文件是否已打开
     const existingTab = tabsRef.current.find(tab => tab.file.path === bookmark.filePath)
 
@@ -791,7 +861,7 @@ function App(): JSX.Element {
       // 等待切换完成后跳转
       setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
     }
-  }, [toast])
+  }, [toast, folderPath])
 
   // v1.3.6：跳转到书签位置（容错逻辑）
   const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
@@ -1016,13 +1086,15 @@ function App(): JSX.Element {
       setActiveTabId(newTab.id)
 
       // v1.3.6：添加到最近文件
-      window.api.addRecentFile({
-        path: file.path,
-        name: file.name,
-        folderPath: folderPath
-      }).catch(err => {
-        console.error('Failed to add to recent files:', err)
-      })
+      if (folderPath) {
+        window.api.addRecentFile({
+          path: file.path,
+          name: file.name,
+          folderPath: folderPath
+        }).catch(err => {
+          console.error('Failed to add to recent files:', err)
+        })
+      }
 
       // 将文件添加到监听列表（只监听已打开的文件）
       window.api.watchFile(file.path).catch(err => {
@@ -1201,6 +1273,50 @@ function App(): JSX.Element {
     activeTabId
   ])
 
+  // v1.4.2：字体大小调节快捷键
+  useEffect(() => {
+    if (!window.api.onShortcutFontIncrease) return
+
+    const unsubscribeIncrease = window.api.onShortcutFontIncrease(increaseFontSize)
+    const unsubscribeDecrease = window.api.onShortcutFontDecrease(decreaseFontSize)
+    const unsubscribeReset = window.api.onShortcutFontReset(resetFontSize)
+
+    return () => {
+      unsubscribeIncrease()
+      unsubscribeDecrease()
+      unsubscribeReset()
+    }
+  }, [increaseFontSize, decreaseFontSize, resetFontSize])
+
+  // v1.4.2：窗口置顶快捷键（使用 store）
+  useEffect(() => {
+    if (!window.api.onShortcutToggleAlwaysOnTop) return
+
+    const unsubscribe = window.api.onShortcutToggleAlwaysOnTop(async () => {
+      await toggleAlwaysOnTop()
+      // 状态已通过 syncFromMain 同步，这里只显示提示
+      const currentState = useWindowStore.getState().isAlwaysOnTop
+      toast.success(currentState ? '窗口已置顶' : '已取消置顶')
+    })
+
+    return () => unsubscribe()
+  }, [toggleAlwaysOnTop, toast])
+
+  // v1.4.2：打印快捷键
+  useEffect(() => {
+    if (!window.api.onShortcutPrint) return
+
+    const unsubscribe = window.api.onShortcutPrint(async () => {
+      if (!activeTab) {
+        toast.error('请先打开一个文件')
+        return
+      }
+      await window.api.print()
+    })
+
+    return () => unsubscribe()
+  }, [activeTab, toast])
+
   // v1.3 阶段 2：Markdown 右键菜单事件监听
   useEffect(() => {
     // 检查 API 是否存在
@@ -1321,6 +1437,8 @@ function App(): JSX.Element {
                 files={files}
                 theme={theme}
                 searchBarRef={searchBarRef}
+                isAlwaysOnTop={isAlwaysOnTop}
+                onToggleAlwaysOnTop={toggleAlwaysOnTop}
                 onOpenFolder={handleOpenFolder}
                 onSelectHistoryFolder={handleSelectHistoryFolder}
                 onSelectRecentFile={handleSelectRecentFile}

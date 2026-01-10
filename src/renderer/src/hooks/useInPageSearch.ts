@@ -45,6 +45,10 @@ export interface InPageSearchResult {
   isVisible: boolean
   /** 设置搜索框可见性 */
   setVisible: (visible: boolean) => void
+  /** v1.4.2: 是否区分大小写 */
+  caseSensitive: boolean
+  /** v1.4.2: 切换大小写敏感 */
+  toggleCaseSensitive: () => void
 }
 
 // ============================================================================
@@ -72,6 +76,9 @@ const MARK_EXCLUDE_SELECTORS = [
   '.mermaid-container',      // Mermaid 图表容器
   '.mermaid-container *'     // Mermaid 图表内部元素
 ]
+
+/** v1.4.2: 大小写敏感设置存储键 */
+const CASE_SENSITIVE_KEY = 'searchCaseSensitive'
 
 // ============================================================================
 // 工具函数
@@ -130,6 +137,10 @@ export function useInPageSearch(
   const [currentIndex, setCurrentIndex] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
   const [isVisible, setVisible] = useState(false)
+  // v1.4.2: 大小写敏感（默认不敏感，更符合用户习惯）
+  const [caseSensitive, setCaseSensitive] = useState(() => {
+    return localStorage.getItem(CASE_SENSITIVE_KEY) === 'true'
+  })
 
   // -------------------------------------------------------------------------
   // Refs
@@ -167,6 +178,18 @@ export function useInPageSearch(
   }, [])
 
   // -------------------------------------------------------------------------
+  // v1.4.2: 大小写敏感持久化
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    localStorage.setItem(CASE_SENSITIVE_KEY, String(caseSensitive))
+  }, [caseSensitive])
+
+  // v1.4.2: 切换大小写敏感
+  const toggleCaseSensitive = useCallback(() => {
+    setCaseSensitive(prev => !prev)
+  }, [])
+
+  // -------------------------------------------------------------------------
   // 搜索高亮逻辑
   // 关键：每次搜索都重新创建 Mark 实例，确保使用最新的 DOM
   // -------------------------------------------------------------------------
@@ -198,6 +221,8 @@ export function useInPageSearch(
       className: 'search-highlight',
       separateWordSearch: false,
       acrossElements: true,  // 允许跨元素匹配
+      // v1.4.2: 支持大小写敏感切换
+      caseSensitive: caseSensitive,
 
       // 排除代码块、公式、图表（防止破坏渲染）
       exclude: MARK_EXCLUDE_SELECTORS,
@@ -236,7 +261,7 @@ export function useInPageSearch(
     // 注意：不要在清理函数中 unmark！
     // 因为 setTotalCount 会触发重新渲染，导致清理函数执行
     // unmark 应该只在搜索词变化或组件卸载时执行
-  }, [debouncedQuery, scrollBehavior])
+  }, [debouncedQuery, scrollBehavior, caseSensitive])  // v1.4.2: 添加 caseSensitive 依赖
 
   // -------------------------------------------------------------------------
   // 高亮当前匹配
@@ -309,7 +334,10 @@ export function useInPageSearch(
     goPrev,
     clear,
     isVisible,
-    setVisible
+    setVisible,
+    // v1.4.2: 大小写敏感
+    caseSensitive,
+    toggleCaseSensitive
   }
 }
 

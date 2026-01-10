@@ -35,6 +35,10 @@ export interface InPageSearchBoxProps {
   onPrev: () => void
   /** 关闭搜索框 */
   onClose: () => void
+  /** v1.4.2: 是否区分大小写 */
+  caseSensitive?: boolean
+  /** v1.4.2: 切换大小写敏感 */
+  onToggleCaseSensitive?: () => void
 }
 
 // ============================================================================
@@ -49,7 +53,9 @@ export function InPageSearchBox({
   totalCount,
   onNext,
   onPrev,
-  onClose
+  onClose,
+  caseSensitive = false,
+  onToggleCaseSensitive
 }: InPageSearchBoxProps): React.JSX.Element | null {
   // -------------------------------------------------------------------------
   // Refs
@@ -189,6 +195,20 @@ export function InPageSearchBox({
 
       {/* 控制按钮 */}
       <div className="in-page-search-controls">
+        {/* v1.4.2: 大小写敏感切换按钮 */}
+        {onToggleCaseSensitive && (
+          <button
+            type="button"
+            className={`in-page-search-btn case-toggle ${caseSensitive ? 'active' : ''}`}
+            onClick={onToggleCaseSensitive}
+            title={caseSensitive ? '区分大小写（已开启）' : '区分大小写（已关闭）'}
+            aria-label="切换大小写敏感"
+            aria-pressed={caseSensitive}
+          >
+            Aa
+          </button>
+        )}
+
         {/* 上一个按钮 */}
         <button
           type="button"

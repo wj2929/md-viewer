@@ -45,6 +45,7 @@ declare global {
         basePath: string
         tabCount: number
         tabIndex: number
+        isPinned?: boolean  // v1.3.6 新增
       }) => Promise<{ success: boolean }>
 
       // v1.3 阶段 2：Markdown 右键菜单
@@ -84,8 +85,8 @@ declare global {
       isTabPinned: (filePath: string) => Promise<boolean>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>) => Promise<void>
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>
@@ -207,6 +208,22 @@ declare global {
 
       // v1.4.0：页面内搜索事件（从右键菜单触发）
       onOpenInPageSearch: (callback: () => void) => () => void
+
+      // v1.4.2：窗口置顶
+      setAlwaysOnTop: (flag: boolean) => Promise<boolean>
+      getAlwaysOnTop: () => Promise<boolean>
+      toggleAlwaysOnTop: () => Promise<boolean>
+      onAlwaysOnTopChanged: (callback: (flag: boolean) => void) => () => void
+      onShortcutToggleAlwaysOnTop: (callback: () => void) => () => void
+
+      // v1.4.2：打印
+      print: () => Promise<{ success: boolean }>
+      onShortcutPrint: (callback: () => void) => () => void
+
+      // v1.4.2：字体大小调节
+      onShortcutFontIncrease: (callback: () => void) => () => void
+      onShortcutFontDecrease: (callback: () => void) => () => void
+      onShortcutFontReset: (callback: () => void) => () => void
     }
   }
 

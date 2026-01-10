@@ -119,6 +119,31 @@
   background: var(--bg-tertiary);
 }
 
+/* v1.4.2：窗口置顶按钮 */
+.nav-always-on-top-btn {
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  transition: all 0.15s;
+}
+
+.nav-always-on-top-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.nav-always-on-top-btn.active {
+  background: var(--accent-color, #007aff);
+  color: white;
+  border-radius: 4px;
+}
+
+.nav-always-on-top-btn.active:hover {
+  opacity: 0.9;
+}
+
 /* 响应式：小屏幕时隐藏文件夹名称 */
 @media (max-width: 1200px) {
   .nav-folder-path {

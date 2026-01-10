@@ -3,7 +3,7 @@
  * 基于 markdown-it Token 流提取目录结构
  */
 
-import type { Token } from 'markdown-it'
+import type Token from 'markdown-it/lib/token.mjs'
 import { uniqueSlugify } from './slugify'
 
 /**
@@ -40,8 +40,8 @@ export function extractTocFromTokens(tokens: Token[]): TocItem[] {
 
       // 提取纯文本内容（排除 Markdown 语法）
       const text = inlineToken.children
-        ?.filter(t => t.type === 'text' || t.type === 'code_inline')
-        .map(t => t.content)
+        ?.filter((t: Token) => t.type === 'text' || t.type === 'code_inline')
+        .map((t: Token) => t.content)
         .join('')
         .trim() || ''
 

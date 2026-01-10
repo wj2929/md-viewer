@@ -5,7 +5,8 @@
 
 .markdown-body {
   font-family: 'Helvetica Neue', Helvetica, 'Segoe UI', Arial, freesans, sans-serif;
-  font-size: 16px;
+  /* v1.4.2: 支持通过 CSS 变量调节字体大小 */
+  font-size: var(--markdown-font-size, 16px);
   line-height: 1.6;
   color: var(--text-primary);
   background-color: var(--bg-primary);

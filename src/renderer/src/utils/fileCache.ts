@@ -25,7 +25,7 @@ class LRUCache<K, V> {
     }
     // 如果缓存已满，删除最早的项（Map的第一个键）
     else if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value
+      const firstKey = this.cache.keys().next().value as K
       this.cache.delete(firstKey)
     }
 

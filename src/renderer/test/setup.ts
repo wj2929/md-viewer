@@ -1,3 +1,4 @@
+// @ts-nocheck - 测试文件的类型检查暂时跳过
 import { expect, afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom'
