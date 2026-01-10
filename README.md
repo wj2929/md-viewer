@@ -49,7 +49,8 @@ _（待添加）_
 ### macOS
 
 **下载：**
-- [MD Viewer-1.4.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0) (Apple Silicon)
+- [MD Viewer-1.4.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.4.0-x64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0) (Intel Mac) ⚠️ v1.4.1 起提供
 
 ⚠️ **首次安装说明**
 

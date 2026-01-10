@@ -88,7 +88,7 @@ jobs:
 
       - name: 打包应用 (macOS)
         if: matrix.platform == 'mac'
-        run: npx electron-builder --mac --publish never
+        run: npx electron-builder --mac --x64 --arm64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
@@ -159,8 +159,9 @@ jobs:
 
             ### 📦 下载
 
-            - **macOS**: MD Viewer-*.dmg 或 MD Viewer-*.zip
-            - **Linux**: MD Viewer-*.AppImage 或 MD Viewer-*.deb
+            - **macOS (Apple Silicon M1/M2/M3)**: MD Viewer-*-arm64.dmg
+            - **macOS (Intel)**: MD Viewer-*-x64.dmg
+            - **Linux**: MD Viewer-*.AppImage 或 md-viewer_*.deb
             - **Windows**: MD Viewer Setup-*.exe 或 MD Viewer-*.zip
 
             ### ✨ 更新内容
