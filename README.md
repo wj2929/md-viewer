@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.0-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.4.2-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -19,6 +19,9 @@
 - ⭐ **书签功能** - 侧边栏书签面板，拖拽排序，智能跳转容错 (v1.3.6+)
 - 🕐 **最近文件** - 快速访问最近打开的文件 (v1.3.6+)
 - 🔍 **页面内搜索** - Cmd+Shift+F 搜索当前文档，实时高亮匹配 (v1.4.0+)
+- 📌 **窗口置顶** - Cmd+Option+T 窗口固定在最上层 (v1.4.2+)
+- 🔤 **字体大小调节** - Cmd+/-/0 调节预览字体大小 (v1.4.2+)
+- 🖨️ **打印功能** - Cmd+P 打印当前文档 (v1.4.2+)
 - ⌨️ **快捷键帮助** - 右键菜单查看所有快捷键 (v1.4.0+)
 - 🎨 **完整 Markdown 支持** - 标题、列表、表格、引用等，GitHub 风格样式
 - 💻 **代码高亮** - 支持 15+ 编程语言，GitHub 主题
@@ -49,8 +52,8 @@ _（待添加）_
 ### macOS
 
 **下载：**
-- [MD Viewer-1.4.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.4.0-x64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0) (Intel Mac) ⚠️ v1.4.1 起提供
+- [MD Viewer-1.4.2-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.4.2.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -71,10 +74,10 @@ xattr -cr /Applications/MD\ Viewer.app
 之后就能正常使用了。
 
 ### Windows
-- [MD Viewer Setup 1.4.0.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0)
+- [MD Viewer Setup 1.4.2.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2)
 
 ### Linux
-- [MD Viewer-1.4.0.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0)
+- [MD Viewer-1.4.2.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.2)
 
 ---
 
@@ -207,6 +210,13 @@ sequenceDiagram
 | 快捷键 | 功能 |
 |--------|------|
 | `⌘⇧F` / `Ctrl+Shift+F` | 页面内搜索 |
+| `⌘G` / `Ctrl+G` | 下一个匹配 |
+| `⌘⇧G` / `Ctrl+Shift+G` | 上一个匹配 |
+| `⌘⌥T` / `Ctrl+Alt+T` | 窗口置顶切换 |
+| `⌘+` / `Ctrl++` | 放大字体 |
+| `⌘-` / `Ctrl+-` | 缩小字体 |
+| `⌘0` / `Ctrl+0` | 重置字体大小 |
+| `⌘P` / `Ctrl+P` | 打印 |
 | `⌘K` / `Ctrl+K` | 打开搜索 |
 | `Esc` | 关闭搜索 / 清除选择 |
 | `⌘W` / `Ctrl+W` | 关闭当前标签 |
@@ -215,9 +225,6 @@ sequenceDiagram
 | `⌘A` / `Ctrl+A` | 全选文件 |
 | `⌘C` / `Ctrl+C` | 复制选中文件 |
 | `⌘V` / `Ctrl+V` | 粘贴文件 |
-| `⌘+` / `Ctrl+` | 放大 |
-| `⌘-` / `Ctrl-` | 缩小 |
-| `⌘0` / `Ctrl+0` | 重置缩放 |
 
 ---
 
@@ -377,8 +384,16 @@ npm run build:linux
 - [x] 页面内搜索（Cmd+Shift+F）
 - [x] 实时高亮匹配文本
 - [x] 智能排除（代码块、KaTeX、Mermaid 不高亮）
+- [x] 大小写搜索切换（Aa 按钮）
 - [x] 右键菜单增强（页面内搜索入口 + 快捷键帮助）
 - [x] ShortcutsHelpDialog 快捷键帮助弹窗
+- [x] Intel Mac 支持 (v1.4.1)
+- [x] 窗口置顶（Cmd+Option+T）(v1.4.2)
+- [x] 字体大小调节（Cmd+/-/0）(v1.4.2)
+- [x] 打印功能（Cmd+P）(v1.4.2)
+- [x] 跨文件夹书签（自动切换目录）(v1.4.2)
+- [x] Zustand 状态管理架构升级 (v1.4.2)
+- [x] 右键菜单图标统一 (v1.4.2)
 
 ### v2.0 (计划中)
 - [ ] 拖拽排序文件
