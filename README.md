@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.7-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -18,6 +18,8 @@
 - 📌 **标签页固定** - 右键固定常用标签，跨会话保持 (v1.3.6+)
 - ⭐ **书签功能** - 侧边栏书签面板，拖拽排序，智能跳转容错 (v1.3.6+)
 - 🕐 **最近文件** - 快速访问最近打开的文件 (v1.3.6+)
+- 🔍 **页面内搜索** - Cmd+Shift+F 搜索当前文档，实时高亮匹配 (v1.4.0+)
+- ⌨️ **快捷键帮助** - 右键菜单查看所有快捷键 (v1.4.0+)
 - 🎨 **完整 Markdown 支持** - 标题、列表、表格、引用等，GitHub 风格样式
 - 💻 **代码高亮** - 支持 15+ 编程语言，GitHub 主题
 - 📐 **数学公式** - KaTeX 渲染 LaTeX 公式
@@ -47,7 +49,7 @@ _（待添加）_
 ### macOS
 
 **下载：**
-- [MD Viewer-1.3.5-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.3.5) (Apple Silicon)
+- [MD Viewer-1.4.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0) (Apple Silicon)
 
 ⚠️ **首次安装说明**
 
@@ -68,10 +70,10 @@ xattr -cr /Applications/MD\ Viewer.app
 之后就能正常使用了。
 
 ### Windows
-- [MD Viewer Setup 1.3.5.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.3.5)
+- [MD Viewer Setup 1.4.0.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0)
 
 ### Linux
-- [MD Viewer-1.3.5.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.3.5)
+- [MD Viewer-1.4.0.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.0)
 
 ---
 
@@ -203,6 +205,7 @@ sequenceDiagram
 
 | 快捷键 | 功能 |
 |--------|------|
+| `⌘⇧F` / `Ctrl+Shift+F` | 页面内搜索 |
 | `⌘K` / `Ctrl+K` | 打开搜索 |
 | `Esc` | 关闭搜索 / 清除选择 |
 | `⌘W` / `Ctrl+W` | 关闭当前标签 |
@@ -351,7 +354,7 @@ npm run build:linux
 - [x] 应用内剪贴板
 - [x] 主题切换
 
-### v1.3 ✅ (当前版本)
+### v1.3 ✅
 - [x] Tab 右键菜单（关闭当前/其他/所有/左侧/右侧）
 - [x] Markdown 右键菜单（导出/复制）
 - [x] 多文件选择（Cmd+点击、Shift+点击、Cmd+A）
@@ -365,7 +368,16 @@ npm run build:linux
 - [x] 浮动导航栏（到顶/到底/目录大纲）(v1.3.5)
 - [x] HTML/PDF 导出 Mermaid 图表支持 (v1.3.5)
 - [x] C4 架构图支持 (v1.3.5)
+- [x] 书签系统 + 标签页固定 + 最近文件 (v1.3.6)
+- [x] 右键添加书签 (v1.3.7)
 - [x] 测试覆盖率 71.71%
+
+### v1.4 ✅ (当前版本)
+- [x] 页面内搜索（Cmd+Shift+F）
+- [x] 实时高亮匹配文本
+- [x] 智能排除（代码块、KaTeX、Mermaid 不高亮）
+- [x] 右键菜单增强（页面内搜索入口 + 快捷键帮助）
+- [x] ShortcutsHelpDialog 快捷键帮助弹窗
 
 ### v2.0 (计划中)
 - [ ] 拖拽排序文件
@@ -380,6 +392,7 @@ npm run build:linux
 
 1. **大文件渲染可能卡顿** - 已添加 10000 行截断保护
 2. **虚拟滚动暂时禁用** - 分段渲染存在兼容问题，后续版本修复
+3. **Mermaid quadrantChart/xychart-beta 无法渲染** - Lexical error，后续版本修复
 
 ---
 
