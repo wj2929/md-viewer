@@ -201,6 +201,12 @@ declare global {
         filePath: string
         fileName: string
       }) => void) => () => void
+
+      // v1.4.0：快捷键帮助弹窗事件
+      onOpenShortcutsHelp: (callback: () => void) => () => void
+
+      // v1.4.0：页面内搜索事件（从右键菜单触发）
+      onOpenInPageSearch: (callback: () => void) => () => void
     }
   }
 

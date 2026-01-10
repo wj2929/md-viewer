@@ -467,3 +467,44 @@
     white-space: pre;
   }
 }
+
+/* ============================================
+   页面内搜索高亮样式 (v1.4.0)
+   使用 !important 确保覆盖其他样式
+   ============================================ */
+
+/* 所有匹配项（黄色背景） */
+.markdown-body mark[data-markjs="true"],
+.markdown-body mark.search-highlight {
+  background-color: #ffeb3b !important;
+  color: #000 !important;
+  padding: 2px 0 !important;
+  border-radius: 2px !important;
+}
+
+/* 当前匹配项（橙色背景） */
+.markdown-body mark.search-highlight-current {
+  background-color: #ff9632 !important;
+  color: #000 !important;
+  padding: 2px 0 !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 0 2px rgba(255, 150, 50, 0.4) !important;
+}
+
+/* 暗色主题适配 */
+[data-theme='dark'] .markdown-body mark[data-markjs="true"],
+[data-theme='dark'] .markdown-body mark.search-highlight {
+  background-color: #8b7500 !important;
+  color: #fff !important;
+}
+
+[data-theme='dark'] .markdown-body mark.search-highlight-current {
+  background-color: #ff9632 !important;
+  color: #000 !important;
+}
+
+/* 调试：强制所有 mark 元素显示红色背景 */
+mark {
+  background-color: red !important;
+  color: white !important;
+}

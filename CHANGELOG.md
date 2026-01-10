@@ -7,6 +7,121 @@
 
 ---
 
+## [1.4.0] - 2026-01-10
+
+> **状态**: ✅ **已发布** | **提交**: 待定
+
+### 🎉 核心亮点
+
+- 🔍 **页面内搜索**（Cmd+Shift+F）：在当前 Markdown 文档中实时搜索高亮
+- ⚡ **智能高亮**：排除代码块、公式、图表，避免破坏渲染
+- 📊 **性能优化**：自适应防抖、限制高亮数量（500 个），大文件不卡顿
+
+### Added (新增功能)
+
+#### 页面内搜索
+- **浮动搜索框**：右上角浮动（80px/40px），320px 宽度
+- **实时文本高亮**：所有匹配项黄色背景，当前项橙色背景
+- **导航控制**：
+  - 上一个/下一个按钮
+  - Enter/Shift+Enter 键盘导航
+  - Cmd+G（下一个）/ Cmd+Shift+G（上一个）
+- **匹配计数**：显示"1 / 15"格式的匹配数量
+- **智能排除**：代码块、KaTeX 公式、Mermaid 图表不会被高亮
+
+#### 新增组件和 Hook
+- `InPageSearchBox` 组件：浮动搜索框 UI
+- `useInPageSearch` Hook：封装 mark.js 搜索逻辑
+- 新增 CSS 样式：`.search-highlight`、`.search-highlight-current`
+
+#### 快捷键
+| 快捷键 | 功能 |
+|--------|------|
+| Cmd+Shift+F | 打开/关闭页面内搜索 |
+| Cmd+G | 下一个匹配 |
+| Cmd+Shift+G | 上一个匹配 |
+| Enter | 下一个匹配（搜索框内）|
+| Shift+Enter | 上一个匹配（搜索框内）|
+| Esc | 关闭搜索框 |
+
+### Technical (技术细节)
+- **高亮库**：mark.js（字符串匹配模式，无需转义特殊字符）
+- **性能保护**：
+  - 限制高亮数量 ≤ 500（使用 filter 回调）
+  - 自适应防抖（小文件 300ms，大文件 600ms）
+  - 大文件滚动禁用 smooth
+- **排除配置**：`<pre>`, `<code>`, `.katex`, `.mermaid-container`
+- **测试覆盖**：16 个兼容性测试 + 397 个总测试全部通过
+
+### Dependencies (依赖)
+- 新增：mark.js ^8.11.1、@types/mark.js
+
+---
+
+## [1.3.7] - 2026-01-09 下午/晚
+
+> **状态**: ✅ **已发布** | **提交**: `f178904` | **Release**: https://github.com/wj2929/md-viewer/releases/tag/v1.3.7
+
+### 🎉 核心亮点
+
+- 📑 **书签增强**：右键快速添加书签（Markdown 页面 + 文件树）
+- 🔧 **发布修复**：版本号更新 + Release 发布 + 自动化验证
+- 📚 **文档完善**：创建 release-check.sh + CLAUDE.md + 发布流程文档
+
+### Added (新增功能)
+
+#### 书签增强（下午 2 小时）
+- **Markdown 页面右键添加书签**：智能检测标题，支持标题书签和文件书签
+- **文件树右键添加书签**：右键 .md 文件直接添加，无需打开文件
+- 新增 IPC API：`showPreviewContextMenu`、`onAddBookmarkFromPreview`、`onAddBookmarkFromFileTree`
+
+#### 自动化工具（晚上 3 小时）
+- **创建 scripts/release-check.sh**：6 项自动检查（版本号、tag、工作区、同步、Release、推送）
+- **添加 npm run release:check 命令**：快捷运行发布检查
+- **创建 scripts/README.md**：详细说明脚本用途和使用方法
+- **创建 CLAUDE.md**：为 AI 助手提供项目指令和开发规范
+
+### Changed (变更)
+- 合并书签功能和原有右键菜单功能（导出 HTML/PDF、复制为 Markdown/纯文本/HTML）
+- VirtualizedMarkdown 右键菜单逻辑更新，检测标题元素和选中状态
+- 更新 README.md：添加"发布流程"章节，版本号 badge 1.3.5 → 1.3.7
+
+### Fixed (修复)
+- **修复 package.json 版本号未更新**：从 1.3.5 正确更新到 1.3.7
+- **修复 GitHub Release 未发布**：v1.3.6 和 v1.3.7 从 Draft 状态发布
+- **推送缺失的提交**：2df49bf 和 eb0fc12 推送到 GitHub
+- 修复 main/index.ts 未导入 Menu 和 clipboard 导致的 `ReferenceError: Menu is not defined`
+- 修复新增书签功能覆盖原有右键菜单的问题
+
+### Technical (技术细节)
+- 提交数量：7 个
+  - 88c2722: feat(v1.3.7): 书签增强 - 支持右键添加书签
+  - bcb054e: fix(v1.3.7): 修复右键菜单 Menu/clipboard 未导入的问题
+  - 2df49bf: fix(v1.3.7): 恢复原有右键菜单功能
+  - eb0fc12: chore(v1.3.7): 更新版本号到 1.3.7
+  - 6439f4d: feat(v1.3.7): 添加 release-check.sh 发布验证脚本
+  - be1adb6: docs(v1.3.7): 完善 release-check.sh 文档和使用说明
+  - f178904: docs(v1.3.7): 添加项目 CLAUDE.md 指令文件
+- 修改文件：15 个（代码 12 + 文档 3）
+- 新增代码：+597 行
+- 删除代码：-41 行
+- 测试通过：381/381 ✅
+- npm run release:check：所有检查通过 ✅
+
+### Root Cause Analysis (根本原因分析)
+1. **缺乏自动化检查**：发布流程无脚本验证版本号
+2. **手动流程遗漏**：创建 Draft Release 后忘记点"Publish"
+3. **文档过早更新**：在真正完成前就标记"已完成"
+
+### Prevention Measures (预防措施)
+- ✅ 创建自动验证脚本（release-check.sh）
+- ✅ 添加发布检查清单（PROGRESS.md）
+- ✅ 要求运行检查脚本后才能标记"已发布"
+- ✅ 创建 AI 指令文件（CLAUDE.md）强调检查规则
+- ✅ 主文档添加发布流程章节（README.md）
+
+---
+
 ## [1.3.6] - 2026-01-09
 
 > **状态**: ✅ **完成，已推送到 GitHub（feature/v1.3.6）**

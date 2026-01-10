@@ -472,6 +472,20 @@ const api = {
     }) => callback(params)
     ipcRenderer.on('add-bookmark-from-file-tree', handler)
     return () => ipcRenderer.removeListener('add-bookmark-from-file-tree', handler)
+  },
+
+  // v1.4.0：快捷键帮助弹窗事件
+  onOpenShortcutsHelp: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('open-shortcuts-help', handler)
+    return () => ipcRenderer.removeListener('open-shortcuts-help', handler)
+  },
+
+  // v1.4.0：页面内搜索事件（从右键菜单触发）
+  onOpenInPageSearch: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:open-in-page-search', handler)
+    return () => ipcRenderer.removeListener('shortcut:open-in-page-search', handler)
   }
 }
 

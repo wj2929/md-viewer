@@ -201,6 +201,14 @@ export function showContextMenu(
           })
         }
       }
+    },
+    // v1.4.0：查看所有快捷键
+    { type: 'separator' },
+    {
+      label: '⌨️ 查看所有快捷键',
+      click: () => {
+        window.webContents.send('open-shortcuts-help')
+      }
     }
   ]
 

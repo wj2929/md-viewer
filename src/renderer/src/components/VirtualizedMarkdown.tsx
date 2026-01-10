@@ -1,10 +1,14 @@
-import { useEffect, useRef, useMemo, memo, useCallback } from 'react'
+import { useEffect, useRef, useMemo, memo, useCallback, forwardRef } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import MarkdownIt from 'markdown-it'
 import Prism from 'prismjs'
 import katex from 'katex'
 import mermaid from 'mermaid'
 import DOMPurify from 'dompurify'
+
+// v1.4.0: 页面内搜索
+import { useInPageSearch } from '../hooks/useInPageSearch'
+import { InPageSearchBox } from './search'
 
 // 导入 Prism 语言支持
 import 'prismjs/components/prism-javascript'
@@ -20,6 +24,41 @@ import 'prismjs/components/prism-json'
 import 'prismjs/components/prism-yaml'
 import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
+
+/**
+ * v1.4.0: Mermaid 模块级初始化
+ * 在模块加载时就初始化，确保所有图表类型（包括 quadrantChart、xychart-beta）都能正确渲染
+ */
+let mermaidInitialized = false
+function initializeMermaid(): void {
+  if (mermaidInitialized) return
+
+  try {
+    const isDark = typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      securityLevel: 'loose',
+      suppressErrorRendering: true,
+      // 确保所有图表类型都启用
+      flowchart: { useMaxWidth: true },
+      sequence: { useMaxWidth: true },
+      gantt: { useMaxWidth: true },
+      pie: { useMaxWidth: true }
+    })
+
+    mermaidInitialized = true
+  } catch {
+    // Mermaid 初始化失败，静默处理
+  }
+}
+
+// 立即执行初始化
+if (typeof window !== 'undefined') {
+  initializeMermaid()
+}
 
 /**
  * DOMPurify 配置（防御 XSS 攻击）
@@ -46,7 +85,9 @@ const DOMPURIFY_CONFIG = {
     'style', 'aria-hidden', 'xmlns', 'encoding', 'display',
     // SVG 属性
     'd', 'viewBox', 'preserveAspectRatio', 'fill', 'stroke', 'stroke-width',
-    'width', 'height', 'x', 'y', 'transform', 'clip-path', 'xlink:href'
+    'width', 'height', 'x', 'y', 'transform', 'clip-path', 'xlink:href',
+    // v1.4.0: Mermaid 代码存储属性
+    'data-mermaid-code'
   ],
   FORBID_ATTR: ['onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur'],
   ALLOW_DATA_ATTR: false,
@@ -99,7 +140,10 @@ function createMarkdownInstance(): MarkdownIt {
     breaks: true,
     highlight: (str: string, lang: string) => {
       if (lang === 'mermaid') {
-        return `<pre class="language-mermaid"><code class="language-mermaid">${mdInstance.utils.escapeHtml(str)}</code></pre>`
+        // v1.4.0: 使用 data-code 属性存储原始代码，避免 HTML 转义导致换行符丢失
+        const escapedCode = mdInstance.utils.escapeHtml(str)
+        const base64Code = btoa(unescape(encodeURIComponent(str)))
+        return `<pre class="language-mermaid" data-mermaid-code="${base64Code}"><code class="language-mermaid">${escapedCode}</code></pre>`
       }
       if (lang && Prism.languages[lang]) {
         try {
@@ -343,14 +387,9 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
     })
   }, [filePath])
 
-  // 初始化 Mermaid
+  // v1.4.0: Mermaid 已在模块顶层初始化，此处确保初始化完成
   useEffect(() => {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
-      securityLevel: 'loose',
-      suppressErrorRendering: true  // 禁止在页面底部显示错误
-    })
+    initializeMermaid()
   }, [])
 
   // 创建 markdown-it 实例
@@ -438,6 +477,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
 
 /**
  * 非虚拟滚动渲染（小文件）
+ * v1.4.0: 集成页面内搜索功能
  */
 const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   content,
@@ -451,6 +491,53 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // v1.4.0: 页面内搜索
+  const search = useInPageSearch(containerRef, content.length)
+
+  // v1.4.0: 监听 IPC 事件（从右键菜单触发页面内搜索）
+  useEffect(() => {
+    if (!window.api.onOpenInPageSearch) return
+
+    const unsubscribe = window.api.onOpenInPageSearch(() => {
+      search.setVisible(true)
+    })
+
+    return unsubscribe
+  }, [search.setVisible])
+
+  // v1.4.0: 监听 Cmd+Shift+F 快捷键
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Shift+F / Ctrl+Shift+F: 切换页面内搜索
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        e.stopPropagation()
+        search.setVisible(!search.isVisible)
+      }
+      // Cmd+G / Ctrl+G: 下一个匹配（搜索框打开时）
+      else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'g' && search.isVisible) {
+        e.preventDefault()
+        e.stopPropagation()
+        search.goNext()
+      }
+      // Cmd+Shift+G / Ctrl+Shift+G: 上一个匹配（搜索框打开时）
+      else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'g' && search.isVisible) {
+        e.preventDefault()
+        e.stopPropagation()
+        search.goPrev()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [search.isVisible, search.goNext, search.goPrev, search.setVisible])
+
+  // v1.4.0: 关闭搜索框时清除高亮
+  const handleSearchClose = useCallback(() => {
+    search.clear()
+    search.setVisible(false)
+  }, [search.clear, search.setVisible])
 
   const html = useMemo(() => {
     if (!content || content.trim().length === 0) {
@@ -484,98 +571,161 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
     return sanitizeHtml(rawHtml)  // ✅ XSS 防护
   }, [md, content])
 
-  // Mermaid 图表渲染
-  useEffect(() => {
-    if (!containerRef.current) return
-
-    const mermaidBlocks = containerRef.current.querySelectorAll('pre.language-mermaid')
-    if (mermaidBlocks.length === 0) return
-
-    mermaidBlocks.forEach(async (block, index) => {
-      const code = block.textContent || ''
-      const id = `mermaid-${Date.now()}-${index}`
-
-      try {
-        const { svg } = await mermaid.render(id, code)
-        const wrapper = document.createElement('div')
-        wrapper.className = 'mermaid-container'
-        wrapper.innerHTML = svg
-        block.replaceWith(wrapper)
-      } catch (error) {
-        console.error('Mermaid render error:', error)
-        // 显示原始代码块，而不是空白
-        const wrapper = document.createElement('pre')
-        wrapper.className = 'language-mermaid mermaid-error-fallback'
-        wrapper.textContent = code
-        block.replaceWith(wrapper)
-      }
-    })
-  }, [html])
-
-  // ✅ 为标题添加 id 属性，支持目录锚点跳转
-  useEffect(() => {
-    if (!containerRef.current) return
-
-    const headings = containerRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
-    const usedIds = new Set<string>()
-
-    headings.forEach((heading) => {
-      if (heading.id) return  // 已有 id，跳过
-
-      const text = heading.textContent || ''
-      let slug = text
-        .toLowerCase()
-        .trim()
-        .replace(/[^\p{L}\p{N}\s-]/gu, '')  // 保留字母、数字、空格、连字符
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-
-      // 确保 id 唯一
-      let uniqueSlug = slug
-      let counter = 1
-      while (usedIds.has(uniqueSlug)) {
-        uniqueSlug = `${slug}-${counter}`
-        counter++
-      }
-      usedIds.add(uniqueSlug)
-      heading.id = uniqueSlug
-    })
-  }, [html])
-
-  // ✅ 处理锚点链接点击
-  useEffect(() => {
-    if (!containerRef.current) return
-
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      const anchor = target.closest('a')
-      if (!anchor) return
-
-      const href = anchor.getAttribute('href')
-      if (!href || !href.startsWith('#')) return
-
-      e.preventDefault()
-      const targetId = decodeURIComponent(href.slice(1))
-      const targetElement = document.getElementById(targetId)
-
-      if (targetElement) {
-        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-    }
-
-    containerRef.current.addEventListener('click', handleClick)
-    return () => containerRef.current?.removeEventListener('click', handleClick)
-  }, [html])
+  // 注意：Mermaid 渲染、标题 ID、锚点点击逻辑已移到 MarkdownContent 组件中
 
   return (
-    <div
-      ref={containerRef}
-      className={`markdown-body ${className}`}
-      dangerouslySetInnerHTML={{ __html: html }}
-      onContextMenu={onContextMenu}
-    />
+    <>
+      {/* v1.4.0: 页面内搜索框 */}
+      <InPageSearchBox
+        visible={search.isVisible}
+        query={search.query}
+        onQueryChange={search.setQuery}
+        currentIndex={search.currentIndex}
+        totalCount={search.totalCount}
+        onNext={search.goNext}
+        onPrev={search.goPrev}
+        onClose={handleSearchClose}
+      />
+
+      {/* Markdown 内容 - 使用 MarkdownContent 子组件避免重渲染覆盖 mark.js 高亮 */}
+      <MarkdownContent
+        ref={containerRef}
+        html={html}
+        className={className}
+        onContextMenu={onContextMenu}
+      />
+    </>
   )
 })
+
+/**
+ * Markdown 内容渲染组件
+ * 独立出来避免父组件状态变化导致 innerHTML 被重置
+ */
+const MarkdownContent = memo(
+  forwardRef<HTMLDivElement, {
+    html: string
+    className: string
+    onContextMenu?: (e: React.MouseEvent) => void
+  }>(function MarkdownContent({ html, className, onContextMenu }, ref) {
+    const internalRef = useRef<HTMLDivElement>(null)
+    const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
+
+    // 只在 html 变化时更新 DOM
+    useEffect(() => {
+      if (combinedRef.current) {
+        combinedRef.current.innerHTML = html
+      }
+    }, [html])
+
+    // Mermaid 图表渲染
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      // 确保 Mermaid 已初始化
+      initializeMermaid()
+
+      const mermaidBlocks = combinedRef.current.querySelectorAll('pre.language-mermaid')
+      if (mermaidBlocks.length === 0) return
+
+      mermaidBlocks.forEach(async (block, index) => {
+        // v1.4.0: 优先从 data-mermaid-code 属性读取原始代码（保留换行符）
+        const base64Code = block.getAttribute('data-mermaid-code')
+        let code: string
+
+        if (base64Code) {
+          try {
+            code = decodeURIComponent(escape(atob(base64Code)))
+          } catch {
+            code = block.textContent || ''
+          }
+        } else {
+          code = block.textContent || ''
+        }
+
+        const id = `mermaid-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`
+
+        try {
+          const { svg } = await mermaid.render(id, code)
+          const wrapper = document.createElement('div')
+          wrapper.className = 'mermaid-container'
+          wrapper.innerHTML = svg
+          block.replaceWith(wrapper)
+        } catch {
+          // 渲染失败时显示原始代码
+          const wrapper = document.createElement('pre')
+          wrapper.className = 'language-mermaid mermaid-error-fallback'
+          wrapper.textContent = code
+          block.replaceWith(wrapper)
+        }
+      })
+    }, [html])
+
+    // 为标题添加 id 属性
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const headings = combinedRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
+      const usedIds = new Set<string>()
+
+      headings.forEach((heading) => {
+        if (heading.id) return
+
+        const text = heading.textContent || ''
+        let slug = text
+          .toLowerCase()
+          .trim()
+          .replace(/[^\p{L}\p{N}\s-]/gu, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '')
+
+        let uniqueSlug = slug
+        let counter = 1
+        while (usedIds.has(uniqueSlug)) {
+          uniqueSlug = `${slug}-${counter}`
+          counter++
+        }
+        usedIds.add(uniqueSlug)
+        heading.id = uniqueSlug
+      })
+    }, [html])
+
+    // 处理锚点链接点击
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+        const anchor = target.closest('a')
+        if (!anchor) return
+
+        const href = anchor.getAttribute('href')
+        if (!href || !href.startsWith('#')) return
+
+        e.preventDefault()
+        const targetId = decodeURIComponent(href.slice(1))
+        const targetElement = document.getElementById(targetId)
+
+        if (targetElement) {
+          targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleClick)
+      return () => combinedRef.current?.removeEventListener('click', handleClick)
+    }, [html])
+
+    return (
+      <div
+        ref={combinedRef}
+        className={`markdown-body ${className}`}
+        onContextMenu={onContextMenu}
+      />
+    )
+  }),
+  // 自定义比较函数：只有 html 变化时才重渲染
+  (prevProps, nextProps) => prevProps.html === nextProps.html && prevProps.className === nextProps.className
+)
 
 export default memo(VirtualizedMarkdown)

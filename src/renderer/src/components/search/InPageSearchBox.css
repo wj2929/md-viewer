@@ -1,0 +1,244 @@
+/**
+ * 页面内搜索框样式
+ * v1.4.0 新增
+ *
+ * 位置：右上角浮动（距离顶部 80px，距离右侧 40px）
+ * 宽度：320px
+ * 动画：淡入/淡出
+ */
+
+/* ============================================================================
+   容器
+   ============================================================================ */
+
+.in-page-search-box {
+  position: fixed;
+  top: 80px;
+  right: 40px;
+  z-index: 1000;
+
+  width: 320px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+
+  /* 淡入动画 */
+  animation: inPageSearchSlideIn 0.2s ease-out;
+}
+
+/* 淡出状态 */
+.in-page-search-box.closing {
+  animation: inPageSearchSlideOut 0.15s ease-in forwards;
+}
+
+/* ============================================================================
+   动画
+   ============================================================================ */
+
+@keyframes inPageSearchSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes inPageSearchSlideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* ============================================================================
+   输入区域
+   ============================================================================ */
+
+.in-page-search-input-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0; /* 允许 flex 收缩 */
+}
+
+.in-page-search-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.in-page-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+  color: var(--text-primary);
+}
+
+.in-page-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* 无匹配结果时的红色文字 */
+.in-page-search-input.no-results {
+  color: #dc3545;
+}
+
+/* ============================================================================
+   匹配计数
+   ============================================================================ */
+
+.in-page-search-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 无匹配结果时的红色文字 */
+.in-page-search-count.no-results {
+  color: #dc3545;
+}
+
+/* ============================================================================
+   控制按钮
+   ============================================================================ */
+
+.in-page-search-controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.in-page-search-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.in-page-search-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.in-page-search-btn:active:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.in-page-search-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.in-page-search-btn:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+/* 关闭按钮 */
+.in-page-search-close-btn {
+  margin-left: 2px;
+}
+
+.in-page-search-close-btn:hover:not(:disabled) {
+  color: #dc3545;
+}
+
+/* ============================================================================
+   高亮样式（在 Markdown 内容中）
+   注意：使用 !important 确保优先级高于其他样式
+   ============================================================================ */
+
+/* 所有匹配（黄色） */
+.markdown-body mark.search-highlight,
+mark.search-highlight {
+  background-color: #ffeb3b !important;
+  color: #000 !important;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* 当前匹配（橙色） */
+.markdown-body mark.search-highlight-current,
+mark.search-highlight-current {
+  background-color: #ff9632 !important;
+  color: #000 !important;
+  padding: 1px 2px;
+  border-radius: 2px;
+  /* 轻微阴影，让当前匹配更突出 */
+  box-shadow: 0 0 0 2px rgba(255, 150, 50, 0.4);
+}
+
+/* ============================================================================
+   暗色主题适配
+   ============================================================================ */
+
+[data-theme='dark'] .in-page-search-box {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* 暗色主题高亮（提高对比度） */
+[data-theme='dark'] .markdown-body mark.search-highlight,
+[data-theme='dark'] mark.search-highlight {
+  background-color: #b8860b !important;
+  color: #fff !important;
+}
+
+[data-theme='dark'] .markdown-body mark.search-highlight-current,
+[data-theme='dark'] mark.search-highlight-current {
+  background-color: #ff9632 !important;
+  color: #000 !important;
+  box-shadow: 0 0 0 2px rgba(255, 150, 50, 0.5);
+}
+
+/* ============================================================================
+   响应式适配
+   ============================================================================ */
+
+/* 小屏幕：搜索框靠右但不贴边 */
+@media (max-width: 768px) {
+  .in-page-search-box {
+    right: 16px;
+    width: calc(100vw - 32px);
+    max-width: 320px;
+  }
+}
+
+/* 非常小的屏幕：搜索框全宽 */
+@media (max-width: 400px) {
+  .in-page-search-box {
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-width: none;
+  }
+}

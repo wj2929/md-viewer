@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, dialog, session, Menu, clipboard } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, session, Menu, clipboard, MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as fs from 'fs-extra'
@@ -16,6 +16,10 @@ import { folderHistoryManager } from './folderHistoryManager'
 import * as contextMenuManager from './contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from './security/pathValidator'
 import { appDataManager } from './appDataManager'
+import { installEpipeHandler } from './safeLog'
+
+// 安装 EPIPE 错误处理器（防止开发模式下终端断开导致应用崩溃）
+installEpipeHandler()
 
 // 定义存储的数据结构
 interface AppState {
@@ -1222,6 +1226,7 @@ ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuCont
 })
 
 // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
+// v1.4.0：新增页面内搜索和查看快捷键入口
 ipcMain.handle('preview:show-context-menu', async (event, params: {
   filePath: string
   headingId: string | null
@@ -1260,6 +1265,17 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
         headingId: null,
         headingText: null
       })
+    }
+  })
+
+  menuTemplate.push({ type: 'separator' })
+
+  // v1.4.0: 页面内搜索（可点击触发）
+  menuTemplate.push({
+    label: '🔍 页面内搜索',
+    accelerator: 'CmdOrCtrl+Shift+F',
+    click: () => {
+      event.sender.send('shortcut:open-in-page-search')
     }
   })
 
@@ -1316,6 +1332,15 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
       }
     })
   }
+
+  // v1.4.0: 查看所有快捷键（打开帮助弹窗）
+  menuTemplate.push({ type: 'separator' })
+  menuTemplate.push({
+    label: '⌨️ 查看所有快捷键',
+    click: () => {
+      event.sender.send('open-shortcuts-help')
+    }
+  })
 
   const menu = Menu.buildFromTemplate(menuTemplate)
   const window = BrowserWindow.fromWebContents(event.sender)

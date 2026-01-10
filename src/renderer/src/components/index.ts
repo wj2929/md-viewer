@@ -20,3 +20,10 @@ export type { Bookmark } from './BookmarkPanel'
 export { BookmarkBar } from './BookmarkBar'
 export { Header } from './Header'
 export { NavigationBar } from './NavigationBar'
+
+// v1.4.0: 页面内搜索
+export { InPageSearchBox } from './search'
+export type { InPageSearchBoxProps } from './search'
+
+// v1.4.0: 快捷键帮助弹窗
+export { ShortcutsHelpDialog } from './ShortcutsHelpDialog'

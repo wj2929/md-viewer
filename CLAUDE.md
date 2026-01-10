@@ -1,7 +1,7 @@
 # MD Viewer - Claude 项目指令
 
 > **用途**：为 AI 助手（Claude Code、Cursor 等）提供项目上下文和开发规范
-> **最后更新**：2026-01-09
+> **最后更新**：2026-01-10
 
 ---
 
@@ -9,7 +9,8 @@
 
 **项目名称**：MD Viewer
 **类型**：Electron 桌面应用（Markdown 预览器）
-**当前版本**：v1.3.7
+**当前版本**：v1.4.0（开发中）
+**已发布版本**：v1.3.7
 **技术栈**：Electron 39 + React 19 + TypeScript 5.9 + Vite 7
 **GitHub**：https://github.com/wj2929/md-viewer
 
@@ -21,6 +22,7 @@
 - 标签页固定 + 书签系统（v1.3.6+）
 - 最近文件快速访问（v1.3.6+）
 - 右键添加书签（v1.3.7+）
+- **页面内搜索**（v1.4.0+）- Cmd+Shift+F
 - Markdown 渲染（GitHub 风格）
 - 代码高亮 + 数学公式 + Mermaid 图表
 - 实时文件监听 + 自动刷新
@@ -208,6 +210,27 @@ const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
 - **文件树右键**：右键 .md 文件直接添加书签（无需打开）
 - **合并原有功能**：导出 HTML/PDF + 复制功能
 
+### **页面内搜索（v1.4.0）**
+
+**核心文件**：
+- `src/renderer/src/hooks/useInPageSearch.ts` - 搜索逻辑（mark.js）
+- `src/renderer/src/components/search/InPageSearchBox.tsx` - 搜索框 UI
+- `src/renderer/src/components/VirtualizedMarkdown.tsx` - 集成搜索 + MarkdownContent 组件
+
+**技术要点**：
+- 使用 mark.js 进行文本高亮
+- **MarkdownContent 子组件**：解决 React 重渲染覆盖 mark.js 高亮的问题
+- 智能排除：代码块、KaTeX、Mermaid 不高亮
+
+**快捷键**：
+| 快捷键 | 功能 |
+|--------|------|
+| `Cmd+Shift+F` | 打开/关闭页面内搜索 |
+| `Cmd+G` | 下一个匹配 |
+| `Cmd+Shift+G` | 上一个匹配 |
+| `Enter` | 下一个匹配（搜索框内）|
+| `Esc` | 关闭搜索框 |
+
 ---
 
 ## 🚀 常用命令
@@ -247,16 +270,23 @@ gh run list              # 查看 CI 状态
 |------|---------|---------|
 | v1.3.5 | 2026-01-08 | 基础功能 |
 | v1.3.6 | 2026-01-09 上午 | 混合方案架构 + 书签系统 |
-| **v1.3.7** | **2026-01-09 下午** | **书签增强（右键添加）+ 发布修复** |
-| v1.4.0 | 计划中 | 页面内搜索 + 编辑器模式 |
+| v1.3.7 | 2026-01-09 下午 | 书签增强（右键添加）+ 发布修复 |
+| **v1.4.0** | **开发中** | **页面内搜索 + 右键菜单增强** |
 
 ---
 
-## 🎯 下一步计划（v1.4.0）
+## 🎯 v1.4.0 开发状态
 
-- 📋 页面内搜索（Cmd+F）
-- ✏️ 编辑器模式（CodeMirror 源码编辑）
-- 🖼️ 图片粘贴功能
+### 已完成
+- ✅ 页面内搜索（Cmd+Shift+F）
+- ✅ 实时高亮 + 导航控制
+- ✅ 智能排除（代码块、KaTeX、Mermaid）
+
+### 待实施
+- 📋 右键菜单增强（添加"页面内搜索"和"快捷键列表"入口）
+- 📋 ShortcutsHelpDialog 组件
+
+**方案文档**：`/Users/mac/Documents/test/testmd/V1.4.0-CONTEXT-MENU-ENHANCEMENT.md`
 
 ---
 

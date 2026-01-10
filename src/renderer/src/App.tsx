@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog } from './components'
 import { readFileWithCache, clearFileCache, invalidateAndReload } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
@@ -19,6 +19,8 @@ function App(): JSX.Element {
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [isResizing, setIsResizing] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  // v1.4.0：快捷键帮助弹窗状态
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
   // v1.3.6：书签面板状态（Day 7.6: 0 书签时默认折叠）
   const [bookmarkPanelCollapsed, setBookmarkPanelCollapsed] = useState(true)
   const [bookmarkPanelWidth, setBookmarkPanelWidth] = useState(240)
@@ -706,6 +708,17 @@ function App(): JSX.Element {
     return unsubscribe
   }, [loadBookmarks, toast])
 
+  // v1.4.0：快捷键帮助弹窗事件监听
+  useEffect(() => {
+    if (!window.api.onOpenShortcutsHelp) return
+
+    const unsubscribe = window.api.onOpenShortcutsHelp(() => {
+      setShowShortcutsHelp(true)
+    })
+
+    return unsubscribe
+  }, [])
+
   // v1.3.6：书签面板宽度变化时保存
   const handleBookmarkPanelWidthChange = useCallback((newWidth: number) => {
     setBookmarkPanelWidth(newWidth)
@@ -1273,6 +1286,11 @@ function App(): JSX.Element {
       <div className="app">
       <ToastContainer messages={toast.messages} onClose={toast.close} />
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {/* v1.4.0：快捷键帮助弹窗 */}
+      <ShortcutsHelpDialog
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+      />
 
       {/* 主内容区 */}
       <main className="main-content">
