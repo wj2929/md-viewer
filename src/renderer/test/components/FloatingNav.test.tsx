@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import FloatingNav from '../../src/components/FloatingNav'
 import React from 'react'
@@ -24,6 +24,20 @@ describe('FloatingNav 组件测试', () => {
   let mockContainer: HTMLDivElement
 
   beforeEach(() => {
+    // Mock scrollIntoView 和 getBoundingClientRect（TocPanel v1.4.4 需要）
+    Element.prototype.scrollIntoView = vi.fn()
+    Element.prototype.getBoundingClientRect = vi.fn(() => ({
+      top: 100,
+      bottom: 200,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: 100,
+      x: 0,
+      y: 100,
+      toJSON: () => ({})
+    }))
+
     mockContainer = document.createElement('div')
     mockContainer.scrollTo = vi.fn()
     // scrollHeight 是只读属性，使用 Object.defineProperty 设置
@@ -38,6 +52,10 @@ describe('FloatingNav 组件测试', () => {
     }
 
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('应该渲染浮动导航按钮', () => {
