@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.3-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.4.4-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -31,7 +31,7 @@
 - 👀 **实时监听** - 文件修改自动刷新，无需手动重载
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
 - 💾 **导出功能** - 右键菜单导出 HTML 和 PDF（支持 Mermaid 图表）
-- 📑 **目录导航** - 点击目录跳转到对应章节
+- 📑 **目录导航** - 点击目录跳转到对应章节，自动滚动到当前位置 (v1.4.4+)
 - 🧭 **浮动导航** - 快速返回顶部/底部 + 目录大纲 (v1.3.5+)
 - 🖱️ **系统右键菜单** - Finder/Explorer 中右键打开文件 (v1.3.4+)
 - 🌓 **主题自适应** - 自动跟随系统明暗主题
@@ -53,8 +53,8 @@ _（待添加）_
 ### macOS
 
 **下载：**
-- [MD Viewer-1.4.3-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.4.3.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3) (Intel Mac)
+- [MD Viewer-1.4.4-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.4.4.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -75,10 +75,10 @@ xattr -cr /Applications/MD\ Viewer.app
 之后就能正常使用了。
 
 ### Windows
-- [MD Viewer Setup 1.4.3.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3)
+- [MD Viewer Setup 1.4.4.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4)
 
 ### Linux
-- [MD Viewer-1.4.3.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.3)
+- [MD Viewer-1.4.4.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4)
 
 ---
 
@@ -218,8 +218,9 @@ sequenceDiagram
 | `⌘-` / `Ctrl+-` | 缩小字体 |
 | `⌘0` / `Ctrl+0` | 重置字体大小 |
 | `⌘P` / `Ctrl+P` | 打印 |
+| `⌘F11` / `Ctrl+F11` | 全屏查看 |
 | `⌘K` / `Ctrl+K` | 打开搜索 |
-| `Esc` | 关闭搜索 / 清除选择 |
+| `Esc` | 关闭搜索 / 清除选择 / 退出全屏 |
 | `⌘W` / `Ctrl+W` | 关闭当前标签 |
 | `⌘E` / `Ctrl+E` | 导出 HTML |
 | `⌘⇧E` / `Ctrl+Shift+E` | 导出 PDF |
@@ -395,6 +396,10 @@ npm run build:linux
 - [x] 跨文件夹书签（自动切换目录）(v1.4.2)
 - [x] Zustand 状态管理架构升级 (v1.4.2)
 - [x] 右键菜单图标统一 (v1.4.2)
+- [x] 全屏查看模式（Cmd+F11）(v1.4.3)
+- [x] macOS 原生全屏支持 (v1.4.3)
+- [x] 目录面板自动滚动到当前章节 (v1.4.4)
+- [x] XSS 防护（CSS.escape 转义）(v1.4.4)
 
 ### v2.0 (计划中)
 - [ ] 拖拽排序文件
