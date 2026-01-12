@@ -107,15 +107,18 @@ function App(): React.JSX.Element {
   }, [isFullscreen])
 
   // v1.4.3：监听系统全屏状态变化（ESC 退出时同步 CSS）
+  // v1.4.5 优化：只在全屏状态时才启用轮询，避免非全屏时持续消耗 CPU
   useEffect(() => {
+    if (!isFullscreen) return  // 非全屏时不创建定时器
+
     const checkFullScreen = async () => {
       const isSysFullScreen = await window.api.isFullScreen()
-      if (isFullscreen !== isSysFullScreen) {
-        setIsFullscreen(isSysFullScreen)
+      if (!isSysFullScreen) {
+        setIsFullscreen(false)
       }
     }
 
-    // 每 500ms 检查一次系统全屏状态
+    // 全屏状态下每 500ms 检查一次，用于检测用户通过系统方式退出全屏
     const interval = setInterval(checkFullScreen, 500)
     return () => clearInterval(interval)
   }, [isFullscreen])

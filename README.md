@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.4-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.4.5-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -53,8 +53,8 @@ _（待添加）_
 ### macOS
 
 **下载：**
-- [MD Viewer-1.4.4-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.4.4.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4) (Intel Mac)
+- [MD Viewer-1.4.5-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.5) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.4.5.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.5) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -75,10 +75,10 @@ xattr -cr /Applications/MD\ Viewer.app
 之后就能正常使用了。
 
 ### Windows
-- [MD Viewer Setup 1.4.4.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4)
+- [MD Viewer Setup 1.4.5.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.5)
 
 ### Linux
-- [MD Viewer-1.4.4.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.4)
+- [MD Viewer-1.4.5.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.5)
 
 ---
 
