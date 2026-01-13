@@ -104,7 +104,8 @@ describe('tocExtractor 工具函数测试', () => {
 
   describe('边界情况', () => {
     it('应该处理特殊字符标题', () => {
-      const markdown = '# Hello & World <test>'
+      // v1.4.6: html: true 会解析 <test> 为 HTML 标签，所以改用转义形式
+      const markdown = '# Hello & World &lt;test&gt;'
       const toc = extractToc(markdown, md)
 
       expect(toc[0].text).toBe('Hello & World <test>')

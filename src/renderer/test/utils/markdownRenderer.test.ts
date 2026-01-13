@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createMarkdownRenderer } from '../../src/utils/markdownRenderer'
+import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../../src/utils/markdownRenderer'
 
 // 创建一个真实的 markdown-it 实例进行测试
 describe('markdownRenderer 工具函数测试', () => {
@@ -7,6 +7,7 @@ describe('markdownRenderer 工具函数测试', () => {
 
   beforeEach(() => {
     md = createMarkdownRenderer()
+    setupDOMPurifyHooks()
   })
 
   describe('createMarkdownRenderer', () => {
@@ -25,11 +26,13 @@ describe('markdownRenderer 工具函数测试', () => {
       expect(result).toContain('<br>')
     })
 
-    it('应该禁用 HTML 以防止 XSS', () => {
-      const result = md.render('<script>alert("xss")</script>')
-      expect(result).not.toContain('<script>')
-      // HTML 被转义
-      expect(result).toContain('&lt;script&gt;')
+    it('v1.4.6: html: true + DOMPurify 防止 XSS', () => {
+      // v1.4.6: 允许 HTML 但通过 DOMPurify 消毒
+      const rawHtml = md.render('<script>alert("xss")</script>')
+      const cleanHtml = sanitizeHtml(rawHtml)
+      expect(cleanHtml).not.toContain('<script>')
+      // DOMPurify 会移除 script 标签
+      // 注意：不同配置下可能保留或不保留内容，这里只验证标签被移除
     })
   })
 
@@ -201,22 +204,28 @@ $$
   })
 
   describe('安全性', () => {
-    it('应该转义 HTML 标签', () => {
-      const result = md.render('<div onclick="alert(1)">test</div>')
-      expect(result).not.toContain('<div onclick')
+    it('v1.4.6: 应该通过 DOMPurify 移除危险 HTML 标签', () => {
+      const rawHtml = md.render('<div onclick="alert(1)">test</div>')
+      const cleanHtml = sanitizeHtml(rawHtml)
+      expect(cleanHtml).not.toContain('onclick')
+      // 保留内容但移除危险属性
+      expect(cleanHtml).toContain('test')
     })
 
-    it('应该转义 script 标签', () => {
-      const result = md.render('<script>alert(1)</script>')
-      expect(result).toContain('&lt;script&gt;')
+    it('v1.4.6: 应该通过 DOMPurify 移除 script 标签', () => {
+      const rawHtml = md.render('<script>alert(1)</script>')
+      const cleanHtml = sanitizeHtml(rawHtml)
+      expect(cleanHtml).not.toContain('<script>')
+      // DOMPurify 会移除 script 标签
+      // 注意：不同配置下可能保留或不保留内容，这里只验证标签被移除
     })
 
-    it('应该转义 img onerror', () => {
-      const result = md.render('<img src="x" onerror="alert(1)">')
-      // HTML 被转义为 &lt;img... 所以原始的 onerror 属性不会被执行
-      // 但文本内容中仍包含 onerror 字符串（已被转义）
-      expect(result).toContain('&lt;img')
-      expect(result).not.toContain('<img ')
+    it('v1.4.6: 应该通过 DOMPurify 移除 img onerror', () => {
+      const rawHtml = md.render('<img src="x" onerror="alert(1)">')
+      const cleanHtml = sanitizeHtml(rawHtml)
+      expect(cleanHtml).not.toContain('onerror')
+      // 保留 img 标签但移除危险属性
+      expect(cleanHtml).toContain('<img')
     })
 
     it('应该安全处理 javascript: URL', () => {

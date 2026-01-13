@@ -1,34 +1,19 @@
 import { useEffect, useRef, useMemo, memo, useCallback, forwardRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import MarkdownIt from 'markdown-it'
-import Prism from 'prismjs'
-import katex from 'katex'
 import mermaid from 'mermaid'
-import DOMPurify from 'dompurify'
 import debounce from 'lodash.debounce'
+
+// v1.4.6: 使用统一的渲染器配置
+import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
 
 // v1.4.0: 页面内搜索
 import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
 
-// 导入 Prism 语言支持
-import 'prismjs/components/prism-javascript'
-import 'prismjs/components/prism-typescript'
-import 'prismjs/components/prism-jsx'
-import 'prismjs/components/prism-tsx'
-import 'prismjs/components/prism-python'
-import 'prismjs/components/prism-java'
-import 'prismjs/components/prism-go'
-import 'prismjs/components/prism-rust'
-import 'prismjs/components/prism-bash'
-import 'prismjs/components/prism-json'
-import 'prismjs/components/prism-yaml'
-import 'prismjs/components/prism-markdown'
-import 'prismjs/components/prism-css'
-
 /**
- * v1.4.0: Mermaid 模块级初始化
- * 在模块加载时就初始化，确保所有图表类型（包括 quadrantChart、xychart-beta）都能正确渲染
+ * v1.4.6: Mermaid 模块级初始化（增强配置）
+ * 在模块加载时就初始化，支持所有图表类型（包括 Sankey）
  */
 let mermaidInitialized = false
 function initializeMermaid(): void {
@@ -43,10 +28,20 @@ function initializeMermaid(): void {
       theme: isDark ? 'dark' : 'default',
       securityLevel: 'loose',
       suppressErrorRendering: true,
+
+      // ✅ v1.4.6: 新增 Sankey 图表配置
+      sankey: {
+        width: 600,
+        height: 400,
+        linkColor: 'gradient',      // 渐变色连接线
+        nodeAlignment: 'justify',    // 节点对齐方式
+        useMaxWidth: true            // 自适应宽度
+      },
+
       // 确保所有图表类型都启用
-      flowchart: { useMaxWidth: true },
-      sequence: { useMaxWidth: true },
-      gantt: { useMaxWidth: true },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, wrap: true, width: 150 },
+      gantt: { useMaxWidth: true, barHeight: 20, fontSize: 11 },
       pie: { useMaxWidth: true }
     })
 
@@ -59,47 +54,6 @@ function initializeMermaid(): void {
 // 立即执行初始化
 if (typeof window !== 'undefined') {
   initializeMermaid()
-}
-
-/**
- * DOMPurify 配置（防御 XSS 攻击）
- * 需要允许 KaTeX 使用的 MathML 和 SVG 标签
- */
-const DOMPURIFY_CONFIG = {
-  ALLOWED_TAGS: [
-    // 基础 HTML 标签
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'ul', 'ol', 'li',
-    'code', 'pre', 'blockquote', 'table', 'thead', 'tbody', 'tr',
-    'th', 'td', 'img', 'strong', 'em', 'del', 's', 'br', 'hr', 'input',
-    'div', 'span', 'sup', 'sub',
-    // KaTeX MathML 标签
-    'math', 'semantics', 'mrow', 'mi', 'mn', 'mo', 'msup', 'msub',
-    'msubsup', 'mfrac', 'mroot', 'msqrt', 'mtext', 'mspace', 'mtable',
-    'mtr', 'mtd', 'mover', 'munder', 'munderover', 'annotation',
-    // SVG 标签 (KaTeX 根号等需要)
-    'svg', 'path', 'line', 'rect', 'circle', 'g', 'use', 'defs',
-    'clipPath', 'mask', 'pattern', 'symbol'
-  ],
-  ALLOWED_ATTR: [
-    'href', 'src', 'alt', 'title', 'class', 'id', 'type', 'checked', 'disabled',
-    // KaTeX 需要的属性
-    'style', 'aria-hidden', 'xmlns', 'encoding', 'display',
-    // SVG 属性
-    'd', 'viewBox', 'preserveAspectRatio', 'fill', 'stroke', 'stroke-width',
-    'width', 'height', 'x', 'y', 'transform', 'clip-path', 'xlink:href',
-    // v1.4.0: Mermaid 代码存储属性
-    'data-mermaid-code'
-  ],
-  FORBID_ATTR: ['onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur'],
-  ALLOW_DATA_ATTR: false,
-  ADD_URI_SAFE_ATTR: ['xlink:href']
-}
-
-/**
- * 安全的 HTML 消毒函数
- */
-function sanitizeHtml(html: string): string {
-  return DOMPurify.sanitize(html, DOMPURIFY_CONFIG)
 }
 
 /**
@@ -131,140 +85,9 @@ interface VirtualizedMarkdownProps {
 }
 
 /**
- * 创建 markdown-it 实例
+ * v1.4.6: 已移除本地的 createMarkdownInstance
+ * 改用 markdownRenderer.ts 中的统一配置
  */
-function createMarkdownInstance(): MarkdownIt {
-  const mdInstance = new MarkdownIt({
-    html: false,
-    linkify: true,
-    typographer: true,
-    breaks: true,
-    highlight: (str: string, lang: string) => {
-      if (lang === 'mermaid') {
-        // v1.4.0: 使用 data-code 属性存储原始代码，避免 HTML 转义导致换行符丢失
-        const escapedCode = mdInstance.utils.escapeHtml(str)
-        const base64Code = btoa(unescape(encodeURIComponent(str)))
-        return `<pre class="language-mermaid" data-mermaid-code="${base64Code}"><code class="language-mermaid">${escapedCode}</code></pre>`
-      }
-      if (lang && Prism.languages[lang]) {
-        try {
-          return `<pre class="language-${lang}"><code class="language-${lang}">${Prism.highlight(str, Prism.languages[lang], lang)}</code></pre>`
-        } catch (e) {
-          console.error('Prism highlight error:', e)
-        }
-      }
-      return `<pre class="language-plaintext"><code>${mdInstance.utils.escapeHtml(str)}</code></pre>`
-    }
-  })
-
-  // 行内数学公式 $...$
-  mdInstance.inline.ruler.before('escape', 'math_inline', (state, silent) => {
-    if (state.src[state.pos] !== '$') return false
-    if (state.src[state.pos + 1] === '$') return false
-
-    const start = state.pos
-    let found = false
-    let end = start + 1
-
-    while (end < state.src.length) {
-      if (state.src[end] === '$' && state.src[end - 1] !== '\\') {
-        found = true
-        break
-      }
-      end++
-    }
-
-    if (!found || end === start + 1) return false
-
-    if (!silent) {
-      const latex = state.src.slice(start + 1, end)
-      try {
-        const html = katex.renderToString(latex, { throwOnError: false })
-        const token = state.push('html_inline', '', 0)
-        token.content = html
-      } catch (e) {
-        const token = state.push('html_inline', '', 0)
-        token.content = `<span class="katex-error">${mdInstance.utils.escapeHtml(latex)}</span>`
-      }
-    }
-
-    state.pos = end + 1
-    return true
-  })
-
-  // 块级数学公式 $$...$$
-  mdInstance.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent) => {
-    let pos = state.bMarks[startLine] + state.tShift[startLine]
-    let max = state.eMarks[startLine]
-
-    if (pos + 2 > max) return false
-    if (state.src.slice(pos, pos + 2) !== '$$') return false
-
-    pos += 2
-    let firstLine = state.src.slice(pos, max)
-
-    if (firstLine.trim().endsWith('$$')) {
-      firstLine = firstLine.trim().slice(0, -2)
-      const latex = firstLine
-      if (!silent) {
-        try {
-          const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
-          const token = state.push('html_block', '', 0)
-          token.content = html + '\n'
-        } catch (e) {
-          const token = state.push('html_block', '', 0)
-          token.content = `<div class="katex-error">${mdInstance.utils.escapeHtml(latex)}</div>\n`
-        }
-      }
-      state.line = startLine + 1
-      return true
-    }
-
-    let nextLine = startLine
-    let lastLine = ''
-    let found = false
-
-    while (nextLine < endLine) {
-      nextLine++
-      pos = state.bMarks[nextLine] + state.tShift[nextLine]
-      max = state.eMarks[nextLine]
-
-      if (pos < max && state.sCount[nextLine] < state.blkIndent) break
-
-      if (state.src.slice(pos, max).trim().endsWith('$$')) {
-        lastLine = state.src.slice(pos, max).trim().slice(0, -2)
-        found = true
-        break
-      }
-    }
-
-    if (!found) return false
-
-    const lines = [firstLine]
-    for (let i = startLine + 1; i < nextLine; i++) {
-      lines.push(state.src.slice(state.bMarks[i], state.eMarks[i]))
-    }
-    lines.push(lastLine)
-
-    const latex = lines.join('\n')
-
-    if (!silent) {
-      try {
-        const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
-        const token = state.push('html_block', '', 0)
-        token.content = html + '\n'
-      } catch (e) {
-        const token = state.push('html_block', '', 0)
-        token.content = `<div class="katex-error">${mdInstance.utils.escapeHtml(latex)}</div>\n`
-      }
-    }
-
-    state.line = nextLine + 1
-    return true
-  })
-
-  return mdInstance
-}
 
 /**
  * 将 Markdown 内容按标题分段
@@ -388,13 +211,23 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
     })
   }, [filePath])
 
+  // v1.4.6: 初始化 DOMPurify hooks（仅一次）
+  useEffect(() => {
+    setupDOMPurifyHooks()
+
+    return () => {
+      // 组件卸载时清理 hooks（防止内存泄漏）
+      // DOMPurify.removeAllHooks() 已在 setupDOMPurifyHooks 中调用
+    }
+  }, [])
+
   // v1.4.0: Mermaid 已在模块顶层初始化，此处确保初始化完成
   useEffect(() => {
     initializeMermaid()
   }, [])
 
-  // 创建 markdown-it 实例
-  const md = useMemo(() => createMarkdownInstance(), [])
+  // v1.4.6: 使用统一的 markdown-it 渲染器
+  const md = useMemo(() => createMarkdownRenderer(), [])
 
   // 判断是否需要虚拟滚动
   const shouldVirtualize = useMemo(() => {
