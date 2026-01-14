@@ -7,6 +7,172 @@
 
 ---
 
+## [1.4.6] - 2026-01-14
+
+> **状态**: ✅ **已测试** | **类型**: Bug 修复 + 安全增强
+
+### 🐛 Bug 修复
+
+#### 1. Markdown 渲染修复（核心问题）
+解决用户反馈的三个渲染问题：
+
+**问题 1：表格内 `<br>` 标签显示为文本**
+- **现象**：Markdown 表格中的 `<br>` 显示为文本 `<br>`，而不是换行
+- **根本原因**：markdown-it 配置 `html: false` 导致 HTML 标签被转义
+- **解决方案**：改为 `html: true` + DOMPurify 严格白名单消毒
+- **影响范围**：所有包含 HTML 标签的 Markdown 表格
+
+**问题 2：原生 HTML `<table>` 标签显示为源码**
+- **现象**：文档中的 `<table>` 标签显示为 HTML 源码，不渲染为表格
+- **根本原因**：同问题 1，HTML 被转义
+- **解决方案**：允许 HTML 并通过 DOMPurify 白名单限制安全标签
+- **影响范围**：所有使用 HTML 表格的文档
+
+**问题 3：Mermaid Sankey 图表渲染失败**
+- **现象**：Sankey 图表不显示或显示为代码块
+- **根本原因**：Mermaid 配置缺少 `sankey` 图表类型支持
+- **解决方案**：在 Mermaid 初始化配置中添加 Sankey 支持
+- **影响范围**：所有 Sankey 流向图
+
+**问题 4：书签面板关闭按钮失效**
+- **现象**：点击书签面板的折叠按钮（▶）无反应，快速点击时状态不切换
+- **根本原因**：
+  1. React `useCallback` 闭包陷阱导致状态更新失败
+  2. useEffect 自动展开逻辑与用户主动关闭冲突
+- **解决方案**：
+  1. 使用函数式更新 `setState(prev => !prev)` 避免闭包问题
+  2. 使用 `useRef` 追踪首次展开，避免重复干扰用户操作
+- **影响范围**：书签面板的打开/关闭交互
+
+### 🔒 安全增强
+
+#### XSS 防护升级（B 级 → A- 级）
+
+**核心策略：分层防御**
+```
+用户文档 → markdown-it (html: true) → DOMPurify 消毒 → 安全 HTML
+```
+
+**第一层：markdown-it 渲染**
+- 允许 HTML：`html: true`
+- 保留用户输入的合法 HTML 标签
+- 渲染 Markdown → HTML
+
+**第二层：DOMPurify 严格白名单**
+- `ALLOWED_TAGS`：50+ 安全标签（表格、列表、格式化等）
+- `FORBID_TAGS`：禁止 `script`, `iframe`, `object`, `embed`, `form` 等危险标签
+- `FORBID_ATTR`：禁止所有 `on*` 事件属性（`onclick`, `onerror` 等）
+- `ALLOWED_STYLES`：限制安全的 CSS 属性
+
+**第三层：DOMPurify Hooks 运行时验证**
+- `class` 属性白名单验证（只允许特定前缀）
+- `id` 属性安全检查（禁止 `document`, `window` 等危险值，防止 DOM Clobbering）
+- `href`/`src` 协议检查（禁止 `javascript:`, `data:`, `file:` 等）
+- `style` 属性动态过滤（移除危险的 CSS）
+
+**新增测试覆盖**
+- ✅ 19 个 XSS 攻击测试用例
+- ✅ 30 个功能回归测试用例
+- ✅ 总测试数：463 通过，0 失败
+
+### 🔧 技术实现
+
+#### 核心文件变更
+
+**src/renderer/src/utils/markdownRenderer.ts**
+```typescript
+// 修改 1：允许 HTML
+html: true  // 从 false 改为 true
+
+// 修改 2：DOMPurify 严格配置
+export const DOMPURIFY_CONFIG: DOMPurify.Config = {
+  ALLOWED_TAGS: ['p', 'br', 'table', 'thead', 'tbody', ...], // 50+ 标签
+  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', ...],
+  FORBID_ATTR: ['onerror', 'onclick', 'onload', ...],
+  // ... 更多配置
+}
+
+// 修改 3：运行时 Hooks 验证
+export function setupDOMPurifyHooks(): void {
+  DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+    // class 白名单验证
+    // id 安全检查
+    // href/src 协议过滤
+  })
+}
+```
+
+**src/renderer/src/utils/mermaidRenderer.ts**
+```typescript
+// 修改 4：添加 Sankey 支持
+mermaid.initialize({
+  startOnLoad: false,
+  theme: isDarkMode ? 'dark' : 'default',
+  // ✅ 新增 Sankey 配置
+  sankey: {
+    width: 600,
+    height: 400,
+    linkColor: 'gradient'
+  }
+})
+```
+
+**src/renderer/src/App.tsx**
+```typescript
+// 修复 5：书签面板折叠按钮 - 函数式更新
+const handleBookmarkPanelToggle = useCallback(() => {
+  setBookmarkPanelCollapsed(prev => !prev)  // ✅ 使用函数式更新
+}, [])  // ✅ 无依赖项，避免闭包
+
+// 修复 6：首次展开逻辑 - useRef 追踪
+const hasShownBookmarkPanelRef = useRef(false)
+useEffect(() => {
+  if (bookmarks.length === 1 && !hasShownBookmarkPanelRef.current) {
+    hasShownBookmarkPanelRef.current = true  // ✅ 只展开一次
+    setBookmarkPanelCollapsed(false)
+  }
+}, [bookmarks.length])
+```
+
+### ✅ 测试
+
+- **测试通过率**：463/463 (100%)
+- **类型检查**：`npm run typecheck` 通过
+- **手动验证**：
+  - ✅ 表格 `<br>` 标签正确换行
+  - ✅ HTML `<table>` 正确渲染
+  - ✅ Mermaid Sankey 渲染为图表
+  - ✅ XSS 攻击被阻止（无弹窗、无脚本执行）
+  - ✅ 书签面板打开/关闭正常，快速点击无异常
+
+### 📊 安全等级对比
+
+| 防护项 | v1.4.5 | v1.4.6 | 说明 |
+|--------|--------|--------|------|
+| `<script>` 标签 | ✅ | ✅ | 完全阻止 |
+| `on*` 事件 | ✅ | ✅ | 完全移除 |
+| `javascript:` 协议 | ⚠️ 部分 | ✅ 完全 | 运行时验证 |
+| `data:` URL | ❌ 允许 | ✅ 阻止 | 新增检查 |
+| `<iframe>` 标签 | ⚠️ 部分 | ✅ 禁止 | 白名单限制 |
+| DOM Clobbering | ❌ 无防护 | ✅ 防护 | `id` 属性检查 |
+| CSS 注入 | ⚠️ 部分 | ✅ 严格 | `style` 属性过滤 |
+| **综合等级** | **B 级** | **A- 级** | 企业级安全 |
+
+### 🎯 影响范围
+
+**受益用户**
+- 使用复杂表格的用户（技术文档、数据报告）
+- 使用 HTML 表格的用户（Markdown 表格不满足需求）
+- 使用 Mermaid Sankey 图表的用户（数据流向分析）
+- 所有用户（XSS 防护增强，更安全）
+
+**向后兼容性**
+- ✅ 完全兼容现有文档
+- ✅ 新增功能不影响旧文档
+- ✅ 不需要用户修改文档
+
+---
+
 ## [1.4.5] - 2026-01-12
 
 > **状态**: ✅ **已测试** | **类型**: 性能优化

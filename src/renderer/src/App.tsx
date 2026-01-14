@@ -141,10 +141,13 @@ function App(): React.JSX.Element {
     loadBookmarks()
   }, [loadBookmarks])
 
-  // v1.3.6 Day 7.6：监听书签数量变化，首次添加书签时自动展开 BookmarkPanel（可选增强体验）
+  // v1.3.6 Day 7.6：监听书签数量变化，首次添加书签时自动展开 BookmarkPanel
+  // 🔧 v1.4.6 修复：使用 ref 追踪是否首次添加，避免与用户主动关闭冲突
+  const hasShownBookmarkPanelRef = useRef(false)
   useEffect(() => {
-    // 如果书签从 0 → 1，自动展开右侧面板（让用户发现新功能）
-    if (bookmarks.length === 1 && bookmarkPanelCollapsed) {
+    // 只在从 0 → 1 且未展示过时自动展开
+    if (bookmarks.length === 1 && bookmarkPanelCollapsed && !hasShownBookmarkPanelRef.current) {
+      hasShownBookmarkPanelRef.current = true
       setBookmarkPanelCollapsed(false)
       window.api.updateAppSettings({ bookmarkPanelCollapsed: false }).catch(err => {
         console.error('[App] Failed to save bookmark panel state:', err)
@@ -788,13 +791,16 @@ function App(): React.JSX.Element {
   }, [])
 
   // v1.3.6：书签面板折叠状态变化时保存
+  // 🔧 v1.4.6 修复：使用函数式更新避免闭包陷阱
   const handleBookmarkPanelToggle = useCallback(() => {
-    const newState = !bookmarkPanelCollapsed
-    setBookmarkPanelCollapsed(newState)
-    window.api.updateAppSettings({ bookmarkPanelCollapsed: newState }).catch(err => {
-      console.error('[App] Failed to save bookmark panel collapsed state:', err)
+    setBookmarkPanelCollapsed(prev => {
+      const newState = !prev
+      window.api.updateAppSettings({ bookmarkPanelCollapsed: newState }).catch(err => {
+        console.error('[App] Failed to save bookmark panel collapsed state:', err)
+      })
+      return newState
     })
-  }, [bookmarkPanelCollapsed])
+  }, [])
 
   // v1.3.6：书签栏折叠状态变化时保存（混合方案）
   const handleBookmarkBarToggle = useCallback(() => {
