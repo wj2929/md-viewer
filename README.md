@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.5-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.4.6-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
