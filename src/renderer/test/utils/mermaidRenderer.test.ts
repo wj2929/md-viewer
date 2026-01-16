@@ -18,6 +18,9 @@ vi.mock('dompurify', () => ({
   }
 }))
 
+// 导入真实的修复函数用于测试（需要绕过 mock）
+// 由于 fixMindmapStyles 是私有函数，我们通过 sanitizeSvg 的效果来测试
+
 describe('mermaidRenderer 工具函数测试', () => {
   describe('isMermaidCode', () => {
     it('应该识别 graph 图表', () => {
@@ -183,6 +186,51 @@ describe('mermaidRenderer 工具函数测试', () => {
   A --&gt; B</code></pre>`
       const result = await processMermaidInHtml(html)
       expect(result).toContain('<svg>')
+    })
+  })
+
+  describe('mindmap 样式修复', () => {
+    it('应该为 mindmap SVG 的根节点 circle 添加 fill 样式', async () => {
+      // 模拟 mindmap SVG 结构
+      const { default: mermaid } = await import('mermaid')
+      vi.mocked(mermaid.render).mockResolvedValueOnce({
+        svg: `<svg aria-roledescription="mindmap">
+          <style>.section-root rect,.section-root path,.section-root circle{fill:hsl(240, 100%, 46%)}</style>
+          <g><g transform="translate(100, 100)"><circle r="50" cx="0" cy="0"></circle></g></g>
+        </svg>`,
+        diagramType: 'mindmap'
+      })
+
+      const result = await renderMermaidToSvg('mindmap\n  root', 'test-mindmap')
+      expect(result).toContain('style="fill:hsl(240, 100%, 46%)"')
+    })
+
+    it('应该为 mindmap SVG 的子节点 path 添加 fill 样式', async () => {
+      const { default: mermaid } = await import('mermaid')
+      vi.mocked(mermaid.render).mockResolvedValueOnce({
+        svg: `<svg aria-roledescription="mindmap">
+          <style>.section-0 rect,.section-0 path,.section-0 circle{fill:hsl(60, 100%, 73.5%)}</style>
+          <g><g transform="translate(200, 100)"><path d="M-50 10 v-20 h100 v20 Z"></path></g></g>
+        </svg>`,
+        diagramType: 'mindmap'
+      })
+
+      const result = await renderMermaidToSvg('mindmap\n  root\n    child', 'test-mindmap-child')
+      expect(result).toContain('style="fill:')
+    })
+
+    it('不应该修改非 mindmap 图表', async () => {
+      const { default: mermaid } = await import('mermaid')
+      vi.mocked(mermaid.render).mockResolvedValueOnce({
+        svg: `<svg aria-roledescription="flowchart">
+          <g><path d="M0 0 L10 10"></path></g>
+        </svg>`,
+        diagramType: 'flowchart'
+      })
+
+      const result = await renderMermaidToSvg('graph TD\n  A --> B', 'test-flowchart')
+      // flowchart 不应该被修改
+      expect(result).not.toContain('style="fill:hsl')
     })
   })
 })

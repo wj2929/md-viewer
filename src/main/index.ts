@@ -726,9 +726,7 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; font-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self';">
   <title>${escapeHtml(title)}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <style>
     :root {
       /* 完整的亮色主题变量 */
@@ -769,6 +767,11 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      overflow: auto;
+    }
 
     body {
       padding: 40px 20px;
