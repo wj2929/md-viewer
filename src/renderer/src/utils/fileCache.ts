@@ -53,19 +53,22 @@ class LRUCache<K, V> {
 const fileContentCache = new LRUCache<string, string>(5)
 
 // 使用缓存读取文件
-export async function readFileWithCache(filePath: string): Promise<string> {
-  // 检查缓存
-  const cached = fileContentCache.get(filePath)
-  if (cached !== undefined) {
-    console.log(`Cache hit: ${filePath}`)
-    return cached
+// v1.4.7: 默认强制从磁盘读取，确保数据一致性
+export async function readFileWithCache(filePath: string, forceReload = true): Promise<string> {
+  // v1.4.7: 默认强制重新读取，解决外部修改后缓存不更新的问题
+  if (!forceReload) {
+    const cached = fileContentCache.get(filePath)
+    if (cached !== undefined) {
+      console.log(`Cache hit: ${filePath}`)
+      return cached
+    }
   }
 
-  // 缓存未命中，读取文件
-  console.log(`Cache miss: ${filePath}`)
+  // 从磁盘读取最新内容
+  console.log(`Reading from disk: ${filePath}`)
   const content = await window.api.readFile(filePath)
 
-  // 存入缓存
+  // 更新缓存
   fileContentCache.set(filePath, content)
 
   return content

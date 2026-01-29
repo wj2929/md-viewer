@@ -13,31 +13,54 @@ export function resetMermaidInit(): void {
 }
 
 /**
- * 安全初始化 Mermaid
+ * Mermaid 基础配置（不含主题）
  */
-function initMermaidSecure(): void {
-  if (initialized) return
+const MERMAID_BASE_CONFIG = {
+  startOnLoad: false,
+  securityLevel: 'strict' as const,  // 关键：严格安全模式
+  maxTextSize: 50000,       // 限制输入大小
+  maxEdges: 500,            // 限制复杂度
+  // 使用纯 SVG text 元素渲染文本（不使用 foreignObject）
+  // 这样可以确保中文等文字正确显示，同时避免 XSS 风险
+  flowchart: {
+    htmlLabels: false,      // 使用 SVG text 而非 foreignObject
+  },
+  sequence: {
+    useMaxWidth: true,
+  },
+  // v1.4.7：mindmap 配置 - 固定布局参数确保预览和导出效果一致
+  mindmap: {
+    padding: 10,            // 固定节点间距（调小以匹配预览效果）
+    maxNodeWidth: 150,      // 固定最大节点宽度（调小以更紧凑）
+    useMaxWidth: true,      // 启用响应式宽度以适应容器
+  },
+  // 设置支持中文的字体
+  themeVariables: {
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif',
+  },
+}
 
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',  // 关键：严格安全模式
-    maxTextSize: 50000,       // 限制输入大小
-    maxEdges: 500,            // 限制复杂度
-    // 使用纯 SVG text 元素渲染文本（不使用 foreignObject）
-    // 这样可以确保中文等文字正确显示，同时避免 XSS 风险
-    flowchart: {
-      htmlLabels: false,      // 使用 SVG text 而非 foreignObject
-    },
-    sequence: {
-      useMaxWidth: true,
-    },
-    // 设置支持中文的字体
-    themeVariables: {
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif',
-    },
-  })
+/**
+ * 安全初始化 Mermaid
+ * @param force - 是否强制重新初始化（用于导出后恢复）
+ */
+function initMermaidSecure(force = false): void {
+  if (initialized && !force) return
+
+  mermaid.initialize(MERMAID_BASE_CONFIG)
 
   initialized = true
+}
+
+/**
+ * v1.4.7: 强制使用亮色主题初始化 Mermaid（用于导出）
+ * 导出 HTML/PDF 时需要强制使用亮色主题，确保在任何系统主题下导出效果一致
+ */
+function initMermaidForExport(): void {
+  mermaid.initialize({
+    ...MERMAID_BASE_CONFIG,
+    theme: 'default',  // 强制使用亮色主题
+  })
 }
 
 /**
@@ -548,11 +571,14 @@ function decodeHtmlEntities(text: string): string {
  * 处理 HTML 中的所有 Mermaid 代码块
  * 用于 HTML 导出时将 Mermaid 代码块转换为 SVG
  *
+ * v1.4.7: 强制使用亮色主题渲染，确保导出效果一致
+ *
  * @param html - 包含 Mermaid 代码块的 HTML
  * @returns 处理后的 HTML（Mermaid 代码块已替换为 SVG）
  */
 export async function processMermaidInHtml(html: string): Promise<string> {
-  initMermaidSecure()
+  // v1.4.7: 导出时强制使用亮色主题
+  initMermaidForExport()
 
   const mermaidRegex = /<pre\s+class="language-mermaid">\s*<code[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/g
 
@@ -576,6 +602,9 @@ export async function processMermaidInHtml(html: string): Promise<string> {
     const wrapper = `<div class="mermaid-container" role="img" aria-label="Mermaid 图表">${svg}</div>`
     html = html.slice(0, index) + wrapper + html.slice(index + match.length)
   }
+
+  // v1.4.7: 渲染完成后恢复默认配置（不指定主题，让预览时可以响应系统主题）
+  initMermaidSecure(true)  // force=true 强制重新初始化
 
   return html
 }

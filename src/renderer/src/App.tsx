@@ -1182,16 +1182,29 @@ function App(): React.JSX.Element {
   }, [activeTabId])
 
   // 导出 HTML
+  // v1.4.7: 直接从 DOM 获取已渲染的 HTML，确保与预览效果完全一致
   const handleExportHTML = useCallback(async () => {
     if (!activeTab) return
 
     try {
-      // 使用完整配置的 markdown 渲染器（包含 KaTeX 和 Prism）
-      const md = createMarkdownRenderer()
-      let htmlContent = md.render(activeTab.content)
+      let htmlContent: string
 
-      // 将 Mermaid 代码块转换为 SVG（用于静态 HTML 导出）
-      htmlContent = await processMermaidInHtml(htmlContent)
+      // 优先从 DOM 获取已渲染的内容（所见即所得）
+      const markdownBody = previewRef.current?.querySelector('.markdown-body')
+      if (markdownBody) {
+        // 克隆 DOM 以避免修改原始内容
+        const clone = markdownBody.cloneNode(true) as HTMLElement
+
+        // 移除一些不需要导出的元素（如复制按钮等）
+        clone.querySelectorAll('.copy-button, .line-numbers-wrapper').forEach(el => el.remove())
+
+        htmlContent = clone.innerHTML
+      } else {
+        // 回退方案：重新渲染（当预览不可用时）
+        const md = createMarkdownRenderer()
+        htmlContent = md.render(activeTab.content)
+        htmlContent = await processMermaidInHtml(htmlContent)
+      }
 
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
       if (filePath) {
@@ -1215,16 +1228,29 @@ function App(): React.JSX.Element {
   }, [activeTab, toast])
 
   // 导出 PDF
+  // v1.4.7: 直接从 DOM 获取已渲染的 HTML，确保与预览效果完全一致
   const handleExportPDF = useCallback(async () => {
     if (!activeTab) return
 
     try {
-      // 使用完整配置的 markdown 渲染器（包含 KaTeX 和 Prism）
-      const md = createMarkdownRenderer()
-      let htmlContent = md.render(activeTab.content)
+      let htmlContent: string
 
-      // 将 Mermaid 代码块转换为 SVG（用于静态 PDF 导出）
-      htmlContent = await processMermaidInHtml(htmlContent)
+      // 优先从 DOM 获取已渲染的内容（所见即所得）
+      const markdownBody = previewRef.current?.querySelector('.markdown-body')
+      if (markdownBody) {
+        // 克隆 DOM 以避免修改原始内容
+        const clone = markdownBody.cloneNode(true) as HTMLElement
+
+        // 移除一些不需要导出的元素（如复制按钮等）
+        clone.querySelectorAll('.copy-button, .line-numbers-wrapper').forEach(el => el.remove())
+
+        htmlContent = clone.innerHTML
+      } else {
+        // 回退方案：重新渲染（当预览不可用时）
+        const md = createMarkdownRenderer()
+        htmlContent = md.render(activeTab.content)
+        htmlContent = await processMermaidInHtml(htmlContent)
+      }
 
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
       if (filePath) {

@@ -33,10 +33,10 @@ describe('fileCache 工具函数测试', () => {
       mockApi.readFile.mockResolvedValue('# Test Content')
 
       // 第一次读取
-      await readFileWithCache('/test/file.md')
+      await readFileWithCache('/test/file.md', false)
 
-      // 第二次读取同一文件
-      const content = await readFileWithCache('/test/file.md')
+      // 第二次读取同一文件（使用缓存模式）
+      const content = await readFileWithCache('/test/file.md', false)
 
       expect(content).toBe('# Test Content')
       // API 只应该被调用一次（第二次从缓存读取）
@@ -63,18 +63,18 @@ describe('fileCache 工具函数测试', () => {
         Promise.resolve(`Content of ${path}`)
       )
 
-      // 读取 6 个不同的文件
-      await readFileWithCache('/test/file1.md')
-      await readFileWithCache('/test/file2.md')
-      await readFileWithCache('/test/file3.md')
-      await readFileWithCache('/test/file4.md')
-      await readFileWithCache('/test/file5.md')
-      await readFileWithCache('/test/file6.md')
+      // 读取 6 个不同的文件（使用缓存模式）
+      await readFileWithCache('/test/file1.md', false)
+      await readFileWithCache('/test/file2.md', false)
+      await readFileWithCache('/test/file3.md', false)
+      await readFileWithCache('/test/file4.md', false)
+      await readFileWithCache('/test/file5.md', false)
+      await readFileWithCache('/test/file6.md', false)
 
       // 此时 file1 应该已经被淘汰
       // 重新读取 file1 应该再次调用 API
       const callCountBefore = mockApi.readFile.mock.calls.length
-      await readFileWithCache('/test/file1.md')
+      await readFileWithCache('/test/file1.md', false)
       const callCountAfter = mockApi.readFile.mock.calls.length
 
       expect(callCountAfter).toBe(callCountBefore + 1)
@@ -85,26 +85,26 @@ describe('fileCache 工具函数测试', () => {
         Promise.resolve(`Content of ${path}`)
       )
 
-      // 读取 5 个文件
-      await readFileWithCache('/test/file1.md')
-      await readFileWithCache('/test/file2.md')
-      await readFileWithCache('/test/file3.md')
-      await readFileWithCache('/test/file4.md')
-      await readFileWithCache('/test/file5.md')
+      // 读取 5 个文件（使用缓存模式）
+      await readFileWithCache('/test/file1.md', false)
+      await readFileWithCache('/test/file2.md', false)
+      await readFileWithCache('/test/file3.md', false)
+      await readFileWithCache('/test/file4.md', false)
+      await readFileWithCache('/test/file5.md', false)
 
       // 再次访问 file1（将其移到最前面）
-      await readFileWithCache('/test/file1.md')
+      await readFileWithCache('/test/file1.md', false)
 
       // 读取新文件（此时 file2 应该被淘汰，因为它是最久未使用的）
-      await readFileWithCache('/test/file6.md')
+      await readFileWithCache('/test/file6.md', false)
 
       // 重新读取 file1 不应该调用 API（仍在缓存中）
       const callCountBefore = mockApi.readFile.mock.calls.length
-      await readFileWithCache('/test/file1.md')
+      await readFileWithCache('/test/file1.md', false)
       expect(mockApi.readFile.mock.calls.length).toBe(callCountBefore)
 
       // 重新读取 file2 应该调用 API（已被淘汰）
-      await readFileWithCache('/test/file2.md')
+      await readFileWithCache('/test/file2.md', false)
       expect(mockApi.readFile.mock.calls.length).toBe(callCountBefore + 1)
     })
   })

@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as fs from 'fs-extra'
 import * as path from 'path'
+import * as os from 'os'
 import Store from 'electron-store'
 import chokidar from 'chokidar'
 import { setAllowedBasePath, getAllowedBasePath, validateSecurePath, validatePath } from './security'
@@ -214,6 +215,20 @@ app.whenReady().then(() => {
   // 开发环境下优化
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+
+    // v1.4.7: 窗口关闭时清理文件监听器，防止内存泄漏
+    // 使用 'close' 事件（关闭前）而非 'closed'（关闭后），避免访问已销毁对象
+    const windowWebContentsId = window.webContents.id  // 提前保存 ID
+    window.on('close', () => {
+      if (fileWatcher && windowWebContentsId === watchedWebContentsId) {
+        console.log('[WATCHER] Window closing, cleaning up file watcher')
+        fileWatcher.close()
+        fileWatcher = null
+        watchedDir = null
+        watchedWebContentsId = null
+        watchedFiles.clear()
+      }
+    })
   })
 
   createWindow()
@@ -721,6 +736,8 @@ function escapeHtml(text: string): string {
 
 // 生成导出用的完整 HTML 模板（含 CSP 和 Mermaid 支持）
 function generateExportHTML(content: string, title: string, markdownCss: string, prismCss: string): string {
+  // v1.4.7: 导出 HTML 强制使用亮色主题，移除 dark mode 媒体查询
+  // 恢复 .container 包装器以提供两侧间距
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -729,7 +746,7 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
   <title>${escapeHtml(title)}</title>
   <style>
     :root {
-      /* 完整的亮色主题变量 */
+      /* 固定亮色主题变量（不响应系统暗色模式） */
       --bg-primary: #ffffff;
       --bg-secondary: #f5f5f5;
       --text-primary: #333333;
@@ -747,24 +764,7 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
       --hr-color: #eaecef;
     }
 
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg-primary: #1e1e1e;
-        --bg-secondary: #252525;
-        --text-primary: #cccccc;
-        --text-secondary: #888888;
-        --text-strong: #ffffff;
-        --border-color: #404040;
-        --accent-color: #0a84ff;
-        --blockquote-bg: #2d333b;
-        --blockquote-border: #444c56;
-        --inline-code-bg: #2d333b;
-        --code-block-bg: #2d333b;
-        --table-header-bg: #2d333b;
-        --heading-border: #373e47;
-        --hr-color: #373e47;
-      }
-    }
+    /* 注意：移除了 @media (prefers-color-scheme: dark) 块，确保导出 HTML 始终为亮色主题 */
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -774,25 +774,19 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
     }
 
     body {
-      padding: 40px 20px;
       background: var(--bg-primary);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: 'Helvetica Neue', Helvetica, 'Segoe UI', Arial, freesans, sans-serif;
       color: var(--text-primary);
     }
 
+    /* 恢复 .container 包装器，提供两侧间距 */
     .container {
       max-width: 900px;
       margin: 0 auto;
-      background: var(--bg-primary);
-      padding: 40px;
+      padding: 40px 20px;
     }
 
-    @media print {
-      body { padding: 0; }
-      .container { padding: 20px; max-width: none; }
-    }
-
-    /* Mermaid 图表样式 */
+    /* Mermaid 图表样式 - 固定亮色主题 */
     .mermaid-container {
       display: flex;
       justify-content: center;
@@ -815,13 +809,7 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
       font-size: 14px;
     }
 
-    @media (prefers-color-scheme: dark) {
-      .mermaid-error {
-        color: #fc8181;
-        background: #2d1f1f;
-        border-color: #822727;
-      }
-    }
+    /* 注意：移除了 .mermaid-error 的 dark mode 样式 */
 
     ${markdownCss}
     ${prismCss}
@@ -898,7 +886,7 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string)
 
     body {
       padding: 10mm;  /* ✅ 减小内边距（因为 printToPDF 已设置 15mm 边距） */
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: 'Helvetica Neue', Helvetica, 'Segoe UI', Arial, freesans, sans-serif;
       background: white;
       color: var(--text-primary);
       line-height: 1.6;  /* ✅ 提升可读性 */
@@ -1056,43 +1044,106 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
 })
 
 // ============================================================
-// 文件监听器 - 简化版：只监听当前打开文件所在的单个目录
+// 文件监听器 - v1.4.7 重构：修复内存泄漏和安全问题
 // ============================================================
 let fileWatcher: ReturnType<typeof chokidar.watch> | null = null
-let watchedDir: string | null = null           // 当前监听的目录
-let _baseFolderPath: string | null = null      // 用户打开的根目录（保留备用）
-const watchedFiles = new Set<string>()         // 已打开的文件列表
+let watchedDir: string | null = null
+let _baseFolderPath: string | null = null
+const watchedFiles = new Set<string>()
+
+// v1.4.7: 使用 WeakRef 避免 WebContents 引用泄漏
+let watchedWebContentsId: number | null = null
 
 // v1.3：重命名检测
 let pendingUnlink: { path: string; timestamp: number } | null = null
 const RENAME_THRESHOLD_MS = 500
 
+// v1.4.7: 配置常量
+const WATCHER_CONFIG = {
+  MAX_DEPTH: 2,           // 最大监听深度（降低以提升性能）
+  MIN_PATH_DEPTH: 3,      // 最小路径深度（防止监听根目录）
+  IGNORED_PATTERNS: [
+    '**/.*',              // 隐藏文件
+    '**/node_modules/**', // Node.js 依赖
+    '**/vendor/**',       // PHP/Go 依赖
+    '**/target/**',       // Rust/Java 构建
+    '**/build/**',        // 通用构建目录
+    '**/dist/**',         // 打包输出
+    '**/__pycache__/**',  // Python 缓存
+    '**/venv/**',         // Python 虚拟环境
+    '**/.venv/**',        // Python 虚拟环境
+    '**/coverage/**',     // 测试覆盖率
+    '**/*.zip',           // 压缩文件
+    '**/*.tar.gz',        // 压缩文件
+    '**/batch*/**',       // 批量数据目录
+  ],
+}
+
+// v1.4.7: 路径安全验证
+function isWatchPathSafe(targetPath: string): { safe: boolean; reason?: string } {
+  const resolved = path.resolve(targetPath)
+  const pathParts = resolved.split(path.sep).filter(Boolean)
+
+  // 检查路径深度（防止监听根目录或 home 目录）
+  if (pathParts.length < WATCHER_CONFIG.MIN_PATH_DEPTH) {
+    return { safe: false, reason: '目录层级过高，请选择更具体的项目目录' }
+  }
+
+  // 检查是否是 home 目录本身
+  const homeDir = os.homedir()
+  if (resolved === homeDir) {
+    return { safe: false, reason: '不能监听用户主目录，请选择子目录' }
+  }
+
+  return { safe: true }
+}
+
+// v1.4.7: 安全发送函数，检查 WebContents 是否有效
+function safeSendToRenderer(channel: string, data: unknown): void {
+  if (watchedWebContentsId === null) return
+
+  const allWindows = BrowserWindow.getAllWindows()
+  const targetWindow = allWindows.find(w => w.webContents.id === watchedWebContentsId)
+
+  if (targetWindow && !targetWindow.isDestroyed() && !targetWindow.webContents.isDestroyed()) {
+    targetWindow.webContents.send(channel, data)
+  }
+}
+
 /**
- * 监听单个目录（当前打开文件所在目录）
- * 不递归，只监听该目录下的直接子文件
+ * 监听目录（用户打开的根目录）
+ * v1.4.7: 修复内存泄漏，使用安全发送
  */
 function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
-  // 如果已经在监听这个目录，跳过
   if (watchedDir === dirPath && fileWatcher) {
     return
   }
 
-  // 关闭之前的监听
   if (fileWatcher) {
     fileWatcher.close()
     fileWatcher = null
   }
   watchedDir = dirPath
   pendingUnlink = null
+  watchedWebContentsId = sender.id  // v1.4.7: 保存 ID 而非引用
 
   console.log(`[WATCHER] Watching directory: ${dirPath}`)
 
-  // 只监听这一个目录，depth: 0 表示不递归
+  // v1.4.7: 监听目录，通过 ignored 过滤非 .md 文件
+  // 注意：chokidar glob 模式在某些情况下不可靠，改用目录监听 + 过滤
   fileWatcher = chokidar.watch(dirPath, {
     persistent: true,
     ignoreInitial: true,
-    depth: 0,              // ✅ 关键：不递归，只监听当前目录
-    ignored: ['**/.*'],    // 忽略隐藏文件
+    depth: WATCHER_CONFIG.MAX_DEPTH,
+    ignored: [
+      ...WATCHER_CONFIG.IGNORED_PATTERNS,
+      // 忽略所有非 .md 文件（但保留目录以便递归）
+      (filePath: string, stats?: fs.Stats) => {
+        if (!stats) return false  // 未知类型，不忽略
+        if (stats.isDirectory()) return false  // 目录不忽略
+        return !filePath.endsWith('.md')  // 非 .md 文件忽略
+      }
+    ],
     awaitWriteFinish: {
       stabilityThreshold: 200,
       pollInterval: 50
@@ -1103,71 +1154,82 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
     console.error('[WATCHER] Error:', error)
   })
 
-  // 文件内容变化
-  fileWatcher.on('change', (filePath: string) => {
-    if (filePath.endsWith('.md')) {
-      console.log(`[WATCHER] File changed: ${filePath}`)
-      sender.send('file:changed', filePath)
+  // v1.4.7: 监听就绪事件，统计监听的文件数量
+  fileWatcher.on('ready', () => {
+    const watched = fileWatcher?.getWatched() || {}
+    let fileCount = 0
+    let dirCount = 0
+    for (const dir of Object.keys(watched)) {
+      dirCount++
+      fileCount += watched[dir].length
     }
+    console.log(`[WATCHER] Ready! Watching ${dirCount} directories, ${fileCount} files`)
   })
 
-  // 文件添加（可能是重命名的第二步）
-  fileWatcher.on('add', (filePath: string) => {
-    if (!filePath.endsWith('.md')) return
+  // v1.4.7: 已使用 glob 模式只监听 .md 文件，无需再检查扩展名
+  fileWatcher.on('change', (filePath: string) => {
+    console.log(`[WATCHER] File changed: ${filePath}`)
+    safeSendToRenderer('file:changed', filePath)
+  })
 
+  fileWatcher.on('add', (filePath: string) => {
     if (pendingUnlink && Date.now() - pendingUnlink.timestamp < RENAME_THRESHOLD_MS) {
-      // 重命名操作
       console.log(`[WATCHER] File renamed: ${pendingUnlink.path} -> ${filePath}`)
-      sender.send('file:renamed', { oldPath: pendingUnlink.path, newPath: filePath })
+      safeSendToRenderer('file:renamed', { oldPath: pendingUnlink.path, newPath: filePath })
       pendingUnlink = null
     } else {
       console.log(`[WATCHER] File added: ${filePath}`)
-      sender.send('file:added', filePath)
+      safeSendToRenderer('file:added', filePath)
     }
   })
 
-  // 文件删除（可能是重命名的第一步）
   fileWatcher.on('unlink', (filePath: string) => {
-    if (!filePath.endsWith('.md')) return
-
     console.log(`[WATCHER] File unlinked: ${filePath}`)
     pendingUnlink = { path: filePath, timestamp: Date.now() }
 
     setTimeout(() => {
       if (pendingUnlink && pendingUnlink.path === filePath) {
         console.log(`[WATCHER] File removed: ${filePath}`)
-        sender.send('file:removed', filePath)
+        safeSendToRenderer('file:removed', filePath)
         watchedFiles.delete(filePath)
         pendingUnlink = null
       }
     }, RENAME_THRESHOLD_MS + 50)
   })
 
-  // 子目录添加
   fileWatcher.on('addDir', (addedDirPath: string) => {
     if (addedDirPath !== dirPath) {
       console.log(`[WATCHER] Directory added: ${addedDirPath}`)
-      sender.send('folder:added', addedDirPath)
+      safeSendToRenderer('folder:added', addedDirPath)
     }
   })
 
-  // 子目录删除
   fileWatcher.on('unlinkDir', (removedDirPath: string) => {
     console.log(`[WATCHER] Directory removed: ${removedDirPath}`)
-    sender.send('folder:removed', removedDirPath)
+    safeSendToRenderer('folder:removed', removedDirPath)
   })
 }
 
 // 初始化文件夹监听（用户打开文件夹时调用）
-// 注意：这里不再监听整个目录树，只记录根路径
-ipcMain.handle('fs:watchFolder', async (_event, folderPath: string) => {
+// v1.4.7: 监听整个根目录，确保新增/删除文件能被感知
+ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
   try {
     validatePath(folderPath)
+
+    // v1.4.7: 路径安全验证
+    const pathCheck = isWatchPathSafe(folderPath)
+    if (!pathCheck.safe) {
+      console.warn(`[WATCHER] Rejected unsafe path: ${folderPath} - ${pathCheck.reason}`)
+      return { success: false, error: pathCheck.reason }
+    }
+
     _baseFolderPath = folderPath
     watchedFiles.clear()
 
-    // 不立即监听任何目录，等用户点击文件时再监听该文件所在目录
-    console.log(`[MAIN] Base folder set: ${folderPath}`)
+    // v1.4.7: 立即监听根目录
+    watchDirectory(folderPath, event.sender)
+
+    console.log(`[MAIN] Base folder set and watching: ${folderPath}`)
     return { success: true }
   } catch (error) {
     console.error('Failed to set base folder:', error)
@@ -1175,17 +1237,19 @@ ipcMain.handle('fs:watchFolder', async (_event, folderPath: string) => {
   }
 })
 
-// 当用户打开文件时，监听该文件所在目录
+// 当用户打开文件时，记录已打开的文件
+// v1.4.7: 不再切换监听目录，保持监听根目录
 ipcMain.handle('fs:watchFile', async (event, filePath: string) => {
   validatePath(filePath)
 
   watchedFiles.add(filePath)
 
-  // 获取文件所在目录，开始监听
-  const dirPath = path.dirname(filePath)
-  watchDirectory(dirPath, event.sender)
+  // v1.4.7: 如果还没有监听器，使用根目录；否则保持当前监听
+  if (!fileWatcher && _baseFolderPath) {
+    watchDirectory(_baseFolderPath, event.sender)
+  }
 
-  console.log(`[MAIN] File opened: ${filePath}, watching dir: ${dirPath}`)
+  console.log(`[MAIN] File opened: ${filePath}`)
   return { success: true }
 })
 

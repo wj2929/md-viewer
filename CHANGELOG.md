@@ -7,13 +7,41 @@
 
 ---
 
-## [1.4.7] - 2026-01-16
+## [1.4.7] - 2026-01-30
 
-> **状态**: ✅ **已测试** | **类型**: Bug 修复
+> **状态**: ✅ **已测试** | **类型**: Bug 修复 + 功能增强
 
 ### 🐛 Bug 修复
 
-#### 1. Mermaid Mindmap 连线颜色修复
+#### 1. 导出 HTML 所见即所得 ⭐⭐
+- **现象**：导出的 HTML 与应用内预览效果不一致（Mermaid 主题、样式等）
+- **根本原因**：导出时重新渲染 Markdown 和 Mermaid，使用的主题配置与预览不同
+- **解决方案**：直接从 DOM 获取已渲染的 HTML 内容
+- **效果**：导出效果与预览 100% 一致
+- **影响范围**：所有 HTML/PDF 导出
+
+#### 2. 导出 HTML 样式修复
+- **现象**：导出的 HTML 缺少两侧间距，内容撑满整个页面
+- **根本原因**：之前移除了 `.container` 包装器
+- **解决方案**：
+  - 恢复 `.container` 包装器（`max-width: 900px`，居中显示）
+  - 移除 `@media (prefers-color-scheme: dark)` 块，导出始终为亮色主题
+- **影响范围**：所有导出 HTML 的布局
+
+#### 3. 文件监听器安全修复
+- **现象**：`ReferenceError: os is not defined` 导致文件监听失败
+- **根本原因**：`isWatchPathSafe()` 函数使用了 `os` 模块但未导入
+- **解决方案**：添加 `import * as os from 'os'`
+- **增强**：`isWatchPathSafe()` 路径安全验证函数，防止监听敏感目录
+- **影响范围**：文件监听功能
+
+#### 4. 文件缓存优化
+- **现象**：外部修改文件后，应用内仍显示旧内容
+- **根本原因**：`readFileWithCache` 默认使用缓存
+- **解决方案**：`readFileWithCache` 默认 `forceReload = true`
+- **影响范围**：文件内容刷新
+
+#### 5. Mermaid Mindmap 连线颜色修复
 - **现象**：导出 HTML 后，mindmap 图表的连线显示为灰色 (#999)，而不是与节点匹配的彩色
 - **根本原因**：Mermaid 生成的 SVG 中连线样式为 `style="undefined; undefined"`
 - **解决方案**：
@@ -22,15 +50,11 @@
   - 新增颜色验证函数 `isValidColor()` / `getSafeColor()` 防止 XSS
 - **影响范围**：所有 mindmap 图表的导出 HTML
 
-#### 2. Timeline/Pie 图表箭头丢失修复
+#### 6. Timeline/Pie 图表箭头丢失修复
 - **现象**：timeline 和 pie 图表中的连线箭头不显示
 - **根本原因**：Mermaid 生成的 `<marker>` 元素缺少 `id` 属性，但连线引用了 `marker-end="url(#arrowhead)"`
 - **解决方案**：新增 `fixMissingMarkerIds()` 函数，为缺少 id 的 marker 添加 `id="arrowhead"`
 - **影响范围**：timeline、pie 等图表类型的箭头显示
-
-#### 3. 导出 HTML 样式优化
-- 修复导出 HTML 的滚动问题（`html, body { height: 100%; overflow: auto; }`）
-- 移除不必要的 CSP 和外部 CDN 依赖，提高离线可用性
 
 ### 🔒 安全增强
 
@@ -39,23 +63,26 @@
   - 更全面的 script 标签匹配（包括未闭合情况）
   - 更严格的事件处理器检测（包括无引号和反引号）
   - 处理 javascript: 的空白字符插入绕过
+- **路径安全验证**：`isWatchPathSafe()` 防止监听敏感系统目录
 
 ### 🔧 技术实现
 
 #### 核心文件变更
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
-| `src/renderer/src/utils/mermaidRenderer.ts` | 修改 | 新增 mindmap 连线颜色修复、marker id 修复 |
-| `src/main/index.ts` | 修改 | 优化导出 HTML 样式 |
+| `src/renderer/src/App.tsx` | 修改 | 导出 HTML/PDF 改为从 DOM 获取 |
+| `src/renderer/src/utils/mermaidRenderer.ts` | 修改 | 新增亮色主题导出配置、mindmap 修复 |
+| `src/renderer/src/utils/fileCache.ts` | 修改 | 默认强制刷新 |
+| `src/main/index.ts` | 修改 | 文件监听器修复 + 导出样式修复 |
 
-#### 新增函数
+#### 新增/修改函数
+- `handleExportHTML()` - 改为从 DOM 获取已渲染内容
+- `handleExportPDF()` - 改为从 DOM 获取已渲染内容
+- `initMermaidForExport()` - 强制亮色主题初始化
+- `isWatchPathSafe()` - 路径安全验证
 - `isValidColor()` - 验证颜色值安全性（防 XSS）
 - `getSafeColor()` - 获取安全的颜色值
-- `extractMindmapColors()` - 从 SVG 提取颜色定义
 - `fixMindmapEdges()` - 修复 mindmap 连线样式
-- `fixMindmapRootNode()` - 修复根节点样式
-- `fixMindmapChildNodes()` - 修复子节点样式
-- `fixMindmapStyles()` - 统一修复 mindmap 样式
 - `fixMissingMarkerIds()` - 修复 marker 缺失 id 问题
 
 ### 📊 测试结果

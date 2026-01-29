@@ -47,17 +47,22 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   const isCut = useClipboardStore(state => state.isCut && isInClipboard)
 
   // 监听重命名事件
+  const itemRef = useRef(item)
+  useEffect(() => {
+    itemRef.current = item
+  }, [item])
+
   useEffect(() => {
     const handleStartRename = (targetPath: string) => {
-      if (targetPath === item.path) {
+      if (targetPath === itemRef.current.path) {
         setIsRenaming(true)
-        setNewName(item.name)
+        setNewName(itemRef.current.name)
       }
     }
 
     const cleanup = window.api.onFileStartRename(handleStartRename)
     return cleanup
-  }, [item.path, item.name])
+  }, []) // 空依赖数组，只注册一次
 
   // 自动聚焦输入框
   useEffect(() => {
