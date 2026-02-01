@@ -30,6 +30,16 @@ declare global {
       // 导出功能
       exportHTML: (htmlContent: string, fileName: string) => Promise<string | null>
       exportPDF: (htmlContent: string, fileName: string) => Promise<string | null>
+      exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>
+
+      // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
+      renderCodeBlockToPng: (code: string) => Promise<{
+        success: boolean
+        data?: string  // base64 PNG
+        width?: number
+        height?: number
+        error?: string
+      }>
 
       // 右键菜单 (v1.2 阶段 1)
       showContextMenu: (
@@ -65,6 +75,7 @@ declare global {
 
       // v1.4：Shell 操作
       showItemInFolder: (filePath: string) => Promise<{ success: boolean }>
+      openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
 
       // v1.3.4：历史文件夹
       getFolderHistory: () => Promise<Array<{ path: string; name: string; lastOpened: number }>>
@@ -148,6 +159,7 @@ declare global {
       // v1.3 阶段 2：Markdown 右键菜单事件
       onMarkdownExportHTML: (callback: () => void) => () => void
       onMarkdownExportPDF: (callback: () => void) => () => void
+      onMarkdownExportDOCX: (callback: () => void) => () => void
       onMarkdownCopySource: (callback: () => void) => () => void
       onMarkdownCopyPlainText: (callback: () => void) => () => void
       onMarkdownCopyHTML: (callback: () => void) => () => void

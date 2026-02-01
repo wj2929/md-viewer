@@ -17,6 +17,8 @@ import { folderHistoryManager } from './folderHistoryManager'
 import * as contextMenuManager from './contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from './security/pathValidator'
 import { appDataManager } from './appDataManager'
+import { exportToDocx, ChartImageData } from './docxExporter'
+import { exportWithPandoc, isPandocAvailable } from './pandocExporter'
 import { installEpipeHandler } from './safeLog'
 
 // 安装 EPIPE 错误处理器（防止开发模式下终端断开导致应用崩溃）
@@ -811,6 +813,33 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
 
     /* 注意：移除了 .mermaid-error 的 dark mode 样式 */
 
+    /* ECharts 图表样式 - 固定亮色主题 */
+    .echarts-container {
+      width: 100%;
+      max-width: 100%;
+      margin: 1.5em 0;
+      border-radius: 6px;
+      overflow: visible;
+      background: transparent;
+    }
+
+    .echarts-container svg {
+      display: block;
+      width: 100% !important;
+      height: auto;
+      max-width: none;
+    }
+
+    .echarts-error {
+      color: #c53030;
+      background: #fff5f5;
+      border: 1px solid #feb2b2;
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin: 1em 0;
+      font-size: 14px;
+    }
+
     ${markdownCss}
     ${prismCss}
   </style>
@@ -894,6 +923,23 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string)
 
     ${markdownCss}
     ${prismCss}
+
+    /* ECharts 图表样式 - PDF 优化 */
+    .echarts-container {
+      width: 100%;
+      max-width: 100%;
+      margin: 1.5em 0;
+      border-radius: 6px;
+      overflow: visible;
+      background: transparent;
+    }
+
+    .echarts-container svg {
+      display: block;
+      width: 100% !important;
+      height: auto;
+      margin: 0 auto;
+    }
 
     /* ✅ 增强 PDF 打印样式 */
     @media print {
@@ -1374,6 +1420,11 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     click: () => event.sender.send('markdown:export-pdf')
   })
 
+  menuTemplate.push({
+    label: '📝 导出 Word',
+    click: () => event.sender.send('markdown:export-docx')
+  })
+
   // v1.4.2：打印功能
   menuTemplate.push({
     label: '🖨️ 打印',
@@ -1631,6 +1682,41 @@ ipcMain.handle('shell:showItemInFolder', async (_, filePath: string) => {
   }
 })
 
+// 打开外部链接（用于 Pandoc 安装指南等）
+ipcMain.handle('shell:openExternal', async (_, url: string) => {
+  // 白名单验证（安全措施）
+  const allowedDomains = [
+    'pandoc.org',
+    'github.com',
+    'chocolatey.org'
+  ]
+
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname
+
+    // 检查域名是否在白名单中
+    const isAllowed = allowedDomains.some(domain =>
+      hostname === domain || hostname.endsWith(`.${domain}`)
+    )
+
+    if (!isAllowed) {
+      console.error(`[IPC] Blocked external URL: ${url}`)
+      return { success: false, error: '不允许的域名' }
+    }
+
+    // 打开外部链接
+    await shell.openExternal(url)
+    return { success: true }
+  } catch (error) {
+    console.error('[IPC] Failed to open external URL:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '未知错误'
+    }
+  }
+})
+
 // v1.3.4：历史文件夹管理
 ipcMain.handle('folder-history:get', async () => {
   return folderHistoryManager.getHistory()
@@ -1853,4 +1939,190 @@ ipcMain.handle('window:print', async () => {
     }
   })
   return { success: true }
+})
+
+// ============== v1.5.1：代码块截图（用于 DOCX 导出） ==============
+// 将代码块渲染为 PNG 图片，确保 ASCII 艺术在 Word 中正确显示
+
+ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
+  try {
+    // 获取样式
+    const { markdownCss, prismCss } = await getExportStyles()
+
+    // 创建隐藏窗口
+    const renderWindow = new BrowserWindow({
+      show: false,
+      width: 1200,
+      height: 800,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        offscreen: true
+      }
+    })
+
+    // 转义 HTML 特殊字符
+    const escapeHtml = (str: string): string => {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+    }
+
+    // 生成 HTML
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    ${markdownCss}
+    ${prismCss}
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: transparent;
+      width: fit-content;
+      height: fit-content;
+    }
+    .code-container {
+      display: inline-block;
+      background: #f5f5f5;
+      border-radius: 6px;
+      padding: 16px;
+      border: 1px solid #e0e0e0;
+    }
+    pre {
+      margin: 0 !important;
+      padding: 0 !important;
+      background: transparent !important;
+      border: none !important;
+      font-family: Menlo, Monaco, Consolas, 'Courier New', monospace !important;
+      font-size: 13px !important;
+      line-height: 1.5 !important;
+      white-space: pre !important;
+      overflow: visible !important;
+    }
+    code {
+      font-family: inherit !important;
+      font-size: inherit !important;
+      background: transparent !important;
+      padding: 0 !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="code-container">
+    <pre><code>${escapeHtml(code)}</code></pre>
+  </div>
+</body>
+</html>`
+
+    // 加载 HTML
+    await renderWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+
+    // 等待渲染完成
+    await new Promise(resolve => setTimeout(resolve, 200))
+
+    // 获取内容尺寸
+    const bounds = await renderWindow.webContents.executeJavaScript(`
+      (() => {
+        const container = document.querySelector('.code-container');
+        if (!container) return { width: 800, height: 400 };
+        const rect = container.getBoundingClientRect();
+        return {
+          width: Math.ceil(rect.width) + 4,
+          height: Math.ceil(rect.height) + 4
+        };
+      })()
+    `)
+
+    // 调整窗口大小以匹配内容
+    renderWindow.setSize(bounds.width, bounds.height)
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // 截图
+    const image = await renderWindow.webContents.capturePage({
+      x: 0,
+      y: 0,
+      width: bounds.width,
+      height: bounds.height
+    })
+
+    // 关闭窗口
+    renderWindow.close()
+
+    // 返回 base64 PNG
+    const pngBuffer = image.toPNG()
+    const base64 = pngBuffer.toString('base64')
+
+    console.log(`[CodeBlock] 截图成功: ${bounds.width}x${bounds.height}, ${Math.round(pngBuffer.length / 1024)}KB`)
+
+    return {
+      success: true,
+      data: base64,
+      width: bounds.width,
+      height: bounds.height
+    }
+  } catch (error) {
+    console.error('[CodeBlock] 截图失败:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+})
+
+// ============== v1.5.0：导出 DOCX ==============
+// 优先使用 Pandoc（高质量，从 HTML 转换），如果不可用则回退到 docx 库
+
+ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: string, basePath: string, markdown?: string, chartImages?: ChartImageData[]) => {
+  try {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) {
+      throw new Error('无法获取窗口实例')
+    }
+
+    const result = await dialog.showSaveDialog(window, {
+      title: '导出 Word 文档',
+      defaultPath: fileName.replace(/\.md$/, '.docx'),
+      filters: [
+        { name: 'Word Documents', extensions: ['docx'] }
+      ]
+    })
+
+    if (result.canceled || !result.filePath) {
+      return null
+    }
+
+    // 检查 Pandoc 是否可用
+    const pandocAvailable = await isPandocAvailable()
+
+    let filePath: string
+    let warnings: string[]
+    let usedPandoc = false
+
+    if (pandocAvailable) {
+      // 使用 Pandoc 导出（高质量，从 HTML 转换）
+      console.log('[DOCX Export] 使用 Pandoc 从 HTML 导出')
+      const pandocResult = await exportWithPandoc(htmlContent, result.filePath, basePath)
+      filePath = pandocResult.filePath
+      warnings = pandocResult.warnings
+      usedPandoc = true
+    } else if (markdown) {
+      // 回退到 docx 库（需要 markdown 和 chartImages）
+      console.log('[DOCX Export] Pandoc 不可用，使用 docx 库导出')
+      const docxResult = await exportToDocx(markdown, result.filePath, basePath, chartImages || [])
+      filePath = docxResult.filePath
+      warnings = docxResult.warnings
+    } else {
+      throw new Error('Pandoc 不可用，且未提供 Markdown 内容作为回退')
+    }
+
+    return { filePath, warnings, usedPandoc }
+  } catch (error) {
+    console.error('Failed to export DOCX:', error)
+    throw error
+  }
 })

@@ -3,6 +3,7 @@ import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, Search
 import { readFileWithCache, clearFileCache, invalidateAndReload } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
+import { processEChartsInHtml } from './utils/echartsRenderer'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
 // v1.4.2：使用 Zustand stores 替代独立 hooks
@@ -222,11 +223,8 @@ function App(): React.JSX.Element {
       }
     })
 
-    // 文件重命名事件
-    const unsubscribeRename = window.api.onFileStartRename((filePath: string) => {
-      // FileTree 组件内部已监听此事件，这里仅做日志记录
-      console.log('Start rename:', filePath)
-    })
+    // 注意：onFileStartRename 已在 FileTree 组件中监听，此处不再重复注册
+    // 避免 EventEmitter 内存泄漏警告
 
     // 文件导出请求事件
     const unsubscribeExport = window.api.onFileExportRequest(
@@ -323,7 +321,6 @@ function App(): React.JSX.Element {
 
     return () => {
       unsubscribeDeleted()
-      unsubscribeRename()
       unsubscribeExport()
       unsubscribeError()
       unsubscribeCopy()
@@ -1183,6 +1180,7 @@ function App(): React.JSX.Element {
 
   // 导出 HTML
   // v1.4.7: 直接从 DOM 获取已渲染的 HTML，确保与预览效果完全一致
+  // v1.5.0: ECharts 需要重新渲染以获得正确的尺寸
   const handleExportHTML = useCallback(async () => {
     if (!activeTab) return
 
@@ -1195,8 +1193,86 @@ function App(): React.JSX.Element {
         // 克隆 DOM 以避免修改原始内容
         const clone = markdownBody.cloneNode(true) as HTMLElement
 
-        // 移除一些不需要导出的元素（如复制按钮等）
-        clone.querySelectorAll('.copy-button, .line-numbers-wrapper').forEach(el => el.remove())
+        // v1.5.1: 移除不需要导出的元素（包括 ECharts 切换按钮）
+        clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
+
+        // v1.5.1: 确保 ECharts 图表视图可见，代码视图隐藏
+        clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+          if (chartView) chartView.style.display = ''
+          if (codeView) codeView.style.display = 'none'
+        })
+
+        // v1.5.0: 修复 ECharts SVG 导出 - 扁平化DOM结构，移除嵌套容器，裁剪空白
+        // 先在原始 DOM 上计算边界框（克隆的 DOM 无法调用 getBBox）
+        const originalSvgs = markdownBody.querySelectorAll('.echarts-container svg')
+        const svgBboxes: { x: number; y: number; width: number; height: number }[] = []
+
+        originalSvgs.forEach((svg) => {
+          try {
+            const svgEl = svg as SVGSVGElement
+            // 计算 SVG 内容的实际边界框
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+
+            Array.from(svgEl.children).forEach((child) => {
+              try {
+                const el = child as SVGGraphicsElement
+                if (el.getAttribute('visibility') === 'hidden' || el.getAttribute('display') === 'none') return
+                const bbox = el.getBBox()
+                minX = Math.min(minX, bbox.x)
+                minY = Math.min(minY, bbox.y)
+                maxX = Math.max(maxX, bbox.x + bbox.width)
+                maxY = Math.max(maxY, bbox.y + bbox.height)
+              } catch { /* ignore */ }
+            })
+
+            if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
+              svgBboxes.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
+            } else {
+              svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
+            }
+          } catch {
+            svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
+          }
+        })
+
+        // 应用边界框到克隆的 SVG
+        const clonedContainers = clone.querySelectorAll('.echarts-container')
+        clonedContainers.forEach((container, index) => {
+          const svg = container.querySelector('svg')
+          if (!svg) return
+
+          // 应用裁剪后的 viewBox（去除空白）
+          const bbox = svgBboxes[index]
+          if (bbox) {
+            const padding = 10
+            const viewBoxX = Math.max(0, bbox.x - padding)
+            const viewBoxY = Math.max(0, bbox.y - padding)
+            const viewBoxWidth = bbox.width + padding * 2
+            const viewBoxHeight = bbox.height + padding * 2
+            svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`)
+          }
+
+          // 移除width/height属性，使用CSS控制
+          svg.removeAttribute('width')
+          svg.removeAttribute('height')
+          svg.style.cssText = 'width: 100%; height: auto; display: block;'
+
+          // 关键修复：移除ECharts内部生成的嵌套div（带overflow:hidden的那个）
+          const innerDiv = svg.parentElement
+          if (innerDiv && innerDiv !== container) {
+            container.appendChild(svg)
+            innerDiv.remove()
+          }
+
+          // 清理容器属性
+          const el = container as HTMLElement
+          el.removeAttribute('_echarts_instance_')
+          el.removeAttribute('data-echarts-index')
+          el.style.cssText = 'width: 100%;'
+        })
 
         htmlContent = clone.innerHTML
       } else {
@@ -1204,6 +1280,7 @@ function App(): React.JSX.Element {
         const md = createMarkdownRenderer()
         htmlContent = md.render(activeTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
+        htmlContent = await processEChartsInHtml(htmlContent)
       }
 
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
@@ -1241,8 +1318,82 @@ function App(): React.JSX.Element {
         // 克隆 DOM 以避免修改原始内容
         const clone = markdownBody.cloneNode(true) as HTMLElement
 
-        // 移除一些不需要导出的元素（如复制按钮等）
-        clone.querySelectorAll('.copy-button, .line-numbers-wrapper').forEach(el => el.remove())
+        // v1.5.1: 移除不需要导出的元素（包括 ECharts 切换按钮）
+        clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
+
+        // v1.5.1: 确保 ECharts 图表视图可见，代码视图隐藏
+        clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+          if (chartView) chartView.style.display = ''
+          if (codeView) codeView.style.display = 'none'
+        })
+
+        // v1.5.0: 修复 ECharts SVG 导出 - 扁平化DOM结构，移除嵌套容器，裁剪空白
+        // 先在原始 DOM 上计算边界框
+        const originalSvgs = markdownBody.querySelectorAll('.echarts-container svg')
+        const svgBboxes: { x: number; y: number; width: number; height: number }[] = []
+
+        originalSvgs.forEach((svg) => {
+          try {
+            const svgEl = svg as SVGSVGElement
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+
+            Array.from(svgEl.children).forEach((child) => {
+              try {
+                const el = child as SVGGraphicsElement
+                if (el.getAttribute('visibility') === 'hidden' || el.getAttribute('display') === 'none') return
+                const bbox = el.getBBox()
+                minX = Math.min(minX, bbox.x)
+                minY = Math.min(minY, bbox.y)
+                maxX = Math.max(maxX, bbox.x + bbox.width)
+                maxY = Math.max(maxY, bbox.y + bbox.height)
+              } catch { /* ignore */ }
+            })
+
+            if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
+              svgBboxes.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
+            } else {
+              svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
+            }
+          } catch {
+            svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
+          }
+        })
+
+        // 应用边界框到克隆的 SVG
+        const clonedContainers = clone.querySelectorAll('.echarts-container')
+        clonedContainers.forEach((container, index) => {
+          const svg = container.querySelector('svg')
+          if (!svg) return
+
+          // 应用裁剪后的 viewBox
+          const bbox = svgBboxes[index]
+          if (bbox) {
+            const padding = 10
+            const viewBoxX = Math.max(0, bbox.x - padding)
+            const viewBoxY = Math.max(0, bbox.y - padding)
+            const viewBoxWidth = bbox.width + padding * 2
+            const viewBoxHeight = bbox.height + padding * 2
+            svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`)
+          }
+
+          svg.removeAttribute('width')
+          svg.removeAttribute('height')
+          svg.style.cssText = 'width: 100%; height: auto; display: block;'
+
+          const innerDiv = svg.parentElement
+          if (innerDiv && innerDiv !== container) {
+            container.appendChild(svg)
+            innerDiv.remove()
+          }
+
+          const el = container as HTMLElement
+          el.removeAttribute('_echarts_instance_')
+          el.removeAttribute('data-echarts-index')
+          el.style.cssText = 'width: 100%;'
+        })
 
         htmlContent = clone.innerHTML
       } else {
@@ -1250,6 +1401,7 @@ function App(): React.JSX.Element {
         const md = createMarkdownRenderer()
         htmlContent = md.render(activeTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
+        htmlContent = await processEChartsInHtml(htmlContent)
       }
 
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
@@ -1272,6 +1424,324 @@ function App(): React.JSX.Element {
       toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
   }, [activeTab, toast])
+
+  // 导出 DOCX (v1.5.0) - 支持图表导出
+  const handleExportDOCX = useCallback(async () => {
+    if (!activeTab) return
+
+    try {
+      let htmlContent: string
+
+      // v1.5.0: 复用 HTML 导出的逻辑，保留 SVG（Pandoc 支持 SVG）
+      // 这样可以确保 DOCX 导出与 HTML 导出效果一致
+      const markdownBody = previewRef.current?.querySelector('.markdown-body')
+      if (markdownBody) {
+        // 克隆 DOM 以避免修改原始内容
+        const clone = markdownBody.cloneNode(true) as HTMLElement
+
+        // v1.5.1: 移除不需要导出的元素（包括 ECharts 切换按钮）
+        clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
+
+        // v1.5.1: 确保 ECharts 图表视图可见，代码视图隐藏
+        clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+          if (chartView) chartView.style.display = ''
+          if (codeView) codeView.style.display = 'none'
+        })
+
+        // 处理 ECharts SVG
+        // ECharts 渲染的 SVG 可能没有 viewBox，但内部绘制区域可能很大
+        // 需要添加正确的 viewBox 以确保内容正确缩放
+        const clonedContainers = clone.querySelectorAll('.echarts-container')
+        clonedContainers.forEach((container) => {
+          const svg = container.querySelector('svg')
+          if (!svg) return
+
+          // 获取原始 viewBox 或从内部元素推断
+          let viewBox = svg.getAttribute('viewBox')
+          let vbWidth: number, vbHeight: number
+
+          if (viewBox) {
+            const parts = viewBox.split(/\s+/)
+            if (parts.length === 4) {
+              vbWidth = parseFloat(parts[2])
+              vbHeight = parseFloat(parts[3])
+            } else {
+              vbWidth = 600
+              vbHeight = 400
+            }
+          } else {
+            // 没有 viewBox，从内部 rect 或 SVG 属性推断
+            // ECharts 通常会创建一个覆盖整个画布的 rect
+            const bgRect = svg.querySelector('rect')
+            if (bgRect) {
+              vbWidth = parseFloat(bgRect.getAttribute('width') || '600')
+              vbHeight = parseFloat(bgRect.getAttribute('height') || '400')
+            } else {
+              // 使用 SVG 的原始尺寸
+              vbWidth = parseFloat(svg.getAttribute('width') || '600')
+              vbHeight = parseFloat(svg.getAttribute('height') || '400')
+            }
+            // 添加 viewBox
+            svg.setAttribute('viewBox', `0 0 ${vbWidth} ${vbHeight}`)
+          }
+
+          // 设置固定的像素尺寸，保持原始宽高比
+          // Pandoc 不理解 CSS 的 height: auto
+          const exportWidth = 624
+          const aspectRatio = vbHeight / vbWidth
+          const exportHeight = Math.round(exportWidth * aspectRatio)
+
+          svg.setAttribute('width', String(exportWidth))
+          svg.setAttribute('height', String(exportHeight))
+          svg.style.cssText = 'display: block;'
+
+          // 移除 ECharts 内部生成的嵌套 div
+          const innerDiv = svg.parentElement
+          if (innerDiv && innerDiv !== container) {
+            container.appendChild(svg)
+            innerDiv.remove()
+          }
+
+          // 清理容器属性
+          const el = container as HTMLElement
+          el.removeAttribute('_echarts_instance_')
+          el.removeAttribute('data-echarts-index')
+          el.style.cssText = ''
+        })
+
+        // 处理 Mermaid SVG
+        const mermaidContainers = clone.querySelectorAll('.mermaid-container')
+        mermaidContainers.forEach((container) => {
+          const svg = container.querySelector('svg')
+          if (!svg) return
+
+          // 获取 Mermaid SVG 的 viewBox
+          const viewBox = svg.getAttribute('viewBox')
+          if (viewBox) {
+            const parts = viewBox.split(/\s+/)
+            if (parts.length === 4) {
+              const vbWidth = parseFloat(parts[2])
+              const vbHeight = parseFloat(parts[3])
+              const exportWidth = 624
+              const aspectRatio = vbHeight / vbWidth
+              const exportHeight = Math.round(exportWidth * aspectRatio)
+
+              svg.setAttribute('width', String(exportWidth))
+              svg.setAttribute('height', String(exportHeight))
+              svg.style.cssText = 'display: block;'
+            }
+          } else {
+            // 没有 viewBox，使用默认尺寸
+            svg.setAttribute('width', '624')
+            svg.setAttribute('height', '400')
+            svg.style.cssText = 'display: block;'
+          }
+        })
+
+        // 处理代码块：只将 ASCII 艺术/UI 模拟图转换为 PNG 图片
+        // 普通代码块保持文本格式，以便用户复制
+        const codeBlocks = clone.querySelectorAll('pre')
+        const codeBlockPromises: Promise<void>[] = []
+
+        /**
+         * 检测代码块是否为 ASCII 艺术（需要转为图片）
+         * 只有真正的 ASCII 艺术才转换，普通代码保持文本
+         */
+        const isAsciiArt = (text: string): boolean => {
+          const lines = text.split('\n').filter(l => l.trim())
+          if (lines.length < 3) return false  // 太短不是 ASCII 艺术
+
+          // 1. 检测 Unicode 框线字符（最明确的 ASCII 艺术标志）
+          if (/[┌┐└┘├┤┬┴┼─│┃┏┓┗┛┣┫┳┻╋━┠┨┯┷┿╂]/.test(text)) {
+            return true
+          }
+
+          // 2. 检测边框模式
+          let borderLines = 0  // +---+ 或 +===+ 模式
+          let pipeLines = 0    // |   | 模式
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            // 边框行：+---+、+===+、+----...----+
+            if (/^[+][=\-]+[+]$/.test(trimmed) && trimmed.length > 5) {
+              borderLines++
+            }
+            // 内容行：| xxx | 或 |  xxx  |
+            if (/^\|.+\|$/.test(trimmed) && trimmed.length > 3) {
+              pipeLines++
+            }
+          }
+
+          // 如果有足够的边框行和管道行，认为是 ASCII 艺术表格/框图
+          if (borderLines >= 2 && pipeLines >= 2) {
+            return true
+          }
+
+          // 3. 检测 UI 模拟元素（复选框、单选框、滑块等）
+          const hasCheckbox = /\[[✓✗xX ]\]/.test(text)
+          const hasRadio = /\([•●○ ]\)/.test(text)
+          const hasSlider = /\|[=○●]+\|/.test(text)
+
+          if ((hasCheckbox || hasRadio || hasSlider) && pipeLines >= 3) {
+            return true
+          }
+
+          return false
+        }
+
+        /**
+         * 判断代码块是否应该转换为图片
+         */
+        const shouldConvertToImage = (pre: Element, text: string): boolean => {
+          // 1. 检查语言类型
+          const code = pre.querySelector('code')
+          const preClass = pre.className || ''
+          const codeClass = code?.className || ''
+          const allClasses = preClass + ' ' + codeClass
+
+          // 提取语言标记
+          const langMatch = allClasses.match(/language-(\w+)/)
+          if (langMatch) {
+            const lang = langMatch[1].toLowerCase()
+            // 只有 plaintext/text/ascii 才考虑转换，其他编程语言不转换
+            if (!['plaintext', 'text', 'ascii', ''].includes(lang)) {
+              return false
+            }
+          }
+
+          // 2. 检测是否为 ASCII 艺术
+          return isAsciiArt(text)
+        }
+
+        codeBlocks.forEach((pre) => {
+          const code = pre.querySelector('code')
+          if (!code) return
+
+          const text = code.textContent || ''
+
+          // 使用更精确的检测逻辑
+          if (shouldConvertToImage(pre, text)) {
+            const promise = (async () => {
+              try {
+                // 调用主进程截图
+                const result = await window.api.renderCodeBlockToPng(text)
+                if (result.success && result.data) {
+                  // 创建 img 元素替换代码块
+                  const img = document.createElement('img')
+                  img.src = `data:image/png;base64,${result.data}`
+                  img.alt = 'ASCII Art'
+                  img.style.cssText = 'display: block; max-width: 100%;'
+                  if (result.width && result.height) {
+                    img.width = result.width
+                    img.height = result.height
+                  }
+                  pre.replaceWith(img)
+                  console.log(`[DOCX Export] ASCII 艺术已转换为 PNG: ${result.width}x${result.height}`)
+                }
+              } catch (err) {
+                console.error('[DOCX Export] 代码块截图失败:', err)
+                // 失败时保留原始代码块
+              }
+            })()
+            codeBlockPromises.push(promise)
+          }
+        })
+
+        // 等待所有代码块截图完成
+        if (codeBlockPromises.length > 0) {
+          console.log(`[DOCX Export] 等待 ${codeBlockPromises.length} 个代码块截图完成...`)
+          await Promise.all(codeBlockPromises)
+          console.log('[DOCX Export] 所有代码块截图完成')
+        }
+
+        htmlContent = clone.innerHTML
+        console.log(`[DOCX Export] 使用 SVG 导出，图表数量: ${clonedContainers.length}`)
+      } else {
+        // 回退：使用 markdown-it 渲染
+        const md = createMarkdownRenderer()
+        htmlContent = md.render(activeTab.content)
+      }
+
+      console.log('[DOCX Export] HTML 内容长度:', htmlContent.length)
+
+      const result = await window.api.exportDOCX(
+        htmlContent,
+        activeTab.file.name,
+        folderPath || '',
+        activeTab.content  // 传递 markdown 作为回退
+      )
+
+      if (result) {
+        const { filePath, warnings, usedPandoc } = result
+
+        // 处理导出成功提示
+        if (usedPandoc) {
+          // 使用 Pandoc 导出（高质量）
+          const message = warnings && warnings.length > 0
+            ? `Word 已导出（Pandoc 高质量）（${warnings.length} 个警告）`
+            : 'Word 已导出（Pandoc 高质量）'
+
+          toast.success(message, {
+            action: {
+              label: '点击查看',
+              onClick: async () => {
+                try {
+                  await window.api.showItemInFolder(filePath)
+                } catch (error) {
+                  console.error('Failed to show item:', error)
+                }
+              }
+            }
+          })
+        } else {
+          // 使用 docx 库导出（基础质量）
+          const hasShownPandocTip = localStorage.getItem('pandoc-tip-shown')
+
+          if (!hasShownPandocTip) {
+            // 首次使用 docx 库，显示 Pandoc 安装提示
+            toast.success('Word 已导出（基础质量）', {
+              action: {
+                label: '了解 Pandoc',
+                onClick: async () => {
+                  try {
+                    await window.api.openExternal('https://pandoc.org/installing.html')
+                  } catch (error) {
+                    console.error('Failed to open external URL:', error)
+                    toast.error('无法打开链接')
+                  }
+                }
+              }
+            })
+            localStorage.setItem('pandoc-tip-shown', 'true')
+          } else {
+            // 后续使用，简单提示
+            const message = warnings && warnings.length > 0
+              ? `Word 已导出（基础质量）（${warnings.length} 个警告）`
+              : 'Word 已导出（基础质量）'
+
+            toast.success(message, {
+              action: {
+                label: '点击查看',
+                onClick: async () => {
+                  try {
+                    await window.api.showItemInFolder(filePath)
+                  } catch (error) {
+                    console.error('Failed to show item:', error)
+                  }
+                }
+              }
+            })
+          }
+        }
+      }
+    } catch (error) {
+      console.error('导出 DOCX 失败:', error)
+      toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [activeTab, folderPath, toast])
 
   // 切换到下一个标签
   const handleNextTab = useCallback(() => {
@@ -1403,6 +1873,10 @@ function App(): React.JSX.Element {
       handleExportPDF()
     })
 
+    const unsubscribeExportDOCX = window.api.onMarkdownExportDOCX(() => {
+      handleExportDOCX()
+    })
+
     const unsubscribeCopySource = window.api.onMarkdownCopySource(() => {
       if (activeTab) {
         navigator.clipboard.writeText(activeTab.content)
@@ -1437,11 +1911,12 @@ function App(): React.JSX.Element {
     return () => {
       unsubscribeExportHTML()
       unsubscribeExportPDF()
+      unsubscribeExportDOCX()
       unsubscribeCopySource()
       unsubscribeCopyPlainText()
       unsubscribeCopyHTML()
     }
-  }, [activeTab, handleExportHTML, handleExportPDF, toast])
+  }, [activeTab, handleExportHTML, handleExportPDF, handleExportDOCX, toast])
 
   // 侧边栏拖拽调整宽度
   const handleResizeStart = useCallback((e: React.MouseEvent) => {

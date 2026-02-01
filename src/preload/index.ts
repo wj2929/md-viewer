@@ -16,6 +16,18 @@ const api = {
   // 导出功能
   exportHTML: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:html', htmlContent, fileName),
   exportPDF: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:pdf', htmlContent, fileName),
+  exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string) =>
+    ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>,
+
+  // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
+  renderCodeBlockToPng: (code: string) =>
+    ipcRenderer.invoke('render:codeBlockToPng', code) as Promise<{
+      success: boolean
+      data?: string  // base64 PNG
+      width?: number
+      height?: number
+      error?: string
+    }>,
 
   // 右键菜单 (v1.2 阶段 1 新增)
   showContextMenu: (file: { name: string; path: string; isDirectory: boolean }, basePath: string) =>
@@ -64,6 +76,8 @@ const api = {
   // v1.4：Shell 操作
   showItemInFolder: (filePath: string) =>
     ipcRenderer.invoke('shell:showItemInFolder', filePath) as Promise<{ success: boolean }>,
+  openExternal: (url: string) =>
+    ipcRenderer.invoke('shell:openExternal', url) as Promise<{ success: boolean; error?: string }>,
 
   // v1.3.4：历史文件夹
   getFolderHistory: () =>
@@ -320,6 +334,12 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('markdown:export-pdf', handler)
     return () => ipcRenderer.removeListener('markdown:export-pdf', handler)
+  },
+
+  onMarkdownExportDOCX: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('markdown:export-docx', handler)
+    return () => ipcRenderer.removeListener('markdown:export-docx', handler)
   },
 
   onMarkdownCopySource: (callback: () => void) => {
