@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.7-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.5.0-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -54,8 +54,8 @@
 ### macOS
 
 **下载：**
-- [MD Viewer-1.4.7-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.7) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.4.7.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.4.7) (Intel Mac)
+- [MD Viewer-1.5.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.5.0.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -82,7 +82,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 3. 点击"仍要打开"
 
 ### Windows
-- [MD Viewer Setup 1.4.7.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.4.7)
+- [MD Viewer Setup 1.5.0.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0)
 
 首次运行安装程序时，SmartScreen 可能显示"Windows 已保护你的电脑"：
 1. 点击"更多信息"
@@ -92,7 +92,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 > 可以在"Windows 安全中心 → 应用和浏览器控制"中查看被阻止的应用并选择"仍要运行"。
 
 ### Linux
-- [MD Viewer-1.4.7.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.4.7)
+- [MD Viewer-1.5.0.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0)
 
 **AppImage 用户**（Ubuntu 22.04+ / Debian 12+ / Fedora 38+）需要先安装 libfuse2：
 ```bash
@@ -107,13 +107,13 @@ sudo pacman -S fuse2
 ```
 
 ```bash
-chmod +x MD-Viewer-1.4.7.AppImage
-./MD-Viewer-1.4.7.AppImage
+chmod +x MD-Viewer-1.5.0.AppImage
+./MD-Viewer-1.5.0.AppImage
 ```
 
 如果不想安装 FUSE，可以用提取模式运行：
 ```bash
-./MD-Viewer-1.4.7.AppImage --appimage-extract-and-run
+./MD-Viewer-1.5.0.AppImage --appimage-extract-and-run
 ```
 
 ---
