@@ -280,4 +280,112 @@ describe('Toast 组件测试', () => {
       expect(onClose).toHaveBeenCalledWith('2')
     })
   })
+
+  describe('描述文本功能 (v1.4.8)', () => {
+    it('应该渲染带描述的 Toast', () => {
+      const messages: ToastMessage[] = [
+        {
+          id: 'test-desc-1',
+          type: 'success',
+          message: '✅ 导出成功',
+          description: '💡 安装 Pandoc 可支持数学公式和复杂表格'
+        }
+      ]
+      const { container } = render(<ToastContainer messages={messages} onClose={vi.fn()} />)
+
+      // 验证标题
+      expect(screen.getByText('✅ 导出成功')).toBeInTheDocument()
+
+      // 验证描述
+      expect(screen.getByText('💡 安装 Pandoc 可支持数学公式和复杂表格')).toBeInTheDocument()
+
+      // 验证布局结构
+      const toastContent = container.querySelector('.toast-content')
+      expect(toastContent).toBeInTheDocument()
+      expect(toastContent?.querySelector('.toast-message')).toBeInTheDocument()
+      expect(toastContent?.querySelector('.toast-description')).toBeInTheDocument()
+    })
+
+    it('没有描述时不应该渲染描述元素', () => {
+      const messages: ToastMessage[] = [
+        { id: 'test-desc-2', type: 'success', message: '操作成功' }
+      ]
+      const { container } = render(<ToastContainer messages={messages} onClose={vi.fn()} />)
+
+      expect(container.querySelector('.toast-description')).not.toBeInTheDocument()
+    })
+
+    it('应该支持标题+描述+action 的完整布局', () => {
+      const onClick = vi.fn()
+      const messages: ToastMessage[] = [
+        {
+          id: 'test-desc-3',
+          type: 'success',
+          message: '✅ 导出成功',
+          description: '💡 安装 Pandoc 可支持数学公式和复杂表格',
+          action: {
+            label: '查看安装指南',
+            onClick
+          }
+        }
+      ]
+      const { container } = render(<ToastContainer messages={messages} onClose={vi.fn()} />)
+
+      // 验证标题
+      expect(screen.getByText('✅ 导出成功')).toBeInTheDocument()
+
+      // 验证描述
+      expect(screen.getByText('💡 安装 Pandoc 可支持数学公式和复杂表格')).toBeInTheDocument()
+
+      // 验证 action 按钮
+      const actionButton = screen.getByText('查看安装指南')
+      expect(actionButton).toBeInTheDocument()
+
+      // 验证关闭按钮
+      const closeButton = container.querySelector('.toast-close')
+      expect(closeButton).toBeInTheDocument()
+
+      // 点击 action 按钮
+      fireEvent.click(actionButton)
+      expect(onClick).toHaveBeenCalledTimes(1)
+    })
+
+    it('描述文本应该支持长文本', () => {
+      const longDescription = '这是一段很长很长很长很长很长很长很长很长很长很长的描述文本，用于测试长文本的显示效果'
+      const messages: ToastMessage[] = [
+        {
+          id: 'test-desc-4',
+          type: 'info',
+          message: '提示',
+          description: longDescription
+        }
+      ]
+      render(<ToastContainer messages={messages} onClose={vi.fn()} />)
+
+      expect(screen.getByText(longDescription)).toBeInTheDocument()
+    })
+
+    it('应该支持多个带描述的 Toast 同时显示', () => {
+      const messages: ToastMessage[] = [
+        {
+          id: 'test-desc-5',
+          type: 'success',
+          message: '导出成功',
+          description: '文件已保存到桌面'
+        },
+        {
+          id: 'test-desc-6',
+          type: 'info',
+          message: '提示',
+          description: '建议安装 Pandoc 以获得更好的导出效果'
+        }
+      ]
+      render(<ToastContainer messages={messages} onClose={vi.fn()} />)
+
+      expect(screen.getByText('导出成功')).toBeInTheDocument()
+      expect(screen.getByText('文件已保存到桌面')).toBeInTheDocument()
+      expect(screen.getByText('提示')).toBeInTheDocument()
+      expect(screen.getByText('建议安装 Pandoc 以获得更好的导出效果')).toBeInTheDocument()
+    })
+  })
 })

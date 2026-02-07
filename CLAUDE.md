@@ -1,7 +1,7 @@
 # MD Viewer - Claude 项目指令
 
 > **用途**：为 AI 助手（Claude Code、Cursor 等）提供项目上下文和开发规范
-> **最后更新**：2026-01-30
+> **最后更新**：2026-02-07
 
 ---
 
@@ -9,7 +9,7 @@
 
 **项目名称**：MD Viewer
 **类型**：Electron 桌面应用（Markdown 预览器）
-**当前版本**：v1.4.7 🔧 开发完成
+**当前版本**：v1.4.7 已发布 | v1.5.0 开发中
 **技术栈**：Electron 39 + React 19 + TypeScript 5.9 + Vite 7
 **GitHub**：https://github.com/wj2929/md-viewer
 
@@ -29,6 +29,8 @@
 - **目录自动滚动**（v1.4.4+）- 自动定位当前章节
 - **性能优化**（v1.4.5+）- 全屏轮询优化
 - **导出 HTML 所见即所得**（v1.4.7+）- 与预览 100% 一致
+- **ECharts 图表支持**（v1.5.0+）- echarts/js/json 代码块智能检测渲染
+- **导出 KaTeX CSS + CDN 降级**（v1.5.0+）- 国内 CDN 优先
 - Markdown 渲染（GitHub 风格）
 - 代码高亮 + 数学公式 + Mermaid 图表
 - 实时文件监听 + 自动刷新
@@ -132,7 +134,7 @@ git commit -m "feat(v1.4.2): 窗口置顶 + 字体调节 + 打印功能"
 npm test -- --run
 
 # 预期结果
-# ✅ 397 通过
+# ✅ 474 通过
 # ✅ 0 失败
 # ✅ 13 跳过（虚拟滚动已禁用）
 ```
@@ -162,11 +164,11 @@ git status
 | `scripts/README.md` | 脚本使用说明 |
 | `package.json` | 版本号 + npm scripts |
 
-### **外部文档**（在 `/Users/mac/Documents/test/testmd/`）
+### **外部文档**（在项目上级目录）
 | 文件 | 说明 |
 |------|------|
-| `PROGRESS.md` | **进度追踪**（最新状态 + 发布检查清单）|
-| `CONTEXT-RECOVERY.md` | **上下文恢复指南**（Token 耗尽时使用）|
+| `../PROGRESS.md` | **进度追踪**（最新状态 + 发布检查清单）|
+| `../CONTEXT-RECOVERY.md` | **上下文恢复指南**（Token 耗尽时使用）|
 
 ---
 
@@ -249,6 +251,7 @@ gh run list              # 查看 CI 状态
 | v1.4.5 | 2026-01-12 | 性能优化：全屏轮询修复 |
 | v1.4.6 | 2026-01-14 | Markdown 渲染修复 + 安全增强 |
 | **v1.4.7** | **2026-01-30** | **导出 HTML 所见即所得 + 文件监听修复** |
+| **v1.5.0** | **开发中** | **ECharts 图表支持 + KaTeX CDN 降级 + UI 增强** |
 
 ---
 
@@ -286,7 +289,7 @@ gh run list              # 查看 CI 状态
 ## 🤝 与 AI 协作建议
 
 ### **每次对话开始时**
-1. 先读取 `/Users/mac/Documents/test/testmd/PROGRESS.md` 了解最新状态
+1. 先读取项目上级目录的 `PROGRESS.md` 了解最新状态
 2. 如果 Token 耗尽恢复对话，使用 `CONTEXT-RECOVERY.md` 中的快速恢复指令
 
 ### **完成任务后**
@@ -301,4 +304,4 @@ gh run list              # 查看 CI 状态
 
 ---
 
-**最后更新**：2026-01-11
+**最后更新**：2026-02-07

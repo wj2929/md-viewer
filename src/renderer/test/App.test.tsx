@@ -41,6 +41,7 @@ const mockApi = {
   showMarkdownContextMenu: vi.fn().mockResolvedValue({ success: true }),
   onMarkdownExportHTML: vi.fn(() => vi.fn()),
   onMarkdownExportPDF: vi.fn(() => vi.fn()),
+  onMarkdownExportDOCX: vi.fn(() => vi.fn()),
   onMarkdownCopySource: vi.fn(() => vi.fn()),
   onMarkdownCopyPlainText: vi.fn(() => vi.fn()),
   onMarkdownCopyHTML: vi.fn(() => vi.fn()),
@@ -369,7 +370,7 @@ describe('App 集成测试', () => {
 
       await waitFor(() => {
         expect(mockApi.onFileDeleted).toHaveBeenCalled()
-        expect(mockApi.onFileStartRename).toHaveBeenCalled()
+        // onFileStartRename 已移至 FileTree 组件，App 不再监听
         expect(mockApi.onFileExportRequest).toHaveBeenCalled()
         expect(mockApi.onError).toHaveBeenCalled()
       })

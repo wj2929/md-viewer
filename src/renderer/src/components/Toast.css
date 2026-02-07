@@ -12,7 +12,7 @@
 
 .toast {
   display: flex;
-  align-items: center;
+  align-items: flex-start;  /* 改为顶部对齐，适配多行内容 */
   gap: 12px;
   min-width: 300px;
   max-width: 500px;
@@ -36,11 +36,26 @@
   border-radius: 50%;
   font-weight: bold;
   font-size: 14px;
+  margin-top: 2px;  /* 微调对齐，与第一行文字对齐 */
+}
+
+/* Toast 内容容器（支持标题+描述） */
+.toast-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .toast-message {
-  flex: 1;
   color: var(--text-primary);
+  font-weight: 500;  /* 标题稍微加粗 */
+}
+
+.toast-description {
+  color: var(--text-muted);
+  font-size: 13px;  /* 描述文字更小 */
+  line-height: 1.4;
 }
 
 .toast-action {
@@ -73,6 +88,7 @@
   cursor: pointer;
   font-size: 16px;
   padding: 0;
+  margin-top: 2px;  /* 微调对齐，与图标对齐 */
   transition: color 0.2s;
 }
 

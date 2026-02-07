@@ -12,6 +12,7 @@ export interface ToastMessage {
   id: string
   type: ToastType
   message: string
+  description?: string  // 可选的描述文本（显示在标题下方）
   duration?: number
   action?: ToastAction
 }
@@ -56,7 +57,12 @@ function Toast({ message, onClose }: ToastProps): JSX.Element {
   return (
     <div className={`toast toast-${message.type} ${isExiting ? 'toast-exit' : 'toast-enter'}`}>
       <span className="toast-icon">{icons[message.type]}</span>
-      <span className="toast-message">{message.message}</span>
+      <div className="toast-content">
+        <div className="toast-message">{message.message}</div>
+        {message.description && (
+          <div className="toast-description">{message.description}</div>
+        )}
+      </div>
       {message.action && (
         <button className="toast-action" onClick={handleAction}>
           {message.action.label}

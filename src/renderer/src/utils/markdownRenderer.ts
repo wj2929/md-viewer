@@ -24,6 +24,40 @@ import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
 
 /**
+ * 检测 JavaScript 代码块是否为 ECharts 配置
+ */
+function isEChartsConfig(code: string): boolean {
+  // 1. 检查注释中是否包含 "ECharts"（最明确的标志）
+  if (/\/\/.*ECharts|\/\*.*ECharts.*\*\//i.test(code)) {
+    return true
+  }
+
+  // 2. 尝试提取对象内容
+  // 匹配 const xxx = { ... } 或 var xxx = { ... } 或直接的 { ... }
+  const objectMatch = code.match(/(?:(?:const|var|let)\s+\w+\s*=\s*)?(\{[\s\S]*\})/)
+  if (!objectMatch) return false
+
+  const objectStr = objectMatch[1]
+
+  // 3. 检查是否包含 ECharts 特征属性
+  const echartsKeys = [
+    'title', 'series', 'xAxis', 'yAxis', 'tooltip',
+    'legend', 'grid', 'radar', 'dataZoom', 'visualMap'
+  ]
+
+  let matchCount = 0
+  for (const key of echartsKeys) {
+    // 匹配 key: 或 "key": 或 'key':
+    if (new RegExp(`['"]?${key}['"]?\\s*:`).test(objectStr)) {
+      matchCount++
+    }
+  }
+
+  // 如果匹配 2 个以上特征属性，认为是 ECharts 配置
+  return matchCount >= 2
+}
+
+/**
  * 创建配置完整的 markdown-it 实例（包含 KaTeX 和 Prism 支持）
  *
  * v1.4.6 架构变更:
@@ -40,6 +74,25 @@ export function createMarkdownRenderer(): MarkdownIt {
       // Mermaid 特殊处理：保留原始代码，标记为 mermaid（用于 HTML 导出时转换为 SVG）
       if (lang === 'mermaid') {
         return `<pre class="language-mermaid"><code class="language-mermaid">${md.utils.escapeHtml(str)}</code></pre>`
+      }
+
+      // ECharts 特殊处理：保留原始 JSON 配置（用于渲染和导出）
+      if (lang === 'echarts') {
+        return `<pre class="language-echarts"><code class="language-echarts">${md.utils.escapeHtml(str)}</code></pre>`
+      }
+
+      // 智能检测：JavaScript 代码块中的 ECharts 配置
+      if (lang === 'javascript' || lang === 'js') {
+        if (isEChartsConfig(str)) {
+          return `<pre class="language-echarts"><code class="language-echarts">${md.utils.escapeHtml(str)}</code></pre>`
+        }
+      }
+
+      // 智能检测：JSON 代码块中的 ECharts 配置
+      if (lang === 'json') {
+        if (isEChartsConfig(str)) {
+          return `<pre class="language-echarts"><code class="language-echarts">${md.utils.escapeHtml(str)}</code></pre>`
+        }
       }
 
       if (lang && Prism.languages[lang]) {
@@ -76,7 +129,7 @@ export function createMarkdownRenderer(): MarkdownIt {
       try {
         const html = katex.renderToString(latex, { throwOnError: false })
         const token = state.push('html_inline', '', 0)
-        token.content = html
+        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->`
       } catch (e) {
         const token = state.push('html_inline', '', 0)
         token.content = `<span class="katex-error">${latex}</span>`
@@ -105,7 +158,7 @@ export function createMarkdownRenderer(): MarkdownIt {
         try {
           const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
           const token = state.push('html_block', '', 0)
-          token.content = html + '\n'
+          token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->\n`
         } catch (e) {
           const token = state.push('html_block', '', 0)
           token.content = `<div class="katex-error">${latex}</div>\n`
@@ -143,7 +196,7 @@ export function createMarkdownRenderer(): MarkdownIt {
       try {
         const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
         const token = state.push('html_block', '', 0)
-        token.content = html + '\n'
+        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->\n`
       } catch (e) {
         const token = state.push('html_block', '', 0)
         token.content = `<div class="katex-error">${latex}</div>\n`
@@ -253,6 +306,9 @@ export const DOMPURIFY_CONFIG: DOMPurify.Config = {
     'x', 'y', 'x1', 'y1', 'x2', 'y2', 'rx', 'ry', 'cx', 'cy', 'r',
     'transform', 'aria-hidden', 'role', 'preserveAspectRatio',
 
+    // MathML 专用属性（KaTeX 需要）
+    'display', 'encoding', 'mathvariant', 'stretchy',
+
     // Mermaid 属性
     'data-mermaid-code',
 
@@ -328,7 +384,7 @@ export const DOMPURIFY_CONFIG: DOMPurify.Config = {
 
   // ========== URL 协议白名单 ==========
   // 只允许 https, http, mailto, tel 协议，禁止 javascript:, data:, file: 等危险协议
-  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|local-image):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
   FORBID_URI_REGEXP: /^(?:javascript|data|file|vbscript):/i,  // 明确禁止危险协议
 
   // ========== 安全选项 ==========
@@ -383,11 +439,28 @@ export function setupDOMPurifyHooks(): void {
     // Mermaid 相关
     'mermaid', 'language-mermaid',
 
-    // KaTeX 相关
+    // ECharts 相关
+    'echarts-container', 'echarts-error', 'language-echarts',
+
+    // KaTeX 相关（完整的 KaTeX 类白名单）
     'katex', 'katex-html', 'katex-mathml', 'katex-display', 'katex-error',
-    'base', 'strut', 'mord', 'mbin', 'mopen', 'mclose', 'mrel', 'mpunct',
-    'mspace', 'vlist', 'vlist-t', 'vlist-r', 'vlist-s', 'sizing', 'reset-size1',
-    'frac-line', 'mfrac', 'mtable', 'col-align-c', 'col-align-l', 'col-align-r'
+    'base', 'strut', 'pstrut',
+    // 数学元素类型
+    'mord', 'mbin', 'mopen', 'mclose', 'mrel', 'mpunct', 'mop', 'minner',
+    // 数学运算符（求和、连乘、极限等）
+    'op-symbol', 'large-op', 'small-op', 'op-limits',
+    // 上下标
+    'msupsub', 'vlist', 'vlist-t', 'vlist-t2', 'vlist-r', 'vlist-s',
+    // 字体和大小
+    'mspace', 'sizing', 'mathnormal', 'mtight',
+    // 分数和表格
+    'frac-line', 'mfrac', 'mtable', 'arraycolsep', 'col-align-c', 'col-align-l', 'col-align-r',
+    // 定界符
+    'delimsizing', 'delimcenter', 'nulldelimiter', 'delim-size1', 'delim-size2', 'delim-size3', 'delim-size4',
+    // 根号
+    'sqrt', 'root', 'hide-tail', 'svg-align',
+    // 重音符号
+    'accent', 'accent-body', 'overlay'
   ])
 
   // 危险的 id 值（防止 DOM Clobbering）
@@ -481,11 +554,37 @@ export function setupDOMPurifyHooks(): void {
 /**
  * 导出统一的 HTML 消毒函数
  *
+ * KaTeX 生成的 HTML 由 katex.renderToString() 本地产生（非用户输入），
+ * 其 style 属性包含精确的 em 定位值（如 top:-3.063em），会被 DOMPurify
+ * 的 ALLOWED_STYLES 正则和 DANGEROUS_STYLE_PROPS 过滤掉，导致公式布局崩溃。
+ * 因此在 sanitize 前将 KaTeX 块提取为占位符，sanitize 后还原。
+ *
  * @param html - 原始 HTML 字符串
  * @returns 消毒后的安全 HTML
  * @version v1.4.6
  */
 export function sanitizeHtml(html: string): string {
-  return DOMPurify.sanitize(html, DOMPURIFY_CONFIG)
+  const katexBlocks: string[] = []
+  const KATEX_RE = /<!--KATEX_START-->([\s\S]*?)<!--KATEX_END-->/g
+
+  // 提取 KaTeX 块，用占位符替换
+  const processed = html.replace(KATEX_RE, (_match, content) => {
+    const idx = katexBlocks.length
+    katexBlocks.push(content)
+    return `<span data-katex-placeholder="${idx}"></span>`
+  })
+
+  // 对非 KaTeX 部分进行 sanitize
+  let sanitized = DOMPurify.sanitize(processed, DOMPURIFY_CONFIG)
+
+  // 还原 KaTeX 块
+  for (let i = 0; i < katexBlocks.length; i++) {
+    sanitized = sanitized.replace(
+      `<span data-katex-placeholder="${i}"></span>`,
+      katexBlocks[i]
+    )
+  }
+
+  return sanitized
 }
 

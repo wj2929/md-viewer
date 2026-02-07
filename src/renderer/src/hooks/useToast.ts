@@ -4,6 +4,7 @@ import { ToastMessage, ToastType, ToastAction } from '../components/Toast'
 let toastId = 0
 
 export interface ToastOptions {
+  description?: string  // 可选的描述文本
   duration?: number
   action?: ToastAction
 }
@@ -17,6 +18,7 @@ export function useToast() {
       id,
       type,
       message,
+      description: options?.description,
       duration: options?.duration,
       action: options?.action
     }])

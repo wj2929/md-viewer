@@ -110,6 +110,25 @@ describe('markdownRenderer 工具函数测试', () => {
       const result = md.render('```\n<div>test</div>\n```')
       expect(result).toContain('&lt;div&gt;')
     })
+
+    it('应该将 JS 代码块中的 ECharts 配置标记为 language-echarts', () => {
+      const code = '```javascript\n// ECharts\nconst option = { title: { text: "Test" }, series: [{ type: "bar" }] }\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-echarts')
+    })
+
+    it('应该将 JSON 代码块中的 ECharts 配置标记为 language-echarts', () => {
+      const code = '```json\n{\n  "title": { "text": "Test" },\n  "series": [{ "type": "bar" }],\n  "xAxis": { "type": "category" }\n}\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-echarts')
+    })
+
+    it('应该保持普通 JSON 代码块为 language-json', () => {
+      const code = '```json\n{\n  "name": "test",\n  "version": "1.0.0"\n}\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-json')
+      expect(result).not.toContain('language-echarts')
+    })
   })
 
   describe('行内数学公式（KaTeX）', () => {

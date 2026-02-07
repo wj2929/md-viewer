@@ -3,9 +3,13 @@ import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import MarkdownIt from 'markdown-it'
 import mermaid from 'mermaid'
 import debounce from 'lodash.debounce'
+import Prism from 'prismjs'
 
 // v1.4.6: 使用统一的渲染器配置
 import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
+
+// v1.5.0: ECharts 图表支持
+import { echarts, validateEChartsConfig, optimizeEChartsConfig } from '../utils/echartsRenderer'
 
 // v1.4.0: 页面内搜索
 import { useInPageSearch } from '../hooks/useInPageSearch'
@@ -158,9 +162,11 @@ function splitBySections(content: string, md: MarkdownIt): Section[] {
  */
 const SectionRenderer = memo(function SectionRenderer({
   section,
+  filePath,
   onMermaidRender
 }: {
   section: Section
+  filePath?: string
   onMermaidRender: (container: HTMLDivElement) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -170,6 +176,41 @@ const SectionRenderer = memo(function SectionRenderer({
       onMermaidRender(containerRef.current)
     }
   }, [section.hasMermaid, onMermaidRender])
+
+  // 本地图片路径转换
+  useEffect(() => {
+    if (!containerRef.current || !filePath) return
+
+    const images = containerRef.current.querySelectorAll('img')
+    images.forEach((img) => {
+      const src = img.getAttribute('src')
+      if (!src) return
+      if (
+        src.startsWith('local-image://') ||
+        src.startsWith('http://') ||
+        src.startsWith('https://') ||
+        src.startsWith('data:') ||
+        src.startsWith('blob:')
+      ) {
+        return
+      }
+      const dir = filePath.substring(0, filePath.lastIndexOf('/'))
+      let absolutePath: string
+      if (src.startsWith('/')) {
+        absolutePath = src
+      } else {
+        absolutePath = dir + '/' + src
+      }
+      const parts = absolutePath.split('/')
+      const normalized: string[] = []
+      for (const part of parts) {
+        if (part === '..') normalized.pop()
+        else if (part !== '.' && part !== '') normalized.push(part)
+      }
+      absolutePath = '/' + normalized.join('/')
+      img.setAttribute('src', `local-image://${absolutePath}`)
+    })
+  }, [section.html, filePath])
 
   return (
     <div
@@ -210,6 +251,37 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
       console.error('[VirtualizedMarkdown] Failed to show context menu:', error)
     })
   }, [filePath])
+
+  // 统一的链接点击处理（覆盖虚拟滚动和非虚拟滚动路径）
+  const handleLinkClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    const anchor = target.closest('a')
+    if (!anchor) return
+
+    const href = anchor.getAttribute('href')
+    if (!href) return
+
+    // 锚点链接：页内跳转
+    if (href.startsWith('#')) {
+      e.preventDefault()
+      const targetId = decodeURIComponent(href.slice(1))
+      const targetElement = document.getElementById(targetId)
+      if (targetElement) {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+      return
+    }
+
+    // 外部链接：系统浏览器打开
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      e.preventDefault()
+      window.api.openExternal(href)
+      return
+    }
+
+    // 其他链接：阻止默认导航，防止白屏
+    e.preventDefault()
+  }, [])
 
   // v1.4.6: 初始化 DOMPurify hooks（仅一次）
   useEffect(() => {
@@ -276,6 +348,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
         content={content}
         md={md}
         className={className}
+        filePath={filePath}
         onContextMenu={handleContextMenu}
       />
     )
@@ -286,6 +359,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
     <div
       className={`markdown-body virtualized ${className}`}
       onContextMenu={handleContextMenu}
+      onClick={handleLinkClick}
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
     >
       <div className="virtualized-info">
@@ -299,6 +373,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
           <SectionRenderer
             key={section.id}
             section={section}
+            filePath={filePath}
             onMermaidRender={handleMermaidRender}
           />
         )}
@@ -318,11 +393,13 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   content,
   md,
   className,
+  filePath,
   onContextMenu
 }: {
   content: string
   md: MarkdownIt
   className: string
+  filePath?: string
   onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -445,6 +522,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         ref={containerRef}
         html={html}
         className={className}
+        filePath={filePath}
         onContextMenu={onContextMenu}
       />
     </>
@@ -459,8 +537,9 @@ const MarkdownContent = memo(
   forwardRef<HTMLDivElement, {
     html: string
     className: string
+    filePath?: string
     onContextMenu?: (e: React.MouseEvent) => void
-  }>(function MarkdownContent({ html, className, onContextMenu }, ref) {
+  }>(function MarkdownContent({ html, className, filePath, onContextMenu }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
 
@@ -470,6 +549,44 @@ const MarkdownContent = memo(
         combinedRef.current.innerHTML = html
       }
     }, [html])
+
+    // 本地图片路径转换：将相对路径转为 local-image:// 协议
+    useEffect(() => {
+      if (!combinedRef.current || !filePath) return
+
+      const images = combinedRef.current.querySelectorAll('img')
+      images.forEach((img) => {
+        const src = img.getAttribute('src')
+        if (!src) return
+        // 跳过已处理的、网络图片、data URI、blob
+        if (
+          src.startsWith('local-image://') ||
+          src.startsWith('http://') ||
+          src.startsWith('https://') ||
+          src.startsWith('data:') ||
+          src.startsWith('blob:')
+        ) {
+          return
+        }
+        // 基于当前 Markdown 文件所在目录解析相对路径
+        const dir = filePath.substring(0, filePath.lastIndexOf('/'))
+        let absolutePath: string
+        if (src.startsWith('/')) {
+          absolutePath = src
+        } else {
+          absolutePath = dir + '/' + src
+        }
+        // 路径规范化（处理 ../ 和 ./）
+        const parts = absolutePath.split('/')
+        const normalized: string[] = []
+        for (const part of parts) {
+          if (part === '..') normalized.pop()
+          else if (part !== '.' && part !== '') normalized.push(part)
+        }
+        absolutePath = '/' + normalized.join('/')
+        img.setAttribute('src', `local-image://${absolutePath}`)
+      })
+    }, [html, filePath])
 
     // Mermaid 图表渲染
     useEffect(() => {
@@ -502,7 +619,17 @@ const MarkdownContent = memo(
           const { svg } = await mermaid.render(id, code)
           const wrapper = document.createElement('div')
           wrapper.className = 'mermaid-container'
+          // 存储原始代码用于复制
+          wrapper.dataset.mermaidCode = btoa(unescape(encodeURIComponent(code)))
           wrapper.innerHTML = svg
+
+          // v1.5.2: 添加复制按钮
+          const copyBtn = document.createElement('button')
+          copyBtn.className = 'copy-btn no-export'
+          copyBtn.textContent = '复制'
+          copyBtn.title = '复制 Mermaid 代码'
+          wrapper.appendChild(copyBtn)
+
           block.replaceWith(wrapper)
         } catch {
           // 渲染失败时显示原始代码
@@ -512,6 +639,179 @@ const MarkdownContent = memo(
           block.replaceWith(wrapper)
         }
       })
+    }, [html])
+
+    // v1.5.1: ECharts 图表渲染（支持图表/代码切换）
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const echartsBlocks = combinedRef.current.querySelectorAll('pre.language-echarts')
+      if (echartsBlocks.length === 0) return
+
+      // 存储实例用于清理
+      const charts: echarts.ECharts[] = []
+      const observers: ResizeObserver[] = []
+
+      echartsBlocks.forEach((block, index) => {
+        const config = block.textContent || ''
+
+        const validation = validateEChartsConfig(config)
+        if (!validation.valid) {
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'echarts-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">ECharts 配置错误</div>
+            <div class="error-message">${validation.error}</div>
+          `
+          block.replaceWith(errorDiv)
+          return
+        }
+
+        try {
+          // 创建包装容器
+          const wrapper = document.createElement('div')
+          wrapper.className = 'echarts-wrapper'
+
+          // 存储原始配置（Base64 编码避免 HTML 转义问题）
+          wrapper.dataset.echartsConfig = btoa(unescape(encodeURIComponent(config)))
+
+          // 创建切换按钮栏
+          const toggleBar = document.createElement('div')
+          toggleBar.className = 'echarts-toggle-bar no-export'
+          toggleBar.innerHTML = `
+            <button class="echarts-toggle-btn active" data-mode="chart">
+              📊 图表
+            </button>
+            <button class="echarts-toggle-btn" data-mode="code">
+              💻 代码
+            </button>
+          `
+
+          // 创建图表容器
+          const chartContainer = document.createElement('div')
+          chartContainer.className = 'echarts-container'
+          chartContainer.dataset.view = 'chart'
+          chartContainer.style.width = '100%'
+          chartContainer.style.height = '400px'
+          chartContainer.dataset.echartsIndex = String(index)
+
+          // 创建代码视图容器
+          const codeView = document.createElement('div')
+          codeView.className = 'echarts-code-view'
+          codeView.dataset.view = 'code'
+          codeView.style.display = 'none'
+
+          // 创建复制按钮（使用统一的 .copy-btn 类）
+          const copyButton = document.createElement('button')
+          copyButton.className = 'copy-btn no-export'
+          copyButton.textContent = '复制'
+          copyButton.title = '复制 ECharts 代码'
+          codeView.appendChild(copyButton)
+
+          // 使用 Prism 高亮代码
+          const codeElement = document.createElement('code')
+
+          // 检测配置格式（JSON 或 JavaScript）
+          let language = 'javascript'
+          try {
+            JSON.parse(config)
+            language = 'json'
+          } catch {
+            // 保持 javascript
+          }
+          codeElement.className = `language-${language}`
+
+          // 使用 Prism 高亮
+          if (Prism.languages[language]) {
+            codeElement.innerHTML = Prism.highlight(config, Prism.languages[language], language)
+          } else {
+            codeElement.textContent = config
+          }
+
+          const preElement = document.createElement('pre')
+          preElement.className = `language-${language}`
+          preElement.appendChild(codeElement)
+          codeView.appendChild(preElement)
+
+          // 组装结构
+          wrapper.appendChild(toggleBar)
+          wrapper.appendChild(chartContainer)
+          wrapper.appendChild(codeView)
+
+          block.replaceWith(wrapper)
+
+          // 初始化 ECharts（在 chartContainer 中）
+          const chart = echarts.init(chartContainer, null, { renderer: 'svg' })
+          chart.setOption(optimizeEChartsConfig(validation.parsed!))
+          charts.push(chart)
+
+          // 响应式调整
+          const resizeObserver = new ResizeObserver(() => {
+            chart.resize()
+          })
+          resizeObserver.observe(chartContainer)
+          observers.push(resizeObserver)
+        } catch (error) {
+          console.error('[ECharts] 渲染失败:', error)
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'echarts-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">ECharts 渲染失败</div>
+            <div class="error-message">${(error as Error).message}</div>
+          `
+          // 如果 block 还在 DOM 中，替换它
+          if (block.parentNode) {
+            block.replaceWith(errorDiv)
+          }
+        }
+      })
+
+      // 清理函数：防止内存泄漏
+      return () => {
+        charts.forEach((chart) => {
+          try {
+            chart.dispose()
+          } catch (e) {
+            console.warn('[ECharts] dispose error:', e)
+          }
+        })
+        observers.forEach((observer) => observer.disconnect())
+      }
+    }, [html])
+
+    // v1.5.1: ECharts 切换按钮点击事件处理
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleToggleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+        const btn = target.closest('.echarts-toggle-btn')
+        if (!btn) return
+
+        const mode = btn.getAttribute('data-mode')
+        const wrapper = btn.closest('.echarts-wrapper')
+        if (!wrapper || !mode) return
+
+        // 切换按钮激活状态
+        wrapper.querySelectorAll('.echarts-toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
+        })
+
+        // 切换视图显示
+        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+        const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+        if (mode === 'chart') {
+          if (chartView) chartView.style.display = ''
+          if (codeView) codeView.style.display = 'none'
+        } else {
+          if (chartView) chartView.style.display = 'none'
+          if (codeView) codeView.style.display = ''
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleToggleClick)
+      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
     }, [html])
 
     // 为标题添加 id 属性
@@ -554,19 +854,129 @@ const MarkdownContent = memo(
         if (!anchor) return
 
         const href = anchor.getAttribute('href')
-        if (!href || !href.startsWith('#')) return
+        if (!href) return
 
-        e.preventDefault()
-        const targetId = decodeURIComponent(href.slice(1))
-        const targetElement = document.getElementById(targetId)
-
-        if (targetElement) {
-          targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        // 1. 锚点链接：页内跳转
+        if (href.startsWith('#')) {
+          e.preventDefault()
+          const targetId = decodeURIComponent(href.slice(1))
+          const targetElement = document.getElementById(targetId)
+          if (targetElement) {
+            targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+          return
         }
+
+        // 2. 外部链接：系统浏览器打开
+        if (href.startsWith('http://') || href.startsWith('https://')) {
+          e.preventDefault()
+          window.api.openExternal(href)
+          return
+        }
+
+        // 3. 其他链接（相对路径等）：阻止默认导航，防止白屏
+        e.preventDefault()
       }
 
       combinedRef.current.addEventListener('click', handleClick)
       return () => combinedRef.current?.removeEventListener('click', handleClick)
+    }, [html])
+
+    // v1.5.2: 为普通代码块添加复制按钮
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      // 查找所有 pre > code 代码块，排除 Mermaid 和 ECharts（它们有自己的复制按钮）
+      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts)')
+
+      codeBlocks.forEach((pre) => {
+        // 跳过已经有复制按钮的代码块
+        if (pre.querySelector('.copy-btn')) return
+        // 跳过 ECharts 代码视图中的代码块（已有复制按钮）
+        if (pre.closest('.echarts-code-view')) return
+
+        const code = pre.querySelector('code')
+        if (!code) return
+
+        // 设置 pre 为相对定位以支持绝对定位的按钮
+        ;(pre as HTMLElement).style.position = 'relative'
+
+        // 创建复制按钮
+        const copyBtn = document.createElement('button')
+        copyBtn.className = 'copy-btn no-export'
+        copyBtn.textContent = '复制'
+        copyBtn.title = '复制代码'
+
+        pre.appendChild(copyBtn)
+      })
+    }, [html])
+
+    // v1.5.2: 统一处理所有复制按钮的点击事件（事件委托）
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleCopyClick = async (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+        if (!target.classList.contains('copy-btn')) return
+
+        e.preventDefault()
+        e.stopPropagation()
+
+        let textToCopy = ''
+
+        // 判断复制按钮所在的容器类型
+        const mermaidContainer = target.closest('.mermaid-container')
+        const echartsCodeView = target.closest('.echarts-code-view')
+        const preBlock = target.closest('pre')
+
+        if (mermaidContainer) {
+          // Mermaid 图表：从 data-mermaid-code 属性获取原始代码
+          const base64Code = mermaidContainer.getAttribute('data-mermaid-code')
+          if (base64Code) {
+            try {
+              textToCopy = decodeURIComponent(escape(atob(base64Code)))
+            } catch {
+              textToCopy = ''
+            }
+          }
+        } else if (echartsCodeView) {
+          // ECharts 代码视图：从 wrapper 的 data-echarts-config 获取
+          const wrapper = echartsCodeView.closest('.echarts-wrapper')
+          const base64Config = wrapper?.getAttribute('data-echarts-config')
+          if (base64Config) {
+            try {
+              textToCopy = decodeURIComponent(escape(atob(base64Config)))
+            } catch {
+              textToCopy = ''
+            }
+          }
+        } else if (preBlock) {
+          // 普通代码块：获取 code 元素的纯文本内容
+          const code = preBlock.querySelector('code')
+          textToCopy = code?.textContent || preBlock.textContent || ''
+        }
+
+        if (!textToCopy) return
+
+        try {
+          await navigator.clipboard.writeText(textToCopy)
+          target.textContent = '已复制'
+          target.classList.add('copied')
+          setTimeout(() => {
+            target.textContent = '复制'
+            target.classList.remove('copied')
+          }, 2000)
+        } catch (err) {
+          console.error('复制失败:', err)
+          target.textContent = '失败'
+          setTimeout(() => {
+            target.textContent = '复制'
+          }, 2000)
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleCopyClick)
+      return () => combinedRef.current?.removeEventListener('click', handleCopyClick)
     }, [html])
 
     return (

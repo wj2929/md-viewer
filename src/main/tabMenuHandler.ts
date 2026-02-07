@@ -69,15 +69,16 @@ export function showTabContextMenu(window: BrowserWindow, ctx: TabMenuContext): 
     },
     { type: 'separator' },
     {
-      label: '在 Finder 中显示',
+      label: process.platform === 'darwin' ? '在 Finder 中显示' : process.platform === 'win32' ? '在资源管理器中显示' : '在文件管理器中显示',
       accelerator: 'CmdOrCtrl+Shift+R',
       click: () => {
+        const folderLabel = process.platform === 'darwin' ? 'Finder' : process.platform === 'win32' ? '资源管理器' : '文件管理器'
         try {
           shell.showItemInFolder(filePath)
         } catch (error) {
           console.error('[TAB_MENU] Failed to show in folder:', error)
           window.webContents.send('error:show', {
-            message: `无法在 Finder 中显示：${error instanceof Error ? error.message : '未知错误'}`
+            message: `无法在 ${folderLabel} 中显示：${error instanceof Error ? error.message : '未知错误'}`
           })
         }
       }

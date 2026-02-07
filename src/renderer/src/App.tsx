@@ -72,6 +72,10 @@ function App(): React.JSX.Element {
 
   // v1.4.2：初始化 Zustand stores
   useEffect(() => {
+    // 注入平台信息到 body，供 CSS 平台选择器使用
+    const platform = window.api?.platform || 'darwin'
+    document.body.setAttribute('data-platform', platform)
+
     // 初始化窗口状态
     initWindowStore()
     // 初始化 UI 状态（应用 CSS 变量）
@@ -85,11 +89,18 @@ function App(): React.JSX.Element {
     }
   }, [initWindowStore, applyCSSVariable, syncAlwaysOnTop])
 
-  // v1.4.3：全屏查看快捷键监听（Cmd+F11 进入，ESC 退出）
+  // v1.4.3：全屏查看快捷键监听（macOS: Cmd+F11, Win/Linux: F11, ESC 退出）
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
-      // Cmd+F11 切换全屏（macOS 风格）
-      if (e.metaKey && e.key === 'F11') {
+      const isMac = window.api?.platform === 'darwin'
+
+      // macOS: Cmd+F11（避免与系统"显示桌面"冲突）
+      // Windows/Linux: F11（符合 Chrome/VS Code 用户习惯）
+      const isFullscreenToggle = isMac
+        ? (e.metaKey && e.key === 'F11')
+        : (e.key === 'F11' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey)
+
+      if (isFullscreenToggle) {
         e.preventDefault()
         const currentFullScreen = await window.api.isFullScreen()
         setIsFullscreen(!currentFullScreen)
@@ -190,7 +201,7 @@ function App(): React.JSX.Element {
           for (const pinned of pinnedTabs) {
             try {
               const content = await readFileWithCache(pinned.path)
-              const fileName = pinned.path.split('/').pop() || ''
+              const fileName = pinned.path.split(/[/\\]/).pop() || ''
               newTabs.push({
                 id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 file: { name: fileName, path: pinned.path, isDirectory: false },
@@ -234,7 +245,7 @@ function App(): React.JSX.Element {
           const content = await window.api.readFile(data.path)
           const md = createMarkdownRenderer()
           let htmlContent = md.render(content)
-          const fileName = data.path.split('/').pop() || 'export'
+          const fileName = data.path.split(/[/\\]/).pop() || 'export'
 
           // 将 Mermaid 代码块转换为 SVG
           htmlContent = await processMermaidInHtml(htmlContent)
@@ -339,7 +350,7 @@ function App(): React.JSX.Element {
       for (const pinned of pinnedTabs) {
         try {
           const content = await readFileWithCache(pinned.path)
-          const fileName = pinned.path.split('/').pop() || ''
+          const fileName = pinned.path.split(/[/\\]/).pop() || ''
           newTabs.push({
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             file: { name: fileName, path: pinned.path, isDirectory: false },
@@ -389,9 +400,9 @@ function App(): React.JSX.Element {
   // v1.3.6：从最近文件选择
   const handleSelectRecentFile = useCallback(async (filePath: string) => {
     // 提取文件夹路径
-    const parts = filePath.split('/')
-    const fileName = parts.pop() || ''
-    const fileFolder = parts.join('/')
+    const sepIndex = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+    const fileName = sepIndex >= 0 ? filePath.slice(sepIndex + 1) : filePath
+    const fileFolder = sepIndex >= 0 ? filePath.slice(0, sepIndex) : ''
 
     // 如果当前没有打开文件夹，或者文件不在当前文件夹中
     if (!folderPath || !filePath.startsWith(folderPath)) {
@@ -412,7 +423,7 @@ function App(): React.JSX.Element {
             if (pinned.path === filePath) continue // 跳过目标文件，后面单独处理
             try {
               const content = await readFileWithCache(pinned.path)
-              const name = pinned.path.split('/').pop() || ''
+              const name = pinned.path.split(/[/\\]/).pop() || ''
               restoredTabs.push({
                 id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 file: { name, path: pinned.path, isDirectory: false },
@@ -732,7 +743,7 @@ function App(): React.JSX.Element {
 
       try {
         // 获取文件名
-        const fileName = filePath.split('/').pop() || ''
+        const fileName = filePath.split(/[/\\]/).pop() || ''
 
         // 获取滚动位置（如果没有标题信息）
         let scrollPosition: number | undefined
@@ -837,7 +848,7 @@ function App(): React.JSX.Element {
 
     if (needSwitchFolder) {
       // 先切换到书签文件所在的文件夹
-      toast.info(`正在切换到：${bookmarkDir.split('/').pop()}`)
+      toast.info(`正在切换到：${bookmarkDir.split(/[/\\]/).pop()}`)
 
       try {
         // 1. 设置新的文件夹路径
@@ -1072,7 +1083,7 @@ function App(): React.JSX.Element {
             file: {
               ...tab.file,
               path: newPath,
-              name: newPath.split('/').pop() || tab.file.name
+              name: newPath.split(/[/\\]/).pop() || tab.file.name
             }
           }
         }
@@ -1154,7 +1165,7 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const cleanup = window.api.onOpenSpecificFile(async (filePath: string) => {
       console.log('[App] Open specific file:', filePath)
-      const fileName = filePath.split('/').pop() || filePath
+      const fileName = filePath.split(/[/\\]/).pop() || filePath
       const file: FileInfo = { name: fileName, path: filePath, isDirectory: false }
       await handleFileSelect(file)
     })
@@ -1426,7 +1437,7 @@ function App(): React.JSX.Element {
   }, [activeTab, toast])
 
   // 导出 DOCX (v1.5.0) - 支持图表导出
-  const handleExportDOCX = useCallback(async () => {
+  const handleExportDOCX = useCallback(async (docStyle?: string) => {
     if (!activeTab) return
 
     try {
@@ -1624,11 +1635,17 @@ function App(): React.JSX.Element {
 
           // 使用更精确的检测逻辑
           if (shouldConvertToImage(pre, text)) {
+            console.log(`[DOCX Export] 检测到 ASCII 艺术，长度: ${text.length}，前 50 字符: ${text.substring(0, 50).replace(/\n/g, '\\n')}`)
             const promise = (async () => {
               try {
                 // 调用主进程截图
                 const result = await window.api.renderCodeBlockToPng(text)
                 if (result.success && result.data) {
+                  // 检查 base64 数据长度（过小可能是空白图片）
+                  if (result.data.length < 200) {
+                    console.warn(`[DOCX Export] 截图数据过小 (${result.data.length} chars)，可能是空白图片，保留原始代码块`)
+                    return
+                  }
                   // 创建 img 元素替换代码块
                   const img = document.createElement('img')
                   img.src = `data:image/png;base64,${result.data}`
@@ -1639,10 +1656,12 @@ function App(): React.JSX.Element {
                     img.height = result.height
                   }
                   pre.replaceWith(img)
-                  console.log(`[DOCX Export] ASCII 艺术已转换为 PNG: ${result.width}x${result.height}`)
+                  console.log(`[DOCX Export] ASCII 艺术已转换为 PNG: ${result.width}x${result.height}, base64 长度: ${result.data.length}`)
+                } else {
+                  console.warn(`[DOCX Export] 截图返回失败: ${result.error || '未知错误'}，保留原始代码块`)
                 }
               } catch (err) {
-                console.error('[DOCX Export] 代码块截图失败:', err)
+                console.error('[DOCX Export] 代码块截图失败:', err instanceof Error ? err.message : err)
                 // 失败时保留原始代码块
               }
             })()
@@ -1671,7 +1690,8 @@ function App(): React.JSX.Element {
         htmlContent,
         activeTab.file.name,
         folderPath || '',
-        activeTab.content  // 传递 markdown 作为回退
+        activeTab.content,  // 传递 markdown 作为回退
+        docStyle
       )
 
       if (result) {
@@ -1680,9 +1700,10 @@ function App(): React.JSX.Element {
         // 处理导出成功提示
         if (usedPandoc) {
           // 使用 Pandoc 导出（高质量）
+          const styleLabel = docStyle === 'gongwen' ? '公文格式' : 'Pandoc 高质量'
           const message = warnings && warnings.length > 0
-            ? `Word 已导出（Pandoc 高质量）（${warnings.length} 个警告）`
-            : 'Word 已导出（Pandoc 高质量）'
+            ? `Word 已导出（${styleLabel}）（${warnings.length} 个警告）`
+            : `Word 已导出（${styleLabel}）`
 
           toast.success(message, {
             action: {
@@ -1698,31 +1719,11 @@ function App(): React.JSX.Element {
           })
         } else {
           // 使用 docx 库导出（基础质量）
-          const hasShownPandocTip = localStorage.getItem('pandoc-tip-shown')
+          const pandocPromptChoice = localStorage.getItem('pandoc-prompt-choice')
 
-          if (!hasShownPandocTip) {
-            // 首次使用 docx 库，显示 Pandoc 安装提示
-            toast.success('Word 已导出（基础质量）', {
-              action: {
-                label: '了解 Pandoc',
-                onClick: async () => {
-                  try {
-                    await window.api.openExternal('https://pandoc.org/installing.html')
-                  } catch (error) {
-                    console.error('Failed to open external URL:', error)
-                    toast.error('无法打开链接')
-                  }
-                }
-              }
-            })
-            localStorage.setItem('pandoc-tip-shown', 'true')
-          } else {
-            // 后续使用，简单提示
-            const message = warnings && warnings.length > 0
-              ? `Word 已导出（基础质量）（${warnings.length} 个警告）`
-              : 'Word 已导出（基础质量）'
-
-            toast.success(message, {
+          if (pandocPromptChoice === 'never') {
+            // 用户选择了"不再提示"，只显示导出成功
+            toast.success('✅ 导出成功', {
               action: {
                 label: '点击查看',
                 onClick: async () => {
@@ -1730,6 +1731,24 @@ function App(): React.JSX.Element {
                     await window.api.showItemInFolder(filePath)
                   } catch (error) {
                     console.error('Failed to show item:', error)
+                  }
+                }
+              }
+            })
+          } else {
+            // 首次或用户未选择"不再提示"，显示 Pandoc 安装建议
+            // 使用 description 字段实现两行显示
+            toast.success('✅ 导出成功', {
+              description: '💡 安装 Pandoc 可支持数学公式和复杂表格',
+              duration: 10000, // 10秒，给用户足够时间阅读
+              action: {
+                label: '查看安装指南',
+                onClick: async () => {
+                  try {
+                    await window.api.openExternal('https://pandoc.org/installing.html')
+                  } catch (error) {
+                    console.error('Failed to open external URL:', error)
+                    toast.error('无法打开链接')
                   }
                 }
               }
@@ -1873,8 +1892,8 @@ function App(): React.JSX.Element {
       handleExportPDF()
     })
 
-    const unsubscribeExportDOCX = window.api.onMarkdownExportDOCX(() => {
-      handleExportDOCX()
+    const unsubscribeExportDOCX = window.api.onMarkdownExportDOCX((docStyle?: string) => {
+      handleExportDOCX(docStyle)
     })
 
     const unsubscribeCopySource = window.api.onMarkdownCopySource(() => {

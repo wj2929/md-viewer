@@ -119,6 +119,7 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
   const displayStatus = getDisplayStatus()
   const isMacOS = status?.platform === 'darwin'
   const needsManualEnable = isMacOS && status?.installed && !status?.userConfirmedEnabled
+  const fileManagerName = status?.platform === 'darwin' ? 'Finder' : status?.platform === 'win32' ? '资源管理器' : '文件管理器'
 
   return (
     <>
@@ -135,7 +136,7 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                 <div className="setting-info">
                   <h4>🔗 右键菜单</h4>
                   <p className="setting-description">
-                    在 Finder 中右键文件或文件夹，快速用 MD Viewer 打开。
+                    在 {fileManagerName} 中右键文件或文件夹，快速用 MD Viewer 打开。
                   </p>
                   <div className={`status-indicator ${displayStatus.color}`}>
                     <span>{displayStatus.icon}</span>
@@ -177,8 +178,8 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
               <section className="usage-instructions">
                 <h4>📖 使用说明</h4>
                 <ol>
-                  <li>安装后，在 Finder 中右键点击 .md 文件或文件夹</li>
-                  <li>选择「快速操作」→「用 MD Viewer 打开」</li>
+                  <li>安装后，在 {fileManagerName} 中右键点击 .md 文件或文件夹</li>
+                  <li>{isMacOS ? '选择「快速操作」→「用 MD Viewer 打开」' : '选择「用 MD Viewer 打开」'}</li>
                   {isMacOS && <li className="highlight">⚠️ macOS 需在系统设置中手动启用 Finder 扩展</li>}
                 </ol>
               </section>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, dialog, session, Menu, clipboard, MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, session, Menu, clipboard, MenuItemConstructorOptions, protocol, net } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as fs from 'fs-extra'
@@ -6,7 +6,7 @@ import * as path from 'path'
 import * as os from 'os'
 import Store from 'electron-store'
 import chokidar from 'chokidar'
-import { setAllowedBasePath, getAllowedBasePath, validateSecurePath, validatePath } from './security'
+import { setAllowedBasePath, getAllowedBasePath, validateSecurePath, validatePath, isPathAllowed } from './security'
 import { showContextMenu } from './contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from './tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from './markdownMenuHandler'
@@ -66,8 +66,12 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 15, y: 10 },
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 15, y: 10 }
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,  // ✅ 启用 Chromium 沙箱
@@ -117,6 +121,17 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // 拦截所有页面内导航，防止 BrowserWindow 被外部链接劫持
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // 允许开发模式下的 Vite HMR 刷新
+    if (is.dev && url.startsWith(process.env['ELECTRON_RENDERER_URL'] || '')) {
+      return
+    }
+    // 阻止所有其他导航（外部链接由渲染进程通过 IPC 用系统浏览器打开）
+    event.preventDefault()
+    console.log('[MAIN] Blocked navigation to:', url)
   })
 
   // 开发环境加载 dev server，生产环境加载打包文件
@@ -180,31 +195,75 @@ function openPathInWindow(targetPath: string, type: 'md-file' | 'directory'): vo
 }
 
 // macOS: 处理 open-file 事件（在 app ready 之前也可能触发）
-app.on('open-file', async (event, filePath) => {
-  event.preventDefault()
-  console.log('[macOS] open-file event received:', filePath)
-  console.log('[macOS] mainWindow exists:', !!mainWindow)
-  console.log('[macOS] app.isReady:', app.isReady())
-  await handleLaunchArgs([filePath])
-})
+if (process.platform === 'darwin') {
+  app.on('open-file', async (event, filePath) => {
+    event.preventDefault()
+    console.log('[macOS] open-file event received:', filePath)
+    console.log('[macOS] mainWindow exists:', !!mainWindow)
+    console.log('[macOS] app.isReady:', app.isReady())
+    await handleLaunchArgs([filePath])
+  })
 
-// macOS: 处理 open-url 事件
-app.on('open-url', async (event, url) => {
-  event.preventDefault()
-  console.log('[macOS] open-url event:', url)
-})
+  // macOS: 处理 open-url 事件
+  app.on('open-url', async (event, url) => {
+    event.preventDefault()
+    console.log('[macOS] open-url event:', url)
+  })
+}
+
+// 注册 local-image 自定义协议（必须在 app.whenReady 之前）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-image',
+    privileges: {
+      standard: false,
+      secure: true,
+      supportFetchAPI: false,
+      corsEnabled: false,
+      stream: true
+    }
+  }
+])
 
 app.whenReady().then(() => {
   // 设置 app user model id (Windows)
   electronApp.setAppUserModelId('com.mdviewer')
+
+  // 注册 local-image 协议处理器（用于渲染本地图片）
+  protocol.handle('local-image', (request) => {
+    let filePath: string
+    try {
+      const url = new URL(request.url)
+      filePath = decodeURIComponent(url.pathname)
+      // Windows 路径修正：去掉开头多余的 /
+      if (process.platform === 'win32' && filePath.startsWith('/')) {
+        filePath = filePath.slice(1)
+      }
+    } catch {
+      return new Response('Invalid URL', { status: 400 })
+    }
+
+    // 安全校验：只允许访问当前打开文件夹内的文件
+    if (!isPathAllowed(filePath)) {
+      return new Response('Forbidden', { status: 403 })
+    }
+
+    // 检查文件是否存在
+    if (!fs.existsSync(filePath)) {
+      return new Response('Not Found', { status: 404 })
+    }
+
+    // 返回文件（net.fetch 支持 file:// 协议）
+    return net.fetch(`file://${filePath}`)
+  })
 
   // 设置 Content Security Policy
   // 开发模式需要允许 Vite HMR 和 WebSocket
   // 生产模式使用严格的 CSP
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const csp = is.dev
-      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self' ws://localhost:* http://localhost:*; worker-src 'self' blob:;"
-      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self';"
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net; connect-src 'self' ws://localhost:* http://localhost:*; worker-src 'self' blob:;"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net; connect-src 'self';"
 
     callback({
       responseHeaders: {
@@ -554,8 +613,40 @@ async function getExportStyles(): Promise<{ markdownCss: string; prismCss: strin
             const files = await fs.readdir(assetsPath)
             const cssFile = files.find(f => f.endsWith('.css') && f.startsWith('index'))
             if (cssFile) {
-              const combinedCss = await fs.readFile(join(assetsPath, cssFile), 'utf-8')
-              // 提取 markdown-body 和 token 相关样式
+              let combinedCss = await fs.readFile(join(assetsPath, cssFile), 'utf-8')
+              // 过滤掉应用程序的布局样式（这些样式会阻止导出 HTML 滚动）
+              // 移除 body { overflow: hidden; height: 100vh; } 等应用布局样式
+              combinedCss = combinedCss
+                // 移除 body 的 overflow: hidden 和 height: 100vh
+                .replace(/body\s*\{[^}]*overflow\s*:\s*hidden[^}]*\}/g, (match) => {
+                  // 只移除 overflow: hidden 和 height: 100vh，保留其他样式
+                  return match
+                    .replace(/overflow\s*:\s*hidden\s*;?/g, '')
+                    .replace(/height\s*:\s*100vh\s*;?/g, '')
+                })
+                // 移除 #root, .app, .workspace-container 等应用容器样式
+                .replace(/#root\s*\{[^}]*\}/g, '')
+                .replace(/\.app\s*\{[^}]*\}/g, '')
+                .replace(/\.workspace-container\s*\{[^}]*\}/g, '')
+                .replace(/\.main-content\s*\{[^}]*\}/g, '')
+                .replace(/\.sidebar\s*\{[^}]*\}/g, '')
+                .replace(/\.titlebar\s*\{[^}]*\}/g, '')
+                .replace(/\.header\s*\{[^}]*\}/g, '')
+                // 移除文件树相关样式
+                .replace(/\.file-tree[^{]*\{[^}]*\}/g, '')
+                // 移除标签栏相关样式
+                .replace(/\.tab-bar[^{]*\{[^}]*\}/g, '')
+                .replace(/\.tab-item[^{]*\{[^}]*\}/g, '')
+                // 移除导航栏相关样式
+                .replace(/\.navigation-bar[^{]*\{[^}]*\}/g, '')
+                .replace(/\.nav-[^{]*\{[^}]*\}/g, '')
+                // 移除书签栏相关样式
+                .replace(/\.bookmark-bar[^{]*\{[^}]*\}/g, '')
+                .replace(/\.bookmark-panel[^{]*\{[^}]*\}/g, '')
+                // 移除搜索相关样式
+                .replace(/\.search-[^{]*\{[^}]*\}/g, '')
+                // 移除设置面板相关样式
+                .replace(/\.settings-[^{]*\{[^}]*\}/g, '')
               markdownCss = combinedCss
               prismCss = ''
               break
@@ -746,6 +837,7 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
+  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.27/files/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.css'">
   <style>
     :root {
       /* 固定亮色主题变量（不响应系统暗色模式） */
@@ -886,7 +978,7 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string)
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.27/files/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.css'">
   <style>
     :root {
       /* ✅ PDF 使用固定的亮色主题 - 完整版本 */
@@ -1420,10 +1512,20 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     click: () => event.sender.send('markdown:export-pdf')
   })
 
-  menuTemplate.push({
-    label: '📝 导出 Word',
-    click: () => event.sender.send('markdown:export-docx')
-  })
+  // Word 导出暂时隐藏（效果不理想）
+  // menuTemplate.push({
+  //   label: '📝 导出 Word',
+  //   submenu: [
+  //     {
+  //       label: '标准格式',
+  //       click: () => event.sender.send('markdown:export-docx', 'standard')
+  //     },
+  //     {
+  //       label: '公文格式（GB/T 9704）',
+  //       click: () => event.sender.send('markdown:export-docx', 'gongwen')
+  //     }
+  //   ]
+  // })
 
   // v1.4.2：打印功能
   menuTemplate.push({
@@ -1684,28 +1786,13 @@ ipcMain.handle('shell:showItemInFolder', async (_, filePath: string) => {
 
 // 打开外部链接（用于 Pandoc 安装指南等）
 ipcMain.handle('shell:openExternal', async (_, url: string) => {
-  // 白名单验证（安全措施）
-  const allowedDomains = [
-    'pandoc.org',
-    'github.com',
-    'chocolatey.org'
-  ]
-
   try {
     const urlObj = new URL(url)
-    const hostname = urlObj.hostname
-
-    // 检查域名是否在白名单中
-    const isAllowed = allowedDomains.some(domain =>
-      hostname === domain || hostname.endsWith(`.${domain}`)
-    )
-
-    if (!isAllowed) {
-      console.error(`[IPC] Blocked external URL: ${url}`)
-      return { success: false, error: '不允许的域名' }
+    // 只允许 http/https 协议（阻止 file://、javascript: 等危险协议）
+    if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+      console.error(`[IPC] Blocked non-http external URL: ${url}`)
+      return { success: false, error: '只允许打开 http/https 链接' }
     }
-
-    // 打开外部链接
     await shell.openExternal(url)
     return { success: true }
   } catch (error) {
@@ -1768,6 +1855,22 @@ ipcMain.handle('system:openSettings', async (_event, section: string) => {
       // Windows 默认程序设置
       await shell.openExternal('ms-settings:defaultapps')
       return { success: true }
+    } else if (process.platform === 'linux') {
+      // Linux：尝试打开系统设置应用（降级策略）
+      const { exec } = await import('child_process')
+      const tryOpen = (cmd: string): Promise<boolean> => {
+        return new Promise((resolve) => {
+          exec(`which ${cmd.split(' ')[0]}`, (err) => {
+            if (err) { resolve(false); return }
+            exec(cmd, (execErr) => resolve(!execErr))
+          })
+        })
+      }
+      // 按桌面环境优先级尝试
+      if (await tryOpen('gnome-control-center info')) return { success: true }
+      if (await tryOpen('systemsettings5')) return { success: true }
+      if (await tryOpen('xfce4-settings-manager')) return { success: true }
+      return { success: false, error: '请手动打开系统设置' }
     }
     return { success: false, error: '不支持的平台' }
   } catch (error) {
@@ -1949,15 +2052,14 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
     // 获取样式
     const { markdownCss, prismCss } = await getExportStyles()
 
-    // 创建隐藏窗口
+    // 创建隐藏窗口（不使用 offscreen 模式，macOS 上 offscreen 的 capturePage 不稳定）
     const renderWindow = new BrowserWindow({
       show: false,
       width: 1200,
       height: 800,
       webPreferences: {
         nodeIntegration: false,
-        contextIsolation: true,
-        offscreen: true
+        contextIsolation: true
       }
     })
 
@@ -1971,7 +2073,7 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
         .replace(/'/g, '&#039;')
     }
 
-    // 生成 HTML
+    // 生成 HTML（改进字体栈，添加 CJK 等宽字体支持）
     const html = `
 <!DOCTYPE html>
 <html>
@@ -1982,7 +2084,7 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
     ${prismCss}
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
-      background: transparent;
+      background: #f5f5f5;
       width: fit-content;
       height: fit-content;
     }
@@ -1998,7 +2100,7 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
       padding: 0 !important;
       background: transparent !important;
       border: none !important;
-      font-family: Menlo, Monaco, Consolas, 'Courier New', monospace !important;
+      font-family: 'Sarasa Mono SC', 'Source Han Mono', Menlo, Monaco, Consolas, 'Courier New', monospace !important;
       font-size: 13px !important;
       line-height: 1.5 !important;
       white-space: pre !important;
@@ -2022,8 +2124,8 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
     // 加载 HTML
     await renderWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
 
-    // 等待渲染完成
-    await new Promise(resolve => setTimeout(resolve, 200))
+    // 等待渲染完成（增加等待时间确保字体加载）
+    await new Promise(resolve => setTimeout(resolve, 500))
 
     // 获取内容尺寸
     const bounds = await renderWindow.webContents.executeJavaScript(`
@@ -2042,19 +2144,40 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
     renderWindow.setSize(bounds.width, bounds.height)
     await new Promise(resolve => setTimeout(resolve, 100))
 
-    // 截图
-    const image = await renderWindow.webContents.capturePage({
+    // 截图（带重试机制）
+    let image = await renderWindow.webContents.capturePage({
       x: 0,
       y: 0,
       width: bounds.width,
       height: bounds.height
     })
 
+    // 空图检测：如果截图为空或过小，重试一次
+    let pngBuffer = image.toPNG()
+    if (pngBuffer.length < 1000) {
+      console.log(`[CodeBlock] 首次截图过小 (${pngBuffer.length} bytes)，等待后重试...`)
+      await new Promise(resolve => setTimeout(resolve, 500))
+      image = await renderWindow.webContents.capturePage({
+        x: 0,
+        y: 0,
+        width: bounds.width,
+        height: bounds.height
+      })
+      pngBuffer = image.toPNG()
+    }
+
     // 关闭窗口
     renderWindow.close()
 
-    // 返回 base64 PNG
-    const pngBuffer = image.toPNG()
+    // 最终空图检测
+    if (pngBuffer.length < 500) {
+      console.error(`[CodeBlock] 截图仍为空 (${pngBuffer.length} bytes)，放弃截图`)
+      return {
+        success: false,
+        error: '截图结果为空，可能是渲染引擎问题'
+      }
+    }
+
     const base64 = pngBuffer.toString('base64')
 
     console.log(`[CodeBlock] 截图成功: ${bounds.width}x${bounds.height}, ${Math.round(pngBuffer.length / 1024)}KB`)
@@ -2077,15 +2200,16 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
 // ============== v1.5.0：导出 DOCX ==============
 // 优先使用 Pandoc（高质量，从 HTML 转换），如果不可用则回退到 docx 库
 
-ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: string, basePath: string, markdown?: string, chartImages?: ChartImageData[]) => {
+ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: string, basePath: string, markdown?: string, chartImages?: ChartImageData[], docStyle?: string) => {
   try {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (!window) {
       throw new Error('无法获取窗口实例')
     }
 
+    const styleLabel = docStyle === 'gongwen' ? '（公文格式）' : ''
     const result = await dialog.showSaveDialog(window, {
-      title: '导出 Word 文档',
+      title: `导出 Word 文档${styleLabel}`,
       defaultPath: fileName.replace(/\.md$/, '.docx'),
       filters: [
         { name: 'Word Documents', extensions: ['docx'] }
@@ -2105,8 +2229,8 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
 
     if (pandocAvailable) {
       // 使用 Pandoc 导出（高质量，从 HTML 转换）
-      console.log('[DOCX Export] 使用 Pandoc 从 HTML 导出')
-      const pandocResult = await exportWithPandoc(htmlContent, result.filePath, basePath)
+      console.log(`[DOCX Export] 使用 Pandoc 从 HTML 导出${docStyle === 'gongwen' ? '（公文格式）' : ''}`)
+      const pandocResult = await exportWithPandoc(htmlContent, result.filePath, basePath, docStyle)
       filePath = pandocResult.filePath
       warnings = pandocResult.warnings
       usedPandoc = true

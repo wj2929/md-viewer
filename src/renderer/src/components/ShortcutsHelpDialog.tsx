@@ -57,7 +57,7 @@ const SHORTCUTS_DATA = [
  * 格式化快捷键显示（根据平台）
  */
 function formatAccelerator(accelerator: string): string {
-  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+  const isMac = window.api?.platform === 'darwin'
 
   if (isMac) {
     return accelerator

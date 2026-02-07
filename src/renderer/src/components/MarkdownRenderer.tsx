@@ -322,7 +322,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     console.log('[Anchor] 处理完成，共处理', headings.length, '个标题')
   }, [html])
 
-  // ✅ 处理锚点链接点击，实现页内跳转
+  // ✅ 处理链接点击：锚点页内跳转、外部链接系统浏览器打开、其他链接阻止默认行为
   const handleClick = useCallback((e: MouseEvent) => {
     const target = e.target as HTMLElement
     const anchor = target.closest('a')
@@ -330,22 +330,30 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
     if (!anchor) return
 
     const href = anchor.getAttribute('href')
-    if (!href || !href.startsWith('#')) return
+    if (!href) return
 
-    // 阻止默认行为（防止 Electron 尝试导航）
-    e.preventDefault()
-
-    // 获取目标 id（解码 URL 编码）
-    const targetId = decodeURIComponent(href.slice(1))
-
-    // 使用 getElementById 而不是 querySelector，因为 CSS.escape 对中文处理有问题
-    const targetElement = document.getElementById(targetId)
-
-    if (targetElement) {
-      targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    } else {
-      console.warn('[MarkdownRenderer] 未找到锚点目标:', targetId)
+    // 1. 锚点链接：页内跳转
+    if (href.startsWith('#')) {
+      e.preventDefault()
+      const targetId = decodeURIComponent(href.slice(1))
+      const targetElement = document.getElementById(targetId)
+      if (targetElement) {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } else {
+        console.warn('[MarkdownRenderer] 未找到锚点目标:', targetId)
+      }
+      return
     }
+
+    // 2. 外部链接：系统浏览器打开
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      e.preventDefault()
+      window.api.openExternal(href)
+      return
+    }
+
+    // 3. 其他链接（相对路径等）：阻止默认行为，防止白屏
+    e.preventDefault()
   }, [])
 
   // 绑定点击事件

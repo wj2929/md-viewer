@@ -7,6 +7,115 @@
 
 ---
 
+## [1.5.0] - 2026-02-07 (开发中)
+
+> **状态**: 🔄 **开发中（未提交）** | **类型**: 新功能 + Bug 修复 + 增强
+
+### ✨ 新功能
+
+#### 1. ECharts 图表支持 ⭐⭐
+- **功能**：Markdown 代码块中的 ECharts JSON 配置自动渲染为交互式图表
+- **支持语言标记**：
+  - ` ```echarts ` - 直接渲染
+  - ` ```javascript ` / ` ```js ` - 智能检测 ECharts 配置后渲染
+  - ` ```json ` - 智能检测 ECharts 配置后渲染（本次新增）
+- **智能检测**：`isEChartsConfig()` 匹配 2+ 特征键（title, series, xAxis, yAxis, legend, tooltip, grid 等）
+- **布局优化**：`optimizeEChartsConfig()` 自动修复 title/legend 重叠
+- **预览 + 导出**：预览和导出均应用布局优化
+
+#### 2. Mermaid 复制按钮
+- **功能**：Mermaid 图表添加"复制代码"按钮
+- **交互**：点击复制原始 Mermaid 代码到剪贴板
+
+#### 3. Toast 通知增强
+- 新增 `info` 类型 Toast
+- 新增 `onClose` 回调
+- 样式优化（圆角、阴影、动画）
+
+### 🐛 Bug 修复
+
+#### 4. 导出 HTML KaTeX 样式缺失
+- **现象**：导出的 HTML 中数学公式样式丢失，显示为未格式化文本
+- **根本原因**：`generateExportHTML` 缺少 KaTeX CSS 引用
+- **解决方案**：添加 KaTeX CSS CDN 链接（国内 CDN 优先 + 国际 CDN 降级）
+- **CDN 策略**：npmmirror.com（主）→ jsdelivr.net（备）
+- **版本修正**：KaTeX 从 0.16.9 更新到 0.16.27（与项目安装版本一致）
+- **影响范围**：HTML 导出 + PDF 导出
+
+#### 5. JSON 代码块 ECharts 不渲染
+- **现象**：使用 ` ```json ` 标记的 ECharts 配置显示为原始 JSON 代码块
+- **根本原因**：`highlight` 函数只对 `javascript`/`js` 做 `isEChartsConfig()` 检测
+- **解决方案**：添加 `json` 语言标记的智能检测
+
+#### 6. ECharts 标题/图例重叠
+- **现象**：ECharts 图表的 title 和 legend 位置重叠
+- **根本原因**：`optimizeEChartsConfig()` 仅在导出时使用，预览时未应用
+- **解决方案**：导出 `optimizeEChartsConfig()` 为 public，预览时也应用布局优化
+- **逻辑**：当 title 和 legend 同时存在且 legend.top < 40 时，自动设为 40
+
+### 🔒 安全增强
+
+#### 7. CDN 降级方案
+- **策略**：国内 CDN（npmmirror.com）优先，外网 CDN（jsdelivr.net）降级
+- **实现**：`onerror="this.onerror=null;this.href='fallback_url'"` 模式
+- **CSP 更新**：`style-src` 和 `font-src` 添加 `https://registry.npmmirror.com`
+
+#### 8. 剪贴板安全增强
+- 跨平台剪贴板读取安全过滤
+- 路径验证增强
+
+#### 9. Markdown 链接点击行为修复
+- **现象**：外部链接（`https://...`）在 BrowserWindow 内导航，应用变成浏览器无法返回；内部 `.md` 链接导航到 `file://` 路径白屏
+- **根本原因**：渲染进程 `handleClick` 只处理锚点链接，其他链接无拦截；主进程无 `will-navigate` 安全兜底
+- **解决方案**：
+  - 渲染进程：扩展 `handleClick` 为三层处理（锚点→页内跳转、http(s)→系统浏览器、其他→阻止默认）
+  - 主进程：添加 `will-navigate` 事件监听，阻止所有非法导航
+  - `shell:openExternal`：域名白名单改为协议白名单（仅允许 http/https）
+- **影响范围**：`MarkdownRenderer.tsx`、`VirtualizedMarkdown.tsx`、`main/index.ts`
+
+### 📋 规划文档
+
+#### 9. 跨平台兼容性修复方案
+- **分析报告**：`docs/cross-platform-analysis.md` - 全面分析 macOS/Windows/Linux 兼容性
+- **实施方案**：`docs/cross-platform-implementation-plan.md`（1608 行）
+- **问题总数**：18 个代码问题 + 7 个 OS 版本问题
+- **修复计划**：7 个 Phase / 27 个任务 / 涉及 20 个文件
+- **核心问题**：
+  - P0：窗口标题栏、CSS 80px 空白、全屏快捷键、图标缺失（6 个）
+  - P1：文案硬编码 Finder/⌘、剪贴板 Linux 支持、路径分隔符（9 个）
+  - P2：废弃 API、Wayland 兼容、inotify 限制（3 个）
+- **状态**：方案已完成，待实施
+
+### 🔧 技术实现
+
+#### 核心文件变更
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `src/renderer/src/utils/markdownRenderer.ts` | 修改 | ECharts 智能检测 + JSON 支持 |
+| `src/renderer/src/utils/echartsRenderer.ts` | 修改 | 导出 optimizeEChartsConfig |
+| `src/renderer/src/components/VirtualizedMarkdown.tsx` | 修改 | ECharts 渲染 + 布局优化 + Mermaid 复制按钮 + 链接点击处理 |
+| `src/renderer/src/components/MarkdownRenderer.tsx` | 修改 | 链接点击处理（外部链接+内部链接+锚点） |
+| `src/main/index.ts` | 修改 | KaTeX CDN + CSP 更新 + 导出修复 + will-navigate 兜底 + openExternal 协议白名单 |
+| `src/renderer/src/App.tsx` | 修改 | 功能集成 |
+| `src/renderer/src/assets/main.css` | 修改 | ECharts + Toast + UI 样式 |
+| `src/renderer/src/components/Toast.tsx` | 修改 | info 类型 + onClose |
+| `src/renderer/src/components/Toast.css` | 修改 | 样式优化 |
+| `src/renderer/src/hooks/useToast.ts` | 修改 | info 方法 |
+
+#### 代码变更统计
+```
+27 files changed, +1297 insertions, -139 deletions
+```
+
+### ✅ 测试
+
+- **测试通过率**：474/487 (97.3%)
+- **跳过**：13（虚拟滚动相关）
+- **失败**：0
+- **新增测试**：3 个 ECharts 检测测试 + Toast 测试
+
+---
+
 ## [1.4.7] - 2026-01-30
 
 > **状态**: ✅ **已测试** | **类型**: Bug 修复 + 功能增强
@@ -1931,4 +2040,4 @@ a06289d feat(toast): 添加 Toast 通知组件替代 alert
 
 ---
 
-**最后更新**: 2026-01-09
+**最后更新**: 2026-02-07

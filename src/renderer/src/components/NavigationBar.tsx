@@ -63,7 +63,7 @@ export function NavigationBar({
       {folderPath && (
         <div className="nav-folder-section">
           <span className="nav-folder-path" title={folderPath}>
-            📂 {folderPath.split('/').pop()}
+            📂 {folderPath.split(/[/\\]/).pop()}
           </span>
           <button
             className="nav-refresh-btn"
@@ -98,7 +98,7 @@ export function NavigationBar({
         <button
           className={`nav-always-on-top-btn ${isAlwaysOnTop ? 'active' : ''}`}
           onClick={onToggleAlwaysOnTop}
-          title={isAlwaysOnTop ? '取消置顶 (⌘⌥T)' : '窗口置顶 (⌘⌥T)'}
+          title={isAlwaysOnTop ? `取消置顶 (${window.api?.platform === 'darwin' ? '⌘⌥T' : 'Ctrl+Alt+T'})` : `窗口置顶 (${window.api?.platform === 'darwin' ? '⌘⌥T' : 'Ctrl+Alt+T'})`}
           aria-pressed={isAlwaysOnTop}
           aria-label="窗口置顶"
         >

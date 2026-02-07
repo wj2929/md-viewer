@@ -297,6 +297,7 @@
   line-height: 1.45;
   border: 1px solid var(--border-color);
   border-radius: 3px;
+  position: relative;  /* v1.5.2: 支持复制按钮定位 */
 }
 
 .markdown-body .highlight pre {

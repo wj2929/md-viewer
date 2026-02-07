@@ -3,6 +3,9 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 // 自定义 API 暴露给渲染进程
 const api = {
+  // 平台信息（同步，供渲染进程直接使用）
+  platform: process.platform as 'darwin' | 'win32' | 'linux',
+
   // 文件系统操作 (v1.0 核心功能)
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
@@ -16,8 +19,8 @@ const api = {
   // 导出功能
   exportHTML: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:html', htmlContent, fileName),
   exportPDF: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:pdf', htmlContent, fileName),
-  exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string) =>
-    ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>,
+  exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string) =>
+    ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown, undefined, docStyle) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>,
 
   // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
   renderCodeBlockToPng: (code: string) =>
@@ -336,8 +339,8 @@ const api = {
     return () => ipcRenderer.removeListener('markdown:export-pdf', handler)
   },
 
-  onMarkdownExportDOCX: (callback: () => void) => {
-    const handler = () => callback()
+  onMarkdownExportDOCX: (callback: (docStyle?: string) => void) => {
+    const handler = (_event: unknown, docStyle?: string) => callback(docStyle)
     ipcRenderer.on('markdown:export-docx', handler)
     return () => ipcRenderer.removeListener('markdown:export-docx', handler)
   },

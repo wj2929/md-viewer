@@ -31,6 +31,24 @@
       "out/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "resources/reference.docx",
+        "to": "reference.docx"
+      },
+      {
+        "from": "resources/reference-gongwen.docx",
+        "to": "reference-gongwen.docx"
+      },
+      {
+        "from": "resources/lua",
+        "to": "lua"
+      },
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "resources/icon.icns",
@@ -54,12 +72,14 @@
       "gatekeeperAssess": false
     },
     "win": {
+      "icon": "resources/icon.ico",
       "target": [
         "nsis",
         "zip"
       ]
     },
     "linux": {
+      "icon": "resources/icon.png",
       "target": [
         "AppImage",
         "deb"
@@ -94,6 +114,7 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@vitest/coverage-v8": "^4.0.16",
     "@vitest/ui": "^4.0.16",
+    "dompurify": "^3.3.1",
     "electron": "^39.2.7",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
@@ -110,8 +131,10 @@
   "dependencies": {
     "@types/markdown-it": "^14.1.2",
     "@types/prismjs": "^1.26.5",
+    "adm-zip": "^0.5.16",
     "chokidar": "^5.0.0",
-    "dompurify": "^3.3.1",
+    "docx": "^9.5.1",
+    "echarts": "^6.0.0",
     "electron-store": "^8.2.0",
     "fs-extra": "^11.3.3",
     "fuse.js": "^7.1.0",

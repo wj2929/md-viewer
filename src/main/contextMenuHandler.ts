@@ -196,8 +196,12 @@ export function showContextMenu(
           window.webContents.send('file:deleted', file.path)
         } catch (error) {
           console.error('Failed to delete file:', error)
+          // Linux 上 shell.trashItem 可能因缺少 gvfs 而失败
+          const errorMsg = process.platform === 'linux'
+            ? '移到回收站失败，可能需要安装 gvfs（sudo apt install gvfs）'
+            : (error instanceof Error ? error.message : '无法删除文件')
           window.webContents.send('error:show', {
-            message: error instanceof Error ? error.message : '无法删除文件'
+            message: errorMsg
           })
         }
       }

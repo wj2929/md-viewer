@@ -88,8 +88,9 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
     for (const srcPath of files) {
       try {
         // 使用简单的路径处理（避免引入 path-browserify）
-        const fileName = srcPath.split('/').pop() || srcPath.split('\\').pop() || 'unknown'
-        const destPath = targetDir + '/' + fileName
+        const fileName = srcPath.split(/[/\\]/).pop() || 'unknown'
+        const sep = targetDir.includes('\\') ? '\\' : '/'
+        const destPath = targetDir + sep + fileName
 
         // 检查源文件和目标路径是否相同
         if (srcPath === destPath) {

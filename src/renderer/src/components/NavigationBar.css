@@ -8,10 +8,15 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 16px 0 80px; /* 左侧留出 macOS 红绿灯按钮空间 */
+  padding: 0 16px; /* 默认：Windows/Linux */
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   position: relative;
+}
+
+/* macOS：留出红绿灯按钮空间 */
+body[data-platform="darwin"] .navigation-bar {
+  padding: 0 16px 0 80px;
 }
 
 /* macOS 拖拽区域 */

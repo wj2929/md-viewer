@@ -17,6 +17,9 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
+      // 平台信息
+      platform: 'darwin' | 'win32' | 'linux'
+
       // 文件系统操作
       openFolder: () => Promise<string | null>
       readDir: (path: string) => Promise<FileInfo[]>

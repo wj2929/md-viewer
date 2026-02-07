@@ -54,6 +54,36 @@ TESTING_V1.1.md
 SECURITY_AUDIT.md
 RELEASE_*.md
 
+# Internal reports (AI-generated)
+BUG-FIX-REPORT.md
+DOCX-CHART-SIZE-FIX.md
+ECHARTS-API-DEPRECATION.md
+ECHARTS-FIX-RECOMMENDATIONS.md
+ECHARTS-TEST-GUIDE.md
+ECHARTS-TEST-SUMMARY.md
+ECHARTS-VISUAL-TEST-REPORT.md
+KATEX-FIX-REPORT.md
+docs/TOAST_IMPROVEMENT_SUMMARY.md
+docs/TOAST_USAGE.md
+docs/ToastExamples.tsx
+docs/v1.5.0-*.md
+
+# Debug / temp scripts
+debug-*.js
+fix-*.js
+test-export-fix.js
+verify-fix.js
+test-docx-export.md
+screenshot-welcome.js
+
+# Temp test output
+e2e-results.json
+e2e/test-docx-export-auto.js
+e2e/test-docx-size.js
+
+# Legacy / transitional files
+electron/
+
 # Playwright
 playwright-report/
 test-results/

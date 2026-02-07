@@ -59,12 +59,35 @@ export function readFilesFromSystemClipboard(): ClipboardFile[] {
         rawPaths = text.split('\0').filter(p => p.length > 0)
       }
     } else {
-      // Linux: 读取 text/uri-list
-      const text = clipboard.readText()
-      if (text.includes('file://')) {
-        rawPaths = text.split('\n')
-          .filter(line => line.startsWith('file://'))
-          .map(line => decodeURIComponent(line.replace('file://', '')))
+      // Linux: 优先读取 GNOME 的 x-special/gnome-copied-files 格式
+      try {
+        const gnomeBuffer = clipboard.readBuffer('x-special/gnome-copied-files')
+        if (gnomeBuffer && gnomeBuffer.length > 0) {
+          // 格式: "copy\nfile:///path1\nfile:///path2" 或 "cut\nfile:///path1"
+          const lines = gnomeBuffer.toString('utf8').split('\n')
+          // 第一行是 'copy' 或 'cut'，跳过
+          rawPaths = lines.slice(1)
+            .filter(line => line.startsWith('file://'))
+            .map(line => {
+              try {
+                return decodeURIComponent(new URL(line.trim()).pathname)
+              } catch {
+                return decodeURIComponent(line.trim().replace('file://', ''))
+              }
+            })
+        }
+      } catch {
+        // GNOME 格式不可用，降级到 text/uri-list
+      }
+
+      // 降级：读取纯文本中的 file:// URI
+      if (rawPaths.length === 0) {
+        const text = clipboard.readText()
+        if (text.includes('file://')) {
+          rawPaths = text.split('\n')
+            .filter(line => line.startsWith('file://'))
+            .map(line => decodeURIComponent(line.replace('file://', '')))
+        }
       }
     }
   } catch (error) {
@@ -120,7 +143,9 @@ ${validPaths.map(p => `  <string>${p}</string>`).join('\n')}
       console.log('[ClipboardManager] Wrote', validPaths.length, 'files to macOS clipboard')
       return true
     } else if (platform === 'win32') {
-      // Windows: 简化实现，只写入文本格式
+      // Windows: 写入文本格式（已知限制）
+      // Electron clipboard API 不支持写入 CF_HDROP 格式，资源管理器无法识别为"文件复制"
+      // 实现 CF_HDROP 需要 node-ffi 等 native module，当前版本接受此限制
       clipboard.writeText(validPaths.join('\n'))
       console.log('[ClipboardManager] Wrote', validPaths.length, 'files to Windows clipboard (text format)')
       return true

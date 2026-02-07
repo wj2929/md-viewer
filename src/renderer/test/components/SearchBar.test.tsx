@@ -7,7 +7,8 @@ import { FileInfo } from '../../src/components/FileTree'
 // Mock window.api
 const mockReadFile = vi.fn()
 global.window.api = {
-  readFile: mockReadFile
+  readFile: mockReadFile,
+  platform: 'darwin'
 } as any
 
 describe('SearchBar', () => {
