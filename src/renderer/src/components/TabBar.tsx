@@ -88,6 +88,11 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
           className={`tab ${tab.id === activeTabId ? 'active' : ''} ${tab.isPinned ? 'pinned' : ''}`}
           onClick={() => onTabClick(tab.id)}
           onContextMenu={(e) => handleContextMenu(e, tab, index)}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData('text/tab-id', tab.id)
+            e.dataTransfer.effectAllowed = 'move'
+          }}
           role="tab"
           aria-selected={tab.id === activeTabId}
           tabIndex={0}

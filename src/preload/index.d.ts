@@ -154,6 +154,12 @@ declare global {
       onTabCloseLeft: (callback: (tabId: string) => void) => () => void
       onTabCloseRight: (callback: (tabId: string) => void) => () => void
 
+      // v1.5.1：分屏打开（支持方向选择）
+      onTabOpenInSplit: (callback: (data: { tabId: string; direction: 'horizontal' | 'vertical' }) => void) => () => void
+
+      // v1.5.1：文件树右键菜单"在分屏中打开"
+      onFileOpenInSplit: (callback: (data: { filePath: string; direction: 'horizontal' | 'vertical' }) => void) => () => void
+
       // v1.3.6：Tab 固定/取消固定事件
       onTabPin: (callback: (tabId: string) => void) => () => void
       onTabUnpin: (callback: (tabId: string) => void) => () => void
@@ -205,6 +211,7 @@ declare global {
         headingText: string | null
         headingLevel: string | null
         hasSelection: boolean
+        linkHref: string | null
       }) => Promise<void>
       onAddBookmarkFromPreview: (callback: (params: {
         filePath: string
@@ -244,6 +251,13 @@ declare global {
       onShortcutFontIncrease: (callback: () => void) => () => void
       onShortcutFontDecrease: (callback: () => void) => () => void
       onShortcutFontReset: (callback: () => void) => () => void
+
+      // v1.5.1：拖拽支持
+      getPathForFile: (file: File) => string
+      openDroppedPaths: (paths: string[]) => Promise<void>
+
+      // v1.5.1：内部 .md 链接跳转
+      openMdLink: (currentFilePath: string, href: string) => Promise<{ success: boolean; error?: string }>
     }
   }
 

@@ -79,6 +79,30 @@ export function showContextMenu(
                 fileName: file.name
               })
             }
+          },
+          // v1.5.1：在分屏中打开
+          {
+            label: '📐 在分屏中打开',
+            submenu: [
+              {
+                label: '向右分屏',
+                click: () => {
+                  window.webContents.send('file:open-in-split', {
+                    filePath: file.path,
+                    direction: 'horizontal'
+                  })
+                }
+              },
+              {
+                label: '向下分屏',
+                click: () => {
+                  window.webContents.send('file:open-in-split', {
+                    filePath: file.path,
+                    direction: 'vertical'
+                  })
+                }
+              }
+            ]
           }
         ]
       : []),

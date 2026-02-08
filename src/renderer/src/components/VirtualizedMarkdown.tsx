@@ -4,6 +4,7 @@ import MarkdownIt from 'markdown-it'
 import mermaid from 'mermaid'
 import debounce from 'lodash.debounce'
 import Prism from 'prismjs'
+import Mark from 'mark.js'
 
 // v1.4.6: 使用统一的渲染器配置
 import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
@@ -86,6 +87,11 @@ interface VirtualizedMarkdownProps {
   content: string
   className?: string
   filePath?: string  // v1.3 阶段 2：用于右键菜单
+  scrollToLine?: number  // v1.5.1: 搜索跳转行号
+  onScrollToLineComplete?: () => void  // v1.5.1: 跳转完成回调
+  highlightKeyword?: string  // v1.5.1: 搜索跳转临时高亮关键词
+  onHighlightKeywordComplete?: () => void  // v1.5.1: 高亮完成回调
+  onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void  // v1.5.1: Lightbox
 }
 
 /**
@@ -224,7 +230,7 @@ const SectionRenderer = memo(function SectionRenderer({
 /**
  * 虚拟滚动 Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '', filePath }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown({ content, className = '', filePath, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick }: VirtualizedMarkdownProps): JSX.Element {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
 
   // v1.3.7：右键菜单处理（添加书签 + 原有功能）
@@ -240,13 +246,31 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
     const selection = window.getSelection()
     const hasSelection = selection !== null && selection.toString().trim().length > 0
 
+    // 检测右键目标是否为内部 .md 链接
+    let linkHref: string | null = null
+    const anchor = target.closest('a')
+    if (anchor) {
+      const href = anchor.getAttribute('href')
+      if (href) {
+        const decoded = decodeURIComponent(href)
+        // 仅对本地 .md 链接提供分屏菜单，排除外部链接和锚点
+        if (!decoded.startsWith('http://') && !decoded.startsWith('https://') && !decoded.startsWith('#')) {
+          const clean = decoded.split('#')[0].split('?')[0]
+          if (clean.endsWith('.md')) {
+            linkHref = clean
+          }
+        }
+      }
+    }
+
     // 调用新的预览区域右键菜单（v1.3.7：合并书签功能和原有功能）
     window.api.showPreviewContextMenu({
       filePath,
       headingId: heading?.id || null,
       headingText: heading?.textContent || null,
       headingLevel: heading?.tagName.toLowerCase() || null,
-      hasSelection
+      hasSelection,
+      linkHref
     }).catch(error => {
       console.error('[VirtualizedMarkdown] Failed to show context menu:', error)
     })
@@ -279,9 +303,20 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
       return
     }
 
+    // v1.5.1: 本地 .md 链接：通过 IPC 打开
+    const decodedHref = decodeURIComponent(href)
+    if (decodedHref.endsWith('.md') || /\.md[#?]/.test(decodedHref)) {
+      e.preventDefault()
+      const cleanHref = decodedHref.split('#')[0].split('?')[0]
+      if (filePath) {
+        window.api.openMdLink(filePath, cleanHref)
+      }
+      return
+    }
+
     // 其他链接：阻止默认导航，防止白屏
     e.preventDefault()
-  }, [])
+  }, [filePath])
 
   // v1.4.6: 初始化 DOMPurify hooks（仅一次）
   useEffect(() => {
@@ -341,6 +376,72 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
     })
   }, [])
 
+  // v1.5.1: 搜索跳转到指定行
+  useEffect(() => {
+    if (!scrollToLine || !content) return
+
+    // 延迟执行，确保 DOM 已渲染
+    const timer = setTimeout(() => {
+      const totalLines = content.split('\n').length
+      if (totalLines === 0) return
+
+      // 找到 .preview 滚动容器
+      const previewContainer = document.querySelector('.preview')
+      if (!previewContainer) return
+
+      // 按行号比例估算滚动位置
+      const ratio = Math.max(0, (scrollToLine - 1)) / totalLines
+      const targetScroll = ratio * previewContainer.scrollHeight
+
+      previewContainer.scrollTo({
+        top: Math.max(0, targetScroll - 100), // 偏移一点，让目标行不在最顶部
+        behavior: 'smooth'
+      })
+
+      onScrollToLineComplete?.()
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [scrollToLine, content, onScrollToLineComplete])
+
+  // v1.5.1: 高亮清理 ref
+  const highlightCleanupRef = useRef<(() => void) | null>(null)
+
+  // v1.5.1: 搜索跳转后临时高亮关键词
+  useEffect(() => {
+    if (!highlightKeyword) return
+
+    // 延迟执行，确保滚动完成后再高亮
+    const highlightTimer = setTimeout(() => {
+      const container = document.querySelector('.preview')
+      if (!container) return
+
+      const markInstance = new Mark(container as HTMLElement)
+      markInstance.mark(highlightKeyword, {
+        className: 'search-temp-highlight',
+        separateWordSearch: false,
+        caseSensitive: false,
+      })
+
+      // 3 秒后自动清除高亮
+      const fadeTimer = setTimeout(() => {
+        markInstance.unmark()
+        onHighlightKeywordComplete?.()
+      }, 3000)
+
+      highlightCleanupRef.current = () => {
+        clearTimeout(fadeTimer)
+        markInstance.unmark()
+      }
+    }, 500) // 等待滚动动画完成
+
+    return () => {
+      clearTimeout(highlightTimer)
+      highlightCleanupRef.current?.()
+      highlightCleanupRef.current = null
+    }
+  }, [highlightKeyword, onHighlightKeywordComplete])
+
   // 小文件直接渲染（不使用虚拟滚动）
   if (!shouldVirtualize) {
     return (
@@ -350,6 +451,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath }: Virtu
         className={className}
         filePath={filePath}
         onContextMenu={handleContextMenu}
+        onImageClick={onImageClick}
       />
     )
   }
@@ -394,13 +496,15 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   md,
   className,
   filePath,
-  onContextMenu
+  onContextMenu,
+  onImageClick
 }: {
   content: string
   md: MarkdownIt
   className: string
   filePath?: string
   onContextMenu?: (e: React.MouseEvent) => void
+  onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -524,6 +628,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         className={className}
         filePath={filePath}
         onContextMenu={onContextMenu}
+        onImageClick={onImageClick}
       />
     </>
   )
@@ -539,7 +644,8 @@ const MarkdownContent = memo(
     className: string
     filePath?: string
     onContextMenu?: (e: React.MouseEvent) => void
-  }>(function MarkdownContent({ html, className, filePath, onContextMenu }, ref) {
+    onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
+  }>(function MarkdownContent({ html, className, filePath, onContextMenu, onImageClick }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
 
@@ -850,6 +956,26 @@ const MarkdownContent = memo(
 
       const handleClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement
+
+        // v1.5.1: 图片点击 → Lightbox
+        const img = target.tagName === 'IMG' ? target : target.closest('img')
+        if (img && onImageClick) {
+          // 不拦截链接内的图片（让链接逻辑处理）
+          if (!img.closest('a')) {
+            e.preventDefault()
+            const allImages = Array.from(combinedRef.current!.querySelectorAll('img'))
+            const srcs = allImages.map(i => i.getAttribute('src') || '')
+            const index = allImages.indexOf(img as HTMLImageElement)
+            onImageClick({
+              src: (img as HTMLImageElement).getAttribute('src') || '',
+              alt: (img as HTMLImageElement).getAttribute('alt') || '',
+              images: srcs,
+              currentIndex: Math.max(0, index)
+            })
+            return
+          }
+        }
+
         const anchor = target.closest('a')
         if (!anchor) return
 
@@ -874,13 +1000,35 @@ const MarkdownContent = memo(
           return
         }
 
-        // 3. 其他链接（相对路径等）：阻止默认导航，防止白屏
+        // 3. v1.5.1: 本地 .md 链接：通过 IPC 打开
+        const decodedHref = decodeURIComponent(href)
+        if (decodedHref.endsWith('.md') || /\.md[#?]/.test(decodedHref)) {
+          e.preventDefault()
+          const cleanHref = decodedHref.split('#')[0].split('?')[0]
+          if (filePath) {
+            window.api.openMdLink(filePath, cleanHref).then((result) => {
+              if (result && !result.success) {
+                // 通过自定义事件通知 App 显示 Toast
+                window.dispatchEvent(new CustomEvent('md-link-error', {
+                  detail: { error: result.error || '文件不存在' }
+                }))
+              }
+            }).catch(() => {
+              window.dispatchEvent(new CustomEvent('md-link-error', {
+                detail: { error: '链接跳转失败' }
+              }))
+            })
+          }
+          return
+        }
+
+        // 4. 其他链接（相对路径等）：阻止默认导航，防止白屏
         e.preventDefault()
       }
 
       combinedRef.current.addEventListener('click', handleClick)
       return () => combinedRef.current?.removeEventListener('click', handleClick)
-    }, [html])
+    }, [html, filePath, onImageClick])
 
     // v1.5.2: 为普通代码块添加复制按钮
     useEffect(() => {

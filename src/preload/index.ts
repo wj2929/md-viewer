@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // 自定义 API 暴露给渲染进程
@@ -60,6 +60,7 @@ const api = {
     headingText: string | null
     headingLevel: string | null
     hasSelection: boolean
+    linkHref: string | null
   }) => ipcRenderer.invoke('preview:show-context-menu', params),
 
   // v1.3 阶段 3：剪贴板状态同步
@@ -280,6 +281,20 @@ const api = {
     const handler = (_event: unknown, tabId: string) => callback(tabId)
     ipcRenderer.on('tab:close', handler)
     return () => ipcRenderer.removeListener('tab:close', handler)
+  },
+
+  // v1.5.1：分屏打开（支持方向选择）
+  onTabOpenInSplit: (callback: (data: { tabId: string; direction: 'horizontal' | 'vertical' }) => void) => {
+    const handler = (_event: unknown, data: { tabId: string; direction: 'horizontal' | 'vertical' }) => callback(data)
+    ipcRenderer.on('tab:open-in-split', handler)
+    return () => ipcRenderer.removeListener('tab:open-in-split', handler)
+  },
+
+  // v1.5.1：文件树右键菜单"在分屏中打开"
+  onFileOpenInSplit: (callback: (data: { filePath: string; direction: 'horizontal' | 'vertical' }) => void) => {
+    const handler = (_event: unknown, data: { filePath: string; direction: 'horizontal' | 'vertical' }) => callback(data)
+    ipcRenderer.on('file:open-in-split', handler)
+    return () => ipcRenderer.removeListener('file:open-in-split', handler)
   },
 
   onTabCloseOthers: (callback: (tabId: string) => void) => {
@@ -558,7 +573,19 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('shortcut:font-reset', handler)
     return () => ipcRenderer.removeListener('shortcut:font-reset', handler)
-  }
+  },
+
+  // ============== v1.5.1：拖拽支持 ==============
+
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+
+  openDroppedPaths: (paths: string[]) =>
+    ipcRenderer.invoke('drop:openPaths', paths),
+
+  // ============== v1.5.1：内部 .md 链接跳转 ==============
+
+  openMdLink: (currentFilePath: string, href: string) =>
+    ipcRenderer.invoke('navigate:openMdLink', currentFilePath, href) as Promise<{ success: boolean; error?: string }>
 }
 
 // 仅在 contextIsolation 启用时暴露 API

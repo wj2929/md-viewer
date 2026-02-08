@@ -7,9 +7,79 @@
 
 ---
 
-## [1.5.0] - 2026-02-07 (开发中)
+## [1.5.1] - 2026-02-09 (开发中)
 
-> **状态**: ✅ **已提交** | **类型**: 新功能 + Bug 修复 + 增强
+> **状态**: 🚧 **开发中** | **类型**: 新功能 + 增强
+
+### ✨ 新功能
+
+#### 1. 递归分屏面板 ⭐⭐
+- **功能**：支持 N 面板递归分屏（水平/垂直），基于树形数据结构
+- **入口**：标签页右键、文件树右键、预览区 .md 链接右键
+- **交互**：拖拽标签页到面板边缘自动分屏、面板间拖拽交换、分割线拖拽调整比例
+- **组件**：`SplitPanel.tsx`（递归渲染）、`splitTree.ts`（树操作工具函数）
+
+#### 2. 图片 Lightbox 预览 ⭐
+- **功能**：点击 Markdown 中的图片进入全屏 Lightbox 预览
+- **交互**：缩放（滚轮）、拖拽平移、左右箭头切换、Esc 关闭
+- **组件**：`ImageLightbox.tsx` + `ImageLightbox.css`
+
+#### 3. 搜索增强 ⭐
+- **关键词高亮**：搜索结果中匹配关键词以 `<mark>` 高亮显示
+- **行号跳转**：内容搜索模式下显示匹配行号，点击跳转到对应位置
+- **文件分组展开/折叠**：搜索结果按文件分组，可展开查看每个匹配行
+- **键盘导航**：上下箭头在搜索结果中导航，Enter 打开/展开
+- **匹配数量**：每文件最多 5 个匹配（原 2 个）
+
+#### 4. 全窗口拖拽支持
+- **功能**：从 Finder/资源管理器拖拽 `.md` 文件或文件夹到窗口直接打开
+- **视觉反馈**：拖拽时显示半透明遮罩 + 虚线边框提示
+- **实现**：`drop:openPaths` IPC + `webUtils.getPathForFile()`
+
+#### 5. Markdown 内部链接右键"在分屏中打开"
+- **功能**：右键点击 `.md` 内部链接时，菜单新增"打开 xxx.md"和"在分屏中打开"选项
+- **分屏方向**：支持"向右分屏"和"向下分屏"两种方式
+- **链接检测**：仅对本地 `.md` 链接显示，排除外部链接（http/https）和锚点（#）
+
+#### 6. 内部 .md 链接 IPC 跳转
+- **功能**：点击 `.md` 内部链接通过 IPC 在新窗口/标签页打开目标文件
+- **错误处理**：跳转失败时通过 Toast 提示用户
+- **覆盖**：`VirtualizedMarkdown`、`MarkdownRenderer` 统一处理
+
+#### 7. 标签页拖拽
+- **功能**：标签页支持 `draggable`，可拖拽到分屏面板
+
+### 🔧 技术实现
+
+#### 核心文件变更
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `src/renderer/src/components/SplitPanel.tsx` | **新增** | 递归分屏渲染组件 |
+| `src/renderer/src/components/SplitPanel.css` | **新增** | 分屏样式 |
+| `src/renderer/src/utils/splitTree.ts` | **新增** | 分屏树数据模型与操作工具函数 |
+| `src/renderer/src/components/ImageLightbox.tsx` | **新增** | 图片 Lightbox 预览组件 |
+| `src/renderer/src/components/ImageLightbox.css` | **新增** | Lightbox 样式 |
+| `src/renderer/src/App.tsx` | 修改 | 分屏状态管理 + 拖拽支持 + Lightbox 集成 |
+| `src/renderer/src/components/VirtualizedMarkdown.tsx` | 修改 | 链接右键检测 + .md 链接跳转 + 图片 Lightbox |
+| `src/renderer/src/components/MarkdownRenderer.tsx` | 修改 | .md 链接 IPC 跳转 |
+| `src/renderer/src/components/SearchBar.tsx` | 修改 | 搜索高亮 + 行号 + 分组展开 + 键盘导航 |
+| `src/renderer/src/components/TabBar.tsx` | 修改 | 标签页 draggable |
+| `src/main/index.ts` | 修改 | 预览右键链接菜单 + 拖拽 IPC + .md 链接跳转 IPC |
+| `src/main/contextMenuHandler.ts` | 修改 | 文件树右键"在分屏中打开" |
+| `src/main/tabMenuHandler.ts` | 修改 | 标签页右键"在分屏中打开" |
+| `src/preload/index.d.ts` | 修改 | 分屏 + 拖拽 + 链接跳转类型定义 |
+| `src/preload/index.ts` | 修改 | 分屏 + 拖拽 + 链接跳转 IPC 桥接 |
+
+#### 代码变更统计
+```
+21 files changed, +1060 insertions, -81 deletions
+```
+
+---
+
+## [1.5.0] - 2026-02-07
+
+> **状态**: ✅ **已发布** | **类型**: 新功能 + Bug 修复 + 增强
 
 ### ✨ 新功能
 

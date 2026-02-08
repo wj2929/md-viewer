@@ -28,6 +28,22 @@ export function showTabContextMenu(window: BrowserWindow, ctx: TabMenuContext): 
   const { tabId, filePath, basePath, tabCount, tabIndex, isPinned } = ctx
 
   const menu = Menu.buildFromTemplate([
+    // v1.5.1：在分屏中打开（子菜单）
+    {
+      label: '在分屏中打开',
+      submenu: [
+        {
+          label: '向右分屏',
+          accelerator: 'CmdOrCtrl+\\',
+          click: () => window.webContents.send('tab:open-in-split', { tabId, direction: 'horizontal' })
+        },
+        {
+          label: '向下分屏',
+          click: () => window.webContents.send('tab:open-in-split', { tabId, direction: 'vertical' })
+        }
+      ]
+    },
+    { type: 'separator' },
     // v1.3.6：固定/取消固定
     {
       label: isPinned ? '取消固定' : '固定此标签',

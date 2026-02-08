@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel } from './components'
+import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
 import { readFileWithCache, clearFileCache, invalidateAndReload } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
@@ -25,6 +26,17 @@ function App(): React.JSX.Element {
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
   // v1.4.3：全屏查看状态
   const [isFullscreen, setIsFullscreen] = useState(false)
+  // v1.5.1：搜索跳转行号
+  const [scrollToLine, setScrollToLine] = useState<number | undefined>(undefined)
+  // v1.5.1：搜索跳转临时高亮关键词
+  const [highlightKeyword, setHighlightKeyword] = useState<string | undefined>(undefined)
+  // v1.5.1：图片 Lightbox 状态
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null)
+  // v1.5.1：递归分屏状态
+  const [splitState, setSplitState] = useState<SplitState>({
+    root: null,
+    activeLeafId: ''
+  })
   // v1.3.6：书签面板状态（Day 7.6: 0 书签时默认折叠）
   const [bookmarkPanelCollapsed, setBookmarkPanelCollapsed] = useState(true)
   const [bookmarkPanelWidth, setBookmarkPanelWidth] = useState(240)
@@ -46,11 +58,84 @@ function App(): React.JSX.Element {
   const tabsRef = useRef<Tab[]>([])
   tabsRef.current = tabs
 
+  // 使用 ref 来存储最新的 splitState，避免闭包陷阱
+  const splitStateRef = useRef<SplitState>(splitState)
+  splitStateRef.current = splitState
+
   // 搜索栏 ref (用于快捷键聚焦)
   const searchBarRef = useRef<SearchBarHandle>(null)
   // 预览区域 ref (用于滚动重置)
   const previewRef = useRef<HTMLDivElement>(null)
   // v1.3.6：书签面板和书签栏现在由 App 统一管理数据，不再需要 ref
+
+  // v1.5.1: 全窗口拖拽支持（含视觉反馈）
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounterRef = useRef(0)
+
+  useEffect(() => {
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounterRef.current++
+      if (e.dataTransfer?.types.includes('Files')) {
+        setIsDragOver(true)
+      }
+    }
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounterRef.current--
+      if (dragCounterRef.current === 0) {
+        setIsDragOver(false)
+      }
+    }
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounterRef.current = 0
+      setIsDragOver(false)
+
+      const files = e.dataTransfer?.files
+      if (!files || files.length === 0) return
+
+      const paths: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const filePath = window.api.getPathForFile(files[i])
+        if (filePath) paths.push(filePath)
+      }
+
+      await window.api.openDroppedPaths(paths)
+    }
+
+    document.addEventListener('dragenter', handleDragEnter)
+    document.addEventListener('dragleave', handleDragLeave)
+    document.addEventListener('dragover', handleDragOver)
+    document.addEventListener('drop', handleDrop)
+
+    return () => {
+      document.removeEventListener('dragenter', handleDragEnter)
+      document.removeEventListener('dragleave', handleDragLeave)
+      document.removeEventListener('dragover', handleDragOver)
+      document.removeEventListener('drop', handleDrop)
+    }
+  }, [])
+
+  // v1.5.1: .md 链接跳转失败 Toast
+  useEffect(() => {
+    const handleMdLinkError = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      toast.error(`链接跳转失败：${detail?.error || '未知错误'}`)
+    }
+    window.addEventListener('md-link-error', handleMdLinkError)
+    return () => window.removeEventListener('md-link-error', handleMdLinkError)
+  }, [toast])
 
   // v1.3.6：加载书签设置（面板 + 栏）
   useEffect(() => {
@@ -211,7 +296,7 @@ function App(): React.JSX.Element {
             } catch { /* 忽略 */ }
           }
           if (newTabs.length > 0) {
-            setTabs(newTabs)
+            setTabs(prev => [...prev, ...newTabs])
             setActiveTabId(newTabs[0].id)
           }
         }
@@ -363,7 +448,7 @@ function App(): React.JSX.Element {
       }
 
       if (newTabs.length > 0) {
-        setTabs(newTabs)
+        setTabs(prev => [...prev, ...newTabs])
         setActiveTabId(newTabs[0].id)
       }
     } catch (error) {
@@ -377,7 +462,13 @@ function App(): React.JSX.Element {
       const path = await window.api.openFolder()
       if (path) {
         setFolderPath(path)
-        setTabs([])
+        // 保留分屏面板中正在显示的 tabs，清空其余
+        const splitTabIds = new Set(
+          splitStateRef.current.root
+            ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
+            : []
+        )
+        setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
         setActiveTabId(null)
         // v1.3.6：恢复该文件夹的固定标签
         await restorePinnedTabs(path)
@@ -391,7 +482,13 @@ function App(): React.JSX.Element {
   const handleSelectHistoryFolder = useCallback(async (path: string) => {
     await window.api.setFolderPath(path)
     setFolderPath(path)
-    setTabs([])
+    // 保留分屏面板中正在显示的 tabs，清空其余
+    const splitTabIds = new Set(
+      splitStateRef.current.root
+        ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
+        : []
+    )
+    setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
     setActiveTabId(null)
     // v1.3.6：恢复该文件夹的固定标签
     await restorePinnedTabs(path)
@@ -409,7 +506,13 @@ function App(): React.JSX.Element {
       // 先切换到文件所在的文件夹
       await window.api.setFolderPath(fileFolder)
       setFolderPath(fileFolder)
-      setTabs([])
+      // 保留分屏面板中正在显示的 tabs，清空其余
+      const splitTabIds = new Set(
+        splitStateRef.current.root
+          ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
+          : []
+      )
+      setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
       setActiveTabId(null)
 
       // 等待文件树加载完成后恢复固定标签并打开文件
@@ -443,7 +546,7 @@ function App(): React.JSX.Element {
             isPinned
           }
 
-          setTabs([...restoredTabs, newTab])
+          setTabs(prev => [...prev, ...restoredTabs, newTab])
           setActiveTabId(newTab.id)
 
           // 添加到最近文件
@@ -860,7 +963,13 @@ function App(): React.JSX.Element {
         // 3. 更新状态
         setFolderPath(bookmarkDir)
         setFiles(newFiles)
-        setTabs([]) // 清空标签页（因为切换了文件夹）
+        // 保留分屏面板中正在显示的 tabs，清空其余
+        const splitTabIds = new Set(
+          splitStateRef.current.root
+            ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
+            : []
+        )
+        setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
         setActiveTabId(null)
 
         // 4. 等待状态更新完成后，打开书签文件
@@ -872,7 +981,7 @@ function App(): React.JSX.Element {
               file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
               content
             }
-            setTabs([newTab])
+            setTabs(prev => [...prev, newTab])
             setActiveTabId(newTab.id)
 
             // 等待渲染完成后跳转到书签位置
@@ -1114,8 +1223,13 @@ function App(): React.JSX.Element {
   }, [folderPath])  // 只依赖 folderPath！
 
   // 选择文件 - 打开新标签或切换到已有标签
-  const handleFileSelect = useCallback(async (file: FileInfo) => {
+  const handleFileSelect = useCallback(async (file: FileInfo, lineNumber?: number, keyword?: string) => {
     if (file.isDirectory) return
+
+    // v1.5.1: 设置跳转行号
+    setScrollToLine(lineNumber)
+    // v1.5.1: 设置临时高亮关键词
+    setHighlightKeyword(keyword)
 
     // 检查是否已经打开（使用 ref 获取最新状态）
     const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
@@ -1182,11 +1296,31 @@ function App(): React.JSX.Element {
     return tabs.find(tab => tab.id === activeTabId)
   }, [tabs, activeTabId])
 
+
   // ✅ 切换文件时重置滚动位置
   useEffect(() => {
     if (previewRef.current && activeTabId) {
       previewRef.current.scrollTop = 0
     }
+  }, [activeTabId])
+
+  // ✅ 分屏模式下：activeTabId 变化时自动同步到活跃叶子面板
+  useEffect(() => {
+    if (!activeTabId) return
+    setSplitState(prev => {
+      if (!prev.root || !prev.activeLeafId) return prev
+      // 如果该 tabId 已经在某个面板中显示，则切换活跃面板到那个面板
+      const existingLeaf = findLeafByTabId(prev.root, activeTabId)
+      if (existingLeaf) {
+        if (existingLeaf.id === prev.activeLeafId) return prev // 无变化
+        return { ...prev, activeLeafId: existingLeaf.id }
+      }
+      // 否则更新活跃面板显示的内容
+      return {
+        ...prev,
+        root: updateLeafTab(prev.root, prev.activeLeafId, activeTabId)
+      }
+    })
   }, [activeTabId])
 
   // 导出 HTML
@@ -1835,6 +1969,226 @@ function App(): React.JSX.Element {
     activeTabId
   ])
 
+  // v1.5.1：分屏快捷键 Cmd+\ / Ctrl+\
+  useEffect(() => {
+    const handleSplitShortcut = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault()
+        setSplitState(prev => {
+          if (prev.root) {
+            // 已有分屏 → 关闭分屏回到单栏
+            return { root: null, activeLeafId: '' }
+          }
+          // 打开分屏：如果有多个标签页，右侧显示下一个标签页
+          const currentTabs = tabsRef.current
+          const activeIdx = currentTabs.findIndex(t => t.id === activeTabId)
+          const nextTab = currentTabs.find((t, i) => i !== activeIdx)
+          if (!nextTab || !activeTabId) return prev
+          const firstLeaf = createLeaf(activeTabId)
+          const secondLeaf = createLeaf(nextTab.id)
+          const root: PanelNode = {
+            type: 'split',
+            id: `panel-split-${Date.now()}`,
+            direction: 'horizontal',
+            ratio: 0.5,
+            first: firstLeaf,
+            second: secondLeaf
+          }
+          return { root, activeLeafId: firstLeaf.id }
+        })
+      }
+    }
+    window.addEventListener('keydown', handleSplitShortcut)
+    return () => window.removeEventListener('keydown', handleSplitShortcut)
+  }, [activeTabId])
+
+  // v1.5.1：分屏 IPC 事件（从标签页右键菜单触发）
+  useEffect(() => {
+    if (!window.api.onTabOpenInSplit) return
+
+    const unsubscribe = window.api.onTabOpenInSplit((data: { tabId: string; direction: 'horizontal' | 'vertical' } | string) => {
+      // 兼容旧格式（string）和新格式（object）
+      const tabId = typeof data === 'string' ? data : data.tabId
+      const direction = typeof data === 'string' ? 'horizontal' : data.direction
+
+      setSplitState(prev => {
+        if (!prev.root) {
+          // 从单栏进入分屏
+          const currentActiveTabId = tabsRef.current.find(t => t.id === activeTabId)?.id
+          if (!currentActiveTabId) return prev
+          const firstLeaf = createLeaf(currentActiveTabId)
+          const secondLeaf = createLeaf(tabId)
+          return {
+            root: {
+              type: 'split',
+              id: `panel-split-${Date.now()}`,
+              direction,
+              ratio: 0.5,
+              first: firstLeaf,
+              second: secondLeaf
+            } as PanelNode,
+            activeLeafId: secondLeaf.id
+          }
+        }
+        // 已有分屏：在活跃面板处分屏
+        const targetLeafId = prev.activeLeafId
+        if (!targetLeafId || getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
+        const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
+        return { root: newRoot, activeLeafId: newLeafId }
+      })
+    })
+
+    return unsubscribe
+  }, [activeTabId])
+
+  // v1.5.1：文件树"在分屏中打开" IPC 事件
+  useEffect(() => {
+    if (!window.api.onFileOpenInSplit) return
+
+    const unsubscribe = window.api.onFileOpenInSplit(async (data: { filePath: string; direction: 'horizontal' | 'vertical' }) => {
+      const { filePath, direction } = data
+      // 检查是否已打开
+      let tab = tabsRef.current.find(t => t.file.path === filePath)
+      if (!tab) {
+        // 读取文件并创建标签页
+        try {
+          const content = await readFileWithCache(filePath)
+          const fileName = filePath.split(/[/\\]/).pop() || filePath
+          const isPinned = await window.api.isTabPinned(filePath)
+          const newTab: Tab = {
+            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file: { name: fileName, path: filePath, isDirectory: false },
+            content,
+            isPinned
+          }
+          setTabs(prev => [...prev, newTab])
+          tab = newTab
+          // 添加到最近文件
+          if (folderPath) {
+            window.api.addRecentFile({ path: filePath, name: fileName, folderPath }).catch(() => {})
+          }
+          window.api.watchFile(filePath).catch(() => {})
+        } catch (error) {
+          console.error('Failed to read file for split:', error)
+          return
+        }
+      }
+
+      const tabId = tab.id
+      setSplitState(prev => {
+        if (!prev.root) {
+          const currentActiveTabId = tabsRef.current.find(t => t.id === activeTabId)?.id
+          if (!currentActiveTabId) {
+            // 没有活跃标签，直接设为单面板
+            return prev
+          }
+          const firstLeaf = createLeaf(currentActiveTabId)
+          const secondLeaf = createLeaf(tabId)
+          return {
+            root: {
+              type: 'split',
+              id: `panel-split-${Date.now()}`,
+              direction,
+              ratio: 0.5,
+              first: firstLeaf,
+              second: secondLeaf
+            } as PanelNode,
+            activeLeafId: secondLeaf.id
+          }
+        }
+        const targetLeafId = prev.activeLeafId
+        if (!targetLeafId || getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
+        const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
+        return { root: newRoot, activeLeafId: newLeafId }
+      })
+    })
+
+    return unsubscribe
+  }, [activeTabId, folderPath])
+
+  // v1.5.1：分屏操作处理函数
+  const handleSplitPanel = useCallback((leafId: string, direction: 'horizontal' | 'vertical', tabId: string) => {
+    setSplitState(prev => {
+      if (!prev.root) return prev
+      if (getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
+      const { root: newRoot, newLeafId } = splitLeaf(prev.root, leafId, direction, tabId)
+      return { root: newRoot, activeLeafId: newLeafId }
+    })
+  }, [])
+
+  const handleClosePanel = useCallback((leafId: string) => {
+    setSplitState(prev => {
+      if (!prev.root) return prev
+      const newRoot = closeLeaf(prev.root, leafId)
+      if (!newRoot) {
+        return { root: null, activeLeafId: '' }
+      }
+      // 如果关闭的是活跃面板，切换到第一个叶子
+      if (prev.activeLeafId === leafId) {
+        const leaves = getAllLeaves(newRoot)
+        return { root: newRoot, activeLeafId: leaves[0]?.id || '' }
+      }
+      return { ...prev, root: newRoot }
+    })
+  }, [])
+
+  const handleResizePanel = useCallback((splitId: string, ratio: number) => {
+    setSplitState(prev => {
+      if (!prev.root) return prev
+      return { ...prev, root: updateRatio(prev.root, splitId, ratio) }
+    })
+  }, [])
+
+  const handleSetActiveLeaf = useCallback((leafId: string) => {
+    setSplitState(prev => ({ ...prev, activeLeafId: leafId }))
+  }, [])
+
+  const handleDropTab = useCallback((leafId: string, tabId: string, position: 'center' | 'left' | 'right' | 'top' | 'bottom') => {
+    setSplitState(prev => {
+      if (!prev.root) return prev
+      if (position === 'center') {
+        // 替换面板内容
+        return { ...prev, root: updateLeafTab(prev.root, leafId, tabId) }
+      }
+      // 边缘放置 → 创建新分屏
+      if (getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
+      const directionMap: Record<string, 'horizontal' | 'vertical'> = {
+        left: 'horizontal', right: 'horizontal',
+        top: 'vertical', bottom: 'vertical'
+      }
+      const direction = directionMap[position]
+      const { root: newRoot, newLeafId } = splitLeaf(prev.root, leafId, direction, tabId)
+      // 如果是 left 或 top，需要交换 first/second
+      if (position === 'left' || position === 'top') {
+        const swapFirstSecond = (node: PanelNode): PanelNode => {
+          if (node.type === 'leaf') return node
+          // 找到刚创建的 split 节点（包含 newLeafId）
+          const newLeafInFirst = findLeaf(node.first, newLeafId)
+          const newLeafInSecond = findLeaf(node.second, newLeafId)
+          if (newLeafInSecond && node.second.type === 'leaf' && node.second.id === newLeafId) {
+            // 这是刚创建的 split，交换 first 和 second
+            return { ...node, first: node.second, second: node.first }
+          }
+          return {
+            ...node,
+            first: swapFirstSecond(node.first),
+            second: swapFirstSecond(node.second)
+          }
+        }
+        return { root: swapFirstSecond(newRoot), activeLeafId: newLeafId }
+      }
+      return { root: newRoot, activeLeafId: newLeafId }
+    })
+  }, [])
+
+  // v1.5.1：面板拖拽互换位置
+  const handleSwapPanels = useCallback((leafIdA: string, leafIdB: string) => {
+    setSplitState(prev => {
+      if (!prev.root) return prev
+      return { ...prev, root: swapLeaves(prev.root, leafIdA, leafIdB) }
+    })
+  }, [])
+
   // v1.4.2：字体大小调节快捷键
   useEffect(() => {
     if (!window.api.onShortcutFontIncrease) return
@@ -1968,6 +2322,17 @@ function App(): React.JSX.Element {
     <ErrorBoundary>
       <div className={`app ${isFullscreen ? 'fullscreen' : ''}`}>
       <ToastContainer messages={toast.messages} onClose={toast.close} />
+
+      {/* v1.5.1: 拖拽视觉反馈遮罩 */}
+      {isDragOver && (
+        <div className="drag-overlay">
+          <div className="drag-overlay-content">
+            <div className="drag-overlay-icon">📂</div>
+            <div className="drag-overlay-text">释放以打开文件</div>
+          </div>
+        </div>
+      )}
+
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       {/* v1.4.0：快捷键帮助弹窗 */}
       <ShortcutsHelpDialog
@@ -2068,25 +2433,49 @@ function App(): React.JSX.Element {
 
               {/* 内容区（中间） */}
               <section className="content-area">
-                <div className="preview-container">
-                  <div className="preview" ref={previewRef}>
-                    {activeTab ? (
-                      <VirtualizedMarkdown
-                        key={activeTab.file.path}
-                        content={activeTab.content}
-                        filePath={activeTab.file.path}
+                {splitState.root ? (
+                  /* 分屏模式 */
+                  <SplitPanel
+                    node={splitState.root}
+                    tabs={tabs}
+                    activeLeafId={splitState.activeLeafId}
+                    onSplitPanel={handleSplitPanel}
+                    onClosePanel={handleClosePanel}
+                    onResizePanel={handleResizePanel}
+                    onSetActiveLeaf={handleSetActiveLeaf}
+                    onImageClick={setLightbox}
+                    onDropTab={handleDropTab}
+                    onSwapPanels={handleSwapPanels}
+                    scrollToLine={scrollToLine}
+                    onScrollToLineComplete={() => setScrollToLine(undefined)}
+                  />
+                ) : (
+                  /* 单栏模式 */
+                  <div className="preview-container">
+                    <div className="preview" ref={previewRef}>
+                      {activeTab ? (
+                        <VirtualizedMarkdown
+                          key={activeTab.file.path}
+                          content={activeTab.content}
+                          filePath={activeTab.file.path}
+                          scrollToLine={scrollToLine}
+                          onScrollToLineComplete={() => setScrollToLine(undefined)}
+                          highlightKeyword={highlightKeyword}
+                          onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
+                          onImageClick={setLightbox}
+                        />
+                      ) : (
+                        <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                      )}
+                    </div>
+                    {activeTab && (
+                      <FloatingNav
+                        containerRef={previewRef}
+                        markdown={activeTab.content}
                       />
-                    ) : (
-                      <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                     )}
                   </div>
-                  {activeTab && (
-                    <FloatingNav
-                      containerRef={previewRef}
-                      markdown={activeTab.content}
-                    />
-                  )}
-                </div>
+                )}
               </section>
 
               {/* v1.3.6：右侧书签面板 */}
@@ -2105,6 +2494,20 @@ function App(): React.JSX.Element {
           </div>
         )}
       </main>
+
+      {/* v1.5.1: 图片 Lightbox */}
+      {lightbox && (
+        <ImageLightbox
+          state={lightbox}
+          onClose={() => setLightbox(null)}
+          onNavigate={(index) => setLightbox(prev => prev ? {
+            ...prev,
+            src: prev.images[index] || prev.src,
+            currentIndex: index
+          } : null)}
+        />
+      )}
+
       </div>
     </ErrorBoundary>
   )

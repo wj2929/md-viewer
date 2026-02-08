@@ -30,6 +30,7 @@ interface SearchMatch {
   key: string
   value: string
   indices: [number, number][]
+  lineNumber?: number     // v1.5.1: 匹配所在行号
 }
 
 interface SearchResult {
@@ -78,7 +79,7 @@ function countMatches(content: string, query: string): number {
 }
 
 /**
- * 提取精确匹配的上下文
+ * 提取精确匹配的上下文（v1.5.1: 增加行号，每文件最多5个匹配）
  */
 function extractExactMatches(content: string, query: string): SearchMatch[] {
   const lowerContent = content.toLowerCase()
@@ -90,14 +91,21 @@ function extractExactMatches(content: string, query: string): SearchMatch[] {
     const start = Math.max(0, index - 40)
     const end = Math.min(content.length, index + query.length + 40)
 
+    // v1.5.1: 计算行号（从1开始）
+    let lineNumber = 1
+    for (let i = 0; i < index; i++) {
+      if (content[i] === '\n') lineNumber++
+    }
+
     matches.push({
       key: 'content',
       value: content.substring(start, end),
-      indices: [[index - start, index - start + query.length - 1]]
+      indices: [[index - start, index - start + query.length - 1]],
+      lineNumber
     })
 
     index += query.length
-    if (matches.length >= 2) break  // 最多显示 2 个匹配
+    if (matches.length >= 5) break  // v1.5.1: 每文件最多5个匹配
   }
 
   return matches

@@ -1451,11 +1451,12 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   headingText: string | null
   headingLevel: string | null
   hasSelection: boolean
+  linkHref: string | null
 }) => {
   // ⚠️ 安全校验
   validatePath(params.filePath)
 
-  const { filePath, headingId, headingText, headingLevel, hasSelection } = params
+  const { filePath, headingId, headingText, headingLevel, hasSelection, linkHref } = params
 
   const menuTemplate: MenuItemConstructorOptions[] = []
 
@@ -1487,6 +1488,44 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   })
 
   menuTemplate.push({ type: 'separator' })
+
+  // v1.5.1+: 链接相关菜单项（仅在右键点击 .md 链接时显示）
+  if (linkHref) {
+    const dir = path.dirname(filePath)
+    const targetPath = path.resolve(dir, linkHref)
+    const linkFileName = path.basename(targetPath)
+
+    menuTemplate.push({
+      label: `📂 打开 ${linkFileName}`,
+      click: () => {
+        openPathInWindow(targetPath, 'md-file')
+      }
+    })
+    menuTemplate.push({
+      label: '📐 在分屏中打开',
+      submenu: [
+        {
+          label: '向右分屏',
+          click: () => {
+            event.sender.send('file:open-in-split', {
+              filePath: targetPath,
+              direction: 'horizontal'
+            })
+          }
+        },
+        {
+          label: '向下分屏',
+          click: () => {
+            event.sender.send('file:open-in-split', {
+              filePath: targetPath,
+              direction: 'vertical'
+            })
+          }
+        }
+      ]
+    })
+    menuTemplate.push({ type: 'separator' })
+  }
 
   // v1.4.0: 页面内搜索（可点击触发）
   menuTemplate.push({
@@ -2249,4 +2288,49 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     console.error('Failed to export DOCX:', error)
     throw error
   }
+})
+
+// v1.5.1: 拖拽支持 — 处理从 Finder 拖入的文件/文件夹
+ipcMain.handle('drop:openPaths', async (_, paths: string[]) => {
+  const folders: string[] = []
+  const mdFiles: string[] = []
+
+  for (const p of paths) {
+    const validation = await validateLaunchPath(p)
+    if (!validation.valid) continue
+    if (validation.type === 'directory') {
+      folders.push(validation.normalizedPath)
+    } else if (validation.normalizedPath.toLowerCase().endsWith('.md')) {
+      mdFiles.push(validation.normalizedPath)
+    }
+  }
+
+  if (folders.length > 0) {
+    openPathInWindow(folders[0], 'directory')
+  } else if (mdFiles.length > 0) {
+    openPathInWindow(mdFiles[0], 'md-file')
+    for (let i = 1; i < mdFiles.length; i++) {
+      setTimeout(() => {
+        mainWindow?.webContents.send('open-specific-file', mdFiles[i])
+      }, 500 + i * 200)
+    }
+  }
+})
+
+// v1.5.1: 内部 .md 链接跳转 — 解析相对路径并打开目标 .md 文件
+ipcMain.handle('navigate:openMdLink', async (_, currentFilePath: string, href: string) => {
+  const dir = path.dirname(currentFilePath)
+  const targetPath = path.resolve(dir, href)
+
+  try {
+    const stat = await fs.stat(targetPath)
+    if (!stat.isFile() || !targetPath.toLowerCase().endsWith('.md')) {
+      return { success: false, error: '目标不是 .md 文件' }
+    }
+  } catch {
+    return { success: false, error: '文件不存在' }
+  }
+
+  openPathInWindow(targetPath, 'md-file')
+  return { success: true }
 })

@@ -379,6 +379,44 @@ body[data-platform="darwin"] .titlebar-drag-region {
   cursor: col-resize;
 }
 
+/* v1.5.1: 拖拽视觉反馈遮罩 */
+.drag-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drag-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 60px;
+  background: var(--bg-primary);
+  border: 2px dashed var(--accent-color);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.drag-overlay-icon {
+  font-size: 48px;
+}
+
+.drag-overlay-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+}
+
 .sidebar-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
@@ -592,6 +630,12 @@ body[data-platform="darwin"] .titlebar-drag-region {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* v1.5.1: 分屏样式已移至 SplitPanel.css，此处保留 content-area 内的 split-container 兼容 */
+.content-area > .split-container,
+.content-area > .split-leaf-panel {
+  flex: 1;
 }
 
 .tabs {
@@ -1059,6 +1103,87 @@ body[data-platform="darwin"] .titlebar-drag-region {
   color: var(--text-muted);
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+}
+
+/* v1.5.1: 搜索结果分组 */
+.search-result-group {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.search-result-group:last-child {
+  border-bottom: none;
+}
+
+.search-result-item.selected {
+  background-color: var(--bg-secondary);
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.result-expand-toggle {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+}
+
+/* v1.5.1: 搜索关键词高亮 */
+.search-highlight {
+  background-color: rgba(255, 196, 0, 0.35);
+  color: inherit;
+  padding: 1px 2px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+/* v1.5.1: 展开的匹配行列表 */
+.search-match-lines {
+  padding: 0 16px 8px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search-match-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  transition: background-color 0.15s;
+}
+
+.search-match-line:hover {
+  background-color: var(--bg-secondary);
+}
+
+.search-match-line.selected {
+  background-color: var(--bg-secondary);
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.match-line-number {
+  flex-shrink: 0;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 11px;
+  color: var(--accent-color);
+  font-weight: 600;
+  min-width: 36px;
+}
+
+.match-line-snippet {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .search-footer {
@@ -2374,4 +2499,12 @@ body[data-platform="darwin"] .app.fullscreen::before {
   10% { opacity: 1; }
   90% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* v1.5.1: 全文搜索跳转临时高亮 */
+.search-temp-highlight {
+  background-color: rgba(255, 196, 0, 0.5);
+  border-radius: 2px;
+  padding: 1px 0;
+  transition: background-color 0.5s ease-out;
 }

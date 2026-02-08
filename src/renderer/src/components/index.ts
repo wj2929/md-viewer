@@ -27,3 +27,11 @@ export type { InPageSearchBoxProps } from './search'
 
 // v1.4.0: 快捷键帮助弹窗
 export { ShortcutsHelpDialog } from './ShortcutsHelpDialog'
+
+// v1.5.1: 图片 Lightbox 预览
+export { ImageLightbox } from './ImageLightbox'
+export type { LightboxState } from './ImageLightbox'
+
+// v1.5.1: 递归分屏面板
+export { SplitPanel } from './SplitPanel'
+export type { SplitPanelProps } from './SplitPanel'
