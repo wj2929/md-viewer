@@ -61,6 +61,8 @@ docs/cross-platform-analysis.md
 docs/testing/
 
 # Internal reports (AI-generated)
+TEST-REPORT-*.md
+V1.4.6-*.md
 BUG-FIX-REPORT.md
 DOCX-CHART-SIZE-FIX.md
 ECHARTS-API-DEPRECATION.md
