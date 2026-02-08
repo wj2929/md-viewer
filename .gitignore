@@ -39,6 +39,7 @@ temp/
 .env.*.local
 
 # Internal development docs (not for public)
+CLAUDE.md
 PROGRESS.md
 CONTEXT-RECOVERY.md
 *-IMPLEMENTATION-PLAN*.md
@@ -53,6 +54,11 @@ TESTING_GUIDE.md
 TESTING_V1.1.md
 SECURITY_AUDIT.md
 RELEASE_*.md
+docs/TOC-AUTO-SCROLL-*.md
+docs/V1.3.4-*.md
+docs/V1.3.5-*.md
+docs/cross-platform-analysis.md
+docs/testing/
 
 # Internal reports (AI-generated)
 BUG-FIX-REPORT.md
