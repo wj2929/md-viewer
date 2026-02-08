@@ -47,9 +47,10 @@ function sanitizeHtml(html: string): string {
 interface MarkdownRendererProps {
   content: string
   className?: string
+  filePath?: string
 }
 
-export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps): JSX.Element {
+export function MarkdownRenderer({ content, className = '', filePath }: MarkdownRendererProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // 初始化 Mermaid
@@ -352,9 +353,20 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       return
     }
 
-    // 3. 其他链接（相对路径等）：阻止默认行为，防止白屏
+    // 3. v1.5.1: 本地 .md 链接：通过 IPC 打开
+    const decodedHref = decodeURIComponent(href)
+    if (decodedHref.endsWith('.md') || /\.md[#?]/.test(decodedHref)) {
+      e.preventDefault()
+      const cleanHref = decodedHref.split('#')[0].split('?')[0]
+      if (filePath) {
+        window.api.openMdLink(filePath, cleanHref)
+      }
+      return
+    }
+
+    // 4. 其他链接（相对路径等）：阻止默认行为，防止白屏
     e.preventDefault()
-  }, [])
+  }, [filePath])
 
   // 绑定点击事件
   useEffect(() => {

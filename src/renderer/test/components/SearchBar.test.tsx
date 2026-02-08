@@ -233,7 +233,7 @@ describe('SearchBar', () => {
       const result = screen.getByText('test.md')
       await userEvent.click(result)
 
-      expect(mockOnFileSelect).toHaveBeenCalledWith(files[0])
+      expect(mockOnFileSelect).toHaveBeenCalledWith(files[0], undefined, 'test')
     })
 
     it('选择文件后应该关闭搜索框', async () => {

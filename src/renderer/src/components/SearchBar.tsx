@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle, useCallback, ReactNode } from 'react'
 import Fuse from 'fuse.js'
 import { FileInfo } from './FileTree'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
@@ -6,7 +6,7 @@ import type { SearchRequest, SearchResponse, SearchResult } from '../workers/sea
 
 interface SearchBarProps {
   files: FileInfo[]
-  onFileSelect: (file: FileInfo) => void
+  onFileSelect: (file: FileInfo, scrollToLine?: number, highlightKeyword?: string) => void
 }
 
 export interface SearchBarHandle {
@@ -148,6 +148,9 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
           setSearchResults(results)
           setTotalCount(count || 0)
           setIsSearching(false)
+          // v1.5.1: content 模式下自动展开所有文件
+          setExpandedFiles(new Set(results.map((r: SearchResult) => r.file.path)))
+          setSelectedIndex(-1)
         } else if (type === 'error') {
           console.error('Search worker error:', error)
           setIsSearching(false)
@@ -190,14 +193,21 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
       const start = Math.max(0, index - 40)
       const end = Math.min(content.length, index + queryStr.length + 40)
 
+      // v1.5.1: 计算行号
+      let lineNumber = 1
+      for (let i = 0; i < index; i++) {
+        if (content[i] === '\n') lineNumber++
+      }
+
       matches.push({
         key: 'content',
         value: content.substring(start, end),
-        indices: [[index - start, index - start + queryStr.length - 1]]
+        indices: [[index - start, index - start + queryStr.length - 1]],
+        lineNumber
       })
 
       index += queryStr.length
-      if (matches.length >= 2) break
+      if (matches.length >= 5) break  // v1.5.1: 每文件最多5个匹配
     }
 
     return matches
@@ -335,21 +345,58 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
           setSearchResults(results)
           setTotalCount(count)
           setIsSearching(false)
+          setExpandedFiles(new Set(results.map(r => r.file.path)))
+          setSelectedIndex(-1)
         }
       }, 0)
     }
   }, [debouncedQuery, searchMode, flatFiles, filesWithContent, searchInMainThread])
 
+  // v1.5.1: 展开/折叠状态（按文件路径）
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
+  // v1.5.1: 键盘导航索引
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+  const resultListRef = useRef<HTMLDivElement>(null)
+
   // 点击搜索结果
-  const handleResultClick = (file: FileInfo): void => {
-    onFileSelect(file)
+  const handleResultClick = (file: FileInfo, lineNumber?: number): void => {
+    onFileSelect(file, lineNumber, debouncedQuery.trim() || undefined)
     setQuery('')
     setSearchResults([])
     setTotalCount(0)
     setIsOpen(false)
+    setExpandedFiles(new Set())
+    setSelectedIndex(-1)
   }
 
-  // 键盘快捷键：Cmd/Ctrl + K 打开搜索
+  // v1.5.1: 切换文件展开/折叠
+  const toggleFileExpand = (filePath: string): void => {
+    setExpandedFiles(prev => {
+      const next = new Set(prev)
+      if (next.has(filePath)) {
+        next.delete(filePath)
+      } else {
+        next.add(filePath)
+      }
+      return next
+    })
+  }
+
+  // v1.5.1: 构建扁平化的导航列表（用于键盘导航）
+  const flatNavItems = useMemo(() => {
+    const items: Array<{ file: FileInfo; lineNumber?: number; type: 'file' | 'match' }> = []
+    for (const { file, matches } of searchResults) {
+      items.push({ file, type: 'file' })
+      if (searchMode === 'content' && matches && matches.length > 0 && expandedFiles.has(file.path)) {
+        for (const match of matches) {
+          items.push({ file, lineNumber: (match as any).lineNumber, type: 'match' })
+        }
+      }
+    }
+    return items
+  }, [searchResults, expandedFiles, searchMode])
+
+  // 键盘快捷键：Cmd/Ctrl + K 打开搜索 + 上下箭头导航
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -361,12 +408,33 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
         setQuery('')
         setSearchResults([])
         setTotalCount(0)
+        setExpandedFiles(new Set())
+        setSelectedIndex(-1)
+      } else if (isOpen && e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedIndex(prev => Math.min(prev + 1, flatNavItems.length - 1))
+      } else if (isOpen && e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedIndex(prev => Math.max(prev - 1, 0))
+      } else if (isOpen && e.key === 'Enter' && selectedIndex >= 0 && selectedIndex < flatNavItems.length) {
+        e.preventDefault()
+        const item = flatNavItems[selectedIndex]
+        if (item.type === 'file') {
+          // 如果是文件行，在 content 模式下展开/折叠，否则直接打开
+          if (searchMode === 'content' && searchResults.find(r => r.file.path === item.file.path)?.matches?.length) {
+            toggleFileExpand(item.file.path)
+          } else {
+            handleResultClick(item.file)
+          }
+        } else {
+          handleResultClick(item.file, item.lineNumber)
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [isOpen, selectedIndex, flatNavItems, searchMode, searchResults])
 
   // 点击外部关闭
   useEffect(() => {
@@ -386,11 +454,9 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     return () => document.removeEventListener('click', handleClickOutside)
   }, [isOpen])
 
-  // 提取匹配片段
-  const getMatchSnippet = (matches: any[]): string => {
-    if (matches.length === 0) return ''
-    const match = matches[0]
-    if (!match.value) return ''
+  // v1.5.1: 提取匹配片段（返回 JSX 带高亮）
+  const getMatchSnippet = (match: any): ReactNode => {
+    if (!match.value) return null
 
     const indices = match.indices[0]
     if (!indices) return match.value.slice(0, 100)
@@ -399,11 +465,19 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     const snippetStart = Math.max(0, start - 40)
     const snippetEnd = Math.min(match.value.length, end + 40)
 
-    let snippet = match.value.slice(snippetStart, snippetEnd)
-    if (snippetStart > 0) snippet = '...' + snippet
-    if (snippetEnd < match.value.length) snippet = snippet + '...'
+    const before = match.value.slice(snippetStart, start)
+    const highlighted = match.value.slice(start, end + 1)
+    const after = match.value.slice(end + 1, snippetEnd)
 
-    return snippet
+    return (
+      <>
+        {snippetStart > 0 && '...'}
+        {before}
+        <mark className="search-highlight">{highlighted}</mark>
+        {after}
+        {snippetEnd < match.value.length && '...'}
+      </>
+    )
   }
 
   return (
@@ -484,35 +558,83 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
 
             {/* 搜索结果区域 */}
             {(query || searchResults.length > 0) && (
-              <div className="search-results">
+              <div className="search-results" ref={resultListRef}>
                 {isSearching && searchResults.length === 0 ? (
                   <div className="search-searching">
                     <span className="search-searching-text">搜索中...</span>
                   </div>
                 ) : searchResults.length > 0 ? (
                   <>
-                    {/* 结果计数 - 放在列表上方 */}
+                    {/* 结果计数 */}
                     {totalCount > 0 && (
                       <div className="search-result-count">
-                        找到 {totalCount} 个结果{totalCount > 20 ? '，显示前 20 个' : ''}
+                        找到 {totalCount} 个{searchMode === 'content' ? '文件' : '结果'}{totalCount > 20 ? '，显示前 20 个' : ''}
+                        {searchMode === 'content' && (() => {
+                          const totalMatches = searchResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
+                          return totalMatches > 0 ? `（${totalMatches} 处匹配）` : ''
+                        })()}
                       </div>
                     )}
-                    {searchResults.map(({ file, matches }) => (
-                      <div
-                        key={file.path}
-                        className="search-result-item"
-                        onClick={() => handleResultClick(file)}
-                      >
-                        <span className="result-icon">📄</span>
-                        <div className="result-content">
-                          <div className="result-name">{file.name}</div>
-                          {matches && matches.length > 0 && (
-                            <div className="result-snippet">{getMatchSnippet(matches)}</div>
+                    {searchResults.map(({ file, matches }) => {
+                      const isExpanded = expandedFiles.has(file.path)
+                      const hasMatches = searchMode === 'content' && matches && matches.length > 0
+                      // 计算当前文件在 flatNavItems 中的索引
+                      const fileNavIndex = flatNavItems.findIndex(item => item.type === 'file' && item.file.path === file.path)
+
+                      return (
+                        <div key={file.path} className="search-result-group">
+                          <div
+                            className={`search-result-item ${selectedIndex === fileNavIndex ? 'selected' : ''}`}
+                            onClick={() => {
+                              if (hasMatches) {
+                                toggleFileExpand(file.path)
+                              } else {
+                                handleResultClick(file)
+                              }
+                            }}
+                          >
+                            <span className="result-icon">📄</span>
+                            <div className="result-content">
+                              <div className="result-name">{file.name}</div>
+                              {!hasMatches && matches && matches.length > 0 && (
+                                <div className="result-snippet">{getMatchSnippet(matches[0])}</div>
+                              )}
+                              <div className="result-path">{file.path}</div>
+                            </div>
+                            {hasMatches && (
+                              <span className="result-expand-toggle">
+                                {isExpanded ? '▼' : '▶'} {matches.length}
+                              </span>
+                            )}
+                          </div>
+                          {/* v1.5.1: 展开的匹配行列表 */}
+                          {hasMatches && isExpanded && (
+                            <div className="search-match-lines">
+                              {matches.map((match: any, idx: number) => {
+                                const matchNavIndex = flatNavItems.findIndex(
+                                  item => item.type === 'match' && item.file.path === file.path && item.lineNumber === match.lineNumber && flatNavItems.indexOf(item) >= fileNavIndex
+                                )
+                                // 如果 findIndex 不精确，用偏移量
+                                const actualNavIndex = fileNavIndex + 1 + idx
+                                return (
+                                  <div
+                                    key={`${file.path}-L${match.lineNumber || idx}`}
+                                    className={`search-match-line ${selectedIndex === actualNavIndex ? 'selected' : ''}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleResultClick(file, match.lineNumber)
+                                    }}
+                                  >
+                                    <span className="match-line-number">L{match.lineNumber || '?'}</span>
+                                    <span className="match-line-snippet">{getMatchSnippet(match)}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
                           )}
-                          <div className="result-path">{file.path}</div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </>
                 ) : query.trim() && !isSearching ? (
                   <div className="search-no-results">
