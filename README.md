@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.5.0-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.5.1-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -29,6 +29,10 @@
 - 📐 **数学公式** - KaTeX 渲染 LaTeX 公式
 - 📊 **Mermaid 图表** - 支持流程图、时序图、甘特图、C4 架构图、思维导图等
 - 📈 **ECharts 图表** - echarts/js/json 代码块智能检测，交互式图表渲染 (v1.5.0+)
+- 🖼️ **图片 Lightbox** - 点击图片全屏预览，支持缩放、拖拽平移、左右切换 (v1.5.1+)
+- 🪟 **递归分屏** - N 面板水平/垂直分屏，拖拽标签页到面板边缘自动分屏 (v1.5.1+)
+- 🔗 **内部链接跳转** - 点击 .md 链接 IPC 跳转，右键可在分屏中打开 (v1.5.1+)
+- 📂 **全窗口拖拽** - 从 Finder/资源管理器拖拽 .md 文件或文件夹直接打开 (v1.5.1+)
 - 👀 **实时监听** - 文件修改自动刷新，无需手动重载
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
 - 💾 **导出功能** - 右键菜单导出 HTML 和 PDF（支持 Mermaid/ECharts 图表）
@@ -54,8 +58,8 @@
 ### macOS
 
 **下载：**
-- [MD Viewer-1.5.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.5.0.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0) (Intel Mac)
+- [MD Viewer-1.5.1-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.5.1.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -82,7 +86,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 3. 点击"仍要打开"
 
 ### Windows
-- [MD Viewer Setup 1.5.0.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0)
+- [MD Viewer Setup 1.5.1.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1)
 
 首次运行安装程序时，SmartScreen 可能显示"Windows 已保护你的电脑"：
 1. 点击"更多信息"
@@ -92,7 +96,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 > 可以在"Windows 安全中心 → 应用和浏览器控制"中查看被阻止的应用并选择"仍要运行"。
 
 ### Linux
-- [MD Viewer-1.5.0.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.0)
+- [MD Viewer-1.5.1.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1)
 
 **AppImage 用户**（Ubuntu 22.04+ / Debian 12+ / Fedora 38+）需要先安装 libfuse2：
 ```bash
@@ -107,13 +111,13 @@ sudo pacman -S fuse2
 ```
 
 ```bash
-chmod +x MD-Viewer-1.5.0.AppImage
-./MD-Viewer-1.5.0.AppImage
+chmod +x MD-Viewer-1.5.1.AppImage
+./MD-Viewer-1.5.1.AppImage
 ```
 
 如果不想安装 FUSE，可以用提取模式运行：
 ```bash
-./MD-Viewer-1.5.0.AppImage --appimage-extract-and-run
+./MD-Viewer-1.5.1.AppImage --appimage-extract-and-run
 ```
 
 ---
