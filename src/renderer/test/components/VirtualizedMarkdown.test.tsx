@@ -3,19 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { VirtualizedMarkdown } from '../../src/components/VirtualizedMarkdown'
 
-// Mock react-virtuoso
-vi.mock('react-virtuoso', () => ({
-  Virtuoso: ({ data, itemContent }: { data: unknown[]; itemContent: (index: number, item: unknown) => JSX.Element }) => (
-    <div data-testid="virtuoso-container">
-      {data.map((item, index) => (
-        <div key={index} data-testid={`virtuoso-item-${index}`}>
-          {itemContent(index, item)}
-        </div>
-      ))}
-    </div>
-  )
-}))
-
 // Mock window.api
 const mockShowMarkdownContextMenu = vi.fn().mockResolvedValue({ success: true })
 const mockShowPreviewContextMenu = vi.fn().mockResolvedValue({ success: true })
@@ -97,131 +84,6 @@ describe('VirtualizedMarkdown', () => {
       const { container } = render(<VirtualizedMarkdown content={content} />)
 
       expect(container.innerHTML).toContain('E = mc^2')
-    })
-  })
-
-  // 注意：虚拟滚动功能已在 v1.3 中禁用（存在分段渲染 Bug）
-  // 以下测试已跳过，待虚拟滚动功能修复后重新启用
-  describe.skip('大文件处理（虚拟滚动已禁用）', () => {
-    it('应该对超过 50000 字符的文件启用虚拟滚动', () => {
-      // 创建超过 50000 字符的内容
-      const longLine = 'x'.repeat(200)
-      const lines = Array(300).fill(longLine)
-      const content = lines.join('\n')
-      const { container } = render(<VirtualizedMarkdown content={content} />)
-
-      // 应该启用虚拟滚动而不是截断
-      expect(container.querySelector('.virtualized')).toBeInTheDocument()
-    })
-
-    it('应该对超过 500 行的文件启用虚拟滚动', () => {
-      const lines = Array(501).fill('line content')
-      const content = lines.join('\n')
-      const { container } = render(<VirtualizedMarkdown content={content} />)
-
-      // 应该启用虚拟滚动
-      expect(container.querySelector('.virtualized')).toBeInTheDocument()
-      expect(screen.getByText(/501 行/)).toBeInTheDocument()
-    })
-
-    it('应该正常渲染少于 500 行的内容（非虚拟滚动）', () => {
-      const lines = Array(100).fill('# 标题')
-      const content = lines.join('\n')
-      const { container } = render(<VirtualizedMarkdown content={content} />)
-
-      expect(container.querySelector('.virtualized')).not.toBeInTheDocument()
-    })
-  })
-
-  describe.skip('虚拟滚动模式（虚拟滚动已禁用）', () => {
-    it('应该对超过 500 行的文件启用虚拟滚动', () => {
-      const lines = Array(501).fill('# 标题内容')
-      const content = lines.join('\n')
-      const { container } = render(<VirtualizedMarkdown content={content} />)
-
-      expect(container.querySelector('.virtualized')).toBeInTheDocument()
-      expect(container.querySelector('.virtualized-info')).toBeInTheDocument()
-    })
-
-    it('应该对超过 50000 字符的文件启用虚拟滚动', () => {
-      // 创建超过 50000 字符的内容，但少于 500 行
-      const longLine = 'x'.repeat(200)
-      const lines = Array(300).fill(longLine)
-      const content = lines.join('\n')
-      const { container } = render(<VirtualizedMarkdown content={content} />)
-
-      expect(container.querySelector('.virtualized')).toBeInTheDocument()
-    })
-
-    it('应该显示分段信息', () => {
-      const lines = Array(501).fill('# 标题')
-      const content = lines.join('\n')
-      render(<VirtualizedMarkdown content={content} />)
-
-      expect(screen.getByText(/大文件模式/)).toBeInTheDocument()
-      expect(screen.getByText(/501 行/)).toBeInTheDocument()
-    })
-
-    it('应该使用 Virtuoso 组件', () => {
-      const lines = Array(501).fill('# 标题')
-      const content = lines.join('\n')
-      render(<VirtualizedMarkdown content={content} />)
-
-      expect(screen.getByTestId('virtuoso-container')).toBeInTheDocument()
-    })
-  })
-
-  describe.skip('分段策略（虚拟滚动已禁用）', () => {
-    it('应该按 H1 标题分段', () => {
-      const lines = [
-        '# 第一章',
-        ...Array(50).fill('内容'),
-        '# 第二章',
-        ...Array(50).fill('内容'),
-        '# 第三章',
-        ...Array(400).fill('内容')
-      ]
-      const content = lines.join('\n')
-      render(<VirtualizedMarkdown content={content} />)
-
-      // 检查是否有多个分段
-      expect(screen.getByTestId('virtuoso-container')).toBeInTheDocument()
-    })
-
-    it('应该按 H2 标题分段', () => {
-      const lines = [
-        '## 第一节',
-        ...Array(50).fill('内容'),
-        '## 第二节',
-        ...Array(450).fill('内容')
-      ]
-      const content = lines.join('\n')
-      render(<VirtualizedMarkdown content={content} />)
-
-      expect(screen.getByTestId('virtuoso-container')).toBeInTheDocument()
-    })
-
-    it('应该按最大行数限制分段', () => {
-      // 没有标题，但超过 100 行应该自动分段
-      const lines = Array(501).fill('普通内容行')
-      const content = lines.join('\n')
-      render(<VirtualizedMarkdown content={content} />)
-
-      expect(screen.getByTestId('virtuoso-container')).toBeInTheDocument()
-    })
-
-    it('代码块内不应分割', () => {
-      const lines = [
-        '```javascript',
-        ...Array(120).fill('// 代码行'),
-        '```',
-        ...Array(400).fill('普通内容')
-      ]
-      const content = lines.join('\n')
-      render(<VirtualizedMarkdown content={content} />)
-
-      // 应该成功渲染而不会因代码块中间分割而出错
-      expect(screen.getByTestId('virtuoso-container')).toBeInTheDocument()
     })
   })
 
@@ -308,24 +170,6 @@ describe('VirtualizedMarkdown', () => {
     })
 
     // 虚拟滚动已禁用，跳过此测试
-    it.skip('应该在虚拟滚动模式下也支持右键菜单（虚拟滚动已禁用）', () => {
-      // 确保没有选中文本
-      vi.spyOn(window, 'getSelection').mockReturnValue(null)
-
-      const lines = Array(501).fill('# 内容')
-      const content = lines.join('\n')
-      const { container } = render(
-        <VirtualizedMarkdown content={content} filePath="/test/large.md" />
-      )
-
-      const virtualized = container.querySelector('.virtualized')
-      fireEvent.contextMenu(virtualized!)
-
-      expect(mockShowMarkdownContextMenu).toHaveBeenCalledWith({
-        filePath: '/test/large.md',
-        hasSelection: false
-      })
-    })
   })
 
   describe('代码高亮边界情况', () => {
@@ -448,15 +292,6 @@ fn main() {}
 
   describe('性能优化', () => {
     // 虚拟滚动已禁用，跳过此测试
-    it.skip('SectionRenderer 应该使用 memo（虚拟滚动已禁用）', () => {
-      // 通过检查组件是否正常渲染来间接验证
-      const lines = Array(501).fill('# 内容')
-      const content = lines.join('\n')
-      const { container } = render(<VirtualizedMarkdown content={content} />)
-
-      expect(container.querySelector('.virtualized-section')).toBeInTheDocument()
-    })
-
     it('NonVirtualizedMarkdown 应该使用 memo', () => {
       const content = '# 短内容'
       const { container } = render(<VirtualizedMarkdown content={content} />)

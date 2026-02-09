@@ -585,7 +585,32 @@ const api = {
   // ============== v1.5.1：内部 .md 链接跳转 ==============
 
   openMdLink: (currentFilePath: string, href: string) =>
-    ipcRenderer.invoke('navigate:openMdLink', currentFilePath, href) as Promise<{ success: boolean; error?: string }>
+    ipcRenderer.invoke('navigate:openMdLink', currentFilePath, href) as Promise<{ success: boolean; error?: string }>,
+
+  // ============== v1.6.0：多窗口支持 ==============
+
+  getWindowId: () => ipcRenderer.invoke('window:getWindowId') as Promise<number | null>,
+  newWindow: () => ipcRenderer.invoke('window:newWindow') as Promise<number>,
+  newWindowWithFolder: () => ipcRenderer.invoke('window:newWindowWithFolder') as Promise<number | null>,
+  getWindowCount: () => ipcRenderer.invoke('window:getWindowCount') as Promise<number>,
+
+  onShortcutNewWindow: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:new-window', handler)
+    return () => ipcRenderer.removeListener('shortcut:new-window', handler)
+  },
+  onShortcutNewWindowFolder: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:new-window-folder', handler)
+    return () => ipcRenderer.removeListener('shortcut:new-window-folder', handler)
+  },
+
+  // v1.6.0: 书签跨窗口同步
+  onBookmarksChanged: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('bookmarks:changed', handler)
+    return () => ipcRenderer.removeListener('bookmarks:changed', handler)
+  }
 }
 
 // 仅在 contextIsolation 启用时暴露 API

@@ -258,6 +258,15 @@ declare global {
 
       // v1.5.1：内部 .md 链接跳转
       openMdLink: (currentFilePath: string, href: string) => Promise<{ success: boolean; error?: string }>
+
+      // v1.6.0：多窗口支持
+      getWindowId: () => Promise<number | null>
+      newWindow: () => Promise<number>
+      newWindowWithFolder: () => Promise<number | null>
+      getWindowCount: () => Promise<number>
+      onShortcutNewWindow: (callback: () => void) => () => void
+      onShortcutNewWindowFolder: (callback: () => void) => () => void
+      onBookmarksChanged: (callback: () => void) => () => void
     }
   }
 

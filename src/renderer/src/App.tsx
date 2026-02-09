@@ -1,248 +1,60 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useEffect, useCallback, useMemo, useRef } from 'react'
 import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
-import { readFileWithCache, clearFileCache, invalidateAndReload } from './utils/fileCache'
+import { readFileWithCache, clearFileCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
 import { processEChartsInHtml } from './utils/echartsRenderer'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
-// v1.4.2：使用 Zustand stores 替代独立 hooks
-import { useClipboardStore, useWindowStore, useUIStore } from './stores'
+import { useDragDrop } from './hooks/useDragDrop'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { useIPC } from './hooks/useIPC'
+import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore } from './stores'
 
 function App(): React.JSX.Element {
-  const [folderPath, setFolderPath] = useState<string | null>(null)
-  const [files, setFiles] = useState<FileInfo[]>([])
-  const [tabs, setTabs] = useState<Tab[]>([])
-  const [activeTabId, setActiveTabId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  // v1.3 阶段 5：多选状态
-  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
-  // 侧边栏宽度（可拖拽调整）
-  const [sidebarWidth, setSidebarWidth] = useState(280)
-  const [isResizing, setIsResizing] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  // v1.4.0：快捷键帮助弹窗状态
-  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
-  // v1.4.3：全屏查看状态
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  // v1.5.1：搜索跳转行号
-  const [scrollToLine, setScrollToLine] = useState<number | undefined>(undefined)
-  // v1.5.1：搜索跳转临时高亮关键词
-  const [highlightKeyword, setHighlightKeyword] = useState<string | undefined>(undefined)
-  // v1.5.1：图片 Lightbox 状态
-  const [lightbox, setLightbox] = useState<LightboxState | null>(null)
-  // v1.5.1：递归分屏状态
-  const [splitState, setSplitState] = useState<SplitState>({
-    root: null,
-    activeLeafId: ''
-  })
-  // v1.3.6：书签面板状态（Day 7.6: 0 书签时默认折叠）
-  const [bookmarkPanelCollapsed, setBookmarkPanelCollapsed] = useState(true)
-  const [bookmarkPanelWidth, setBookmarkPanelWidth] = useState(240)
-  // v1.3.6：书签栏状态（混合方案 - 默认折叠保持简洁）
-  const [bookmarkBarCollapsed, setBookmarkBarCollapsed] = useState(true)
-  // v1.3.6：统一书签数据（共享给 BookmarkBar 和 BookmarkPanel）
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
-  const [bookmarksLoading, setBookmarksLoading] = useState(true)
+  // v1.6.0: Zustand stores
+  const { folderPath, setFolderPath, files, setFiles, isLoading, setIsLoading, selectedPaths, setSelectedPaths } = useFileStore()
+  const { tabs, setTabs, activeTabId, setActiveTabId, splitState, setSplitState, scrollToLine, setScrollToLine, highlightKeyword, setHighlightKeyword } = useTabStore()
+  const { bookmarks, bookmarksLoading, bookmarkPanelCollapsed, setBookmarkPanelCollapsed, bookmarkPanelWidth, setBookmarkPanelWidth, bookmarkBarCollapsed, setBookmarkBarCollapsed, loadBookmarks, loadSettings: loadBookmarkSettings } = useBookmarkStore()
+  const { sidebarWidth, setSidebarWidth, isResizing, setIsResizing, showSettings, setShowSettings, showShortcutsHelp, setShowShortcutsHelp, isFullscreen, isDragOver, lightbox, setLightbox } = useLayoutStore()
+
   const toast = useToast()
   const { theme, setTheme } = useTheme()
-  // v1.4.2：使用 Zustand stores
   const { isAlwaysOnTop, toggleAlwaysOnTop, initialize: initWindowStore, syncFromMain: syncAlwaysOnTop } = useWindowStore()
-  const { increaseFontSize, decreaseFontSize, resetFontSize, applyCSSVariable } = useUIStore()
+  const { applyCSSVariable } = useUIStore()
 
-  // 剪贴板 Store (v1.2 阶段 2)
-  const { copy, cut, paste } = useClipboardStore()
-
-  // 使用 ref 来存储最新的 tabs，避免闭包陷阱
+  // Refs
   const tabsRef = useRef<Tab[]>([])
   tabsRef.current = tabs
-
-  // 使用 ref 来存储最新的 splitState，避免闭包陷阱
   const splitStateRef = useRef<SplitState>(splitState)
   splitStateRef.current = splitState
-
-  // 搜索栏 ref (用于快捷键聚焦)
   const searchBarRef = useRef<SearchBarHandle>(null)
-  // 预览区域 ref (用于滚动重置)
   const previewRef = useRef<HTMLDivElement>(null)
-  // v1.3.6：书签面板和书签栏现在由 App 统一管理数据，不再需要 ref
 
-  // v1.5.1: 全窗口拖拽支持（含视觉反馈）
-  const [isDragOver, setIsDragOver] = useState(false)
-  const dragCounterRef = useRef(0)
+  // v1.6.0: 提取的 hooks
+  useDragDrop()
+  useKeyboardShortcuts()
 
-  useEffect(() => {
-    const handleDragEnter = (e: DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      dragCounterRef.current++
-      if (e.dataTransfer?.types.includes('Files')) {
-        setIsDragOver(true)
-      }
-    }
-
-    const handleDragLeave = (e: DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      dragCounterRef.current--
-      if (dragCounterRef.current === 0) {
-        setIsDragOver(false)
-      }
-    }
-
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-    }
-
-    const handleDrop = async (e: DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      dragCounterRef.current = 0
-      setIsDragOver(false)
-
-      const files = e.dataTransfer?.files
-      if (!files || files.length === 0) return
-
-      const paths: string[] = []
-      for (let i = 0; i < files.length; i++) {
-        const filePath = window.api.getPathForFile(files[i])
-        if (filePath) paths.push(filePath)
-      }
-
-      await window.api.openDroppedPaths(paths)
-    }
-
-    document.addEventListener('dragenter', handleDragEnter)
-    document.addEventListener('dragleave', handleDragLeave)
-    document.addEventListener('dragover', handleDragOver)
-    document.addEventListener('drop', handleDrop)
-
-    return () => {
-      document.removeEventListener('dragenter', handleDragEnter)
-      document.removeEventListener('dragleave', handleDragLeave)
-      document.removeEventListener('dragover', handleDragOver)
-      document.removeEventListener('drop', handleDrop)
-    }
-  }, [])
-
-  // v1.5.1: .md 链接跳转失败 Toast
-  useEffect(() => {
-    const handleMdLinkError = (e: Event) => {
-      const detail = (e as CustomEvent).detail
-      toast.error(`链接跳转失败：${detail?.error || '未知错误'}`)
-    }
-    window.addEventListener('md-link-error', handleMdLinkError)
-    return () => window.removeEventListener('md-link-error', handleMdLinkError)
-  }, [toast])
-
-  // v1.3.6：加载书签设置（面板 + 栏）
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const settings = await window.api.getAppSettings()
-        setBookmarkPanelCollapsed(settings.bookmarkPanelCollapsed)
-        setBookmarkPanelWidth(settings.bookmarkPanelWidth)
-        // 书签栏折叠状态（默认折叠）
-        if (settings.bookmarkBarCollapsed !== undefined) {
-          setBookmarkBarCollapsed(settings.bookmarkBarCollapsed)
-        }
-      } catch (error) {
-        console.error('[App] Failed to load settings:', error)
-      }
-    }
-    loadSettings()
-  }, [])
+  // v1.3.6：加载书签设置
+  useEffect(() => { loadBookmarkSettings() }, [])
 
   // v1.4.2：初始化 Zustand stores
   useEffect(() => {
-    // 注入平台信息到 body，供 CSS 平台选择器使用
     const platform = window.api?.platform || 'darwin'
     document.body.setAttribute('data-platform', platform)
-
-    // 初始化窗口状态
     initWindowStore()
-    // 初始化 UI 状态（应用 CSS 变量）
     applyCSSVariable()
-
-    // 监听主进程的置顶状态变化（快捷键触发时）
     const cleanupAlwaysOnTop = window.api.onAlwaysOnTopChanged(syncAlwaysOnTop)
-
-    return () => {
-      cleanupAlwaysOnTop()
-    }
+    return () => { cleanupAlwaysOnTop() }
   }, [initWindowStore, applyCSSVariable, syncAlwaysOnTop])
 
-  // v1.4.3：全屏查看快捷键监听（macOS: Cmd+F11, Win/Linux: F11, ESC 退出）
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      const isMac = window.api?.platform === 'darwin'
-
-      // macOS: Cmd+F11（避免与系统"显示桌面"冲突）
-      // Windows/Linux: F11（符合 Chrome/VS Code 用户习惯）
-      const isFullscreenToggle = isMac
-        ? (e.metaKey && e.key === 'F11')
-        : (e.key === 'F11' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey)
-
-      if (isFullscreenToggle) {
-        e.preventDefault()
-        const currentFullScreen = await window.api.isFullScreen()
-        setIsFullscreen(!currentFullScreen)
-        await window.api.setFullScreen(!currentFullScreen)
-      }
-      // ESC 退出全屏
-      else if (e.key === 'Escape' && isFullscreen) {
-        e.preventDefault()
-        setIsFullscreen(false)
-        await window.api.setFullScreen(false)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isFullscreen])
-
-  // v1.4.3：监听系统全屏状态变化（ESC 退出时同步 CSS）
-  // v1.4.5 优化：只在全屏状态时才启用轮询，避免非全屏时持续消耗 CPU
-  useEffect(() => {
-    if (!isFullscreen) return  // 非全屏时不创建定时器
-
-    const checkFullScreen = async () => {
-      const isSysFullScreen = await window.api.isFullScreen()
-      if (!isSysFullScreen) {
-        setIsFullscreen(false)
-      }
-    }
-
-    // 全屏状态下每 500ms 检查一次，用于检测用户通过系统方式退出全屏
-    const interval = setInterval(checkFullScreen, 500)
-    return () => clearInterval(interval)
-  }, [isFullscreen])
-
-  // v1.3.6：加载书签数据（统一管理）
-  const loadBookmarks = useCallback(async () => {
-    setBookmarksLoading(true)
-    try {
-      const items = await window.api.getBookmarks()
-      setBookmarks(items.sort((a, b) => a.order - b.order))
-    } catch (error) {
-      console.error('[App] Failed to load bookmarks:', error)
-    } finally {
-      setBookmarksLoading(false)
-    }
-  }, [])
-
   // 初始加载书签
-  useEffect(() => {
-    loadBookmarks()
-  }, [loadBookmarks])
+  useEffect(() => { loadBookmarks() }, [loadBookmarks])
 
   // v1.3.6 Day 7.6：监听书签数量变化，首次添加书签时自动展开 BookmarkPanel
-  // 🔧 v1.4.6 修复：使用 ref 追踪是否首次添加，避免与用户主动关闭冲突
   const hasShownBookmarkPanelRef = useRef(false)
   useEffect(() => {
-    // 只在从 0 → 1 且未展示过时自动展开
     if (bookmarks.length === 1 && bookmarkPanelCollapsed && !hasShownBookmarkPanelRef.current) {
       hasShownBookmarkPanelRef.current = true
       setBookmarkPanelCollapsed(false)
@@ -252,24 +64,17 @@ function App(): React.JSX.Element {
     }
   }, [bookmarks.length, bookmarkPanelCollapsed])
 
-  // v1.3.6：响应式布局 - 窗口小于 1200px 时自动折叠书签栏和书签面板
+  // v1.3.6：响应式布局
   useEffect(() => {
     const BREAKPOINT = 1200
     const mediaQuery = window.matchMedia(`(max-width: ${BREAKPOINT}px)`)
-
     const handleMediaChange = (e: MediaQueryListEvent | MediaQueryList) => {
       if (e.matches) {
-        // 小屏幕：自动折叠
         setBookmarkBarCollapsed(true)
         setBookmarkPanelCollapsed(true)
       }
-      // 大屏幕时不自动展开，保持用户手动设置的状态
     }
-
-    // 初始检查
     handleMediaChange(mediaQuery)
-
-    // 监听变化
     mediaQuery.addEventListener('change', handleMediaChange)
     return () => mediaQuery.removeEventListener('change', handleMediaChange)
   }, [])
@@ -278,7 +83,6 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const cleanup = window.api.onRestoreFolder(async (restoredFolderPath) => {
       setFolderPath(restoredFolderPath)
-      // v1.3.6：恢复该文件夹的固定标签
       try {
         const pinnedTabs = await window.api.getPinnedTabsForFolder(restoredFolderPath)
         if (pinnedTabs.length > 0) {
@@ -307,130 +111,11 @@ function App(): React.JSX.Element {
     return cleanup
   }, [])
 
-  // 监听右键菜单事件 (v1.2 阶段 1)
-  useEffect(() => {
-    // 文件删除事件
-    const unsubscribeDeleted = window.api.onFileDeleted((filePath: string) => {
-      // 关闭已删除文件的标签
-      setTabs(prev => prev.filter(tab => tab.file.path !== filePath))
-      // 刷新文件树
-      if (folderPath) {
-        window.api.readDir(folderPath).then(setFiles).catch(console.error)
-      }
-    })
-
-    // 注意：onFileStartRename 已在 FileTree 组件中监听，此处不再重复注册
-    // 避免 EventEmitter 内存泄漏警告
-
-    // 文件导出请求事件
-    const unsubscribeExport = window.api.onFileExportRequest(
-      async (data: { path: string; type: 'html' | 'pdf' }) => {
-        try {
-          // 读取文件内容
-          const content = await window.api.readFile(data.path)
-          const md = createMarkdownRenderer()
-          let htmlContent = md.render(content)
-          const fileName = data.path.split(/[/\\]/).pop() || 'export'
-
-          // 将 Mermaid 代码块转换为 SVG
-          htmlContent = await processMermaidInHtml(htmlContent)
-
-          // 调用导出 API
-          if (data.type === 'html') {
-            const result = await window.api.exportHTML(htmlContent, fileName)
-            if (result) {
-              toast.success('HTML 已导出', {
-                action: {
-                  label: '点击查看',
-                  onClick: async () => {
-                    try {
-                      await window.api.showItemInFolder(result)
-                    } catch (error) {
-                      console.error('Failed to show item:', error)
-                    }
-                  }
-                }
-              })
-            }
-          } else {
-            const result = await window.api.exportPDF(htmlContent, fileName)
-            if (result) {
-              toast.success('PDF 已导出', {
-                action: {
-                  label: '点击查看',
-                  onClick: async () => {
-                    try {
-                      await window.api.showItemInFolder(result)
-                    } catch (error) {
-                      console.error('Failed to show item:', error)
-                    }
-                  }
-                }
-              })
-            }
-          }
-        } catch (error) {
-          console.error('导出失败:', error)
-          toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
-        }
-      }
-    )
-
-    // 错误事件
-    const unsubscribeError = window.api.onError((error: { message: string }) => {
-      toast.error(error.message)
-    })
-
-    // 剪贴板事件 (v1.2 阶段 2, v1.3 阶段 5 多选支持)
-    const unsubscribeCopy = window.api.onClipboardCopy((paths: string[]) => {
-      // v1.3：如果有多选，使用多选的路径；否则使用传入的路径
-      const pathsToCopy = selectedPaths.size > 0 ? Array.from(selectedPaths) : paths
-      copy(pathsToCopy)
-      toast.success(`已复制 ${pathsToCopy.length} 个文件`)
-      // 复制后清空多选
-      setSelectedPaths(new Set())
-    })
-
-    const unsubscribeCut = window.api.onClipboardCut((paths: string[]) => {
-      // v1.3：如果有多选，使用多选的路径；否则使用传入的路径
-      const pathsToCut = selectedPaths.size > 0 ? Array.from(selectedPaths) : paths
-      cut(pathsToCut)
-      toast.success(`已剪切 ${pathsToCut.length} 个文件`)
-      // 剪切后清空多选
-      setSelectedPaths(new Set())
-    })
-
-    const unsubscribePaste = window.api.onClipboardPaste(async (targetDir: string) => {
-      try {
-        await paste(targetDir)
-        toast.success('粘贴成功')
-        // 刷新文件树
-        if (folderPath) {
-          const fileList = await window.api.readDir(folderPath)
-          setFiles(fileList)
-        }
-      } catch (error) {
-        console.error('粘贴失败:', error)
-        toast.error(`粘贴失败：${error instanceof Error ? error.message : '未知错误'}`)
-      }
-    })
-
-    return () => {
-      unsubscribeDeleted()
-      unsubscribeExport()
-      unsubscribeError()
-      unsubscribeCopy()
-      unsubscribeCut()
-      unsubscribePaste()
-    }
-  }, [folderPath, copy, cut, paste, toast, selectedPaths])
-
   // v1.3.6：恢复固定标签
   const restorePinnedTabs = useCallback(async (targetFolderPath: string) => {
     try {
       const pinnedTabs = await window.api.getPinnedTabsForFolder(targetFolderPath)
       if (pinnedTabs.length === 0) return
-
       const newTabs: Tab[] = []
       for (const pinned of pinnedTabs) {
         try {
@@ -446,7 +131,6 @@ function App(): React.JSX.Element {
           console.warn('[App] Failed to restore pinned tab:', pinned.path, err)
         }
       }
-
       if (newTabs.length > 0) {
         setTabs(prev => [...prev, ...newTabs])
         setActiveTabId(newTabs[0].id)
@@ -462,7 +146,6 @@ function App(): React.JSX.Element {
       const path = await window.api.openFolder()
       if (path) {
         setFolderPath(path)
-        // 保留分屏面板中正在显示的 tabs，清空其余
         const splitTabIds = new Set(
           splitStateRef.current.root
             ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
@@ -470,7 +153,6 @@ function App(): React.JSX.Element {
         )
         setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
         setActiveTabId(null)
-        // v1.3.6：恢复该文件夹的固定标签
         await restorePinnedTabs(path)
       }
     } catch (error) {
@@ -482,7 +164,6 @@ function App(): React.JSX.Element {
   const handleSelectHistoryFolder = useCallback(async (path: string) => {
     await window.api.setFolderPath(path)
     setFolderPath(path)
-    // 保留分屏面板中正在显示的 tabs，清空其余
     const splitTabIds = new Set(
       splitStateRef.current.root
         ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
@@ -490,23 +171,18 @@ function App(): React.JSX.Element {
     )
     setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
     setActiveTabId(null)
-    // v1.3.6：恢复该文件夹的固定标签
     await restorePinnedTabs(path)
   }, [restorePinnedTabs])
 
   // v1.3.6：从最近文件选择
   const handleSelectRecentFile = useCallback(async (filePath: string) => {
-    // 提取文件夹路径
     const sepIndex = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
     const fileName = sepIndex >= 0 ? filePath.slice(sepIndex + 1) : filePath
     const fileFolder = sepIndex >= 0 ? filePath.slice(0, sepIndex) : ''
 
-    // 如果当前没有打开文件夹，或者文件不在当前文件夹中
     if (!folderPath || !filePath.startsWith(folderPath)) {
-      // 先切换到文件所在的文件夹
       await window.api.setFolderPath(fileFolder)
       setFolderPath(fileFolder)
-      // 保留分屏面板中正在显示的 tabs，清空其余
       const splitTabIds = new Set(
         splitStateRef.current.root
           ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
@@ -515,15 +191,12 @@ function App(): React.JSX.Element {
       setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
       setActiveTabId(null)
 
-      // 等待文件树加载完成后恢复固定标签并打开文件
       setTimeout(async () => {
         try {
-          // 先恢复固定标签
           const pinnedTabs = await window.api.getPinnedTabsForFolder(fileFolder)
           const restoredTabs: Tab[] = []
-
           for (const pinned of pinnedTabs) {
-            if (pinned.path === filePath) continue // 跳过目标文件，后面单独处理
+            if (pinned.path === filePath) continue
             try {
               const content = await readFileWithCache(pinned.path)
               const name = pinned.path.split(/[/\\]/).pop() || ''
@@ -535,8 +208,6 @@ function App(): React.JSX.Element {
               })
             } catch { /* 忽略无法读取的文件 */ }
           }
-
-          // 打开目标文件
           const content = await readFileWithCache(filePath)
           const isPinned = pinnedTabs.some(t => t.path === filePath)
           const newTab: Tab = {
@@ -545,28 +216,19 @@ function App(): React.JSX.Element {
             content,
             isPinned
           }
-
           setTabs(prev => [...prev, ...restoredTabs, newTab])
           setActiveTabId(newTab.id)
-
-          // 添加到最近文件
-          window.api.addRecentFile({
-            path: filePath,
-            name: fileName,
-            folderPath: fileFolder
-          }).catch(err => console.error('Failed to add to recent files:', err))
+          window.api.addRecentFile({ path: filePath, name: fileName, folderPath: fileFolder }).catch(err => console.error('Failed to add to recent files:', err))
         } catch (error) {
           toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
         }
       }, 500)
     } else {
-      // 文件在当前文件夹中，直接打开
       const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
       if (existingTab) {
         setActiveTabId(existingTab.id)
         return
       }
-
       try {
         const content = await readFileWithCache(filePath)
         const newTab: Tab = {
@@ -576,13 +238,7 @@ function App(): React.JSX.Element {
         }
         setTabs(prev => [...prev, newTab])
         setActiveTabId(newTab.id)
-
-        // 添加到最近文件
-        window.api.addRecentFile({
-          path: filePath,
-          name: fileName,
-          folderPath: folderPath
-        }).catch(err => console.error('Failed to add to recent files:', err))
+        window.api.addRecentFile({ path: filePath, name: fileName, folderPath: folderPath }).catch(err => console.error('Failed to add to recent files:', err))
       } catch (error) {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
@@ -592,7 +248,6 @@ function App(): React.JSX.Element {
   // 加载文件列表
   useEffect(() => {
     if (!folderPath) return
-
     const loadFiles = async () => {
       setIsLoading(true)
       try {
@@ -605,42 +260,34 @@ function App(): React.JSX.Element {
         setIsLoading(false)
       }
     }
-
     loadFiles()
   }, [folderPath])
 
-  // 手动刷新文件树 (v1.2 阶段 1)
+  // 手动刷新文件树
   const handleRefreshFiles = useCallback(async () => {
-    if (!folderPath) return
+    const currentFolderPath = useFileStore.getState().folderPath
+    if (!currentFolderPath) return
     setIsLoading(true)
     try {
-      const fileList = await window.api.readDir(folderPath)
+      const fileList = await window.api.readDir(currentFolderPath)
       setFiles(fileList)
     } catch (error) {
       console.error('Failed to refresh files:', error)
     } finally {
       setIsLoading(false)
     }
-  }, [folderPath])
+  }, [])
 
-  // 文件重命名处理 (v1.2 阶段 1)
+  // 文件重命名处理
   const handleFileRenamed = useCallback(async (oldPath: string, newName: string) => {
     try {
-      // 调用主进程 API 重命名文件
       const newPath = await window.api.renameFile(oldPath, newName)
-
-      if (!newPath) {
-        throw new Error('重命名失败')
-      }
-
-      // 更新标签页中的文件路径
+      if (!newPath) throw new Error('重命名失败')
       setTabs(prev => prev.map(tab =>
         tab.file.path === oldPath
           ? { ...tab, file: { ...tab.file, name: newName, path: newPath } }
           : tab
       ))
-
-      // 刷新文件树
       await handleRefreshFiles()
     } catch (error) {
       console.error('Failed to rename file:', error)
@@ -648,19 +295,14 @@ function App(): React.JSX.Element {
     }
   }, [handleRefreshFiles, toast])
 
-  // 关闭标签 (必须在 useEffect 文件监听之前定义)
+  // 关闭标签
   const handleTabClose = useCallback((tabId: string) => {
     setTabs(prev => {
-      // 找到要关闭的 tab，清除其缓存
       const closingTab = prev.find(tab => tab.id === tabId)
-      if (closingTab) {
-        clearFileCache(closingTab.file.path)
-      }
-
+      if (closingTab) clearFileCache(closingTab.file.path)
       const newTabs = prev.filter(tab => tab.id !== tabId)
-
-      // 如果关闭的是当前标签，切换到下一个或上一个
-      if (tabId === activeTabId) {
+      const currentActiveTabId = useTabStore.getState().activeTabId
+      if (tabId === currentActiveTabId) {
         const closedIndex = prev.findIndex(tab => tab.id === tabId)
         if (newTabs.length > 0) {
           const nextTab = newTabs[closedIndex] || newTabs[closedIndex - 1]
@@ -669,268 +311,95 @@ function App(): React.JSX.Element {
           setActiveTabId(null)
         }
       }
-
       return newTabs
+    })
+  }, [])
+
+  // 选择文件
+  const handleFileSelect = useCallback(async (file: FileInfo, lineNumber?: number, keyword?: string) => {
+    if (file.isDirectory) return
+    setScrollToLine(lineNumber)
+    setHighlightKeyword(keyword)
+    const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
+    if (existingTab) {
+      setActiveTabId(existingTab.id)
+      return
+    }
+    try {
+      const content = await readFileWithCache(file.path)
+      const isPinned = await window.api.isTabPinned(file.path)
+      const newTab: Tab = {
+        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file,
+        content,
+        isPinned
+      }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(newTab.id)
+      const currentFolderPath = useFileStore.getState().folderPath
+      if (currentFolderPath) {
+        window.api.addRecentFile({ path: file.path, name: file.name, folderPath: currentFolderPath }).catch(err => console.error('Failed to add to recent files:', err))
+      }
+      window.api.watchFile(file.path).catch(err => console.error('Failed to watch file:', err))
+    } catch (error) {
+      console.error('Failed to read file:', error)
+      toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [toast])
+
+  // 切换标签
+  const handleTabClick = useCallback((tabId: string) => { setActiveTabId(tabId) }, [])
+
+  // 获取当前活动标签
+  const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId), [tabs, activeTabId])
+
+  // 切换文件时重置滚动位置
+  useEffect(() => {
+    if (previewRef.current && activeTabId) previewRef.current.scrollTop = 0
+  }, [activeTabId])
+
+  // 分屏模式下：activeTabId 变化时自动同步到活跃叶子面板
+  useEffect(() => {
+    if (!activeTabId) return
+    setSplitState(prev => {
+      if (!prev.root || !prev.activeLeafId) return prev
+      // 如果该 tabId 已经在某个面板中显示，则切换活跃面板到那个面板
+      const existingLeaf = findLeafByTabId(prev.root, activeTabId)
+      if (existingLeaf) {
+        if (existingLeaf.id === prev.activeLeafId) return prev
+        return { ...prev, activeLeafId: existingLeaf.id }
+      }
+      // 否则更新活跃面板显示的内容
+      return {
+        ...prev,
+        root: updateLeafTab(prev.root, prev.activeLeafId, activeTabId)
+      }
     })
   }, [activeTabId])
 
-  // v1.3 新增：Tab 右键菜单事件监听
-  useEffect(() => {
-    // 检查 API 是否存在（兼容旧版本）
-    if (!window.api.onTabClose) return
-
-    const unsubscribeTabClose = window.api.onTabClose((tabId: string) => {
-      handleTabClose(tabId)
-    })
-
-    const unsubscribeTabCloseOthers = window.api.onTabCloseOthers((tabId: string) => {
-      // v1.3.6：保留固定标签和当前标签
-      setTabs(prev => prev.filter(tab => tab.id === tabId || tab.isPinned))
-      setActiveTabId(tabId)
-    })
-
-    const unsubscribeTabCloseAll = window.api.onTabCloseAll(() => {
-      // v1.3.6：保留固定标签
-      setTabs(prev => {
-        const pinnedTabs = prev.filter(tab => tab.isPinned)
-        if (pinnedTabs.length > 0) {
-          setActiveTabId(pinnedTabs[0].id)
-          return pinnedTabs
-        }
-        setActiveTabId(null)
-        return []
-      })
-    })
-
-    const unsubscribeTabCloseLeft = window.api.onTabCloseLeft((tabId: string) => {
-      setTabs(prev => {
-        const index = prev.findIndex(tab => tab.id === tabId)
-        return index >= 0 ? prev.slice(index) : prev
-      })
-    })
-
-    const unsubscribeTabCloseRight = window.api.onTabCloseRight((tabId: string) => {
-      setTabs(prev => {
-        const index = prev.findIndex(tab => tab.id === tabId)
-        return index >= 0 ? prev.slice(0, index + 1) : prev
-      })
-    })
-
-    // v1.3.6：固定标签
-    const unsubscribeTabPin = window.api.onTabPin((tabId: string) => {
-      setTabs(prev => prev.map(tab =>
-        tab.id === tabId ? { ...tab, isPinned: true } : tab
-      ))
-      // 持久化到主进程
-      const tab = tabsRef.current.find(t => t.id === tabId)
-      if (tab) {
-        window.api.addPinnedTab(tab.file.path).catch(err => {
-          console.error('Failed to persist pinned tab:', err)
-        })
-      }
-    })
-
-    // v1.3.6：取消固定标签
-    const unsubscribeTabUnpin = window.api.onTabUnpin((tabId: string) => {
-      setTabs(prev => prev.map(tab =>
-        tab.id === tabId ? { ...tab, isPinned: false } : tab
-      ))
-      // 从主进程移除
-      const tab = tabsRef.current.find(t => t.id === tabId)
-      if (tab) {
-        window.api.removePinnedTab(tab.file.path).catch(err => {
-          console.error('Failed to remove pinned tab:', err)
-        })
-      }
-    })
-
-    return () => {
-      unsubscribeTabClose()
-      unsubscribeTabCloseOthers()
-      unsubscribeTabCloseAll()
-      unsubscribeTabCloseLeft()
-      unsubscribeTabCloseRight()
-      unsubscribeTabPin()
-      unsubscribeTabUnpin()
-    }
-  }, [handleTabClose])
-
-  // v1.3.6：书签面板事件处理
-  useEffect(() => {
-    if (!window.api.onTabAddBookmark) return
-
-    const unsubscribeAddBookmark = window.api.onTabAddBookmark(async ({ tabId, filePath }) => {
-      const tab = tabsRef.current.find(t => t.id === tabId)
-      if (!tab) return
-
-      try {
-        await window.api.addBookmark({
-          filePath: tab.file.path,
-          fileName: tab.file.name
-        })
-        toast.success('已添加到书签')
-        // 刷新书签数据（统一管理）
-        loadBookmarks()
-      } catch (error) {
-        console.error('[App] Failed to add bookmark:', error)
-        toast.error(`添加书签失败：${error instanceof Error ? error.message : '未知错误'}`)
-      }
-    })
-
-    return () => {
-      unsubscribeAddBookmark()
-    }
-  }, [toast, loadBookmarks])
-
-  // v1.3.6：快捷键添加书签
-  useEffect(() => {
-    if (!window.api.onShortcutAddBookmark) return
-
-    const unsubscribe = window.api.onShortcutAddBookmark(async () => {
-      if (!activeTabId) return
-
-      const tab = tabsRef.current.find(t => t.id === activeTabId)
-      if (!tab) return
-
-      try {
-        await window.api.addBookmark({
-          filePath: tab.file.path,
-          fileName: tab.file.name
-        })
-        toast.success('已添加到书签')
-        // 刷新书签数据（统一管理）
-        loadBookmarks()
-      } catch (error) {
-        console.error('[App] Failed to add bookmark:', error)
-        toast.error(`添加书签失败：${error instanceof Error ? error.message : '未知错误'}`)
-      }
-    })
-
-    return unsubscribe
-  }, [activeTabId, toast, loadBookmarks])
-
-  // v1.3.7：文件树右键添加书签
-  useEffect(() => {
-    if (!window.api.onAddBookmarkFromFileTree) return
-
-    const unsubscribe = window.api.onAddBookmarkFromFileTree(async (params) => {
-      const { filePath, fileName } = params
-
-      try {
-        // 添加文件书签（不包含标题信息）
-        await window.api.addBookmark({
-          filePath,
-          fileName
-        })
-
-        // 刷新书签列表
-        await loadBookmarks()
-
-        // 提示用户
-        toast.success(`已添加文件书签：${fileName}`)
-      } catch (error) {
-        console.error('[App] Failed to add bookmark:', error)
-        toast.error('添加书签失败')
-      }
-    })
-
-    return unsubscribe
-  }, [loadBookmarks, toast])
-
-  // v1.3.7：预览区域右键添加书签
-  useEffect(() => {
-    if (!window.api.onAddBookmarkFromPreview) return
-
-    const unsubscribe = window.api.onAddBookmarkFromPreview(async (params) => {
-      const { filePath, headingId, headingText } = params
-
-      try {
-        // 获取文件名
-        const fileName = filePath.split(/[/\\]/).pop() || ''
-
-        // 获取滚动位置（如果没有标题信息）
-        let scrollPosition: number | undefined
-        if (previewRef.current && !headingId) {
-          const container = previewRef.current
-          scrollPosition = container.scrollTop / container.scrollHeight
-        }
-
-        // 调用 API 添加书签
-        await window.api.addBookmark({
-          filePath,
-          fileName,
-          headingId: headingId || undefined,
-          headingText: headingText || undefined,
-          scrollPosition
-        })
-
-        // 刷新书签列表
-        await loadBookmarks()
-
-        // 提示用户
-        if (headingId) {
-          toast.success(`已添加标题书签：${headingText}`)
-        } else {
-          toast.success(`已添加文件书签：${fileName}`)
-        }
-      } catch (error) {
-        console.error('[App] Failed to add bookmark:', error)
-        toast.error('添加书签失败')
-      }
-    })
-
-    return unsubscribe
-  }, [loadBookmarks, toast])
-
-  // v1.4.0：快捷键帮助弹窗事件监听
-  useEffect(() => {
-    if (!window.api.onOpenShortcutsHelp) return
-
-    const unsubscribe = window.api.onOpenShortcutsHelp(() => {
-      setShowShortcutsHelp(true)
-    })
-
-    return unsubscribe
-  }, [])
-
-  // v1.3.6：书签面板宽度变化时保存
+  // 书签操作函数
   const handleBookmarkPanelWidthChange = useCallback((newWidth: number) => {
     setBookmarkPanelWidth(newWidth)
     window.api.updateAppSettings({ bookmarkPanelWidth: newWidth }).catch(err => {
       console.error('[App] Failed to save bookmark panel width:', err)
     })
-  }, [])
+  }, [setBookmarkPanelWidth])
 
-  // v1.3.6：书签面板折叠状态变化时保存
-  // 🔧 v1.4.6 修复：使用函数式更新避免闭包陷阱
   const handleBookmarkPanelToggle = useCallback(() => {
-    setBookmarkPanelCollapsed(prev => {
-      const newState = !prev
-      window.api.updateAppSettings({ bookmarkPanelCollapsed: newState }).catch(err => {
-        console.error('[App] Failed to save bookmark panel collapsed state:', err)
-      })
-      return newState
-    })
+    useBookmarkStore.getState().togglePanel()
   }, [])
 
-  // v1.3.6：书签栏折叠状态变化时保存（混合方案）
   const handleBookmarkBarToggle = useCallback(() => {
-    const newState = !bookmarkBarCollapsed
-    setBookmarkBarCollapsed(newState)
-    window.api.updateAppSettings({ bookmarkBarCollapsed: newState }).catch(err => {
-      console.error('[App] Failed to save bookmark bar collapsed state:', err)
-    })
-  }, [bookmarkBarCollapsed])
+    useBookmarkStore.getState().toggleBar()
+  }, [])
 
-  // v1.3.6 Phase 3：展开书签栏（从 TabBar 触发）
   const handleShowBookmarkBar = useCallback(() => {
     setBookmarkBarCollapsed(false)
     window.api.updateAppSettings({ bookmarkBarCollapsed: false }).catch(err => {
       console.error('[App] Failed to save bookmark bar collapsed state:', err)
     })
-  }, [])
+  }, [setBookmarkBarCollapsed])
 
-  // v1.3.6：点击"更多"按钮时，展开右侧书签面板
   const handleShowMoreBookmarks = useCallback(() => {
     if (bookmarkPanelCollapsed) {
       setBookmarkPanelCollapsed(false)
@@ -940,30 +409,17 @@ function App(): React.JSX.Element {
     }
   }, [bookmarkPanelCollapsed])
 
-  // v1.3.6：书签跳转（带容错）
-  // v1.4.2：支持跨文件夹书签，自动切换工作目录
   const handleSelectBookmark = useCallback(async (bookmark: Bookmark) => {
-    // 获取书签文件所在的文件夹
     const bookmarkDir = bookmark.filePath.substring(0, bookmark.filePath.lastIndexOf('/'))
-
-    // 检查是否需要切换文件夹（书签文件不在当前工作目录下）
     const needSwitchFolder = folderPath && !bookmark.filePath.startsWith(folderPath)
 
     if (needSwitchFolder) {
-      // 先切换到书签文件所在的文件夹
       toast.info(`正在切换到：${bookmarkDir.split(/[/\\]/).pop()}`)
-
       try {
-        // 1. 设置新的文件夹路径
         await window.api.setFolderPath(bookmarkDir)
-
-        // 2. 读取新文件夹的文件列表
         const newFiles = await window.api.readDir(bookmarkDir)
-
-        // 3. 更新状态
         setFolderPath(bookmarkDir)
         setFiles(newFiles)
-        // 保留分屏面板中正在显示的 tabs，清空其余
         const splitTabIds = new Set(
           splitStateRef.current.root
             ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
@@ -972,7 +428,6 @@ function App(): React.JSX.Element {
         setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
         setActiveTabId(null)
 
-        // 4. 等待状态更新完成后，打开书签文件
         setTimeout(async () => {
           try {
             const content = await readFileWithCache(bookmark.filePath)
@@ -983,14 +438,11 @@ function App(): React.JSX.Element {
             }
             setTabs(prev => [...prev, newTab])
             setActiveTabId(newTab.id)
-
-            // 等待渲染完成后跳转到书签位置
             setTimeout(() => navigateToBookmarkPosition(bookmark), 300)
           } catch (error) {
             toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
           }
         }, 100)
-
         return
       } catch (error) {
         toast.error(`切换文件夹失败：${error instanceof Error ? error.message : '未知错误'}`)
@@ -998,12 +450,8 @@ function App(): React.JSX.Element {
       }
     }
 
-    // 不需要切换文件夹的情况（原有逻辑）
-    // 1. 检查文件是否已打开
     const existingTab = tabsRef.current.find(tab => tab.file.path === bookmark.filePath)
-
     if (!existingTab) {
-      // 打开文件
       try {
         const content = await readFileWithCache(bookmark.filePath)
         const newTab: Tab = {
@@ -1013,112 +461,68 @@ function App(): React.JSX.Element {
         }
         setTabs(prev => [...prev, newTab])
         setActiveTabId(newTab.id)
-
-        // 等待渲染完成后跳转
         setTimeout(() => navigateToBookmarkPosition(bookmark), 300)
       } catch (error) {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
     } else {
-      // 切换到已打开的标签
       setActiveTabId(existingTab.id)
-      // 等待切换完成后跳转
       setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
     }
   }, [toast, folderPath])
 
-  // v1.3.6：跳转到书签位置（容错逻辑）
   const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
     if (!previewRef.current) return
-
-    // 优先级 1: 尝试通过锚点 ID 跳转
     if (bookmark.headingId) {
       const element = document.getElementById(bookmark.headingId)
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        return
-      }
+      if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
     }
-
-    // 优先级 2: 尝试通过标题文本模糊匹配
     if (bookmark.headingText) {
       const headings = previewRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
       const bestMatch = findBestHeadingMatch(bookmark.headingText, Array.from(headings))
-      if (bestMatch) {
-        bestMatch.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        return
-      }
+      if (bestMatch) { bestMatch.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
     }
-
-    // 优先级 3: 尝试通过滚动位置
     if (bookmark.scrollPosition !== undefined && bookmark.scrollPosition > 0) {
       const container = previewRef.current
-      const scrollTop = container.scrollHeight * bookmark.scrollPosition
-      container.scrollTo({ top: scrollTop, behavior: 'smooth' })
+      container.scrollTo({ top: container.scrollHeight * bookmark.scrollPosition, behavior: 'smooth' })
       return
     }
-
-    // 优先级 4: 如果是文件书签（无标题），跳转到顶部
     if (!bookmark.headingId && !bookmark.headingText) {
       previewRef.current.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
-
-    // 如果都失败，提示用户
     toast.warning('书签位置可能已失效')
   }, [toast])
 
-  // 模糊匹配标题（简单的相似度算法）
   const findBestHeadingMatch = (targetText: string, headings: Element[]): Element | null => {
     if (headings.length === 0) return null
-
     const normalize = (text: string) => text.toLowerCase().trim().replace(/\s+/g, ' ')
     const normalizedTarget = normalize(targetText)
-
     let bestMatch: Element | null = null
     let bestScore = 0
-
     for (const heading of headings) {
       const headingText = normalize(heading.textContent || '')
-
-      // 完全匹配
-      if (headingText === normalizedTarget) {
-        return heading
-      }
-
-      // 包含匹配
+      if (headingText === normalizedTarget) return heading
       if (headingText.includes(normalizedTarget) || normalizedTarget.includes(headingText)) {
         const score = Math.min(headingText.length, normalizedTarget.length) / Math.max(headingText.length, normalizedTarget.length)
-        if (score > bestScore) {
-          bestScore = score
-          bestMatch = heading
-        }
+        if (score > bestScore) { bestScore = score; bestMatch = heading }
       }
     }
-
-    // 只有相似度超过 60% 才返回
     return bestScore > 0.6 ? bestMatch : null
   }
 
   // 文件监听 - 自动刷新功能
-  // 只在 folderPath 改变时重新订阅，使用 ref 访问最新的 tabs
   useEffect(() => {
     if (!folderPath) return
 
-    // 开始监听文件夹
     window.api.watchFolder(folderPath).catch(error => {
       console.error('Failed to watch folder:', error)
     })
 
-    // 监听文件变化 - 刷新已打开的标签页
     const unsubscribeChanged = window.api.onFileChanged(async (changedPath: string) => {
-      // 清除该文件的缓存
       clearFileCache(changedPath)
-
-      // 使用 ref 获取最新的 tabs，避免闭包陷阱
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === changedPath)
-
       if (affectedTab) {
         try {
           const newContent = await window.api.readFile(changedPath)
@@ -1131,7 +535,6 @@ function App(): React.JSX.Element {
       }
     })
 
-    // 监听文件添加 - 刷新文件树
     const unsubscribeAdded = window.api.onFileAdded(async () => {
       try {
         const fileList = await window.api.readDir(folderPath)
@@ -1141,12 +544,8 @@ function App(): React.JSX.Element {
       }
     })
 
-    // 监听文件删除 - 刷新文件树并关闭已删除文件的标签
     const unsubscribeRemoved = window.api.onFileRemoved(async (removedPath: string) => {
-      // 使用函数式更新来关闭标签，避免依赖外部状态
       setTabs(prev => prev.filter(tab => tab.file.path !== removedPath))
-
-      // 刷新文件树
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -1155,9 +554,7 @@ function App(): React.JSX.Element {
       }
     })
 
-    // v1.3 新增：监听文件夹添加 - 刷新文件树
-    const unsubscribeFolderAdded = window.api.onFolderAdded(async (dirPath: string) => {
-      console.log('[App] Folder added:', dirPath)
+    const unsubscribeFolderAdded = window.api.onFolderAdded(async () => {
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -1166,13 +563,8 @@ function App(): React.JSX.Element {
       }
     })
 
-    // v1.3 新增：监听文件夹删除 - 刷新文件树 + 关闭相关标签
     const unsubscribeFolderRemoved = window.api.onFolderRemoved(async (dirPath: string) => {
-      console.log('[App] Folder removed:', dirPath)
-      // 关闭该文件夹下的所有标签
       setTabs(prev => prev.filter(tab => !tab.file.path.startsWith(dirPath + '/')))
-
-      // 刷新文件树
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -1181,25 +573,13 @@ function App(): React.JSX.Element {
       }
     })
 
-    // v1.3 新增：监听文件重命名 - 刷新文件树 + 更新标签
     const unsubscribeRenamed = window.api.onFileRenamed(async ({ oldPath, newPath }) => {
-      console.log('[App] File renamed:', oldPath, '->', newPath)
-      // 更新标签中的文件路径
       setTabs(prev => prev.map(tab => {
         if (tab.file.path === oldPath) {
-          return {
-            ...tab,
-            file: {
-              ...tab.file,
-              path: newPath,
-              name: newPath.split(/[/\\]/).pop() || tab.file.name
-            }
-          }
+          return { ...tab, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
         }
         return tab
       }))
-
-      // 刷新文件树
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -1208,11 +588,8 @@ function App(): React.JSX.Element {
       }
     })
 
-    // 清理：停止监听
     return () => {
-      window.api.unwatchFolder().catch(error => {
-        console.error('Failed to unwatch folder:', error)
-      })
+      window.api.unwatchFolder().catch(error => { console.error('Failed to unwatch folder:', error) })
       unsubscribeChanged()
       unsubscribeAdded()
       unsubscribeRemoved()
@@ -1220,227 +597,71 @@ function App(): React.JSX.Element {
       unsubscribeFolderRemoved()
       unsubscribeRenamed()
     }
-  }, [folderPath])  // 只依赖 folderPath！
-
-  // 选择文件 - 打开新标签或切换到已有标签
-  const handleFileSelect = useCallback(async (file: FileInfo, lineNumber?: number, keyword?: string) => {
-    if (file.isDirectory) return
-
-    // v1.5.1: 设置跳转行号
-    setScrollToLine(lineNumber)
-    // v1.5.1: 设置临时高亮关键词
-    setHighlightKeyword(keyword)
-
-    // 检查是否已经打开（使用 ref 获取最新状态）
-    const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
-    if (existingTab) {
-      setActiveTabId(existingTab.id)
-      return
-    }
-
-    // 读取文件内容
-    try {
-      const content = await readFileWithCache(file.path)
-
-      // v1.3.6：检查是否是固定标签
-      const isPinned = await window.api.isTabPinned(file.path)
-
-      const newTab: Tab = {
-        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        file,
-        content,
-        isPinned
-      }
-      setTabs(prev => [...prev, newTab])
-      setActiveTabId(newTab.id)
-
-      // v1.3.6：添加到最近文件
-      if (folderPath) {
-        window.api.addRecentFile({
-          path: file.path,
-          name: file.name,
-          folderPath: folderPath
-        }).catch(err => {
-          console.error('Failed to add to recent files:', err)
-        })
-      }
-
-      // 将文件添加到监听列表（只监听已打开的文件）
-      window.api.watchFile(file.path).catch(err => {
-        console.error('Failed to watch file:', err)
-      })
-    } catch (error) {
-      console.error('Failed to read file:', error)
-      toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
-    }
-  }, [toast, folderPath])
-
-  // v1.3.4：监听打开特定文件事件
-  useEffect(() => {
-    const cleanup = window.api.onOpenSpecificFile(async (filePath: string) => {
-      console.log('[App] Open specific file:', filePath)
-      const fileName = filePath.split(/[/\\]/).pop() || filePath
-      const file: FileInfo = { name: fileName, path: filePath, isDirectory: false }
-      await handleFileSelect(file)
-    })
-    return cleanup
-  }, [handleFileSelect])
-
-  // 切换标签
-  const handleTabClick = useCallback((tabId: string) => {
-    setActiveTabId(tabId)
-  }, [])
-
-  // 获取当前活动标签 - 使用 useMemo 避免不必要的重新渲染
-  const activeTab = useMemo(() => {
-    return tabs.find(tab => tab.id === activeTabId)
-  }, [tabs, activeTabId])
-
-
-  // ✅ 切换文件时重置滚动位置
-  useEffect(() => {
-    if (previewRef.current && activeTabId) {
-      previewRef.current.scrollTop = 0
-    }
-  }, [activeTabId])
-
-  // ✅ 分屏模式下：activeTabId 变化时自动同步到活跃叶子面板
-  useEffect(() => {
-    if (!activeTabId) return
-    setSplitState(prev => {
-      if (!prev.root || !prev.activeLeafId) return prev
-      // 如果该 tabId 已经在某个面板中显示，则切换活跃面板到那个面板
-      const existingLeaf = findLeafByTabId(prev.root, activeTabId)
-      if (existingLeaf) {
-        if (existingLeaf.id === prev.activeLeafId) return prev // 无变化
-        return { ...prev, activeLeafId: existingLeaf.id }
-      }
-      // 否则更新活跃面板显示的内容
-      return {
-        ...prev,
-        root: updateLeafTab(prev.root, prev.activeLeafId, activeTabId)
-      }
-    })
-  }, [activeTabId])
+  }, [folderPath])
 
   // 导出 HTML
-  // v1.4.7: 直接从 DOM 获取已渲染的 HTML，确保与预览效果完全一致
-  // v1.5.0: ECharts 需要重新渲染以获得正确的尺寸
   const handleExportHTML = useCallback(async () => {
     if (!activeTab) return
-
     try {
       let htmlContent: string
-
-      // 优先从 DOM 获取已渲染的内容（所见即所得）
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
       if (markdownBody) {
-        // 克隆 DOM 以避免修改原始内容
         const clone = markdownBody.cloneNode(true) as HTMLElement
-
-        // v1.5.1: 移除不需要导出的元素（包括 ECharts 切换按钮）
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
-
-        // v1.5.1: 确保 ECharts 图表视图可见，代码视图隐藏
         clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
           const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
           const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-
           if (chartView) chartView.style.display = ''
           if (codeView) codeView.style.display = 'none'
         })
-
-        // v1.5.0: 修复 ECharts SVG 导出 - 扁平化DOM结构，移除嵌套容器，裁剪空白
-        // 先在原始 DOM 上计算边界框（克隆的 DOM 无法调用 getBBox）
         const originalSvgs = markdownBody.querySelectorAll('.echarts-container svg')
         const svgBboxes: { x: number; y: number; width: number; height: number }[] = []
-
         originalSvgs.forEach((svg) => {
           try {
             const svgEl = svg as SVGSVGElement
-            // 计算 SVG 内容的实际边界框
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-
             Array.from(svgEl.children).forEach((child) => {
               try {
                 const el = child as SVGGraphicsElement
                 if (el.getAttribute('visibility') === 'hidden' || el.getAttribute('display') === 'none') return
                 const bbox = el.getBBox()
-                minX = Math.min(minX, bbox.x)
-                minY = Math.min(minY, bbox.y)
-                maxX = Math.max(maxX, bbox.x + bbox.width)
-                maxY = Math.max(maxY, bbox.y + bbox.height)
+                minX = Math.min(minX, bbox.x); minY = Math.min(minY, bbox.y)
+                maxX = Math.max(maxX, bbox.x + bbox.width); maxY = Math.max(maxY, bbox.y + bbox.height)
               } catch { /* ignore */ }
             })
-
             if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
               svgBboxes.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
-            } else {
-              svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
-            }
-          } catch {
-            svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
-          }
+            } else { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
+          } catch { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
         })
-
-        // 应用边界框到克隆的 SVG
         const clonedContainers = clone.querySelectorAll('.echarts-container')
         clonedContainers.forEach((container, index) => {
           const svg = container.querySelector('svg')
           if (!svg) return
-
-          // 应用裁剪后的 viewBox（去除空白）
           const bbox = svgBboxes[index]
           if (bbox) {
             const padding = 10
-            const viewBoxX = Math.max(0, bbox.x - padding)
-            const viewBoxY = Math.max(0, bbox.y - padding)
-            const viewBoxWidth = bbox.width + padding * 2
-            const viewBoxHeight = bbox.height + padding * 2
-            svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`)
+            svg.setAttribute('viewBox', `${Math.max(0, bbox.x - padding)} ${Math.max(0, bbox.y - padding)} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`)
           }
-
-          // 移除width/height属性，使用CSS控制
-          svg.removeAttribute('width')
-          svg.removeAttribute('height')
+          svg.removeAttribute('width'); svg.removeAttribute('height')
           svg.style.cssText = 'width: 100%; height: auto; display: block;'
-
-          // 关键修复：移除ECharts内部生成的嵌套div（带overflow:hidden的那个）
           const innerDiv = svg.parentElement
-          if (innerDiv && innerDiv !== container) {
-            container.appendChild(svg)
-            innerDiv.remove()
-          }
-
-          // 清理容器属性
+          if (innerDiv && innerDiv !== container) { container.appendChild(svg); innerDiv.remove() }
           const el = container as HTMLElement
-          el.removeAttribute('_echarts_instance_')
-          el.removeAttribute('data-echarts-index')
+          el.removeAttribute('_echarts_instance_'); el.removeAttribute('data-echarts-index')
           el.style.cssText = 'width: 100%;'
         })
-
         htmlContent = clone.innerHTML
       } else {
-        // 回退方案：重新渲染（当预览不可用时）
         const md = createMarkdownRenderer()
         htmlContent = md.render(activeTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
         htmlContent = await processEChartsInHtml(htmlContent)
       }
-
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
       if (filePath) {
         toast.success(`HTML 已导出`, {
-          action: {
-            label: '点击查看',
-            onClick: async () => {
-              try {
-                await window.api.showItemInFolder(filePath)
-              } catch (error) {
-                console.error('Failed to show item:', error)
-              }
-            }
-          }
+          action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
         })
       }
     } catch (error) {
@@ -1450,118 +671,68 @@ function App(): React.JSX.Element {
   }, [activeTab, toast])
 
   // 导出 PDF
-  // v1.4.7: 直接从 DOM 获取已渲染的 HTML，确保与预览效果完全一致
   const handleExportPDF = useCallback(async () => {
     if (!activeTab) return
-
     try {
       let htmlContent: string
-
-      // 优先从 DOM 获取已渲染的内容（所见即所得）
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
       if (markdownBody) {
-        // 克隆 DOM 以避免修改原始内容
         const clone = markdownBody.cloneNode(true) as HTMLElement
-
-        // v1.5.1: 移除不需要导出的元素（包括 ECharts 切换按钮）
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
-
-        // v1.5.1: 确保 ECharts 图表视图可见，代码视图隐藏
         clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
           const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
           const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-
           if (chartView) chartView.style.display = ''
           if (codeView) codeView.style.display = 'none'
         })
-
-        // v1.5.0: 修复 ECharts SVG 导出 - 扁平化DOM结构，移除嵌套容器，裁剪空白
-        // 先在原始 DOM 上计算边界框
         const originalSvgs = markdownBody.querySelectorAll('.echarts-container svg')
         const svgBboxes: { x: number; y: number; width: number; height: number }[] = []
-
         originalSvgs.forEach((svg) => {
           try {
             const svgEl = svg as SVGSVGElement
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-
             Array.from(svgEl.children).forEach((child) => {
               try {
                 const el = child as SVGGraphicsElement
                 if (el.getAttribute('visibility') === 'hidden' || el.getAttribute('display') === 'none') return
                 const bbox = el.getBBox()
-                minX = Math.min(minX, bbox.x)
-                minY = Math.min(minY, bbox.y)
-                maxX = Math.max(maxX, bbox.x + bbox.width)
-                maxY = Math.max(maxY, bbox.y + bbox.height)
+                minX = Math.min(minX, bbox.x); minY = Math.min(minY, bbox.y)
+                maxX = Math.max(maxX, bbox.x + bbox.width); maxY = Math.max(maxY, bbox.y + bbox.height)
               } catch { /* ignore */ }
             })
-
             if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
               svgBboxes.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
-            } else {
-              svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
-            }
-          } catch {
-            svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 })
-          }
+            } else { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
+          } catch { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
         })
-
-        // 应用边界框到克隆的 SVG
         const clonedContainers = clone.querySelectorAll('.echarts-container')
         clonedContainers.forEach((container, index) => {
           const svg = container.querySelector('svg')
           if (!svg) return
-
-          // 应用裁剪后的 viewBox
           const bbox = svgBboxes[index]
           if (bbox) {
             const padding = 10
-            const viewBoxX = Math.max(0, bbox.x - padding)
-            const viewBoxY = Math.max(0, bbox.y - padding)
-            const viewBoxWidth = bbox.width + padding * 2
-            const viewBoxHeight = bbox.height + padding * 2
-            svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`)
+            svg.setAttribute('viewBox', `${Math.max(0, bbox.x - padding)} ${Math.max(0, bbox.y - padding)} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`)
           }
-
-          svg.removeAttribute('width')
-          svg.removeAttribute('height')
+          svg.removeAttribute('width'); svg.removeAttribute('height')
           svg.style.cssText = 'width: 100%; height: auto; display: block;'
-
           const innerDiv = svg.parentElement
-          if (innerDiv && innerDiv !== container) {
-            container.appendChild(svg)
-            innerDiv.remove()
-          }
-
+          if (innerDiv && innerDiv !== container) { container.appendChild(svg); innerDiv.remove() }
           const el = container as HTMLElement
-          el.removeAttribute('_echarts_instance_')
-          el.removeAttribute('data-echarts-index')
+          el.removeAttribute('_echarts_instance_'); el.removeAttribute('data-echarts-index')
           el.style.cssText = 'width: 100%;'
         })
-
         htmlContent = clone.innerHTML
       } else {
-        // 回退方案：重新渲染（当预览不可用时）
         const md = createMarkdownRenderer()
         htmlContent = md.render(activeTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
         htmlContent = await processEChartsInHtml(htmlContent)
       }
-
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
       if (filePath) {
         toast.success(`PDF 已导出`, {
-          action: {
-            label: '点击查看',
-            onClick: async () => {
-              try {
-                await window.api.showItemInFolder(filePath)
-              } catch (error) {
-                console.error('Failed to show item:', error)
-              }
-            }
-          }
+          action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
         })
       }
     } catch (error) {
@@ -1570,322 +741,142 @@ function App(): React.JSX.Element {
     }
   }, [activeTab, toast])
 
-  // 导出 DOCX (v1.5.0) - 支持图表导出
+  // 导出 DOCX
   const handleExportDOCX = useCallback(async (docStyle?: string) => {
     if (!activeTab) return
-
     try {
       let htmlContent: string
-
-      // v1.5.0: 复用 HTML 导出的逻辑，保留 SVG（Pandoc 支持 SVG）
-      // 这样可以确保 DOCX 导出与 HTML 导出效果一致
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
       if (markdownBody) {
-        // 克隆 DOM 以避免修改原始内容
         const clone = markdownBody.cloneNode(true) as HTMLElement
-
-        // v1.5.1: 移除不需要导出的元素（包括 ECharts 切换按钮）
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
-
-        // v1.5.1: 确保 ECharts 图表视图可见，代码视图隐藏
         clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
           const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
           const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-
           if (chartView) chartView.style.display = ''
           if (codeView) codeView.style.display = 'none'
         })
-
-        // 处理 ECharts SVG
-        // ECharts 渲染的 SVG 可能没有 viewBox，但内部绘制区域可能很大
-        // 需要添加正确的 viewBox 以确保内容正确缩放
         const clonedContainers = clone.querySelectorAll('.echarts-container')
         clonedContainers.forEach((container) => {
           const svg = container.querySelector('svg')
           if (!svg) return
-
-          // 获取原始 viewBox 或从内部元素推断
           let viewBox = svg.getAttribute('viewBox')
           let vbWidth: number, vbHeight: number
-
           if (viewBox) {
             const parts = viewBox.split(/\s+/)
-            if (parts.length === 4) {
-              vbWidth = parseFloat(parts[2])
-              vbHeight = parseFloat(parts[3])
-            } else {
-              vbWidth = 600
-              vbHeight = 400
-            }
+            if (parts.length === 4) { vbWidth = parseFloat(parts[2]); vbHeight = parseFloat(parts[3]) }
+            else { vbWidth = 600; vbHeight = 400 }
           } else {
-            // 没有 viewBox，从内部 rect 或 SVG 属性推断
-            // ECharts 通常会创建一个覆盖整个画布的 rect
             const bgRect = svg.querySelector('rect')
-            if (bgRect) {
-              vbWidth = parseFloat(bgRect.getAttribute('width') || '600')
-              vbHeight = parseFloat(bgRect.getAttribute('height') || '400')
-            } else {
-              // 使用 SVG 的原始尺寸
-              vbWidth = parseFloat(svg.getAttribute('width') || '600')
-              vbHeight = parseFloat(svg.getAttribute('height') || '400')
-            }
-            // 添加 viewBox
+            if (bgRect) { vbWidth = parseFloat(bgRect.getAttribute('width') || '600'); vbHeight = parseFloat(bgRect.getAttribute('height') || '400') }
+            else { vbWidth = parseFloat(svg.getAttribute('width') || '600'); vbHeight = parseFloat(svg.getAttribute('height') || '400') }
             svg.setAttribute('viewBox', `0 0 ${vbWidth} ${vbHeight}`)
           }
-
-          // 设置固定的像素尺寸，保持原始宽高比
-          // Pandoc 不理解 CSS 的 height: auto
           const exportWidth = 624
           const aspectRatio = vbHeight / vbWidth
           const exportHeight = Math.round(exportWidth * aspectRatio)
-
-          svg.setAttribute('width', String(exportWidth))
-          svg.setAttribute('height', String(exportHeight))
+          svg.setAttribute('width', String(exportWidth)); svg.setAttribute('height', String(exportHeight))
           svg.style.cssText = 'display: block;'
-
-          // 移除 ECharts 内部生成的嵌套 div
           const innerDiv = svg.parentElement
-          if (innerDiv && innerDiv !== container) {
-            container.appendChild(svg)
-            innerDiv.remove()
-          }
-
-          // 清理容器属性
+          if (innerDiv && innerDiv !== container) { container.appendChild(svg); innerDiv.remove() }
           const el = container as HTMLElement
-          el.removeAttribute('_echarts_instance_')
-          el.removeAttribute('data-echarts-index')
+          el.removeAttribute('_echarts_instance_'); el.removeAttribute('data-echarts-index')
           el.style.cssText = ''
         })
-
-        // 处理 Mermaid SVG
         const mermaidContainers = clone.querySelectorAll('.mermaid-container')
         mermaidContainers.forEach((container) => {
           const svg = container.querySelector('svg')
           if (!svg) return
-
-          // 获取 Mermaid SVG 的 viewBox
-          const viewBox = svg.getAttribute('viewBox')
-          if (viewBox) {
-            const parts = viewBox.split(/\s+/)
+          const mViewBox = svg.getAttribute('viewBox')
+          if (mViewBox) {
+            const parts = mViewBox.split(/\s+/)
             if (parts.length === 4) {
-              const vbWidth = parseFloat(parts[2])
-              const vbHeight = parseFloat(parts[3])
-              const exportWidth = 624
-              const aspectRatio = vbHeight / vbWidth
-              const exportHeight = Math.round(exportWidth * aspectRatio)
-
-              svg.setAttribute('width', String(exportWidth))
-              svg.setAttribute('height', String(exportHeight))
+              const vbW = parseFloat(parts[2]); const vbH = parseFloat(parts[3])
+              const expW = 624; const ar = vbH / vbW
+              svg.setAttribute('width', String(expW)); svg.setAttribute('height', String(Math.round(expW * ar)))
               svg.style.cssText = 'display: block;'
             }
-          } else {
-            // 没有 viewBox，使用默认尺寸
-            svg.setAttribute('width', '624')
-            svg.setAttribute('height', '400')
-            svg.style.cssText = 'display: block;'
-          }
+          } else { svg.setAttribute('width', '624'); svg.setAttribute('height', '400'); svg.style.cssText = 'display: block;' }
         })
-
-        // 处理代码块：只将 ASCII 艺术/UI 模拟图转换为 PNG 图片
-        // 普通代码块保持文本格式，以便用户复制
         const codeBlocks = clone.querySelectorAll('pre')
         const codeBlockPromises: Promise<void>[] = []
-
-        /**
-         * 检测代码块是否为 ASCII 艺术（需要转为图片）
-         * 只有真正的 ASCII 艺术才转换，普通代码保持文本
-         */
         const isAsciiArt = (text: string): boolean => {
           const lines = text.split('\n').filter(l => l.trim())
-          if (lines.length < 3) return false  // 太短不是 ASCII 艺术
-
-          // 1. 检测 Unicode 框线字符（最明确的 ASCII 艺术标志）
-          if (/[┌┐└┘├┤┬┴┼─│┃┏┓┗┛┣┫┳┻╋━┠┨┯┷┿╂]/.test(text)) {
-            return true
-          }
-
-          // 2. 检测边框模式
-          let borderLines = 0  // +---+ 或 +===+ 模式
-          let pipeLines = 0    // |   | 模式
-
+          if (lines.length < 3) return false
+          if (/[┌┐└┘├┤┬┴┼─│┃┏┓┗┛┣┫┳┻╋━┠┨┯┷┿╂]/.test(text)) return true
+          let borderLines = 0; let pipeLines = 0
           for (const line of lines) {
             const trimmed = line.trim()
-            // 边框行：+---+、+===+、+----...----+
-            if (/^[+][=\-]+[+]$/.test(trimmed) && trimmed.length > 5) {
-              borderLines++
-            }
-            // 内容行：| xxx | 或 |  xxx  |
-            if (/^\|.+\|$/.test(trimmed) && trimmed.length > 3) {
-              pipeLines++
-            }
+            if (/^[+][=\-]+[+]$/.test(trimmed) && trimmed.length > 5) borderLines++
+            if (/^\|.+\|$/.test(trimmed) && trimmed.length > 3) pipeLines++
           }
-
-          // 如果有足够的边框行和管道行，认为是 ASCII 艺术表格/框图
-          if (borderLines >= 2 && pipeLines >= 2) {
-            return true
-          }
-
-          // 3. 检测 UI 模拟元素（复选框、单选框、滑块等）
+          if (borderLines >= 2 && pipeLines >= 2) return true
           const hasCheckbox = /\[[✓✗xX ]\]/.test(text)
           const hasRadio = /\([•●○ ]\)/.test(text)
           const hasSlider = /\|[=○●]+\|/.test(text)
-
-          if ((hasCheckbox || hasRadio || hasSlider) && pipeLines >= 3) {
-            return true
-          }
-
+          if ((hasCheckbox || hasRadio || hasSlider) && pipeLines >= 3) return true
           return false
         }
-
-        /**
-         * 判断代码块是否应该转换为图片
-         */
         const shouldConvertToImage = (pre: Element, text: string): boolean => {
-          // 1. 检查语言类型
           const code = pre.querySelector('code')
-          const preClass = pre.className || ''
-          const codeClass = code?.className || ''
-          const allClasses = preClass + ' ' + codeClass
-
-          // 提取语言标记
+          const allClasses = (pre.className || '') + ' ' + (code?.className || '')
           const langMatch = allClasses.match(/language-(\w+)/)
           if (langMatch) {
             const lang = langMatch[1].toLowerCase()
-            // 只有 plaintext/text/ascii 才考虑转换，其他编程语言不转换
-            if (!['plaintext', 'text', 'ascii', ''].includes(lang)) {
-              return false
-            }
+            if (!['plaintext', 'text', 'ascii', ''].includes(lang)) return false
           }
-
-          // 2. 检测是否为 ASCII 艺术
           return isAsciiArt(text)
         }
-
         codeBlocks.forEach((pre) => {
           const code = pre.querySelector('code')
           if (!code) return
-
           const text = code.textContent || ''
-
-          // 使用更精确的检测逻辑
           if (shouldConvertToImage(pre, text)) {
-            console.log(`[DOCX Export] 检测到 ASCII 艺术，长度: ${text.length}，前 50 字符: ${text.substring(0, 50).replace(/\n/g, '\\n')}`)
             const promise = (async () => {
               try {
-                // 调用主进程截图
                 const result = await window.api.renderCodeBlockToPng(text)
                 if (result.success && result.data) {
-                  // 检查 base64 数据长度（过小可能是空白图片）
-                  if (result.data.length < 200) {
-                    console.warn(`[DOCX Export] 截图数据过小 (${result.data.length} chars)，可能是空白图片，保留原始代码块`)
-                    return
-                  }
-                  // 创建 img 元素替换代码块
+                  if (result.data.length < 200) return
                   const img = document.createElement('img')
                   img.src = `data:image/png;base64,${result.data}`
                   img.alt = 'ASCII Art'
                   img.style.cssText = 'display: block; max-width: 100%;'
-                  if (result.width && result.height) {
-                    img.width = result.width
-                    img.height = result.height
-                  }
+                  if (result.width && result.height) { img.width = result.width; img.height = result.height }
                   pre.replaceWith(img)
-                  console.log(`[DOCX Export] ASCII 艺术已转换为 PNG: ${result.width}x${result.height}, base64 长度: ${result.data.length}`)
-                } else {
-                  console.warn(`[DOCX Export] 截图返回失败: ${result.error || '未知错误'}，保留原始代码块`)
                 }
-              } catch (err) {
-                console.error('[DOCX Export] 代码块截图失败:', err instanceof Error ? err.message : err)
-                // 失败时保留原始代码块
-              }
+              } catch { /* 失败时保留原始代码块 */ }
             })()
             codeBlockPromises.push(promise)
           }
         })
-
-        // 等待所有代码块截图完成
-        if (codeBlockPromises.length > 0) {
-          console.log(`[DOCX Export] 等待 ${codeBlockPromises.length} 个代码块截图完成...`)
-          await Promise.all(codeBlockPromises)
-          console.log('[DOCX Export] 所有代码块截图完成')
-        }
-
+        if (codeBlockPromises.length > 0) await Promise.all(codeBlockPromises)
         htmlContent = clone.innerHTML
-        console.log(`[DOCX Export] 使用 SVG 导出，图表数量: ${clonedContainers.length}`)
       } else {
-        // 回退：使用 markdown-it 渲染
         const md = createMarkdownRenderer()
         htmlContent = md.render(activeTab.content)
       }
-
-      console.log('[DOCX Export] HTML 内容长度:', htmlContent.length)
-
-      const result = await window.api.exportDOCX(
-        htmlContent,
-        activeTab.file.name,
-        folderPath || '',
-        activeTab.content,  // 传递 markdown 作为回退
-        docStyle
-      )
-
+      const result = await window.api.exportDOCX(htmlContent, activeTab.file.name, folderPath || '', activeTab.content, docStyle)
       if (result) {
         const { filePath, warnings, usedPandoc } = result
-
-        // 处理导出成功提示
         if (usedPandoc) {
-          // 使用 Pandoc 导出（高质量）
           const styleLabel = docStyle === 'gongwen' ? '公文格式' : 'Pandoc 高质量'
           const message = warnings && warnings.length > 0
             ? `Word 已导出（${styleLabel}）（${warnings.length} 个警告）`
             : `Word 已导出（${styleLabel}）`
-
           toast.success(message, {
-            action: {
-              label: '点击查看',
-              onClick: async () => {
-                try {
-                  await window.api.showItemInFolder(filePath)
-                } catch (error) {
-                  console.error('Failed to show item:', error)
-                }
-              }
-            }
+            action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
           })
         } else {
-          // 使用 docx 库导出（基础质量）
           const pandocPromptChoice = localStorage.getItem('pandoc-prompt-choice')
-
           if (pandocPromptChoice === 'never') {
-            // 用户选择了"不再提示"，只显示导出成功
-            toast.success('✅ 导出成功', {
-              action: {
-                label: '点击查看',
-                onClick: async () => {
-                  try {
-                    await window.api.showItemInFolder(filePath)
-                  } catch (error) {
-                    console.error('Failed to show item:', error)
-                  }
-                }
-              }
+            toast.success('导出成功', {
+              action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
             })
           } else {
-            // 首次或用户未选择"不再提示"，显示 Pandoc 安装建议
-            // 使用 description 字段实现两行显示
-            toast.success('✅ 导出成功', {
-              description: '💡 安装 Pandoc 可支持数学公式和复杂表格',
-              duration: 10000, // 10秒，给用户足够时间阅读
-              action: {
-                label: '查看安装指南',
-                onClick: async () => {
-                  try {
-                    await window.api.openExternal('https://pandoc.org/installing.html')
-                  } catch (error) {
-                    console.error('Failed to open external URL:', error)
-                    toast.error('无法打开链接')
-                  }
-                }
-              }
+            toast.success('导出成功', {
+              description: '安装 Pandoc 可支持数学公式和复杂表格',
+              duration: 10000,
+              action: { label: '查看安装指南', onClick: async () => { try { await window.api.openExternal('https://pandoc.org/installing.html') } catch (error) { console.error('Failed to open external URL:', error); toast.error('无法打开链接') } } }
             })
           }
         }
@@ -1896,213 +887,39 @@ function App(): React.JSX.Element {
     }
   }, [activeTab, folderPath, toast])
 
-  // 切换到下一个标签
+  // 标签切换
   const handleNextTab = useCallback(() => {
     const currentTabs = tabsRef.current
     if (currentTabs.length === 0) return
-
     const currentIndex = currentTabs.findIndex(tab => tab.id === activeTabId)
     const nextIndex = (currentIndex + 1) % currentTabs.length
     setActiveTabId(currentTabs[nextIndex].id)
   }, [activeTabId])
 
-  // 切换到上一个标签
   const handlePrevTab = useCallback(() => {
     const currentTabs = tabsRef.current
     if (currentTabs.length === 0) return
-
     const currentIndex = currentTabs.findIndex(tab => tab.id === activeTabId)
     const prevIndex = (currentIndex - 1 + currentTabs.length) % currentTabs.length
     setActiveTabId(currentTabs[prevIndex].id)
   }, [activeTabId])
 
-  // 切换到指定标签
   const handleSwitchTab = useCallback((tabIndex: number) => {
     const currentTabs = tabsRef.current
     if (tabIndex < 0 || tabIndex >= currentTabs.length) return
     setActiveTabId(currentTabs[tabIndex].id)
   }, [])
 
-  // 聚焦搜索栏
   const handleFocusSearch = useCallback(() => {
     searchBarRef.current?.focus()
   }, [])
 
-  // 监听快捷键事件 (v1.2.1)
+  // v1.5.1：页内搜索快捷键
   useEffect(() => {
-    // 检查 API 是否存在（兼容旧版本）
-    if (!window.api.onShortcutOpenFolder) return
-
-    const unsubscribeOpenFolder = window.api.onShortcutOpenFolder(handleOpenFolder)
-    const unsubscribeRefresh = window.api.onShortcutRefresh(handleRefreshFiles)
-    const unsubscribeCloseTab = window.api.onShortcutCloseTab(() => {
-      if (activeTabId) handleTabClose(activeTabId)
+    if (!window.api.onOpenInPageSearch) return
+    const unsubscribe = window.api.onOpenInPageSearch(() => {
+      window.dispatchEvent(new CustomEvent('open-in-page-search'))
     })
-    const unsubscribeExportHTML = window.api.onShortcutExportHTML(handleExportHTML)
-    const unsubscribeExportPDF = window.api.onShortcutExportPDF(handleExportPDF)
-    const unsubscribeFocusSearch = window.api.onShortcutFocusSearch(handleFocusSearch)
-    const unsubscribeNextTab = window.api.onShortcutNextTab(handleNextTab)
-    const unsubscribePrevTab = window.api.onShortcutPrevTab(handlePrevTab)
-    const unsubscribeSwitchTab = window.api.onShortcutSwitchTab(handleSwitchTab)
-
-    return () => {
-      unsubscribeOpenFolder()
-      unsubscribeRefresh()
-      unsubscribeCloseTab()
-      unsubscribeExportHTML()
-      unsubscribeExportPDF()
-      unsubscribeFocusSearch()
-      unsubscribeNextTab()
-      unsubscribePrevTab()
-      unsubscribeSwitchTab()
-    }
-  }, [
-    handleOpenFolder,
-    handleRefreshFiles,
-    handleTabClose,
-    handleExportHTML,
-    handleExportPDF,
-    handleFocusSearch,
-    handleNextTab,
-    handlePrevTab,
-    handleSwitchTab,
-    activeTabId
-  ])
-
-  // v1.5.1：分屏快捷键 Cmd+\ / Ctrl+\
-  useEffect(() => {
-    const handleSplitShortcut = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
-        e.preventDefault()
-        setSplitState(prev => {
-          if (prev.root) {
-            // 已有分屏 → 关闭分屏回到单栏
-            return { root: null, activeLeafId: '' }
-          }
-          // 打开分屏：如果有多个标签页，右侧显示下一个标签页
-          const currentTabs = tabsRef.current
-          const activeIdx = currentTabs.findIndex(t => t.id === activeTabId)
-          const nextTab = currentTabs.find((t, i) => i !== activeIdx)
-          if (!nextTab || !activeTabId) return prev
-          const firstLeaf = createLeaf(activeTabId)
-          const secondLeaf = createLeaf(nextTab.id)
-          const root: PanelNode = {
-            type: 'split',
-            id: `panel-split-${Date.now()}`,
-            direction: 'horizontal',
-            ratio: 0.5,
-            first: firstLeaf,
-            second: secondLeaf
-          }
-          return { root, activeLeafId: firstLeaf.id }
-        })
-      }
-    }
-    window.addEventListener('keydown', handleSplitShortcut)
-    return () => window.removeEventListener('keydown', handleSplitShortcut)
-  }, [activeTabId])
-
-  // v1.5.1：分屏 IPC 事件（从标签页右键菜单触发）
-  useEffect(() => {
-    if (!window.api.onTabOpenInSplit) return
-
-    const unsubscribe = window.api.onTabOpenInSplit((data: { tabId: string; direction: 'horizontal' | 'vertical' } | string) => {
-      // 兼容旧格式（string）和新格式（object）
-      const tabId = typeof data === 'string' ? data : data.tabId
-      const direction = typeof data === 'string' ? 'horizontal' : data.direction
-
-      setSplitState(prev => {
-        if (!prev.root) {
-          // 从单栏进入分屏
-          const currentActiveTabId = tabsRef.current.find(t => t.id === activeTabId)?.id
-          if (!currentActiveTabId) return prev
-          const firstLeaf = createLeaf(currentActiveTabId)
-          const secondLeaf = createLeaf(tabId)
-          return {
-            root: {
-              type: 'split',
-              id: `panel-split-${Date.now()}`,
-              direction,
-              ratio: 0.5,
-              first: firstLeaf,
-              second: secondLeaf
-            } as PanelNode,
-            activeLeafId: secondLeaf.id
-          }
-        }
-        // 已有分屏：在活跃面板处分屏
-        const targetLeafId = prev.activeLeafId
-        if (!targetLeafId || getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
-        const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
-        return { root: newRoot, activeLeafId: newLeafId }
-      })
-    })
-
-    return unsubscribe
-  }, [activeTabId])
-
-  // v1.5.1：文件树"在分屏中打开" IPC 事件
-  useEffect(() => {
-    if (!window.api.onFileOpenInSplit) return
-
-    const unsubscribe = window.api.onFileOpenInSplit(async (data: { filePath: string; direction: 'horizontal' | 'vertical' }) => {
-      const { filePath, direction } = data
-      // 检查是否已打开
-      let tab = tabsRef.current.find(t => t.file.path === filePath)
-      if (!tab) {
-        // 读取文件并创建标签页
-        try {
-          const content = await readFileWithCache(filePath)
-          const fileName = filePath.split(/[/\\]/).pop() || filePath
-          const isPinned = await window.api.isTabPinned(filePath)
-          const newTab: Tab = {
-            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            file: { name: fileName, path: filePath, isDirectory: false },
-            content,
-            isPinned
-          }
-          setTabs(prev => [...prev, newTab])
-          tab = newTab
-          // 添加到最近文件
-          if (folderPath) {
-            window.api.addRecentFile({ path: filePath, name: fileName, folderPath }).catch(() => {})
-          }
-          window.api.watchFile(filePath).catch(() => {})
-        } catch (error) {
-          console.error('Failed to read file for split:', error)
-          return
-        }
-      }
-
-      const tabId = tab.id
-      setSplitState(prev => {
-        if (!prev.root) {
-          const currentActiveTabId = tabsRef.current.find(t => t.id === activeTabId)?.id
-          if (!currentActiveTabId) {
-            // 没有活跃标签，直接设为单面板
-            return prev
-          }
-          const firstLeaf = createLeaf(currentActiveTabId)
-          const secondLeaf = createLeaf(tabId)
-          return {
-            root: {
-              type: 'split',
-              id: `panel-split-${Date.now()}`,
-              direction,
-              ratio: 0.5,
-              first: firstLeaf,
-              second: secondLeaf
-            } as PanelNode,
-            activeLeafId: secondLeaf.id
-          }
-        }
-        const targetLeafId = prev.activeLeafId
-        if (!targetLeafId || getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
-        const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
-        return { root: newRoot, activeLeafId: newLeafId }
-      })
-    })
-
     return unsubscribe
   }, [activeTabId, folderPath])
 
@@ -2120,10 +937,7 @@ function App(): React.JSX.Element {
     setSplitState(prev => {
       if (!prev.root) return prev
       const newRoot = closeLeaf(prev.root, leafId)
-      if (!newRoot) {
-        return { root: null, activeLeafId: '' }
-      }
-      // 如果关闭的是活跃面板，切换到第一个叶子
+      if (!newRoot) return { root: null, activeLeafId: '' }
       if (prev.activeLeafId === leafId) {
         const leaves = getAllLeaves(newRoot)
         return { root: newRoot, activeLeafId: leaves[0]?.id || '' }
@@ -2147,33 +961,22 @@ function App(): React.JSX.Element {
     setSplitState(prev => {
       if (!prev.root) return prev
       if (position === 'center') {
-        // 替换面板内容
         return { ...prev, root: updateLeafTab(prev.root, leafId, tabId) }
       }
-      // 边缘放置 → 创建新分屏
       if (getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
       const directionMap: Record<string, 'horizontal' | 'vertical'> = {
-        left: 'horizontal', right: 'horizontal',
-        top: 'vertical', bottom: 'vertical'
+        left: 'horizontal', right: 'horizontal', top: 'vertical', bottom: 'vertical'
       }
       const direction = directionMap[position]
       const { root: newRoot, newLeafId } = splitLeaf(prev.root, leafId, direction, tabId)
-      // 如果是 left 或 top，需要交换 first/second
       if (position === 'left' || position === 'top') {
         const swapFirstSecond = (node: PanelNode): PanelNode => {
           if (node.type === 'leaf') return node
-          // 找到刚创建的 split 节点（包含 newLeafId）
-          const newLeafInFirst = findLeaf(node.first, newLeafId)
           const newLeafInSecond = findLeaf(node.second, newLeafId)
           if (newLeafInSecond && node.second.type === 'leaf' && node.second.id === newLeafId) {
-            // 这是刚创建的 split，交换 first 和 second
             return { ...node, first: node.second, second: node.first }
           }
-          return {
-            ...node,
-            first: swapFirstSecond(node.first),
-            second: swapFirstSecond(node.second)
-          }
+          return { ...node, first: swapFirstSecond(node.first), second: swapFirstSecond(node.second) }
         }
         return { root: swapFirstSecond(newRoot), activeLeafId: newLeafId }
       }
@@ -2181,115 +984,12 @@ function App(): React.JSX.Element {
     })
   }, [])
 
-  // v1.5.1：面板拖拽互换位置
   const handleSwapPanels = useCallback((leafIdA: string, leafIdB: string) => {
     setSplitState(prev => {
       if (!prev.root) return prev
       return { ...prev, root: swapLeaves(prev.root, leafIdA, leafIdB) }
     })
   }, [])
-
-  // v1.4.2：字体大小调节快捷键
-  useEffect(() => {
-    if (!window.api.onShortcutFontIncrease) return
-
-    const unsubscribeIncrease = window.api.onShortcutFontIncrease(increaseFontSize)
-    const unsubscribeDecrease = window.api.onShortcutFontDecrease(decreaseFontSize)
-    const unsubscribeReset = window.api.onShortcutFontReset(resetFontSize)
-
-    return () => {
-      unsubscribeIncrease()
-      unsubscribeDecrease()
-      unsubscribeReset()
-    }
-  }, [increaseFontSize, decreaseFontSize, resetFontSize])
-
-  // v1.4.2：窗口置顶快捷键（使用 store）
-  useEffect(() => {
-    if (!window.api.onShortcutToggleAlwaysOnTop) return
-
-    const unsubscribe = window.api.onShortcutToggleAlwaysOnTop(async () => {
-      await toggleAlwaysOnTop()
-      // 状态已通过 syncFromMain 同步，这里只显示提示
-      const currentState = useWindowStore.getState().isAlwaysOnTop
-      toast.success(currentState ? '窗口已置顶' : '已取消置顶')
-    })
-
-    return () => unsubscribe()
-  }, [toggleAlwaysOnTop, toast])
-
-  // v1.4.2：打印快捷键
-  useEffect(() => {
-    if (!window.api.onShortcutPrint) return
-
-    const unsubscribe = window.api.onShortcutPrint(async () => {
-      if (!activeTab) {
-        toast.error('请先打开一个文件')
-        return
-      }
-      await window.api.print()
-    })
-
-    return () => unsubscribe()
-  }, [activeTab, toast])
-
-  // v1.3 阶段 2：Markdown 右键菜单事件监听
-  useEffect(() => {
-    // 检查 API 是否存在
-    if (!window.api.onMarkdownExportHTML) return
-
-    const unsubscribeExportHTML = window.api.onMarkdownExportHTML(() => {
-      handleExportHTML()
-    })
-
-    const unsubscribeExportPDF = window.api.onMarkdownExportPDF(() => {
-      handleExportPDF()
-    })
-
-    const unsubscribeExportDOCX = window.api.onMarkdownExportDOCX((docStyle?: string) => {
-      handleExportDOCX(docStyle)
-    })
-
-    const unsubscribeCopySource = window.api.onMarkdownCopySource(() => {
-      if (activeTab) {
-        navigator.clipboard.writeText(activeTab.content)
-        toast.success('已复制 Markdown 源码')
-      }
-    })
-
-    const unsubscribeCopyPlainText = window.api.onMarkdownCopyPlainText(() => {
-      if (activeTab) {
-        // 简单移除 Markdown 标记获取纯文本
-        const plainText = activeTab.content
-          .replace(/#{1,6}\s+/g, '')  // 标题
-          .replace(/\*\*([^*]+)\*\*/g, '$1')  // 粗体
-          .replace(/\*([^*]+)\*/g, '$1')  // 斜体
-          .replace(/`([^`]+)`/g, '$1')  // 行内代码
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // 链接
-          .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')  // 图片
-        navigator.clipboard.writeText(plainText)
-        toast.success('已复制纯文本')
-      }
-    })
-
-    const unsubscribeCopyHTML = window.api.onMarkdownCopyHTML(() => {
-      if (activeTab) {
-        const md = createMarkdownRenderer()
-        const html = md.render(activeTab.content)
-        navigator.clipboard.writeText(html)
-        toast.success('已复制 HTML')
-      }
-    })
-
-    return () => {
-      unsubscribeExportHTML()
-      unsubscribeExportPDF()
-      unsubscribeExportDOCX()
-      unsubscribeCopySource()
-      unsubscribeCopyPlainText()
-      unsubscribeCopyHTML()
-    }
-  }, [activeTab, handleExportHTML, handleExportPDF, handleExportDOCX, toast])
 
   // 侧边栏拖拽调整宽度
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -2299,31 +999,42 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     if (!isResizing) return
-
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.min(Math.max(e.clientX, 180), 500) // 限制 180-500px
+      const newWidth = Math.min(Math.max(e.clientX, 180), 500)
       setSidebarWidth(newWidth)
     }
-
-    const handleMouseUp = () => {
-      setIsResizing(false)
-    }
-
+    const handleMouseUp = () => { setIsResizing(false) }
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isResizing])
 
+  // v1.6.0: IPC 事件监听（集中管理）
+  useIPC({
+    toast,
+    handleOpenFolder,
+    handleRefreshFiles,
+    handleTabClose,
+    handleExportHTML,
+    handleExportPDF,
+    handleExportDOCX,
+    handleFocusSearch,
+    handleNextTab,
+    handlePrevTab,
+    handleSwitchTab,
+    handleFileSelect,
+    loadBookmarks,
+    previewRef
+  })
+
   return (
     <ErrorBoundary>
       <div className={`app ${isFullscreen ? 'fullscreen' : ''}`}>
       <ToastContainer messages={toast.messages} onClose={toast.close} />
 
-      {/* v1.5.1: 拖拽视觉反馈遮罩 */}
       {isDragOver && (
         <div className="drag-overlay">
           <div className="drag-overlay-content">
@@ -2334,16 +1045,13 @@ function App(): React.JSX.Element {
       )}
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
-      {/* v1.4.0：快捷键帮助弹窗 */}
       <ShortcutsHelpDialog
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
       />
 
-      {/* 主内容区 */}
       <main className="main-content">
         {!folderPath ? (
-          /* 欢迎页：无 Header，保持原样 */
           <div className="welcome">
             <div className="welcome-icon">📁</div>
             <h2>欢迎使用 MD Viewer</h2>
@@ -2360,9 +1068,7 @@ function App(): React.JSX.Element {
             </div>
           </div>
         ) : (
-          /* 工作区：Header + 主内容 */
           <div className="workspace-container">
-            {/* v1.3.6：新 Header（NavigationBar + TabBar） */}
             <Header>
               <NavigationBar
                 folderPath={folderPath}
@@ -2380,7 +1086,6 @@ function App(): React.JSX.Element {
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
               />
-              {/* v1.3.6 Phase 3：渐进式展示 */}
               {tabs.length > 0 && (
                 <TabBar
                   tabs={tabs}
@@ -2393,7 +1098,6 @@ function App(): React.JSX.Element {
                   onShowBookmarkBar={handleShowBookmarkBar}
                 />
               )}
-              {/* v1.3.6 Day 7.6: 只有书签数量 > 0 时才显示 BookmarkBar */}
               {bookmarks.length > 0 && (
                 <BookmarkBar
                   bookmarks={bookmarks}
@@ -2407,9 +1111,7 @@ function App(): React.JSX.Element {
               )}
             </Header>
 
-            {/* 工作区主体 */}
             <div className={`workspace ${isResizing ? 'resizing' : ''}`}>
-              {/* 左侧边栏：文件树 */}
               <aside className="sidebar" style={{ width: sidebarWidth }}>
                 <div className="file-tree-container">
                   {isLoading ? (
@@ -2428,13 +1130,10 @@ function App(): React.JSX.Element {
                 </div>
               </aside>
 
-              {/* 左侧分隔条 */}
               <div className="resize-handle" onMouseDown={handleResizeStart} />
 
-              {/* 内容区（中间） */}
               <section className="content-area">
                 {splitState.root ? (
-                  /* 分屏模式 */
                   <SplitPanel
                     node={splitState.root}
                     tabs={tabs}
@@ -2450,7 +1149,6 @@ function App(): React.JSX.Element {
                     onScrollToLineComplete={() => setScrollToLine(undefined)}
                   />
                 ) : (
-                  /* 单栏模式 */
                   <div className="preview-container">
                     <div className="preview" ref={previewRef}>
                       {activeTab ? (
@@ -2478,7 +1176,6 @@ function App(): React.JSX.Element {
                 )}
               </section>
 
-              {/* v1.3.6：右侧书签面板 */}
               <BookmarkPanel
                 bookmarks={bookmarks}
                 isLoading={bookmarksLoading}
@@ -2495,19 +1192,22 @@ function App(): React.JSX.Element {
         )}
       </main>
 
-      {/* v1.5.1: 图片 Lightbox */}
       {lightbox && (
         <ImageLightbox
           state={lightbox}
           onClose={() => setLightbox(null)}
-          onNavigate={(index) => setLightbox(prev => prev ? {
-            ...prev,
-            src: prev.images[index] || prev.src,
-            currentIndex: index
-          } : null)}
+          onNavigate={(index) => {
+            const current = useLayoutStore.getState().lightbox
+            if (current) {
+              setLightbox({
+                ...current,
+                src: current.images[index] || current.src,
+                currentIndex: index
+              })
+            }
+          }}
         />
       )}
-
       </div>
     </ErrorBoundary>
   )
