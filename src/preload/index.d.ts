@@ -267,6 +267,17 @@ declare global {
       onShortcutNewWindow: (callback: () => void) => () => void
       onShortcutNewWindowFolder: (callback: () => void) => () => void
       onBookmarksChanged: (callback: () => void) => () => void
+
+      // v1.5.2：版本信息与更新检测
+      getAppVersion: () => Promise<{
+        version: string; electron: string; chrome: string;
+        node: string; platform: string; arch: string
+      }>
+      checkForUpdates: () => Promise<{
+        hasUpdate?: boolean; currentVersion?: string; latestVersion?: string;
+        releaseUrl?: string; releaseNotes?: string; publishedAt?: string;
+        error?: string
+      }>
     }
   }
 

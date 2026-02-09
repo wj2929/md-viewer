@@ -141,7 +141,16 @@ const mockApi = {
   getWindowCount: vi.fn().mockResolvedValue(1),
   onShortcutNewWindow: vi.fn(() => vi.fn()),
   onShortcutNewWindowFolder: vi.fn(() => vi.fn()),
-  onBookmarksChanged: vi.fn(() => vi.fn())
+  onBookmarksChanged: vi.fn(() => vi.fn()),
+  // v1.5.2：版本信息与更新检测
+  getAppVersion: vi.fn().mockResolvedValue({
+    version: '1.5.2', electron: '39.2.7', chrome: '134.0.6998.35',
+    node: '22.14.0', platform: 'darwin', arch: 'arm64'
+  }),
+  checkForUpdates: vi.fn().mockResolvedValue({
+    hasUpdate: false, currentVersion: '1.5.2', latestVersion: '1.5.2'
+  }),
+  openExternal: vi.fn().mockResolvedValue({ success: true })
 }
 
 // Mock 全局 window.api

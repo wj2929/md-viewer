@@ -2376,3 +2376,79 @@ ipcMain.handle('navigate:openMdLink', async (event, currentFilePath: string, hre
   openPathInWindow(targetPath, 'md-file', senderWindow || undefined)
   return { success: true }
 })
+
+// v1.5.2: 获取应用版本和系统信息
+ipcMain.handle('app:getVersion', () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  platform: process.platform,
+  arch: process.arch
+}))
+
+// v1.5.2: 检查更新（多源容错）
+ipcMain.handle('app:checkForUpdates', async () => {
+  const GITHUB_REPO = 'wj2929/md-viewer'
+  const SOURCES = [
+    `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+    `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`
+  ]
+  const TIMEOUT_MS = 5000
+
+  // 源1: GitHub Releases API
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const response = await net.fetch(SOURCES[0], {
+      headers: {
+        'User-Agent': 'MD-Viewer',
+        'Accept': 'application/vnd.github.v3+json'
+      },
+      signal: controller.signal
+    })
+    clearTimeout(timer)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    const latestVersion = data.tag_name?.replace(/^v/, '')
+    const currentVersion = app.getVersion()
+    console.log(`[UpdateCheck] GitHub API: current=${currentVersion}, latest=${latestVersion}`)
+    return {
+      hasUpdate: latestVersion !== currentVersion,
+      currentVersion,
+      latestVersion,
+      releaseUrl: data.html_url,
+      releaseNotes: data.body,
+      publishedAt: data.published_at
+    }
+  } catch (err) {
+    console.warn('[UpdateCheck] GitHub API failed:', err)
+  }
+
+  // 源2: jsDelivr CDN (读取 package.json 的 version 字段)
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const response = await net.fetch(SOURCES[1], {
+      headers: { 'User-Agent': 'MD-Viewer' },
+      signal: controller.signal
+    })
+    clearTimeout(timer)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    const latestVersion = data.version
+    const currentVersion = app.getVersion()
+    console.log(`[UpdateCheck] jsDelivr: current=${currentVersion}, latest=${latestVersion}`)
+    return {
+      hasUpdate: latestVersion !== currentVersion,
+      currentVersion,
+      latestVersion,
+      releaseUrl: `https://github.com/${GITHUB_REPO}/releases/latest`,
+      publishedAt: undefined
+    }
+  } catch (err) {
+    console.warn('[UpdateCheck] jsDelivr failed:', err)
+  }
+
+  return { error: '无法连接到更新服务器，请检查网络连接后重试' }
+})

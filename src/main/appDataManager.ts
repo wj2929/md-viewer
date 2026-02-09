@@ -69,6 +69,8 @@ export interface AppSettings {
   bookmarkPanelWidth: number     // 书签面板宽度
   bookmarkPanelCollapsed: boolean // 书签面板是否折叠
   bookmarkBarCollapsed: boolean   // 书签栏是否折叠（v1.3.6）
+  maxRecentFiles?: number         // 最近文件上限（v1.5.2）
+  maxFolderHistory?: number       // 文件夹历史上限（v1.5.2）
 }
 
 /**
@@ -187,7 +189,7 @@ class AppDataManager {
       lastOpened: Date.now()
     }
 
-    const updated = [newFile, ...filtered].slice(0, MAX_RECENT_FILES)
+    const updated = [newFile, ...filtered].slice(0, this.getMaxRecentFiles())
     this.store.set('recentFiles', updated)
   }
 
@@ -497,6 +499,14 @@ class AppDataManager {
   updateSettings(updates: Partial<AppSettings>): void {
     const settings = this.store.get('settings')
     this.store.set('settings', { ...settings, ...updates })
+  }
+
+  /**
+   * 获取最近文件上限（v1.5.2）
+   */
+  getMaxRecentFiles(): number {
+    const settings = this.store.get('settings')
+    return settings.maxRecentFiles ?? MAX_RECENT_FILES
   }
 
   // ============== 工具方法 ==============

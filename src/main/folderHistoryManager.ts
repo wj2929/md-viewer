@@ -7,6 +7,19 @@ import Store from 'electron-store'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 
+const DEFAULT_MAX_ITEMS = 10
+
+// 读取 settings store 中的 maxFolderHistory（避免循环依赖，直接读 electron-store）
+function getMaxFolderHistory(): number {
+  try {
+    const settingsStore = new Store({ name: 'app-data' })
+    const settings = settingsStore.get('settings') as Record<string, unknown> | undefined
+    const val = settings?.maxFolderHistory
+    if (typeof val === 'number' && val >= 5 && val <= 50) return val
+  } catch { /* ignore */ }
+  return DEFAULT_MAX_ITEMS
+}
+
 export interface FolderHistoryItem {
   path: string
   name: string
@@ -19,7 +32,6 @@ interface HistoryStore {
 
 class FolderHistoryManager {
   private store: Store<HistoryStore>
-  private maxItems = 10
 
   constructor() {
     this.store = new Store<HistoryStore>({
@@ -68,7 +80,7 @@ class FolderHistoryManager {
       lastOpened: Date.now()
     }
 
-    const updated = [newItem, ...filtered].slice(0, this.maxItems)
+    const updated = [newItem, ...filtered].slice(0, getMaxFolderHistory())
     this.store.set('folderHistory', updated)
   }
 

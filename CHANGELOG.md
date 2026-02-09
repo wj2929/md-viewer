@@ -7,6 +7,96 @@
 
 ---
 
+## [1.5.2] - 2026-02-09
+
+> **状态**: 🔄 **开发中** | **类型**: 架构重构 + 新功能 + 增强
+
+### 🏗️ 架构重构 ⭐⭐
+
+#### Zustand Store 拆分
+- **4 个新 Store**：`fileStore`（文件状态）、`tabStore`（标签页）、`bookmarkStore`（书签）、`layoutStore`（布局）
+- **App.tsx 瘦身**：18 个 `useState` 迁移到 store，从 **2516 行降至 1197 行**（-52%）
+- **3 个 Hook 提取**：`useDragDrop`（拖拽）、`useKeyboardShortcuts`（快捷键）、`useIPC`（IPC 事件监听，629 行）
+- **VirtualizedMarkdown 清理**：删除虚拟滚动死代码，从 **1142 行降至 919 行**（-20%）
+- **测试清理**：删除 react-virtuoso mock 和 5 个 skip 测试
+
+### 🪟 多窗口支持 ⭐⭐
+
+- **WindowManager 类**：`src/main/windowManager.ts`（222 行），封装窗口创建/管理/广播
+- **IPC 改造**：handler 改为 `event.sender` 获取窗口（置顶/全屏/打印不再依赖全局 mainWindow）
+- **快捷键**：`Cmd+N` 新建窗口、`Cmd+Shift+O` 新窗口打开文件夹
+- **书签同步**：书签修改时 IPC 广播到其他窗口
+- **拖拽/链接跳转**：使用发送者窗口而非全局窗口
+
+### ✨ 新功能
+
+#### 1. 设置面板 Tab 化 ⭐
+- **布局**：通用 / 关于 两个 Tab
+- **样式**：完整暗色主题适配
+
+#### 2. 通用 Tab
+- **主题切换**：浅色 / 深色 / 跟随系统 Radio 组
+- **字体大小**：12-24px Slider 调节
+- **最近文件上限**：5-100 可配置
+- **文件夹历史上限**：5-50 可配置
+- **右键菜单集成**：原有功能搬入
+
+#### 3. 关于 Tab - 版本更新检测 ⭐
+- **多源容错**：GitHub Releases API → jsDelivr CDN
+- **超时控制**：每源 5s，总计最多 10s
+- **系统信息**：Electron / Chromium / Node.js / 平台
+- **链接**：GitHub 仓库 / MIT 协议 / 反馈问题
+
+### 🔧 技术实现
+
+#### 新增文件（架构重构 + 多窗口）
+| 文件 | 说明 |
+|------|------|
+| `src/main/windowManager.ts` | 窗口管理器（222 行） |
+| `src/renderer/src/hooks/useIPC.ts` | IPC 事件监听 hook（629 行） |
+| `src/renderer/src/hooks/useKeyboardShortcuts.ts` | 快捷键 hook |
+| `src/renderer/src/hooks/useDragDrop.ts` | 拖拽 hook |
+| `src/renderer/src/stores/fileStore.ts` | 文件状态 store |
+| `src/renderer/src/stores/tabStore.ts` | 标签页 store |
+| `src/renderer/src/stores/bookmarkStore.ts` | 书签 store |
+| `src/renderer/src/stores/layoutStore.ts` | 布局 store |
+
+#### 核心文件变更（设置面板）
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `src/renderer/src/components/SettingsPanel.tsx` | 重写 | Tab 化 + 通用设置 + 关于 |
+| `src/main/index.ts` | 修改 | 2 个新 IPC handler |
+| `src/main/appDataManager.ts` | 修改 | 动态上限配置 |
+| `src/main/folderHistoryManager.ts` | 修改 | 动态上限配置 |
+| `src/preload/index.ts` | 修改 | 暴露新 API |
+| `src/preload/index.d.ts` | 修改 | 类型定义 |
+| `src/renderer/src/assets/main.css` | 修改 | 新样式 + 暗色适配 |
+| `src/renderer/test/App.test.tsx` | 修改 | mock 新 API |
+
+### ✅ 测试
+
+- **测试通过率**：474/487 (97.3%)
+- **跳过**：13（虚拟滚动相关）
+- **失败**：0
+
+#### 代码变更统计
+```
+9 files changed, +1017 insertions, -114 deletions
+```
+
+| 文件 | 增 | 删 | 说明 |
+|------|:--:|:--:|------|
+| `SettingsPanel.tsx` | +514 | -114 | 重写为 Tab 化布局（通用 + 关于） |
+| `main.css` | +430 | -1 | Tab/Radio/Slider/关于页/暗色适配 |
+| `main/index.ts` | +76 | 0 | 2 个新 IPC handler |
+| `preload/index.ts` | +16 | -1 | 暴露 2 个新 API |
+| `folderHistoryManager.ts` | +16 | -1 | 动态上限 |
+| `appDataManager.ts` | +12 | -1 | AppSettings 扩展 + getMaxRecentFiles |
+| `preload/index.d.ts` | +11 | 0 | 类型定义 |
+| `App.test.tsx` | +11 | -1 | mock 新 API |
+
+---
+
 ## [1.5.1] - 2026-02-09
 
 > **状态**: ✅ **已发布** | **类型**: 新功能 + 增强

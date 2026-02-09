@@ -610,7 +610,21 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('bookmarks:changed', handler)
     return () => ipcRenderer.removeListener('bookmarks:changed', handler)
-  }
+  },
+
+  // ============== v1.5.2：版本信息与更新检测 ==============
+
+  getAppVersion: () =>
+    ipcRenderer.invoke('app:getVersion') as Promise<{
+      version: string; electron: string; chrome: string;
+      node: string; platform: string; arch: string
+    }>,
+  checkForUpdates: () =>
+    ipcRenderer.invoke('app:checkForUpdates') as Promise<{
+      hasUpdate?: boolean; currentVersion?: string; latestVersion?: string;
+      releaseUrl?: string; releaseNotes?: string; publishedAt?: string;
+      error?: string
+    }>
 }
 
 // 仅在 contextIsolation 启用时暴露 API

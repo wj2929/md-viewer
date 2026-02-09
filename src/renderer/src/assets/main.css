@@ -1511,7 +1511,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
 .settings-panel {
   background: var(--bg-primary);
   border-radius: 8px;
-  width: 400px;
+  width: 480px;
   max-height: 80vh;
   overflow: auto;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
@@ -1536,6 +1536,35 @@ body[data-platform="darwin"] .titlebar-drag-region {
   font-size: 24px;
   cursor: pointer;
   color: var(--text-secondary);
+}
+
+/* v1.5.2: Tab 栏 */
+.settings-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-tab {
+  background: none;
+  border: none;
+  padding: 10px 20px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.settings-tab:hover {
+  color: var(--text-primary);
+}
+
+.settings-tab.active {
+  color: #007AFF;
+  border-bottom-color: #007AFF;
+  font-weight: 500;
 }
 
 .settings-content {
@@ -1838,6 +1867,258 @@ body[data-platform="darwin"] .titlebar-drag-region {
   margin-top: 24px;
 }
 
+/* v1.5.2: 通用 Tab - 设置行布局 */
+.setting-row {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between;
+}
+
+.setting-row > label {
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  min-width: 90px;
+}
+
+/* Radio 组 */
+.setting-radios {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-tertiary, #f0f0f0);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.radio-label {
+  padding: 5px 12px;
+  font-size: 13px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.radio-label input[type="radio"] {
+  display: none;
+}
+
+.radio-label.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  font-weight: 500;
+}
+
+/* Slider 组 */
+.setting-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 280px;
+}
+
+.slider-label-min,
+.slider-label-max {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.settings-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #007AFF;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.slider-value {
+  font-size: 13px;
+  color: var(--text-primary);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* v1.5.2: 设置 section 间距 */
+.settings-section {
+  margin-bottom: 20px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+/* v1.5.2: 关于 Tab */
+.about-app-info {
+  text-align: center;
+  padding: 24px 0 16px;
+}
+
+.about-app-icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.about-app-name {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.about-app-version {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* 更新区域 */
+.about-update-section {
+  flex-direction: column !important;
+  gap: 12px !important;
+}
+
+.about-current-version {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.about-check-btn {
+  align-self: flex-start;
+}
+
+.about-update-status {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.about-update-status.checking {
+  color: var(--text-secondary);
+}
+
+.about-update-status.success {
+  background: #d4edda;
+  color: #155724;
+}
+
+.about-update-status.available {
+  background: #cce5ff;
+  color: #004085;
+}
+
+.about-update-status.error {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.update-new-version {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.update-date {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.update-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--text-secondary);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 链接区域 */
+.about-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.about-link-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s;
+}
+
+.about-link-item:hover {
+  background: var(--bg-secondary);
+}
+
+.about-link-icon {
+  font-size: 16px;
+}
+
+/* 系统信息 */
+.about-system-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.system-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.system-info-row:nth-child(odd) {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.system-info-label {
+  color: var(--text-secondary);
+}
+
+.system-info-value {
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 12px;
+}
+
 /* ============================================
    浮动导航样式 (v1.3.5)
    ============================================ */
@@ -2041,6 +2322,153 @@ body[data-platform="darwin"] .titlebar-drag-region {
       opacity: 1;
       transform: translateY(0);
     }
+  }
+}
+
+/* ============================================
+   v1.5.2: 设置面板暗色模式适配
+   ============================================ */
+
+:root[data-theme="dark"] .setting-radios {
+  background: #333;
+}
+
+:root[data-theme="dark"] .radio-label.active {
+  background: #444;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="dark"] .status-indicator.gray {
+  background: #333;
+  color: #999;
+}
+
+:root[data-theme="dark"] .status-indicator.yellow {
+  background: #3d3520;
+  color: #ffc107;
+  border-color: #5a4a1a;
+}
+
+:root[data-theme="dark"] .status-indicator.green {
+  background: #1a3320;
+  color: #4caf50;
+  border-color: #2a5a30;
+}
+
+:root[data-theme="dark"] .warning-message {
+  background: #3d3520;
+  border-color: #5a4a1a;
+  color: #ffc107;
+}
+
+:root[data-theme="dark"] .btn-secondary {
+  background: #333 !important;
+  color: #ccc !important;
+}
+
+:root[data-theme="dark"] .btn-secondary:hover:not(:disabled) {
+  background: #444 !important;
+}
+
+:root[data-theme="dark"] .btn-link {
+  color: #999 !important;
+}
+
+:root[data-theme="dark"] .btn-link:hover {
+  color: #ccc !important;
+}
+
+:root[data-theme="dark"] .enable-guide-content {
+  background: #2d2d2d;
+}
+
+:root[data-theme="dark"] .enable-guide-content h2 {
+  color: #4caf50;
+}
+
+:root[data-theme="dark"] .guide-warning p {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .enable-guide-steps {
+  background: #333;
+}
+
+:root[data-theme="dark"] .enable-guide-steps li {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .about-update-status.success {
+  background: #1a3320;
+  color: #4caf50;
+}
+
+:root[data-theme="dark"] .about-update-status.available {
+  background: #1a2a3d;
+  color: #64b5f6;
+}
+
+:root[data-theme="dark"] .about-update-status.error {
+  background: #3d3520;
+  color: #ffc107;
+}
+
+:root[data-theme="dark"] .usage-instructions {
+  background: #333;
+}
+
+:root[data-theme="dark"] .usage-instructions h4 {
+  color: #ccc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .setting-radios {
+    background: #333;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .radio-label.active {
+    background: #444;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .status-indicator.gray {
+    background: #333;
+    color: #999;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .status-indicator.yellow {
+    background: #3d3520;
+    color: #ffc107;
+    border-color: #5a4a1a;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .status-indicator.green {
+    background: #1a3320;
+    color: #4caf50;
+    border-color: #2a5a30;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .warning-message {
+    background: #3d3520;
+    border-color: #5a4a1a;
+    color: #ffc107;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .btn-secondary {
+    background: #333 !important;
+    color: #ccc !important;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .btn-secondary:hover:not(:disabled) {
+    background: #444 !important;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .enable-guide-content {
+    background: #2d2d2d;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .about-update-status.success {
+    background: #1a3320;
+    color: #4caf50;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .about-update-status.available {
+    background: #1a2a3d;
+    color: #64b5f6;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .about-update-status.error {
+    background: #3d3520;
+    color: #ffc107;
   }
 }
 
