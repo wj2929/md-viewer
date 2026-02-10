@@ -67,14 +67,16 @@ const LARGE_FILE_THRESHOLD = 5000
 /** 超大文件阈值（字符数） */
 const VERY_LARGE_FILE_THRESHOLD = 20000
 
-/** mark.js 排除配置（防止破坏渲染） */
+/** mark.js 排除配置（防止破坏特殊渲染内容） */
 const MARK_EXCLUDE_SELECTORS = [
-  'pre',                     // 代码块
-  'code',                    // 行内代码
   '.katex',                  // KaTeX 公式容器
   '.katex *',                // KaTeX 公式内部元素
   '.mermaid-container',      // Mermaid 图表容器
-  '.mermaid-container *'     // Mermaid 图表内部元素
+  '.mermaid-container *',    // Mermaid 图表内部元素
+  '.echarts-container',      // ECharts 图表容器
+  '.echarts-container *',    // ECharts 图表内部元素
+  '.infographic-container',  // Infographic 信息图容器
+  '.infographic-container *' // Infographic 信息图内部元素
 ]
 
 /** v1.4.2: 大小写敏感设置存储键 */

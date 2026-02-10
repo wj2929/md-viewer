@@ -11,6 +11,9 @@ import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../ut
 // v1.5.0: ECharts 图表支持
 import { echarts, validateEChartsConfig, optimizeEChartsConfig } from '../utils/echartsRenderer'
 
+// v1.6.0: Infographic 信息图支持
+import { Infographic, validateInfographicConfig } from '../utils/infographicRenderer'
+
 // v1.4.0: 页面内搜索
 import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
@@ -626,6 +629,22 @@ const MarkdownContent = memo(
           // 初始化 ECharts（在 chartContainer 中）
           const chart = echarts.init(chartContainer, null, { renderer: 'svg' })
           chart.setOption(optimizeEChartsConfig(validation.parsed!))
+
+          // 渲染后根据内容自适应高度
+          requestAnimationFrame(() => {
+            const svg = chartContainer.querySelector('svg')
+            if (svg) {
+              try {
+                const bbox = (svg as SVGSVGElement).getBBox()
+                if (bbox.height > 0) {
+                  const targetH = Math.max(200, Math.ceil(bbox.height + bbox.y + 40))
+                  chartContainer.style.height = `${targetH}px`
+                  chart.resize()
+                }
+              } catch { /* getBBox may fail if not in DOM */ }
+            }
+          })
+
           charts.push(chart)
 
           // 响应式调整
@@ -690,6 +709,205 @@ const MarkdownContent = memo(
         } else {
           if (chartView) chartView.style.display = 'none'
           if (codeView) codeView.style.display = ''
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleToggleClick)
+      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
+    }, [html])
+
+    // v1.6.0: Infographic 信息图渲染
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const infographicBlocks = combinedRef.current.querySelectorAll('pre.language-infographic')
+      if (infographicBlocks.length === 0) return
+
+      const instances: Infographic[] = []
+
+      infographicBlocks.forEach((block, index) => {
+        const config = block.textContent || ''
+
+        const validation = validateInfographicConfig(config)
+        if (!validation.valid) {
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'infographic-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">Infographic 配置错误</div>
+            <div class="error-message">${validation.error}</div>
+          `
+          block.replaceWith(errorDiv)
+          return
+        }
+
+        try {
+          // 创建包装容器
+          const wrapper = document.createElement('div')
+          wrapper.className = 'infographic-wrapper'
+
+          // 存储原始配置（Base64 编码避免 HTML 转义问题）
+          wrapper.dataset.infographicConfig = btoa(unescape(encodeURIComponent(config)))
+
+          // 创建切换按钮栏
+          const toggleBar = document.createElement('div')
+          toggleBar.className = 'infographic-toggle-bar no-export'
+          toggleBar.innerHTML = `
+            <button class="infographic-toggle-btn active" data-mode="chart">
+              🎨 信息图
+            </button>
+            <button class="infographic-toggle-btn" data-mode="code">
+              💻 代码
+            </button>
+          `
+
+          // 创建信息图容器
+          const chartContainer = document.createElement('div')
+          chartContainer.className = 'infographic-container'
+          chartContainer.dataset.view = 'chart'
+          chartContainer.style.width = '100%'
+          chartContainer.dataset.infographicIndex = String(index)
+
+          // 创建代码视图容器
+          const codeView = document.createElement('div')
+          codeView.className = 'infographic-code-view'
+          codeView.dataset.view = 'code'
+          codeView.style.display = 'none'
+
+          // 创建复制按钮
+          const copyButton = document.createElement('button')
+          copyButton.className = 'copy-btn no-export'
+          copyButton.textContent = '复制'
+          copyButton.title = '复制 Infographic 代码'
+          codeView.appendChild(copyButton)
+
+          // 使用 Prism 高亮代码
+          const codeElement = document.createElement('code')
+          codeElement.className = 'language-yaml'
+
+          if (Prism.languages['yaml']) {
+            codeElement.innerHTML = Prism.highlight(config, Prism.languages['yaml'], 'yaml')
+          } else {
+            codeElement.textContent = config
+          }
+
+          const preElement = document.createElement('pre')
+          preElement.className = 'language-yaml'
+          preElement.appendChild(codeElement)
+          codeView.appendChild(preElement)
+
+          // 组装结构
+          wrapper.appendChild(toggleBar)
+          wrapper.appendChild(chartContainer)
+          wrapper.appendChild(codeView)
+
+          block.replaceWith(wrapper)
+
+          // 初始化 Infographic
+          let infographic: Infographic
+
+          // 尝试解析为 JSON
+          let isJson = false
+          try {
+            JSON.parse(config)
+            isJson = true
+          } catch {
+            // 不是 JSON，使用 infographic 语法
+          }
+
+          if (isJson) {
+            const parsed = JSON.parse(config)
+            infographic = new Infographic({
+              container: chartContainer,
+              width: '100%',
+              editable: false,
+              ...parsed,
+            })
+            infographic.render()
+          } else {
+            infographic = new Infographic({
+              container: chartContainer,
+              width: '100%',
+              editable: false,
+            })
+            infographic.render(config)
+          }
+
+          // 渲染后调整 SVG 尺寸：自适应容器宽度，按 viewBox 比例计算高度
+          const fitSvg = () => {
+            const svg = chartContainer.querySelector('svg')
+            if (!svg) return
+            const vb = svg.getAttribute('viewBox')
+            if (!vb) return
+            const parts = vb.split(/[\s,]+/).map(Number)
+            if (parts.length !== 4 || parts[2] <= 0 || parts[3] <= 0) return
+            const vbW = parts[2]
+            const vbH = parts[3]
+            const containerW = chartContainer.clientWidth - 32
+            // 如果 viewBox 比容器窄，用原始尺寸居中；否则缩放到容器宽度
+            const w = Math.min(vbW, containerW)
+            const h = w * (vbH / vbW)
+            svg.setAttribute('width', String(w))
+            svg.setAttribute('height', String(h))
+          }
+
+          infographic.on('rendered', () => requestAnimationFrame(fitSvg))
+          infographic.on('loaded', () => requestAnimationFrame(fitSvg))
+          requestAnimationFrame(fitSvg)
+
+          instances.push(infographic)
+        } catch (error) {
+          console.error('[Infographic] 渲染失败:', error)
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'infographic-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">Infographic 渲染失败</div>
+            <div class="error-message">${(error as Error).message}</div>
+          `
+          if (block.parentNode) {
+            block.replaceWith(errorDiv)
+          }
+        }
+      })
+
+      return () => {
+        instances.forEach((inst) => {
+          try {
+            inst.destroy()
+          } catch (e) {
+            console.warn('[Infographic] destroy error:', e)
+          }
+        })
+      }
+    }, [html])
+
+    // v1.6.0: Infographic 切换按钮点击事件处理
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleToggleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+        const btn = target.closest('.infographic-toggle-btn')
+        if (!btn) return
+
+        const mode = btn.getAttribute('data-mode')
+        const wrapper = btn.closest('.infographic-wrapper')
+        if (!wrapper || !mode) return
+
+        // 切换按钮激活状态
+        wrapper.querySelectorAll('.infographic-toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
+        })
+
+        // 切换视图显示
+        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+        if (mode === 'chart') {
+          if (chartView) chartView.style.display = ''
+          if (codeViewEl) codeViewEl.style.display = 'none'
+        } else {
+          if (chartView) chartView.style.display = 'none'
+          if (codeViewEl) codeViewEl.style.display = ''
         }
       }
 

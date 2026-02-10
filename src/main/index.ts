@@ -1109,8 +1109,14 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
     const { markdownCss, prismCss } = await getExportStyles()
     const pdfHtml = generatePDFHTML(htmlContent, markdownCss, prismCss)
 
-    // 加载 HTML 内容
-    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pdfHtml)}`)
+    // 加载 HTML 内容（使用临时文件避免 data URL 长度限制）
+    const tmpPdfPath = path.join(os.tmpdir(), `md-viewer-pdf-${Date.now()}.html`)
+    await fs.writeFile(tmpPdfPath, pdfHtml, 'utf-8')
+    try {
+      await printWindow.loadFile(tmpPdfPath)
+    } finally {
+      fs.remove(tmpPdfPath).catch(() => {})
+    }
 
     // ✅ 等待 KaTeX 渲染完成（智能检测，而不是硬编码时间）
     await printWindow.webContents.executeJavaScript(`
@@ -2198,8 +2204,14 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
 </body>
 </html>`
 
-    // 加载 HTML
-    await renderWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    // 加载 HTML（使用临时文件避免 data URL 长度限制）
+    const tmpCodePath = path.join(os.tmpdir(), `md-viewer-code-${Date.now()}.html`)
+    await fs.writeFile(tmpCodePath, html, 'utf-8')
+    try {
+      await renderWindow.loadFile(tmpCodePath)
+    } finally {
+      fs.remove(tmpCodePath).catch(() => {})
+    }
 
     // 等待渲染完成（增加等待时间确保字体加载）
     await new Promise(resolve => setTimeout(resolve, 500))

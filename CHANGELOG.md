@@ -47,6 +47,38 @@
 - **系统信息**：Electron / Chromium / Node.js / 平台
 - **链接**：GitHub 仓库 / MIT 协议 / 反馈问题
 
+#### 4. AntV Infographic 信息图支持 ⭐⭐
+- **功能**：Markdown `infographic` 代码块自动渲染为 SVG 信息图
+- **依赖**：`@antv/infographic` v0.2.13（236 个内置模板）
+- **渲染器**：`infographicRenderer.ts` — 验证、渲染 SVG、处理导出 HTML
+- **交互**：图表/代码切换按钮（同 ECharts 模式）
+- **导出**：HTML/PDF 导出时 infographic SVG 完整保留
+
+#### 5. ECharts 高度自适应
+- **功能**：ECharts 图表容器高度根据内容自动调整，避免固定高度溢出或留白
+
+### 🐛 Bug 修复
+
+#### 1. PDF 导出大文件 ERR_INVALID_URL 修复
+- **问题**：大文件导出 PDF 报 `ERR_INVALID_URL (-300)`，`data:text/html` 超过 Chromium ~2MB URL 限制
+- **修复**：写入临时文件 + `loadFile()` + `finally` 清理
+- **影响**：PDF 导出 + 代码块截图（2 处）
+
+#### 2. 10 个 TypeScript 错误修复
+- **echartsRenderer.ts** ×4：`SeriesOption` 类型不兼容 → `as any[]`；`undefined` 展开 → `(x ?? {}) as Record`
+- **markdownRenderer.ts** ×3：`ALLOWED_STYLES` 不在 `DOMPurify.Config` → `Record<string, unknown>`；`sanitize` 返回类型 → `String()`
+- **SettingsPanel.tsx** ×2：`maxRecentFiles`/`maxFolderHistory` 缺失 → 添加到类型定义
+- **App.tsx** ×1：`exportDOCX` 参数数量 → 添加 `docStyle?`
+- **结果**：`tsc --noEmit` 0 错误
+
+#### 3. 页面内搜索增强
+- **问题**：mark.js exclude 包含 `'pre'`/`'code'`，代码块内容不可搜索
+- **修复**：移除 `'pre'`/`'code'`，改为排除图表容器（`.echarts-container`、`.infographic-container`、`.mermaid-container`）
+
+#### 4. Infographic 语法 `- id xxx` 修复
+- **问题**：`- id web` 被解析为 `{ value: "id web" }` 而非 `{ id: "web" }`
+- **修复**：拆分为 `-\n  id xxx`（38 处测试文件 + 8 处生产文件）
+
 ### 🔧 技术实现
 
 #### 新增文件（架构重构 + 多窗口）
@@ -60,17 +92,26 @@
 | `src/renderer/src/stores/tabStore.ts` | 标签页 store |
 | `src/renderer/src/stores/bookmarkStore.ts` | 书签 store |
 | `src/renderer/src/stores/layoutStore.ts` | 布局 store |
+| `src/renderer/src/utils/infographicRenderer.ts` | Infographic 渲染器 |
+| `e2e/fixtures/test-echarts.md` | ECharts 测试 fixture |
+| `e2e/fixtures/test-infographic.md` | Infographic 测试 fixture |
 
-#### 核心文件变更（设置面板）
+#### 核心文件变更（设置面板 + Infographic + Bug 修复）
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
 | `src/renderer/src/components/SettingsPanel.tsx` | 重写 | Tab 化 + 通用设置 + 关于 |
-| `src/main/index.ts` | 修改 | 2 个新 IPC handler |
+| `src/main/index.ts` | 修改 | 2 个新 IPC handler + PDF 导出临时文件修复 |
 | `src/main/appDataManager.ts` | 修改 | 动态上限配置 |
 | `src/main/folderHistoryManager.ts` | 修改 | 动态上限配置 |
-| `src/preload/index.ts` | 修改 | 暴露新 API |
-| `src/preload/index.d.ts` | 修改 | 类型定义 |
-| `src/renderer/src/assets/main.css` | 修改 | 新样式 + 暗色适配 |
+| `src/preload/index.ts` | 修改 | 暴露新 API + 类型修复 |
+| `src/preload/index.d.ts` | 修改 | 类型定义 + TS 错误修复 |
+| `src/renderer/src/assets/main.css` | 修改 | 新样式 + 暗色适配 + Infographic 样式 |
+| `src/renderer/src/utils/markdownRenderer.ts` | 修改 | infographic 语言识别 + TS 错误修复 |
+| `src/renderer/src/utils/echartsRenderer.ts` | 修改 | 4 个 TS 错误修复 |
+| `src/renderer/src/components/VirtualizedMarkdown.tsx` | 修改 | Infographic 渲染 useEffect |
+| `src/renderer/src/App.tsx` | 修改 | Infographic 导出处理 |
+| `src/renderer/src/hooks/useInPageSearch.ts` | 修改 | 搜索排除列表修复 |
+| `package.json` | 修改 | 添加 `@antv/infographic` 依赖 |
 | `src/renderer/test/App.test.tsx` | 修改 | mock 新 API |
 
 ### ✅ 测试

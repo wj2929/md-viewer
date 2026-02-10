@@ -115,8 +115,8 @@ const api = {
 
   // v1.3.6：应用设置
   getAppSettings: () =>
-    ipcRenderer.invoke('settings:get') as Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>,
-  updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>) =>
+    ipcRenderer.invoke('settings:get') as Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number }>,
+  updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number }>) =>
     ipcRenderer.invoke('settings:update', updates),
 
   // v1.3.6：书签管理

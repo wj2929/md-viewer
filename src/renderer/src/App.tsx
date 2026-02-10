@@ -5,6 +5,8 @@ import { readFileWithCache, clearFileCache } from './utils/fileCache'
 import { createMarkdownRenderer } from './utils/markdownRenderer'
 import { processMermaidInHtml } from './utils/mermaidRenderer'
 import { processEChartsInHtml } from './utils/echartsRenderer'
+import { processInfographicInHtml } from './utils/infographicRenderer'
+import * as echarts from 'echarts'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
 import { useDragDrop } from './hooks/useDragDrop'
@@ -599,6 +601,30 @@ function App(): React.JSX.Element {
     }
   }, [folderPath])
 
+  // 导出前禁用 ECharts 动画，确保 SVG 是最终状态
+  async function prepareEChartsForExport(markdownBody: Element): Promise<() => void> {
+    const instances: echarts.ECharts[] = []
+    markdownBody.querySelectorAll('.echarts-container').forEach((container) => {
+      const instance = echarts.getInstanceByDom(container as HTMLElement)
+      if (instance) {
+        instances.push(instance)
+        instance.setOption({ animation: false })
+      }
+    })
+    // 等待无动画重绘完成
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    // 返回恢复函数
+    return () => {
+      instances.forEach((inst) => {
+        try {
+          inst.setOption({ animation: true })
+        } catch {
+          /* ignore disposed */
+        }
+      })
+    }
+  }
+
   // 导出 HTML
   const handleExportHTML = useCallback(async () => {
     if (!activeTab) return
@@ -606,9 +632,17 @@ function App(): React.JSX.Element {
       let htmlContent: string
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
       if (markdownBody) {
+        const restoreECharts = await prepareEChartsForExport(markdownBody)
         const clone = markdownBody.cloneNode(true) as HTMLElement
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
         clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          if (chartView) chartView.style.display = ''
+          if (codeView) codeView.style.display = 'none'
+        })
+        // Infographic: 导出时只显示信息图，隐藏代码
+        clone.querySelectorAll('.infographic-wrapper').forEach(wrapper => {
           const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
           const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
           if (chartView) chartView.style.display = ''
@@ -652,11 +686,13 @@ function App(): React.JSX.Element {
           el.style.cssText = 'width: 100%;'
         })
         htmlContent = clone.innerHTML
+        restoreECharts()
       } else {
         const md = createMarkdownRenderer()
         htmlContent = md.render(activeTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
         htmlContent = await processEChartsInHtml(htmlContent)
+        htmlContent = await processInfographicInHtml(htmlContent)
       }
       const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
       if (filePath) {
@@ -677,9 +713,17 @@ function App(): React.JSX.Element {
       let htmlContent: string
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
       if (markdownBody) {
+        const restoreECharts = await prepareEChartsForExport(markdownBody)
         const clone = markdownBody.cloneNode(true) as HTMLElement
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
         clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          if (chartView) chartView.style.display = ''
+          if (codeView) codeView.style.display = 'none'
+        })
+        // Infographic: 导出时只显示信息图，隐藏代码
+        clone.querySelectorAll('.infographic-wrapper').forEach(wrapper => {
           const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
           const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
           if (chartView) chartView.style.display = ''
@@ -723,11 +767,13 @@ function App(): React.JSX.Element {
           el.style.cssText = 'width: 100%;'
         })
         htmlContent = clone.innerHTML
+        restoreECharts()
       } else {
         const md = createMarkdownRenderer()
         htmlContent = md.render(activeTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
         htmlContent = await processEChartsInHtml(htmlContent)
+        htmlContent = await processInfographicInHtml(htmlContent)
       }
       const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
       if (filePath) {
@@ -751,6 +797,13 @@ function App(): React.JSX.Element {
         const clone = markdownBody.cloneNode(true) as HTMLElement
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
         clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          if (chartView) chartView.style.display = ''
+          if (codeView) codeView.style.display = 'none'
+        })
+        // Infographic: 导出时只显示信息图，隐藏代码
+        clone.querySelectorAll('.infographic-wrapper').forEach(wrapper => {
           const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
           const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
           if (chartView) chartView.style.display = ''

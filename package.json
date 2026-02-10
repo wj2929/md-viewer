@@ -129,6 +129,7 @@
     "vitest": "^4.0.16"
   },
   "dependencies": {
+    "@antv/infographic": "^0.2.13",
     "@types/markdown-it": "^14.1.2",
     "@types/prismjs": "^1.26.5",
     "adm-zip": "^0.5.16",

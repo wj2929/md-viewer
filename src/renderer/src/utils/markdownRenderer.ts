@@ -95,6 +95,11 @@ export function createMarkdownRenderer(): MarkdownIt {
         }
       }
 
+      // Infographic 特殊处理：保留原始语法（用于渲染和导出）
+      if (lang === 'infographic') {
+        return `<pre class="language-infographic"><code class="language-infographic">${md.utils.escapeHtml(str)}</code></pre>`
+      }
+
       if (lang && Prism.languages[lang]) {
         try {
           return `<pre class="language-${lang}"><code class="language-${lang}">${Prism.highlight(str, Prism.languages[lang], lang)}</code></pre>`
@@ -258,7 +263,7 @@ export function createMarkdownRenderer(): MarkdownIt {
  *
  * @version v1.4.6
  */
-export const DOMPURIFY_CONFIG: DOMPurify.Config = {
+export const DOMPURIFY_CONFIG: Record<string, unknown> = {
   // ========== 标签白名单 ==========
   ALLOWED_TAGS: [
     // Markdown 核心标签
@@ -442,6 +447,9 @@ export function setupDOMPurifyHooks(): void {
     // ECharts 相关
     'echarts-container', 'echarts-error', 'language-echarts',
 
+    // Infographic 相关
+    'infographic-container', 'infographic-error', 'language-infographic',
+
     // KaTeX 相关（完整的 KaTeX 类白名单）
     'katex', 'katex-html', 'katex-mathml', 'katex-display', 'katex-error',
     'base', 'strut', 'pstrut',
@@ -575,7 +583,8 @@ export function sanitizeHtml(html: string): string {
   })
 
   // 对非 KaTeX 部分进行 sanitize
-  let sanitized = DOMPurify.sanitize(processed, DOMPURIFY_CONFIG)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let sanitized = String(DOMPurify.sanitize(processed, DOMPURIFY_CONFIG as any))
 
   // 还原 KaTeX 块
   for (let i = 0; i < katexBlocks.length; i++) {
