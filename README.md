@@ -58,8 +58,8 @@
 ### macOS
 
 **下载：**
-- [MD Viewer-1.5.1-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.5.1.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1) (Intel Mac)
+- [MD Viewer-1.5.2-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.5.2.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -86,7 +86,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 3. 点击"仍要打开"
 
 ### Windows
-- [MD Viewer Setup 1.5.1.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1)
+- [MD Viewer Setup 1.5.2.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2)
 
 首次运行安装程序时，SmartScreen 可能显示"Windows 已保护你的电脑"：
 1. 点击"更多信息"
@@ -96,7 +96,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 > 可以在"Windows 安全中心 → 应用和浏览器控制"中查看被阻止的应用并选择"仍要运行"。
 
 ### Linux
-- [MD Viewer-1.5.1.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.1)
+- [MD Viewer-1.5.2.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2)
 
 **AppImage 用户**（Ubuntu 22.04+ / Debian 12+ / Fedora 38+）需要先安装 libfuse2：
 ```bash

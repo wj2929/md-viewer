@@ -209,13 +209,11 @@ export function optimizeEChartsConfig(option: EChartsOption): EChartsOption {
 
   // 对于饼图，优化 center 和 radius
   if (types.hasPie && Array.isArray(optimized.series)) {
-    optimized.series = optimized.series.map((s: Record<string, unknown>) => {
+    optimized.series = (optimized.series as any[]).map((s) => {
       if (s.type === 'pie') {
         return {
           ...s,
-          // 只在用户没有设置时才添加默认值
           center: s.center || ['50%', '50%'],
-          // 增大饼图半径，减少空白
           radius: s.radius || (s.roseType ? ['20%', '55%'] : ['0%', '60%']),
         }
       }
@@ -226,7 +224,7 @@ export function optimizeEChartsConfig(option: EChartsOption): EChartsOption {
   // 对于雷达图，优化 radar 配置
   if (types.hasRadar && !optimized.radar) {
     optimized.radar = {
-      ...(optimized.radar as object || {}),
+      ...((optimized.radar ?? {}) as Record<string, unknown>),
       center: ['50%', '55%'],
       radius: '65%',
     }
@@ -234,7 +232,7 @@ export function optimizeEChartsConfig(option: EChartsOption): EChartsOption {
 
   // 对于仪表盘，优化 center 和 radius
   if (types.hasGauge && Array.isArray(optimized.series)) {
-    optimized.series = optimized.series.map((s: Record<string, unknown>) => {
+    optimized.series = (optimized.series as any[]).map((s) => {
       if (s.type === 'gauge') {
         return {
           ...s,
@@ -248,7 +246,7 @@ export function optimizeEChartsConfig(option: EChartsOption): EChartsOption {
 
   // 对于漏斗图，优化位置
   if (types.hasFunnel && Array.isArray(optimized.series)) {
-    optimized.series = optimized.series.map((s: Record<string, unknown>) => {
+    optimized.series = (optimized.series as any[]).map((s) => {
       if (s.type === 'funnel') {
         return {
           ...s,
@@ -304,10 +302,10 @@ export async function renderEChartsToSvg(config: string, id: string): Promise<st
 
   try {
     chart = echarts.init(container, null, { renderer: 'svg' })
-    chart.setOption(optimizedOption)
+    chart.setOption({ ...optimizedOption, animation: false })
 
-    // 等待渲染完成
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    // 等待渲染完成（动画已禁用，只需等待 DOM 更新）
+    await new Promise((resolve) => setTimeout(resolve, 50))
 
     // 获取 SVG 内容
     const svgElement = container.querySelector('svg')

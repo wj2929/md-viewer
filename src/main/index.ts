@@ -20,6 +20,7 @@ import { appDataManager } from './appDataManager'
 import { exportToDocx, ChartImageData } from './docxExporter'
 import { exportWithPandoc, isPandocAvailable } from './pandocExporter'
 import { installEpipeHandler } from './safeLog'
+import { windowManager } from './windowManager'
 
 // 安装 EPIPE 错误处理器（防止开发模式下终端断开导致应用崩溃）
 installEpipeHandler()
@@ -50,95 +51,47 @@ const store = new Store<AppState>({
   }
 })
 
-// 模块级窗口引用（用于启动参数处理）
+// 模块级窗口引用（兼容现有代码，指向最近创建的窗口）
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   // 从 store 恢复窗口大小和位置
   const savedBounds = store.get('windowBounds')
+  const alwaysOnTop = store.get('alwaysOnTop', false)
 
-  mainWindow = new BrowserWindow({
-    width: savedBounds.width,
-    height: savedBounds.height,
-    x: savedBounds.x,
-    y: savedBounds.y,
-    minWidth: 800,
-    minHeight: 600,
-    show: false,
-    autoHideMenuBar: true,
-    ...(process.platform === 'darwin'
-      ? {
-          titleBarStyle: 'hiddenInset' as const,
-          trafficLightPosition: { x: 15, y: 10 }
-        }
-      : {}),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,  // ✅ 启用 Chromium 沙箱
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false
-    }
+  const win = windowManager.createWindow({
+    bounds: savedBounds,
+    alwaysOnTop
   })
 
-  mainWindow.on('ready-to-show', () => {
-    if (!mainWindow) return
-    mainWindow.show()
-
-    // v1.4.2: 恢复窗口置顶状态
-    const alwaysOnTop = store.get('alwaysOnTop', false)
-    if (alwaysOnTop) {
-      mainWindow.setAlwaysOnTop(true)
-    }
-
-    // 🔧 开发模式下自动打开 DevTools
-    if (is.dev) {
-      mainWindow.webContents.openDevTools()
-    }
-
-    // ⌨️ 注册窗口快捷键 (v1.2.1)
-    registerWindowShortcuts(mainWindow)
-
-    // 恢复上次打开的文件夹（跳过测试环境）
-    if (process.env.MD_VIEWER_SKIP_RESTORE !== '1') {
-      const lastFolder = store.get('lastOpenedFolder')
-      if (lastFolder) {
-        // ✅ 设置安全白名单基础路径
-        setAllowedBasePath(lastFolder)
-        mainWindow.webContents.send('restore-folder', lastFolder)
-      }
-    }
-  })
+  mainWindow = win
 
   // 窗口关闭前保存状态
-  mainWindow.on('close', () => {
-    if (!mainWindow) return
-    const bounds = mainWindow.getBounds()
-    store.set('windowBounds', bounds)
-  })
-
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
-
-  // 拦截所有页面内导航，防止 BrowserWindow 被外部链接劫持
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    // 允许开发模式下的 Vite HMR 刷新
-    if (is.dev && url.startsWith(process.env['ELECTRON_RENDERER_URL'] || '')) {
-      return
+  win.on('close', () => {
+    if (!win.isDestroyed()) {
+      const bounds = win.getBounds()
+      store.set('windowBounds', bounds)
     }
-    // 阻止所有其他导航（外部链接由渲染进程通过 IPC 用系统浏览器打开）
-    event.preventDefault()
-    console.log('[MAIN] Blocked navigation to:', url)
   })
 
-  // 开发环境加载 dev server，生产环境加载打包文件
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  // 窗口关闭后更新 mainWindow 引用
+  win.on('closed', () => {
+    if (mainWindow === win) {
+      // 切换到其他存活窗口
+      const remaining = windowManager.getAllWindows()
+      mainWindow = remaining.length > 0 ? remaining[0] : null
+    }
+  })
+
+  // 恢复上次打开的文件夹（跳过测试环境）— 仅首个窗口
+  if (windowManager.getWindowCount() === 1 && process.env.MD_VIEWER_SKIP_RESTORE !== '1') {
+    windowManager.addPendingAction(win.id, () => {
+      const lastFolder = store.get('lastOpenedFolder')
+      if (lastFolder) {
+        setAllowedBasePath(lastFolder)
+        win.webContents.send('restore-folder', lastFolder)
+      }
+    })
   }
 }
 
@@ -173,23 +126,26 @@ async function handleLaunchArgs(args: string[]): Promise<void> {
   }
 }
 
-// 在窗口中打开路径
-function openPathInWindow(targetPath: string, type: 'md-file' | 'directory'): void {
-  if (!mainWindow) return
+// 在窗口中打开路径（支持指定目标窗口）
+function openPathInWindow(targetPath: string, type: 'md-file' | 'directory', targetWindow?: BrowserWindow): void {
+  const win = targetWindow || windowManager.getFocusedWindow() || mainWindow
+  if (!win) return
 
   if (type === 'directory') {
     setAllowedBasePath(targetPath)
     store.set('lastOpenedFolder', targetPath)
     folderHistoryManager.addFolder(targetPath)
-    mainWindow.webContents.send('restore-folder', targetPath)
+    win.webContents.send('restore-folder', targetPath)
   } else {
     const folderPath = path.dirname(targetPath)
     setAllowedBasePath(folderPath)
     store.set('lastOpenedFolder', folderPath)
     folderHistoryManager.addFolder(folderPath)
-    mainWindow.webContents.send('restore-folder', folderPath)
+    win.webContents.send('restore-folder', folderPath)
     setTimeout(() => {
-      mainWindow?.webContents.send('open-specific-file', targetPath)
+      if (!win.isDestroyed()) {
+        win.webContents.send('open-specific-file', targetPath)
+      }
     }, 500)
   }
 }
@@ -278,11 +234,18 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
 
     // v1.4.7: 窗口关闭时清理文件监听器，防止内存泄漏
-    // 使用 'close' 事件（关闭前）而非 'closed'（关闭后），避免访问已销毁对象
-    const windowWebContentsId = window.webContents.id  // 提前保存 ID
+    const windowWebContentsId = window.webContents.id
     window.on('close', () => {
+      // 清理该窗口关联的文件监听器
+      const watcher = windowFileWatchers.get(windowWebContentsId)
+      if (watcher) {
+        console.log(`[WATCHER] Window ${windowWebContentsId} closing, cleaning up file watcher`)
+        watcher.watcher.close()
+        windowFileWatchers.delete(windowWebContentsId)
+      }
+      // 兼容旧的全局 watcher（过渡期）
       if (fileWatcher && windowWebContentsId === watchedWebContentsId) {
-        console.log('[WATCHER] Window closing, cleaning up file watcher')
+        console.log('[WATCHER] Window closing, cleaning up global file watcher')
         fileWatcher.close()
         fileWatcher = null
         watchedDir = null
@@ -326,6 +289,43 @@ app.on('window-all-closed', () => {
 })
 
 // ============== IPC Handlers ==============
+
+// v1.6.0: 多窗口 IPC handlers
+ipcMain.handle('window:getWindowId', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return win ? win.id : null
+})
+
+ipcMain.handle('window:newWindow', () => {
+  const win = windowManager.createWindow()
+  return win.id
+})
+
+ipcMain.handle('window:newWindowWithFolder', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  })
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+
+  const folderPath = result.filePaths[0]
+  const win = windowManager.createWindow()
+
+  // 窗口就绪后发送文件夹路径
+  windowManager.addPendingAction(win.id, () => {
+    setAllowedBasePath(folderPath)
+    store.set('lastOpenedFolder', folderPath)
+    folderHistoryManager.addFolder(folderPath)
+    win.webContents.send('restore-folder', folderPath)
+  })
+
+  return win.id
+})
+
+ipcMain.handle('window:getWindowCount', () => {
+  return windowManager.getWindowCount()
+})
 
 // 打开文件夹对话框
 ipcMain.handle('dialog:openFolder', async () => {
@@ -1109,8 +1109,14 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
     const { markdownCss, prismCss } = await getExportStyles()
     const pdfHtml = generatePDFHTML(htmlContent, markdownCss, prismCss)
 
-    // 加载 HTML 内容
-    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pdfHtml)}`)
+    // 加载 HTML 内容（使用临时文件避免 data URL 长度限制）
+    const tmpPdfPath = path.join(os.tmpdir(), `md-viewer-pdf-${Date.now()}.html`)
+    await fs.writeFile(tmpPdfPath, pdfHtml, 'utf-8')
+    try {
+      await printWindow.loadFile(tmpPdfPath)
+    } finally {
+      fs.remove(tmpPdfPath).catch(() => {})
+    }
 
     // ✅ 等待 KaTeX 渲染完成（智能检测，而不是硬编码时间）
     await printWindow.webContents.executeJavaScript(`
@@ -1183,6 +1189,7 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
 
 // ============================================================
 // 文件监听器 - v1.4.7 重构：修复内存泄漏和安全问题
+// v1.6.0: 支持多窗口独立文件监听
 // ============================================================
 let fileWatcher: ReturnType<typeof chokidar.watch> | null = null
 let watchedDir: string | null = null
@@ -1191,6 +1198,14 @@ const watchedFiles = new Set<string>()
 
 // v1.4.7: 使用 WeakRef 避免 WebContents 引用泄漏
 let watchedWebContentsId: number | null = null
+
+// v1.6.0: 每个窗口独立的文件监听器
+interface WindowWatcherState {
+  watcher: ReturnType<typeof chokidar.watch>
+  dir: string
+  files: Set<string>
+}
+const windowFileWatchers = new Map<number, WindowWatcherState>()
 
 // v1.3：重命名检测
 let pendingUnlink: { path: string; timestamp: number } | null = null
@@ -1981,7 +1996,7 @@ ipcMain.handle('bookmarks:get', async () => {
   return appDataManager.getBookmarks()
 })
 
-ipcMain.handle('bookmarks:add', async (_, bookmark: {
+ipcMain.handle('bookmarks:add', async (event, bookmark: {
   filePath: string
   fileName: string
   title?: string
@@ -1991,10 +2006,16 @@ ipcMain.handle('bookmarks:add', async (_, bookmark: {
 }) => {
   // 安全校验
   validatePath(bookmark.filePath)
-  return appDataManager.addBookmark(bookmark)
+  const result = appDataManager.addBookmark(bookmark)
+  // v1.6.0: 广播书签变更到其他窗口
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
+  if (senderWindow) {
+    windowManager.broadcastToOthers(senderWindow.id, 'bookmarks:changed')
+  }
+  return result
 })
 
-ipcMain.handle('bookmarks:update', async (_, id: string, updates: {
+ipcMain.handle('bookmarks:update', async (event, id: string, updates: {
   title?: string
   headingId?: string
   headingText?: string
@@ -2002,13 +2023,21 @@ ipcMain.handle('bookmarks:update', async (_, id: string, updates: {
   order?: number
 }) => {
   appDataManager.updateBookmark(id, updates)
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
+  if (senderWindow) {
+    windowManager.broadcastToOthers(senderWindow.id, 'bookmarks:changed')
+  }
 })
 
-ipcMain.handle('bookmarks:remove', async (_, id: string) => {
+ipcMain.handle('bookmarks:remove', async (event, id: string) => {
   appDataManager.removeBookmark(id)
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
+  if (senderWindow) {
+    windowManager.broadcastToOthers(senderWindow.id, 'bookmarks:changed')
+  }
 })
 
-ipcMain.handle('bookmarks:update-all', async (_, bookmarks: Array<{
+ipcMain.handle('bookmarks:update-all', async (event, bookmarks: Array<{
   id: string
   filePath: string
   fileName: string
@@ -2020,60 +2049,75 @@ ipcMain.handle('bookmarks:update-all', async (_, bookmarks: Array<{
   order: number
 }>) => {
   appDataManager.updateBookmarks(bookmarks)
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
+  if (senderWindow) {
+    windowManager.broadcastToOthers(senderWindow.id, 'bookmarks:changed')
+  }
 })
 
-ipcMain.handle('bookmarks:clear', async () => {
+ipcMain.handle('bookmarks:clear', async (event) => {
   appDataManager.clearBookmarks()
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
+  if (senderWindow) {
+    windowManager.broadcastToOthers(senderWindow.id, 'bookmarks:changed')
+  }
 })
 
 // ============== v1.4.2：窗口置顶 ==============
 
-ipcMain.handle('window:setAlwaysOnTop', async (_, flag: boolean) => {
-  if (!mainWindow) return false
-  mainWindow.setAlwaysOnTop(flag)
+ipcMain.handle('window:setAlwaysOnTop', async (event, flag: boolean) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return false
+  win.setAlwaysOnTop(flag)
   store.set('alwaysOnTop', flag)
   return flag
 })
 
-ipcMain.handle('window:getAlwaysOnTop', async () => {
-  return mainWindow?.isAlwaysOnTop() ?? false
+ipcMain.handle('window:getAlwaysOnTop', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return win?.isAlwaysOnTop() ?? false
 })
 
-ipcMain.handle('window:toggleAlwaysOnTop', async () => {
-  if (!mainWindow) return false
-  const newState = !mainWindow.isAlwaysOnTop()
-  mainWindow.setAlwaysOnTop(newState)
+ipcMain.handle('window:toggleAlwaysOnTop', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return false
+  const newState = !win.isAlwaysOnTop()
+  win.setAlwaysOnTop(newState)
   store.set('alwaysOnTop', newState)
   // 通知渲染进程状态变化
-  mainWindow.webContents.send('alwaysOnTop:changed', newState)
+  win.webContents.send('alwaysOnTop:changed', newState)
   return newState
 })
 
 // ============== v1.4.3：全屏查看 ==============
 
-ipcMain.handle('window:setFullScreen', async (_, flag: boolean) => {
-  if (!mainWindow) return false
-  mainWindow.setFullScreen(flag)
+ipcMain.handle('window:setFullScreen', async (event, flag: boolean) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return false
+  win.setFullScreen(flag)
   return flag
 })
 
-ipcMain.handle('window:isFullScreen', async () => {
-  return mainWindow?.isFullScreen() ?? false
+ipcMain.handle('window:isFullScreen', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return win?.isFullScreen() ?? false
 })
 
-ipcMain.handle('window:toggleFullScreen', async () => {
-  if (!mainWindow) return false
-  const newState = !mainWindow.isFullScreen()
-  mainWindow.setFullScreen(newState)
+ipcMain.handle('window:toggleFullScreen', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return false
+  const newState = !win.isFullScreen()
+  win.setFullScreen(newState)
   return newState
 })
 
 // ============== v1.4.2：打印功能 ==============
 
-ipcMain.handle('window:print', async () => {
-  if (!mainWindow) return { success: false }
+ipcMain.handle('window:print', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return { success: false }
 
-  mainWindow.webContents.print({
+  win.webContents.print({
     silent: false,           // 显示打印对话框
     printBackground: true,   // 打印背景色
     margins: {
@@ -2160,8 +2204,14 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
 </body>
 </html>`
 
-    // 加载 HTML
-    await renderWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    // 加载 HTML（使用临时文件避免 data URL 长度限制）
+    const tmpCodePath = path.join(os.tmpdir(), `md-viewer-code-${Date.now()}.html`)
+    await fs.writeFile(tmpCodePath, html, 'utf-8')
+    try {
+      await renderWindow.loadFile(tmpCodePath)
+    } finally {
+      fs.remove(tmpCodePath).catch(() => {})
+    }
 
     // 等待渲染完成（增加等待时间确保字体加载）
     await new Promise(resolve => setTimeout(resolve, 500))
@@ -2291,9 +2341,10 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
 })
 
 // v1.5.1: 拖拽支持 — 处理从 Finder 拖入的文件/文件夹
-ipcMain.handle('drop:openPaths', async (_, paths: string[]) => {
+ipcMain.handle('drop:openPaths', async (event, paths: string[]) => {
   const folders: string[] = []
   const mdFiles: string[] = []
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
 
   for (const p of paths) {
     const validation = await validateLaunchPath(p)
@@ -2306,21 +2357,24 @@ ipcMain.handle('drop:openPaths', async (_, paths: string[]) => {
   }
 
   if (folders.length > 0) {
-    openPathInWindow(folders[0], 'directory')
+    openPathInWindow(folders[0], 'directory', senderWindow || undefined)
   } else if (mdFiles.length > 0) {
-    openPathInWindow(mdFiles[0], 'md-file')
+    openPathInWindow(mdFiles[0], 'md-file', senderWindow || undefined)
     for (let i = 1; i < mdFiles.length; i++) {
       setTimeout(() => {
-        mainWindow?.webContents.send('open-specific-file', mdFiles[i])
+        if (senderWindow && !senderWindow.isDestroyed()) {
+          senderWindow.webContents.send('open-specific-file', mdFiles[i])
+        }
       }, 500 + i * 200)
     }
   }
 })
 
 // v1.5.1: 内部 .md 链接跳转 — 解析相对路径并打开目标 .md 文件
-ipcMain.handle('navigate:openMdLink', async (_, currentFilePath: string, href: string) => {
+ipcMain.handle('navigate:openMdLink', async (event, currentFilePath: string, href: string) => {
   const dir = path.dirname(currentFilePath)
   const targetPath = path.resolve(dir, href)
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
 
   try {
     const stat = await fs.stat(targetPath)
@@ -2331,6 +2385,82 @@ ipcMain.handle('navigate:openMdLink', async (_, currentFilePath: string, href: s
     return { success: false, error: '文件不存在' }
   }
 
-  openPathInWindow(targetPath, 'md-file')
+  openPathInWindow(targetPath, 'md-file', senderWindow || undefined)
   return { success: true }
+})
+
+// v1.5.2: 获取应用版本和系统信息
+ipcMain.handle('app:getVersion', () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  platform: process.platform,
+  arch: process.arch
+}))
+
+// v1.5.2: 检查更新（多源容错）
+ipcMain.handle('app:checkForUpdates', async () => {
+  const GITHUB_REPO = 'wj2929/md-viewer'
+  const SOURCES = [
+    `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+    `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`
+  ]
+  const TIMEOUT_MS = 5000
+
+  // 源1: GitHub Releases API
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const response = await net.fetch(SOURCES[0], {
+      headers: {
+        'User-Agent': 'MD-Viewer',
+        'Accept': 'application/vnd.github.v3+json'
+      },
+      signal: controller.signal
+    })
+    clearTimeout(timer)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    const latestVersion = data.tag_name?.replace(/^v/, '')
+    const currentVersion = app.getVersion()
+    console.log(`[UpdateCheck] GitHub API: current=${currentVersion}, latest=${latestVersion}`)
+    return {
+      hasUpdate: latestVersion !== currentVersion,
+      currentVersion,
+      latestVersion,
+      releaseUrl: data.html_url,
+      releaseNotes: data.body,
+      publishedAt: data.published_at
+    }
+  } catch (err) {
+    console.warn('[UpdateCheck] GitHub API failed:', err)
+  }
+
+  // 源2: jsDelivr CDN (读取 package.json 的 version 字段)
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const response = await net.fetch(SOURCES[1], {
+      headers: { 'User-Agent': 'MD-Viewer' },
+      signal: controller.signal
+    })
+    clearTimeout(timer)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    const latestVersion = data.version
+    const currentVersion = app.getVersion()
+    console.log(`[UpdateCheck] jsDelivr: current=${currentVersion}, latest=${latestVersion}`)
+    return {
+      hasUpdate: latestVersion !== currentVersion,
+      currentVersion,
+      latestVersion,
+      releaseUrl: `https://github.com/${GITHUB_REPO}/releases/latest`,
+      publishedAt: undefined
+    }
+  } catch (err) {
+    console.warn('[UpdateCheck] jsDelivr failed:', err)
+  }
+
+  return { error: '无法连接到更新服务器，请检查网络连接后重试' }
 })

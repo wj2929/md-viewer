@@ -33,7 +33,7 @@ declare global {
       // 导出功能
       exportHTML: (htmlContent: string, fileName: string) => Promise<string | null>
       exportPDF: (htmlContent: string, fileName: string) => Promise<string | null>
-      exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>
+      exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>
 
       // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
       renderCodeBlockToPng: (code: string) => Promise<{
@@ -99,8 +99,8 @@ declare global {
       isTabPinned: (filePath: string) => Promise<boolean>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number }>) => Promise<void>
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>
@@ -258,6 +258,26 @@ declare global {
 
       // v1.5.1：内部 .md 链接跳转
       openMdLink: (currentFilePath: string, href: string) => Promise<{ success: boolean; error?: string }>
+
+      // v1.6.0：多窗口支持
+      getWindowId: () => Promise<number | null>
+      newWindow: () => Promise<number>
+      newWindowWithFolder: () => Promise<number | null>
+      getWindowCount: () => Promise<number>
+      onShortcutNewWindow: (callback: () => void) => () => void
+      onShortcutNewWindowFolder: (callback: () => void) => () => void
+      onBookmarksChanged: (callback: () => void) => () => void
+
+      // v1.5.2：版本信息与更新检测
+      getAppVersion: () => Promise<{
+        version: string; electron: string; chrome: string;
+        node: string; platform: string; arch: string
+      }>
+      checkForUpdates: () => Promise<{
+        hasUpdate?: boolean; currentVersion?: string; latestVersion?: string;
+        releaseUrl?: string; releaseNotes?: string; publishedAt?: string;
+        error?: string
+      }>
     }
   }
 

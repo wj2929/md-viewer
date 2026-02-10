@@ -3,6 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import App from '../src/App'
+import { useFileStore } from '../src/stores/fileStore'
+import { useTabStore } from '../src/stores/tabStore'
+import { useBookmarkStore } from '../src/stores/bookmarkStore'
+import { useLayoutStore } from '../src/stores/layoutStore'
 
 // Mock window.api
 const mockApi = {
@@ -129,7 +133,24 @@ const mockApi = {
   // v1.4.2：字体大小调节
   onShortcutFontIncrease: vi.fn(() => vi.fn()),
   onShortcutFontDecrease: vi.fn(() => vi.fn()),
-  onShortcutFontReset: vi.fn(() => vi.fn())
+  onShortcutFontReset: vi.fn(() => vi.fn()),
+  // v1.6.0：多窗口支持
+  getWindowId: vi.fn().mockResolvedValue(1),
+  newWindow: vi.fn().mockResolvedValue(2),
+  newWindowWithFolder: vi.fn().mockResolvedValue(null),
+  getWindowCount: vi.fn().mockResolvedValue(1),
+  onShortcutNewWindow: vi.fn(() => vi.fn()),
+  onShortcutNewWindowFolder: vi.fn(() => vi.fn()),
+  onBookmarksChanged: vi.fn(() => vi.fn()),
+  // v1.5.2：版本信息与更新检测
+  getAppVersion: vi.fn().mockResolvedValue({
+    version: '1.5.2', electron: '39.2.7', chrome: '134.0.6998.35',
+    node: '22.14.0', platform: 'darwin', arch: 'arm64'
+  }),
+  checkForUpdates: vi.fn().mockResolvedValue({
+    hasUpdate: false, currentVersion: '1.5.2', latestVersion: '1.5.2'
+  }),
+  openExternal: vi.fn().mockResolvedValue({ success: true })
 }
 
 // Mock 全局 window.api
@@ -163,6 +184,11 @@ describe('App 集成测试', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorageMock.getItem.mockReturnValue(null)
+    // v1.6.0: 重置 Zustand stores 到初始状态
+    useFileStore.setState({ folderPath: null, files: [], isLoading: false, selectedPaths: new Set() })
+    useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
+    useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
+    useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
   })
 
   afterEach(() => {
@@ -599,6 +625,11 @@ describe('App 边界条件测试', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorageMock.getItem.mockReturnValue(null)
+    // v1.6.0: 重置 Zustand stores 到初始状态
+    useFileStore.setState({ folderPath: null, files: [], isLoading: false, selectedPaths: new Set() })
+    useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
+    useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
+    useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
   })
 
   it('应该处理空文件列表', async () => {

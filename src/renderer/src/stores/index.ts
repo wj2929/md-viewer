@@ -13,3 +13,9 @@ export { useWindowStore } from './windowStore'
 
 // UI 状态 Store（v1.4.2）
 export { useUIStore, FONT_SIZE } from './uiStore'
+
+// v1.6.0: 新增 Stores
+export { useFileStore } from './fileStore'
+export { useTabStore } from './tabStore'
+export { useBookmarkStore } from './bookmarkStore'
+export { useLayoutStore } from './layoutStore'

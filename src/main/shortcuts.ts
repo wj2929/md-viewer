@@ -27,7 +27,10 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
   { accelerator: 'CommandOrControl+3', action: 'tab-3', description: '切换到第3个标签' },
   { accelerator: 'CommandOrControl+4', action: 'tab-4', description: '切换到第4个标签' },
   { accelerator: 'CommandOrControl+5', action: 'tab-5', description: '切换到第5个标签' },
-  { accelerator: 'CommandOrControl+,', action: 'settings', description: '打开设置' }
+  { accelerator: 'CommandOrControl+,', action: 'settings', description: '打开设置' },
+  { accelerator: 'CommandOrControl+N', action: 'new-window', description: '新建窗口' },
+  { accelerator: 'CommandOrControl+Shift+O', action: 'new-window-folder', description: '新窗口打开文件夹' },
+  { accelerator: 'CommandOrControl+Shift+W', action: 'close-window', description: '关闭窗口' }
 ]
 
 /**
@@ -49,6 +52,27 @@ export function registerWindowShortcuts(window: BrowserWindow): void {
     if (cmdOrCtrl && input.key.toLowerCase() === 'o' && !input.shift && !input.alt) {
       event.preventDefault()
       webContents.send('shortcut:open-folder')
+      return
+    }
+
+    // v1.6.0: Cmd/Ctrl + Shift + O: 新窗口打开文件夹
+    if (cmdOrCtrl && input.key.toLowerCase() === 'o' && input.shift && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:new-window-folder')
+      return
+    }
+
+    // v1.6.0: Cmd/Ctrl + N: 新建窗口
+    if (cmdOrCtrl && input.key.toLowerCase() === 'n' && !input.shift && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:new-window')
+      return
+    }
+
+    // v1.6.0: Cmd/Ctrl + Shift + W: 关闭窗口
+    if (cmdOrCtrl && input.key.toLowerCase() === 'w' && input.shift && !input.alt) {
+      event.preventDefault()
+      window.close()
       return
     }
 

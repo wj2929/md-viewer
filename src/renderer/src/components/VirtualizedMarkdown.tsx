@@ -1,5 +1,4 @@
 import { useEffect, useRef, useMemo, memo, useCallback, forwardRef, useState } from 'react'
-import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import MarkdownIt from 'markdown-it'
 import mermaid from 'mermaid'
 import debounce from 'lodash.debounce'
@@ -11,6 +10,9 @@ import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../ut
 
 // v1.5.0: ECharts 图表支持
 import { echarts, validateEChartsConfig, optimizeEChartsConfig } from '../utils/echartsRenderer'
+
+// v1.6.0: Infographic 信息图支持
+import { Infographic, validateInfographicConfig } from '../utils/infographicRenderer'
 
 // v1.4.0: 页面内搜索
 import { useInPageSearch } from '../hooks/useInPageSearch'
@@ -62,176 +64,25 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * 分段信息
- */
-interface Section {
-  id: string
-  content: string
-  html: string
-  hasMermaid: boolean
-}
-
-/**
- * 虚拟滚动已禁用
- * 原因：分段渲染存在问题，且对于 Markdown 预览场景收益有限
- * 保留代码但设置不可能达到的阈值
- */
-const VIRTUALIZATION_THRESHOLD = {
-  /** 禁用：设置为不可能达到的值 */
-  MIN_LINES: Infinity,
-  MIN_CHARS: Infinity,
-  MAX_SECTION_LINES: 200
-}
-
-interface VirtualizedMarkdownProps {
-  content: string
-  className?: string
-  filePath?: string  // v1.3 阶段 2：用于右键菜单
-  scrollToLine?: number  // v1.5.1: 搜索跳转行号
-  onScrollToLineComplete?: () => void  // v1.5.1: 跳转完成回调
-  highlightKeyword?: string  // v1.5.1: 搜索跳转临时高亮关键词
-  onHighlightKeywordComplete?: () => void  // v1.5.1: 高亮完成回调
-  onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void  // v1.5.1: Lightbox
-}
-
-/**
  * v1.4.6: 已移除本地的 createMarkdownInstance
  * 改用 markdownRenderer.ts 中的统一配置
  */
 
-/**
- * 将 Markdown 内容按标题分段
- * 分段策略：
- * 1. 按 H1/H2 标题分割
- * 2. 每段最大 100 行
- * 3. 保持代码块完整
- */
-function splitBySections(content: string, md: MarkdownIt): Section[] {
-  const lines = content.split('\n')
-  const sections: Section[] = []
-  let currentLines: string[] = []
-  let sectionIndex = 0
-
-  const pushSection = () => {
-    if (currentLines.length === 0) return
-
-    const sectionContent = currentLines.join('\n')
-    const rawHtml = md.render(sectionContent)
-    const html = sanitizeHtml(rawHtml)  // ✅ XSS 防护
-
-    sections.push({
-      id: `section-${sectionIndex++}`,
-      content: sectionContent,
-      html,
-      hasMermaid: sectionContent.includes('```mermaid')
-    })
-    currentLines = []
-  }
-
-  let inCodeBlock = false
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-
-    // 检测代码块开始/结束
-    if (line.trim().startsWith('```')) {
-      inCodeBlock = !inCodeBlock
-    }
-
-    // 在代码块内不分割
-    if (!inCodeBlock) {
-      // 检测 H1/H2 标题作为分割点
-      const isH1 = /^#\s+/.test(line)
-      const isH2 = /^##\s+/.test(line)
-
-      if ((isH1 || isH2) && currentLines.length > 0) {
-        pushSection()
-      }
-
-      // 检查行数限制
-      if (currentLines.length >= VIRTUALIZATION_THRESHOLD.MAX_SECTION_LINES) {
-        pushSection()
-      }
-    }
-
-    currentLines.push(line)
-  }
-
-  // 推送最后一段
-  pushSection()
-
-  return sections
+interface VirtualizedMarkdownProps {
+  content: string
+  className?: string
+  filePath?: string
+  scrollToLine?: number
+  onScrollToLineComplete?: () => void
+  highlightKeyword?: string
+  onHighlightKeywordComplete?: () => void
+  onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
 }
 
 /**
- * 单个分段渲染组件
- */
-const SectionRenderer = memo(function SectionRenderer({
-  section,
-  filePath,
-  onMermaidRender
-}: {
-  section: Section
-  filePath?: string
-  onMermaidRender: (container: HTMLDivElement) => void
-}) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (section.hasMermaid && containerRef.current) {
-      onMermaidRender(containerRef.current)
-    }
-  }, [section.hasMermaid, onMermaidRender])
-
-  // 本地图片路径转换
-  useEffect(() => {
-    if (!containerRef.current || !filePath) return
-
-    const images = containerRef.current.querySelectorAll('img')
-    images.forEach((img) => {
-      const src = img.getAttribute('src')
-      if (!src) return
-      if (
-        src.startsWith('local-image://') ||
-        src.startsWith('http://') ||
-        src.startsWith('https://') ||
-        src.startsWith('data:') ||
-        src.startsWith('blob:')
-      ) {
-        return
-      }
-      const dir = filePath.substring(0, filePath.lastIndexOf('/'))
-      let absolutePath: string
-      if (src.startsWith('/')) {
-        absolutePath = src
-      } else {
-        absolutePath = dir + '/' + src
-      }
-      const parts = absolutePath.split('/')
-      const normalized: string[] = []
-      for (const part of parts) {
-        if (part === '..') normalized.pop()
-        else if (part !== '.' && part !== '') normalized.push(part)
-      }
-      absolutePath = '/' + normalized.join('/')
-      img.setAttribute('src', `local-image://${absolutePath}`)
-    })
-  }, [section.html, filePath])
-
-  return (
-    <div
-      ref={containerRef}
-      className="virtualized-section"
-      dangerouslySetInnerHTML={{ __html: section.html }}
-    />
-  )
-})
-
-/**
- * 虚拟滚动 Markdown 渲染器
+ * Markdown 渲染器
  */
 export function VirtualizedMarkdown({ content, className = '', filePath, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick }: VirtualizedMarkdownProps): JSX.Element {
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
 
   // v1.3.7：右键菜单处理（添加书签 + 原有功能）
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -336,46 +187,6 @@ export function VirtualizedMarkdown({ content, className = '', filePath, scrollT
   // v1.4.6: 使用统一的 markdown-it 渲染器
   const md = useMemo(() => createMarkdownRenderer(), [])
 
-  // 判断是否需要虚拟滚动
-  const shouldVirtualize = useMemo(() => {
-    const lineCount = content.split('\n').length
-    const charCount = content.length
-    return lineCount >= VIRTUALIZATION_THRESHOLD.MIN_LINES ||
-           charCount >= VIRTUALIZATION_THRESHOLD.MIN_CHARS
-  }, [content])
-
-  // 分段
-  const sections = useMemo(() => {
-    if (!shouldVirtualize) return []
-    return splitBySections(content, md)
-  }, [content, md, shouldVirtualize])
-
-  // Mermaid 渲染回调
-  const handleMermaidRender = useCallback(async (container: HTMLDivElement) => {
-    const mermaidBlocks = container.querySelectorAll('pre.language-mermaid')
-    if (mermaidBlocks.length === 0) return
-
-    mermaidBlocks.forEach(async (block, index) => {
-      const code = block.textContent || ''
-      const id = `mermaid-v-${Date.now()}-${index}`
-
-      try {
-        const { svg } = await mermaid.render(id, code)
-        const wrapper = document.createElement('div')
-        wrapper.className = 'mermaid-container'
-        wrapper.innerHTML = svg
-        block.replaceWith(wrapper)
-      } catch (error) {
-        console.error('Mermaid render error:', error)
-        // 显示原始代码块，而不是空白
-        const wrapper = document.createElement('pre')
-        wrapper.className = 'language-mermaid mermaid-error-fallback'
-        wrapper.textContent = code
-        block.replaceWith(wrapper)
-      }
-    })
-  }, [])
-
   // v1.5.1: 搜索跳转到指定行
   useEffect(() => {
     if (!scrollToLine || !content) return
@@ -442,47 +253,16 @@ export function VirtualizedMarkdown({ content, className = '', filePath, scrollT
     }
   }, [highlightKeyword, onHighlightKeywordComplete])
 
-  // 小文件直接渲染（不使用虚拟滚动）
-  if (!shouldVirtualize) {
-    return (
-      <NonVirtualizedMarkdown
-        content={content}
-        md={md}
-        className={className}
-        filePath={filePath}
-        onContextMenu={handleContextMenu}
-        onImageClick={onImageClick}
-      />
-    )
-  }
-
-  // 大文件使用虚拟滚动
+  // 直接渲染
   return (
-    <div
-      className={`markdown-body virtualized ${className}`}
+    <NonVirtualizedMarkdown
+      content={content}
+      md={md}
+      className={className}
+      filePath={filePath}
       onContextMenu={handleContextMenu}
-      onClick={handleLinkClick}
-      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-    >
-      <div className="virtualized-info">
-        <span>📄 大文件模式：{sections.length} 个分段，共 {content.split('\n').length} 行</span>
-      </div>
-      <Virtuoso
-        ref={virtuosoRef}
-        style={{ flex: 1, minHeight: 0 }}
-        data={sections}
-        itemContent={(index, section) => (
-          <SectionRenderer
-            key={section.id}
-            section={section}
-            filePath={filePath}
-            onMermaidRender={handleMermaidRender}
-          />
-        )}
-        increaseViewportBy={{ top: 200, bottom: 600 }}
-        overscan={3}
-      />
-    </div>
+      onImageClick={onImageClick}
+    />
   )
 }
 
@@ -849,6 +629,22 @@ const MarkdownContent = memo(
           // 初始化 ECharts（在 chartContainer 中）
           const chart = echarts.init(chartContainer, null, { renderer: 'svg' })
           chart.setOption(optimizeEChartsConfig(validation.parsed!))
+
+          // 渲染后根据内容自适应高度
+          requestAnimationFrame(() => {
+            const svg = chartContainer.querySelector('svg')
+            if (svg) {
+              try {
+                const bbox = (svg as SVGSVGElement).getBBox()
+                if (bbox.height > 0) {
+                  const targetH = Math.max(200, Math.ceil(bbox.height + bbox.y + 40))
+                  chartContainer.style.height = `${targetH}px`
+                  chart.resize()
+                }
+              } catch { /* getBBox may fail if not in DOM */ }
+            }
+          })
+
           charts.push(chart)
 
           // 响应式调整
@@ -913,6 +709,205 @@ const MarkdownContent = memo(
         } else {
           if (chartView) chartView.style.display = 'none'
           if (codeView) codeView.style.display = ''
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleToggleClick)
+      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
+    }, [html])
+
+    // v1.6.0: Infographic 信息图渲染
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const infographicBlocks = combinedRef.current.querySelectorAll('pre.language-infographic')
+      if (infographicBlocks.length === 0) return
+
+      const instances: Infographic[] = []
+
+      infographicBlocks.forEach((block, index) => {
+        const config = block.textContent || ''
+
+        const validation = validateInfographicConfig(config)
+        if (!validation.valid) {
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'infographic-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">Infographic 配置错误</div>
+            <div class="error-message">${validation.error}</div>
+          `
+          block.replaceWith(errorDiv)
+          return
+        }
+
+        try {
+          // 创建包装容器
+          const wrapper = document.createElement('div')
+          wrapper.className = 'infographic-wrapper'
+
+          // 存储原始配置（Base64 编码避免 HTML 转义问题）
+          wrapper.dataset.infographicConfig = btoa(unescape(encodeURIComponent(config)))
+
+          // 创建切换按钮栏
+          const toggleBar = document.createElement('div')
+          toggleBar.className = 'infographic-toggle-bar no-export'
+          toggleBar.innerHTML = `
+            <button class="infographic-toggle-btn active" data-mode="chart">
+              🎨 信息图
+            </button>
+            <button class="infographic-toggle-btn" data-mode="code">
+              💻 代码
+            </button>
+          `
+
+          // 创建信息图容器
+          const chartContainer = document.createElement('div')
+          chartContainer.className = 'infographic-container'
+          chartContainer.dataset.view = 'chart'
+          chartContainer.style.width = '100%'
+          chartContainer.dataset.infographicIndex = String(index)
+
+          // 创建代码视图容器
+          const codeView = document.createElement('div')
+          codeView.className = 'infographic-code-view'
+          codeView.dataset.view = 'code'
+          codeView.style.display = 'none'
+
+          // 创建复制按钮
+          const copyButton = document.createElement('button')
+          copyButton.className = 'copy-btn no-export'
+          copyButton.textContent = '复制'
+          copyButton.title = '复制 Infographic 代码'
+          codeView.appendChild(copyButton)
+
+          // 使用 Prism 高亮代码
+          const codeElement = document.createElement('code')
+          codeElement.className = 'language-yaml'
+
+          if (Prism.languages['yaml']) {
+            codeElement.innerHTML = Prism.highlight(config, Prism.languages['yaml'], 'yaml')
+          } else {
+            codeElement.textContent = config
+          }
+
+          const preElement = document.createElement('pre')
+          preElement.className = 'language-yaml'
+          preElement.appendChild(codeElement)
+          codeView.appendChild(preElement)
+
+          // 组装结构
+          wrapper.appendChild(toggleBar)
+          wrapper.appendChild(chartContainer)
+          wrapper.appendChild(codeView)
+
+          block.replaceWith(wrapper)
+
+          // 初始化 Infographic
+          let infographic: Infographic
+
+          // 尝试解析为 JSON
+          let isJson = false
+          try {
+            JSON.parse(config)
+            isJson = true
+          } catch {
+            // 不是 JSON，使用 infographic 语法
+          }
+
+          if (isJson) {
+            const parsed = JSON.parse(config)
+            infographic = new Infographic({
+              container: chartContainer,
+              width: '100%',
+              editable: false,
+              ...parsed,
+            })
+            infographic.render()
+          } else {
+            infographic = new Infographic({
+              container: chartContainer,
+              width: '100%',
+              editable: false,
+            })
+            infographic.render(config)
+          }
+
+          // 渲染后调整 SVG 尺寸：自适应容器宽度，按 viewBox 比例计算高度
+          const fitSvg = () => {
+            const svg = chartContainer.querySelector('svg')
+            if (!svg) return
+            const vb = svg.getAttribute('viewBox')
+            if (!vb) return
+            const parts = vb.split(/[\s,]+/).map(Number)
+            if (parts.length !== 4 || parts[2] <= 0 || parts[3] <= 0) return
+            const vbW = parts[2]
+            const vbH = parts[3]
+            const containerW = chartContainer.clientWidth - 32
+            // 如果 viewBox 比容器窄，用原始尺寸居中；否则缩放到容器宽度
+            const w = Math.min(vbW, containerW)
+            const h = w * (vbH / vbW)
+            svg.setAttribute('width', String(w))
+            svg.setAttribute('height', String(h))
+          }
+
+          infographic.on('rendered', () => requestAnimationFrame(fitSvg))
+          infographic.on('loaded', () => requestAnimationFrame(fitSvg))
+          requestAnimationFrame(fitSvg)
+
+          instances.push(infographic)
+        } catch (error) {
+          console.error('[Infographic] 渲染失败:', error)
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'infographic-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">Infographic 渲染失败</div>
+            <div class="error-message">${(error as Error).message}</div>
+          `
+          if (block.parentNode) {
+            block.replaceWith(errorDiv)
+          }
+        }
+      })
+
+      return () => {
+        instances.forEach((inst) => {
+          try {
+            inst.destroy()
+          } catch (e) {
+            console.warn('[Infographic] destroy error:', e)
+          }
+        })
+      }
+    }, [html])
+
+    // v1.6.0: Infographic 切换按钮点击事件处理
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleToggleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+        const btn = target.closest('.infographic-toggle-btn')
+        if (!btn) return
+
+        const mode = btn.getAttribute('data-mode')
+        const wrapper = btn.closest('.infographic-wrapper')
+        if (!wrapper || !mode) return
+
+        // 切换按钮激活状态
+        wrapper.querySelectorAll('.infographic-toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
+        })
+
+        // 切换视图显示
+        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+        if (mode === 'chart') {
+          if (chartView) chartView.style.display = ''
+          if (codeViewEl) codeViewEl.style.display = 'none'
+        } else {
+          if (chartView) chartView.style.display = 'none'
+          if (codeViewEl) codeViewEl.style.display = ''
         }
       }
 
