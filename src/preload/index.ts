@@ -53,6 +53,14 @@ const api = {
     hasSelection: boolean
   }) => ipcRenderer.invoke('markdown:show-context-menu', ctx),
 
+  // 书签右键菜单（BookmarkBar / BookmarkPanel）
+  showBookmarkContextMenu: (bookmark: {
+    id: string
+    filePath: string
+    fileName: string
+    headingText?: string
+  }) => ipcRenderer.invoke('context-menu:bookmark', bookmark),
+
   // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
   showPreviewContextMenu: (params: {
     filePath: string
@@ -603,6 +611,13 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('shortcut:new-window-folder', handler)
     return () => ipcRenderer.removeListener('shortcut:new-window-folder', handler)
+  },
+
+  // 书签右键菜单：删除书签事件
+  onBookmarkDelete: (callback: (bookmarkId: string) => void) => {
+    const handler = (_event: unknown, bookmarkId: string) => callback(bookmarkId)
+    ipcRenderer.on('bookmark:delete', handler)
+    return () => ipcRenderer.removeListener('bookmark:delete', handler)
   },
 
   // v1.6.0: 书签跨窗口同步

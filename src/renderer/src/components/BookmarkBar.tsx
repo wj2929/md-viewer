@@ -90,6 +90,15 @@ export function BookmarkBar({
                   currentFilePath === bookmark.filePath ? 'active' : ''
                 }`}
                 onClick={() => onSelectBookmark(bookmark)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  window.api.showBookmarkContextMenu({
+                    id: bookmark.id,
+                    filePath: bookmark.filePath,
+                    fileName: bookmark.fileName,
+                    headingText: bookmark.headingText
+                  })
+                }}
                 title={`${bookmark.fileName}${bookmark.headingText ? ' → ' + bookmark.headingText : ''}`}
               >
                 <span className="bookmark-bar-item-icon">

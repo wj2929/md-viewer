@@ -7,6 +7,94 @@
 
 ---
 
+## [1.5.3] - 2026-02-11
+
+> **状态**: 🚧 **开发中** | **类型**: 新功能 + 增强 + Bug 修复
+
+### ✨ 新功能
+
+#### 1. 书签右键菜单 ⭐
+- **分屏打开**：右键书签 → 向右分屏 / 向下分屏，复用 `file:open-in-split` 事件
+- **删除书签**：右键书签 → 删除，IPC 广播 `bookmark:delete` 事件
+- **安全路径扩展**：书签跨文件夹时自动扩展 `allowedBasePath` 到公共祖先路径
+- **覆盖范围**：BookmarkBar（顶部）+ BookmarkPanel（右侧面板）
+- **文件**：`index.ts`(main)、`index.ts`(preload)、`index.d.ts`、`BookmarkBar.tsx`、`BookmarkPanel.tsx`、`useIPC.ts`
+
+#### 2. 导出署名开关
+- **功能**：设置面板 → 通用 → 导出 → "导出文件显示署名" Switch 开关
+- **效果**：开启时 HTML/PDF 导出末尾显示"由 MD Viewer 生成"，默认开启
+- **持久化**：`showExportBranding` 存入 electron-store
+- **文件**：`SettingsPanel.tsx`、`appDataManager.ts`、`index.ts`(main)、`index.d.ts`、`main.css`
+
+### 🐛 Bug 修复
+
+#### 1. 版本检查 semver 比较修复
+- **问题**：`checkForUpdates` 使用 `latestVersion !== currentVersion` 简单字符串比较，当本地版本 1.5.2 高于远程 1.5.1 时误报"发现新版本"
+- **修复**：新增 `isNewerVersion(remote, local)` 函数，按 major.minor.patch 逐段数值比较
+- **文件**：`src/main/index.ts`（两处：GitHub API 源 + jsDelivr CDN 源）
+
+#### 2. 分屏模式导出修复
+- **问题**：分屏模式下导出 HTML/PDF/DOCX 始终取全局 activeTab，导致导出内容与当前查看面板不一致
+- **修复**：分屏时取活跃面板的 tab，fallback 到 `.split-leaf-panel.active .markdown-body`
+- **增强**：导出过程增加 loading toast 提示
+- **文件**：`App.tsx`
+
+#### 3. Mermaid 串行渲染修复
+- **问题**：多个 Mermaid 图表并发调用 `mermaid.render()` 导致内部状态污染，部分图表渲染失败
+- **修复**：新增 `queueMermaidRender` 串行队列 + AbortController 取消机制 + 渲染失败自动重置 + 临时 DOM 清理
+- **文件**：`VirtualizedMarkdown.tsx`
+
+#### 4. 全屏分屏布局修复
+- **问题**：全屏模式下分屏面板布局异常（居中限宽 CSS 影响分屏撑满）
+- **修复**：区分非分屏（居中限宽 1200px）和分屏（撑满 100%）的 CSS 规则；浮动导航按钮在分屏中改用 absolute 定位
+- **文件**：`main.css`、`SplitPanel.tsx`（右键菜单激活面板）
+
+### 🔧 优化
+
+#### 1. FileTree 重命名事件监听优化
+- **问题**：每个 FileTreeItem 都注册 `onFileStartRename` IPC 监听，文件多时触发 MaxListeners 警告
+- **修复**：改为父组件 FileTree 统一监听一次，通过 `renamingPath` prop 下发
+- **文件**：`FileTree.tsx`
+
+#### 2. 分屏打开错误提示
+- 分屏打开文件失败时增加 toast 错误提示（`useIPC.ts`）
+
+#### 3. 预览区域右键菜单覆盖
+- `.preview > .markdown-body` 增加 `min-height: 100%`，确保空白区域也能触发右键菜单（`main.css`）
+
+### 🧪 测试
+
+#### Infographic 完整测试文件
+- **内容**：从官方 `@antv/infographic` 仓库提取全部 237 个唯一模板
+- **文件**：`e2e/fixtures/test-infographic.md`（5727 行，107KB）
+- **分类**：29 List + 47 Sequence + 20 Compare + 112 Hierarchy + 18 Relation + 11 Chart
+
+### 📊 代码变更统计
+
+```
+15 files changed, +5745 insertions, -1612 deletions
+```
+
+| 文件 | 增 | 删 | 说明 |
+|------|:--:|:--:|------|
+| `e2e/fixtures/test-infographic.md` | +6767 | - | 237 模板完整测试文件 |
+| `src/renderer/src/components/VirtualizedMarkdown.tsx` | +157 | - | Mermaid 串行渲染队列 |
+| `src/renderer/src/assets/main.css` | +125 | - | Switch 样式 + 全屏分屏布局 |
+| `src/main/index.ts` | +100 | - | 书签右键菜单 + semver + 导出署名 |
+| `src/renderer/src/App.tsx` | +54 | - | 分屏导出修复 + loading toast |
+| `src/renderer/src/components/FileTree.tsx` | +35 | - | 重命名事件优化 |
+| `CHANGELOG.md` | +28 | - | 变更日志 |
+| `src/renderer/src/components/SettingsPanel.tsx` | +27 | - | 导出署名开关 |
+| `src/renderer/src/hooks/useIPC.ts` | +16 | - | 书签删除 + 错误提示 |
+| `src/preload/index.ts` | +15 | - | 书签右键菜单 API |
+| `src/preload/index.d.ts` | +13 | - | 类型声明 |
+| `src/renderer/src/components/BookmarkBar.tsx` | +9 | 0 | 右键菜单 |
+| `src/renderer/src/components/BookmarkPanel.tsx` | +9 | 0 | 右键菜单 |
+| `src/main/appDataManager.ts` | +1 | 0 | showExportBranding 字段 |
+| `src/renderer/src/components/SplitPanel.tsx` | +1 | 0 | 右键激活面板 |
+
+---
+
 ## [1.5.2] - 2026-02-10
 
 > **状态**: ✅ **已发布** | **类型**: 架构重构 + 新功能 + 增强 + Bug 修复

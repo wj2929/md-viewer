@@ -444,6 +444,7 @@ export function useIPC(options: UseIPCOptions): void {
           window.api.watchFile(filePath).catch(() => {})
         } catch (error) {
           console.error('Failed to read file for split:', error)
+          toast.error(`无法在分屏中打开：${error instanceof Error ? error.message : '未知错误'}`)
           return
         }
       }
@@ -615,15 +616,26 @@ export function useIPC(options: UseIPCOptions): void {
     }
   }, [])
 
-  // v1.6.0: 书签跨窗口同步
+  // v1.6.0: 书签跨窗口同步 + 书签右键菜单删除
   useEffect(() => {
     const unsubBookmarksChanged = window.api.onBookmarksChanged(() => {
       console.log('[IPC] Bookmarks changed in another window, reloading...')
       loadBookmarks()
     })
 
+    const unsubBookmarkDelete = window.api.onBookmarkDelete?.((bookmarkId: string) => {
+      window.api.removeBookmark(bookmarkId)
+        .then(() => loadBookmarks())
+        .then(() => toast.success('书签已删除'))
+        .catch((error) => {
+          console.error('Failed to delete bookmark:', error)
+          toast.error('删除书签失败')
+        })
+    })
+
     return () => {
       unsubBookmarksChanged()
+      unsubBookmarkDelete?.()
     }
-  }, [loadBookmarks])
+  }, [loadBookmarks, toast])
 }

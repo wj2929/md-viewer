@@ -85,9 +85,10 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
 function GeneralTab() {
   const { theme, setTheme } = useTheme()
   const { fontSize, setFontSize } = useUIStore()
-  const [settings, setSettings] = useState<{ maxRecentFiles: number; maxFolderHistory: number }>({
+  const [settings, setSettings] = useState<{ maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean }>({
     maxRecentFiles: 20,
-    maxFolderHistory: 10
+    maxFolderHistory: 10,
+    showExportBranding: true
   })
 
   // 右键菜单状态
@@ -105,7 +106,8 @@ function GeneralTab() {
       const appSettings = await window.api.getAppSettings()
       setSettings(prev => ({
         maxRecentFiles: appSettings.maxRecentFiles ?? prev.maxRecentFiles,
-        maxFolderHistory: appSettings.maxFolderHistory ?? prev.maxFolderHistory
+        maxFolderHistory: appSettings.maxFolderHistory ?? prev.maxFolderHistory,
+        showExportBranding: appSettings.showExportBranding !== false
       }))
     } catch { /* 使用默认值 */ }
   }
@@ -115,7 +117,7 @@ function GeneralTab() {
     setCtxStatus(result)
   }
 
-  const updateSetting = useCallback(async (key: string, value: number) => {
+  const updateSetting = useCallback(async (key: string, value: number | boolean) => {
     setSettings(prev => ({ ...prev, [key]: value }))
     await window.api.updateAppSettings({ [key]: value })
   }, [])
@@ -276,6 +278,23 @@ function GeneralTab() {
             <span className="slider-value">{settings.maxFolderHistory}</span>
           </div>
         </div>
+      </section>
+
+      {/* 导出 */}
+      <section className="settings-section">
+        <h3>导出</h3>
+        <div className="setting-item setting-row">
+          <label>导出文件显示署名</label>
+          <label className="setting-switch">
+            <input
+              type="checkbox"
+              checked={settings.showExportBranding}
+              onChange={e => updateSetting('showExportBranding', e.target.checked)}
+            />
+            <span className="switch-slider"></span>
+          </label>
+        </div>
+        <p className="setting-section-hint">在导出的 HTML / PDF 末尾显示「由 MD Viewer 生成」</p>
       </section>
 
       {/* 系统集成 */}

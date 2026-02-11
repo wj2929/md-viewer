@@ -828,7 +828,7 @@ function escapeHtml(text: string): string {
 }
 
 // 生成导出用的完整 HTML 模板（含 CSP 和 Mermaid 支持）
-function generateExportHTML(content: string, title: string, markdownCss: string, prismCss: string): string {
+function generateExportHTML(content: string, title: string, markdownCss: string, prismCss: string, showBranding = true): string {
   // v1.4.7: 导出 HTML 强制使用亮色主题，移除 dark mode 媒体查询
   // 恢复 .container 包装器以提供两侧间距
   return `<!DOCTYPE html>
@@ -942,6 +942,7 @@ function generateExportHTML(content: string, title: string, markdownCss: string,
       ${content}
     </div>
   </div>
+  ${showBranding ? `<div style="text-align:center;padding:24px 0 12px;font-size:12px;color:#999;border-top:1px solid #eee;margin-top:40px;">由 <a href="https://github.com/wj2929/md-viewer" target="_blank" rel="noopener noreferrer" style="color:#007aff;text-decoration:none;">MD Viewer</a> 生成</div>` : ''}
 </body>
 </html>`
 }
@@ -961,8 +962,10 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
       return null
     }
 
+    const settings = appDataManager.getSettings()
+    const showBranding = settings.showExportBranding !== false
     const { markdownCss, prismCss } = await getExportStyles()
-    const fullHtml = generateExportHTML(htmlContent, fileName, markdownCss, prismCss)
+    const fullHtml = generateExportHTML(htmlContent, fileName, markdownCss, prismCss, showBranding)
 
     await fs.writeFile(result.filePath, fullHtml, 'utf-8')
     return result.filePath
@@ -973,7 +976,7 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
 })
 
 // 生成 PDF 专用的 HTML 模板（用于打印）
-function generatePDFHTML(content: string, markdownCss: string, prismCss: string): string {
+function generatePDFHTML(content: string, markdownCss: string, prismCss: string, showBranding = true): string {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1072,6 +1075,7 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string)
   <div class="markdown-body">
     ${content}
   </div>
+  ${showBranding ? `<div style="text-align:center;padding:24px 0 12px;font-size:10px;color:#999;border-top:1px solid #eee;margin-top:40px;">由 MD Viewer 生成 · github.com/wj2929/md-viewer</div>` : ''}
 </body>
 </html>`
 }
@@ -1106,8 +1110,10 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
     })
 
     // 获取样式
+    const settings = appDataManager.getSettings()
+    const showBranding = settings.showExportBranding !== false
     const { markdownCss, prismCss } = await getExportStyles()
-    const pdfHtml = generatePDFHTML(htmlContent, markdownCss, prismCss)
+    const pdfHtml = generatePDFHTML(htmlContent, markdownCss, prismCss, showBranding)
 
     // 加载 HTML 内容（使用临时文件避免 data URL 长度限制）
     const tmpPdfPath = path.join(os.tmpdir(), `md-viewer-pdf-${Date.now()}.html`)
@@ -1455,6 +1461,75 @@ ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuCont
 
   showMarkdownContextMenu(window, ctx)
   return { success: true }
+})
+
+// 书签右键菜单（BookmarkBar / BookmarkPanel）
+ipcMain.handle('context-menu:bookmark', (_event, bookmark: {
+  id: string
+  filePath: string
+  fileName: string
+  headingText?: string
+}) => {
+  const window = BrowserWindow.fromWebContents(_event.sender)
+  if (!window) return
+
+  // 书签可能跨文件夹，分屏打开前需要扩展安全路径
+  const ensurePathAllowed = (filePath: string): void => {
+    if (!isPathAllowed(filePath)) {
+      const currentBase = getAllowedBasePath()
+      const fileDir = path.dirname(filePath)
+      if (currentBase) {
+        // 找到公共祖先路径
+        const currentParts = currentBase.split(path.sep)
+        const fileParts = fileDir.split(path.sep)
+        const commonParts: string[] = []
+        for (let i = 0; i < Math.min(currentParts.length, fileParts.length); i++) {
+          if (currentParts[i] === fileParts[i]) {
+            commonParts.push(currentParts[i])
+          } else break
+        }
+        const commonAncestor = commonParts.join(path.sep) || path.sep
+        setAllowedBasePath(commonAncestor)
+      } else {
+        setAllowedBasePath(fileDir)
+      }
+    }
+  }
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '📐 在分屏中打开',
+      submenu: [
+        {
+          label: '向右分屏',
+          click: () => {
+            ensurePathAllowed(bookmark.filePath)
+            window.webContents.send('file:open-in-split', {
+              filePath: bookmark.filePath,
+              direction: 'horizontal'
+            })
+          }
+        },
+        {
+          label: '向下分屏',
+          click: () => {
+            ensurePathAllowed(bookmark.filePath)
+            window.webContents.send('file:open-in-split', {
+              filePath: bookmark.filePath,
+              direction: 'vertical'
+            })
+          }
+        }
+      ]
+    },
+    { type: 'separator' },
+    {
+      label: '🗑️ 删除书签',
+      click: () => window.webContents.send('bookmark:delete', bookmark.id)
+    }
+  ])
+
+  menu.popup({ window })
 })
 
 // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
@@ -2401,6 +2476,19 @@ ipcMain.handle('app:getVersion', () => ({
 
 // v1.5.2: 检查更新（多源容错）
 ipcMain.handle('app:checkForUpdates', async () => {
+  // semver 比较：a > b 返回 true
+  const isNewerVersion = (remote: string, local: string): boolean => {
+    const r = remote.split('.').map(Number)
+    const l = local.split('.').map(Number)
+    for (let i = 0; i < Math.max(r.length, l.length); i++) {
+      const rv = r[i] || 0
+      const lv = l[i] || 0
+      if (rv > lv) return true
+      if (rv < lv) return false
+    }
+    return false
+  }
+
   const GITHUB_REPO = 'wj2929/md-viewer'
   const SOURCES = [
     `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
@@ -2426,7 +2514,7 @@ ipcMain.handle('app:checkForUpdates', async () => {
     const currentVersion = app.getVersion()
     console.log(`[UpdateCheck] GitHub API: current=${currentVersion}, latest=${latestVersion}`)
     return {
-      hasUpdate: latestVersion !== currentVersion,
+      hasUpdate: isNewerVersion(latestVersion, currentVersion),
       currentVersion,
       latestVersion,
       releaseUrl: data.html_url,
@@ -2452,7 +2540,7 @@ ipcMain.handle('app:checkForUpdates', async () => {
     const currentVersion = app.getVersion()
     console.log(`[UpdateCheck] jsDelivr: current=${currentVersion}, latest=${latestVersion}`)
     return {
-      hasUpdate: latestVersion !== currentVersion,
+      hasUpdate: isNewerVersion(latestVersion, currentVersion),
       currentVersion,
       latestVersion,
       releaseUrl: `https://github.com/${GITHUB_REPO}/releases/latest`,

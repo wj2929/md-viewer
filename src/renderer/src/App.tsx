@@ -627,10 +627,17 @@ function App(): React.JSX.Element {
 
   // 导出 HTML
   const handleExportHTML = useCallback(async () => {
-    if (!activeTab) return
+    // 分屏模式下取活跃面板的 tab，否则取全局 activeTab
+    const exportTab = splitState.root && splitState.activeLeafId
+      ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
+      : activeTab
+    if (!exportTab) return
+    let loadingId: string | undefined
     try {
       let htmlContent: string
+      // 分屏模式下 previewRef 为 null，fallback 到活跃面板的 .markdown-body
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
+        || document.querySelector('.split-leaf-panel.active .markdown-body')
       if (markdownBody) {
         const restoreECharts = await prepareEChartsForExport(markdownBody)
         const clone = markdownBody.cloneNode(true) as HTMLElement
@@ -689,29 +696,39 @@ function App(): React.JSX.Element {
         restoreECharts()
       } else {
         const md = createMarkdownRenderer()
-        htmlContent = md.render(activeTab.content)
+        htmlContent = md.render(exportTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
         htmlContent = await processEChartsInHtml(htmlContent)
         htmlContent = await processInfographicInHtml(htmlContent)
       }
-      const filePath = await window.api.exportHTML(htmlContent, activeTab.file.name)
+      loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
+      const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
+      toast.close(loadingId)
       if (filePath) {
         toast.success(`HTML 已导出`, {
           action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
         })
       }
     } catch (error) {
+      if (loadingId) toast.close(loadingId)
       console.error('导出 HTML 失败:', error)
       toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab, toast])
+  }, [activeTab, splitState, tabs, toast])
 
   // 导出 PDF
   const handleExportPDF = useCallback(async () => {
-    if (!activeTab) return
+    // 分屏模式下取活跃面板的 tab，否则取全局 activeTab
+    const exportTab = splitState.root && splitState.activeLeafId
+      ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
+      : activeTab
+    if (!exportTab) return
+    let loadingId: string | undefined
     try {
       let htmlContent: string
+      // 分屏模式下 previewRef 为 null，fallback 到活跃面板的 .markdown-body
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
+        || document.querySelector('.split-leaf-panel.active .markdown-body')
       if (markdownBody) {
         const restoreECharts = await prepareEChartsForExport(markdownBody)
         const clone = markdownBody.cloneNode(true) as HTMLElement
@@ -770,29 +787,39 @@ function App(): React.JSX.Element {
         restoreECharts()
       } else {
         const md = createMarkdownRenderer()
-        htmlContent = md.render(activeTab.content)
+        htmlContent = md.render(exportTab.content)
         htmlContent = await processMermaidInHtml(htmlContent)
         htmlContent = await processEChartsInHtml(htmlContent)
         htmlContent = await processInfographicInHtml(htmlContent)
       }
-      const filePath = await window.api.exportPDF(htmlContent, activeTab.file.name)
+      loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
+      const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)
+      toast.close(loadingId)
       if (filePath) {
         toast.success(`PDF 已导出`, {
           action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
         })
       }
     } catch (error) {
+      if (loadingId) toast.close(loadingId)
       console.error('导出 PDF 失败:', error)
       toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab, toast])
+  }, [activeTab, splitState, tabs, toast])
 
   // 导出 DOCX
   const handleExportDOCX = useCallback(async (docStyle?: string) => {
-    if (!activeTab) return
+    // 分屏模式下取活跃面板的 tab，否则取全局 activeTab
+    const exportTab = splitState.root && splitState.activeLeafId
+      ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
+      : activeTab
+    if (!exportTab) return
+    let loadingId: string | undefined
     try {
       let htmlContent: string
+      // 分屏模式下 previewRef 为 null，fallback 到活跃面板的 .markdown-body
       const markdownBody = previewRef.current?.querySelector('.markdown-body')
+        || document.querySelector('.split-leaf-panel.active .markdown-body')
       if (markdownBody) {
         const clone = markdownBody.cloneNode(true) as HTMLElement
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
@@ -906,9 +933,11 @@ function App(): React.JSX.Element {
         htmlContent = clone.innerHTML
       } else {
         const md = createMarkdownRenderer()
-        htmlContent = md.render(activeTab.content)
+        htmlContent = md.render(exportTab.content)
       }
-      const result = await window.api.exportDOCX(htmlContent, activeTab.file.name, folderPath || '', activeTab.content, docStyle)
+      loadingId = toast.info('正在导出 Word...', { duration: 60000 })
+      const result = await window.api.exportDOCX(htmlContent, exportTab.file.name, folderPath || '', exportTab.content, docStyle)
+      toast.close(loadingId)
       if (result) {
         const { filePath, warnings, usedPandoc } = result
         if (usedPandoc) {
@@ -935,10 +964,11 @@ function App(): React.JSX.Element {
         }
       }
     } catch (error) {
+      if (loadingId) toast.close(loadingId)
       console.error('导出 DOCX 失败:', error)
       toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab, folderPath, toast])
+  }, [activeTab, splitState, tabs, folderPath, toast])
 
   // 标签切换
   const handleNextTab = useCallback(() => {

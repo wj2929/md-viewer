@@ -248,6 +248,15 @@ export function BookmarkPanel({
                 onDragEnd={handleDragEnd}
                 onDrop={(e) => handleDrop(e, bookmark.id)}
                 onClick={() => onSelectBookmark(bookmark)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  window.api.showBookmarkContextMenu({
+                    id: bookmark.id,
+                    filePath: bookmark.filePath,
+                    fileName: bookmark.fileName,
+                    headingText: bookmark.headingText
+                  })
+                }}
                 title={bookmark.filePath}
               >
                 <div className="bookmark-item-icon">

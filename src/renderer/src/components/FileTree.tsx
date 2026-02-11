@@ -30,10 +30,12 @@ interface FileTreeItemProps {
   selectedPaths?: Set<string>
   onMultiSelect?: (path: string, event: React.MouseEvent) => void
   flatIndex: number
+  // v1.5.3: 从父组件接收重命名目标路径
+  renamingPath?: string | null
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath }: FileTreeItemProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
@@ -46,23 +48,13 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   const isInClipboard = useClipboardStore(state => state.isInClipboard(item.path))
   const isCut = useClipboardStore(state => state.isCut && isInClipboard)
 
-  // 监听重命名事件
-  const itemRef = useRef(item)
+  // v1.5.3: 响应父组件广播的重命名事件（不再每个 item 注册 IPC 监听）
   useEffect(() => {
-    itemRef.current = item
-  }, [item])
-
-  useEffect(() => {
-    const handleStartRename = (targetPath: string) => {
-      if (targetPath === itemRef.current.path) {
-        setIsRenaming(true)
-        setNewName(itemRef.current.name)
-      }
+    if (renamingPath && renamingPath === item.path) {
+      setIsRenaming(true)
+      setNewName(item.name)
     }
-
-    const cleanup = window.api.onFileStartRename(handleStartRename)
-    return cleanup
-  }, []) // 空依赖数组，只注册一次
+  }, [renamingPath, item.path, item.name])
 
   // 自动聚焦输入框
   useEffect(() => {
@@ -203,6 +195,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               selectedPaths={selectedPaths}
               onMultiSelect={onMultiSelect}
               flatIndex={flatIndex + idx + 1}
+              renamingPath={renamingPath}
             />
           ))}
         </div>
@@ -235,6 +228,15 @@ function flattenFileTree(files: FileInfo[]): FileInfo[] {
 export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onSelectionChange }: FileTreeProps): JSX.Element {
   // v1.3 阶段 5：扁平化文件列表用于区间选择
   const flatFiles = useMemo(() => flattenFileTree(files), [files])
+
+  // v1.5.3: 在父组件统一监听重命名事件（只注册一次，避免 MaxListeners 警告）
+  const [renamingPath, setRenamingPath] = useState<string | null>(null)
+  useEffect(() => {
+    const cleanup = window.api.onFileStartRename((targetPath: string) => {
+      setRenamingPath(targetPath)
+    })
+    return cleanup
+  }, [])
 
   // 最后一个选择的路径（用于 Shift 区间选择）
   const lastSelectedRef = useRef<string | null>(null)
@@ -324,6 +326,7 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
           selectedPaths={selectedPaths}
           onMultiSelect={handleMultiSelect}
           flatIndex={index}
+          renamingPath={renamingPath}
         />
       ))}
     </div>

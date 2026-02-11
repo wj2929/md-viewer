@@ -99,8 +99,8 @@ declare global {
       isTabPinned: (filePath: string) => Promise<boolean>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean }>) => Promise<void>
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>
@@ -258,6 +258,15 @@ declare global {
 
       // v1.5.1：内部 .md 链接跳转
       openMdLink: (currentFilePath: string, href: string) => Promise<{ success: boolean; error?: string }>
+
+      // 书签右键菜单
+      showBookmarkContextMenu: (bookmark: {
+        id: string
+        filePath: string
+        fileName: string
+        headingText?: string
+      }) => Promise<void>
+      onBookmarkDelete: (callback: (bookmarkId: string) => void) => () => void
 
       // v1.6.0：多窗口支持
       getWindowId: () => Promise<number | null>

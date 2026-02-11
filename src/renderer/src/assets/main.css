@@ -788,6 +788,11 @@ body[data-platform="darwin"] .titlebar-drag-region {
   background-color: var(--bg-primary);
 }
 
+/* v1.5.3: 确保 markdown-body 填满预览区域，使右键菜单在空白区域也能触发 */
+.preview > .markdown-body {
+  min-height: 100%;
+}
+
 /* 当使用虚拟滚动时，禁用父容器的滚动，让 Virtuoso 接管 */
 .preview:has(.virtualized) {
   overflow: hidden;
@@ -1879,6 +1884,57 @@ body[data-platform="darwin"] .titlebar-drag-region {
   color: var(--text-primary);
   white-space: nowrap;
   min-width: 90px;
+}
+
+/* v1.5.3: Switch 开关 */
+.setting-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.setting-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border-color, #ccc);
+  border-radius: 11px;
+  transition: background 0.2s;
+}
+
+.switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.setting-switch input:checked + .switch-slider {
+  background: var(--accent-color, #007aff);
+}
+
+.setting-switch input:checked + .switch-slider::before {
+  transform: translateX(18px);
+}
+
+.setting-section-hint {
+  margin: 4px 0 0 0;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-secondary, #999);
 }
 
 /* Radio 组 */
@@ -2997,34 +3053,62 @@ pre:hover .copy-btn,
 }
 
 /* 全屏模式：保留浮动导航按钮（返回顶部/底部/目录）*/
-/* 使用 fixed 定位确保始终可见 */
-.app.fullscreen .floating-nav {
-  position: fixed !important;  /* 改为 fixed，相对于视口定位 */
+/* 非分屏：fixed 定位到视口右侧 */
+.app.fullscreen .preview-container .floating-nav {
+  position: fixed !important;
   right: 16px !important;
   top: 50% !important;
   transform: translateY(-50%) !important;
-  z-index: 10000 !important;   /* 确保在最上层 */
-  display: flex !important;     /* 强制显示 */
+  z-index: 10000 !important;
+  display: flex !important;
+}
+
+/* 分屏：保持 absolute 定位在各自面板内，确保可见 */
+.app.fullscreen .split-panel-content .floating-nav {
+  display: flex !important;
+  position: absolute !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 100 !important;
 }
 
 /* 全屏模式：内容区占满 */
 .app.fullscreen .workspace {
-  display: block !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
-.app.fullscreen .content-area {
-  width: 100% !important;
+/* 全屏模式：非分屏时内容居中限宽 */
+.app.fullscreen .content-area:has(.preview-container) {
   max-width: 1200px !important;
   margin: 0 auto !important;
   padding: 40px !important;
 }
 
-/* 全屏模式：Markdown 内容居中 */
-.app.fullscreen .markdown-body {
+/* 全屏模式：分屏时内容撑满 */
+.app.fullscreen .content-area:has(.split-container) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 100% !important;
+  flex: 1 !important;
+}
+
+/* 全屏模式：非分屏时 Markdown 内容居中 */
+.app.fullscreen .preview-container .markdown-body {
   max-width: 900px !important;
   margin: 0 auto !important;
   padding: 40px !important;
   line-height: 1.8 !important;
+}
+
+/* 全屏模式：分屏时 Markdown 内容撑满面板 */
+.app.fullscreen .split-leaf-panel .markdown-body {
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* 全屏模式：工作区容器全屏 */
@@ -3039,14 +3123,23 @@ pre:hover .copy-btn,
   position: relative !important; /* 确保 FloatingNav 定位正确 */
 }
 
-/* 全屏模式：优化阅读体验，确保 .preview 可滚动 */
-.app.fullscreen .preview {
+/* 全屏模式：优化阅读体验，确保 .preview 可滚动（仅非分屏） */
+.app.fullscreen .preview-container .preview {
   background-color: var(--bg-color);
   padding: 40px 0;
-  overflow-y: auto !important;  /* 强制可滚动，覆盖所有其他规则 */
-  overflow-x: hidden !important; /* 隐藏横向滚动 */
-  height: 100vh !important;     /* 占满高度 */
-  flex: none !important;         /* 取消 flex 布局 */
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  height: 100vh !important;
+  flex: none !important;
+}
+
+/* 全屏模式：分屏时 .preview 保持 flex 布局和滚动 */
+.app.fullscreen .split-leaf-panel .preview {
+  height: 100% !important;
+  flex: 1 !important;
+  padding: 16px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
 /* 全屏模式：即使有虚拟滚动元素，也要允许滚动 */

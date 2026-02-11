@@ -19,12 +19,16 @@ import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
 
 /**
- * v1.4.6: Mermaid 模块级初始化（增强配置）
- * 在模块加载时就初始化，支持所有图表类型（包括 Sankey）
+ * v1.5.3: Mermaid 模块级初始化 + 串行渲染队列
+ * 修复并发渲染导致的内部状态污染问题
  */
 let mermaidInitialized = false
-function initializeMermaid(): void {
-  if (mermaidInitialized) return
+
+// 串行渲染锁：确保同一时刻只有一个 mermaid.render() 在执行
+let mermaidRenderQueue: Promise<void> = Promise.resolve()
+
+function initializeMermaid(force = false): void {
+  if (mermaidInitialized && !force) return
 
   try {
     const isDark = typeof window !== 'undefined' &&
@@ -36,16 +40,14 @@ function initializeMermaid(): void {
       securityLevel: 'loose',
       suppressErrorRendering: true,
 
-      // ✅ v1.4.6: 新增 Sankey 图表配置
       sankey: {
         width: 600,
         height: 400,
-        linkColor: 'gradient',      // 渐变色连接线
-        nodeAlignment: 'justify',    // 节点对齐方式
-        useMaxWidth: true            // 自适应宽度
+        linkColor: 'gradient',
+        nodeAlignment: 'justify',
+        useMaxWidth: true
       },
 
-      // 确保所有图表类型都启用
       flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
       sequence: { useMaxWidth: true, wrap: true, width: 150 },
       gantt: { useMaxWidth: true, barHeight: 20, fontSize: 11 },
@@ -56,6 +58,46 @@ function initializeMermaid(): void {
   } catch {
     // Mermaid 初始化失败，静默处理
   }
+}
+
+/**
+ * 串行化 mermaid.render() 调用，避免并发污染内部状态
+ * 支持通过 AbortSignal 取消排队中的渲染任务
+ */
+function queueMermaidRender(
+  id: string,
+  code: string,
+  signal?: AbortSignal
+): Promise<{ svg: string } | null> {
+  const task = mermaidRenderQueue.then(async () => {
+    if (signal?.aborted) return null
+    try {
+      const result = await mermaid.render(id, code)
+      return result
+    } catch {
+      // 渲染失败时重置 Mermaid 状态，防止后续渲染也失败
+      mermaidInitialized = false
+      initializeMermaid(true)
+      return null
+    }
+  })
+  // 无论成功失败，都推进队列（不让错误阻塞后续任务）
+  mermaidRenderQueue = task.then(() => {}, () => {})
+  return task
+}
+
+/**
+ * 清理 Mermaid 渲染残留的临时 DOM 元素
+ * mermaid.render() 会在 body 中创建临时容器，失败时可能不会自动清理
+ */
+function cleanupMermaidTempElements(): void {
+  const tempElements = document.querySelectorAll('div[id^="dmermaid-"], div[id^="mermaid-"] svg[id^="mermaid-"]')
+  tempElements.forEach(el => {
+    // 只清理 body 直接子元素中的临时容器
+    if (el.parentElement === document.body) {
+      el.remove()
+    }
+  })
 }
 
 // 立即执行初始化
@@ -474,7 +516,7 @@ const MarkdownContent = memo(
       })
     }, [html, filePath])
 
-    // Mermaid 图表渲染
+    // Mermaid 图表渲染（串行化 + 可取消）
     useEffect(() => {
       if (!combinedRef.current) return
 
@@ -484,47 +526,74 @@ const MarkdownContent = memo(
       const mermaidBlocks = combinedRef.current.querySelectorAll('pre.language-mermaid')
       if (mermaidBlocks.length === 0) return
 
-      mermaidBlocks.forEach(async (block, index) => {
-        // v1.4.0: 优先从 data-mermaid-code 属性读取原始代码（保留换行符）
-        const base64Code = block.getAttribute('data-mermaid-code')
-        let code: string
+      // 用 AbortController 实现取消机制
+      const abortController = new AbortController()
+      const { signal } = abortController
 
-        if (base64Code) {
-          try {
-            code = decodeURIComponent(escape(atob(base64Code)))
-          } catch {
+      // 串行渲染所有 mermaid 图表（不再用 forEach + async 并发）
+      ;(async () => {
+        for (let index = 0; index < mermaidBlocks.length; index++) {
+          if (signal.aborted) break
+
+          const block = mermaidBlocks[index]
+
+          // 优先从 data-mermaid-code 属性读取原始代码（保留换行符）
+          const base64Code = block.getAttribute('data-mermaid-code')
+          let code: string
+
+          if (base64Code) {
+            try {
+              code = decodeURIComponent(escape(atob(base64Code)))
+            } catch {
+              code = block.textContent || ''
+            }
+          } else {
             code = block.textContent || ''
           }
-        } else {
-          code = block.textContent || ''
+
+          const id = `mermaid-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`
+
+          // 通过队列串行渲染，避免并发污染 Mermaid 内部状态
+          const result = await queueMermaidRender(id, code, signal)
+
+          // 渲染完成后检查是否已取消（组件可能已卸载或 html 已变化）
+          if (signal.aborted) break
+
+          if (result) {
+            const wrapper = document.createElement('div')
+            wrapper.className = 'mermaid-container'
+            // 存储原始代码用于复制
+            wrapper.dataset.mermaidCode = btoa(unescape(encodeURIComponent(code)))
+            wrapper.innerHTML = result.svg
+
+            // 添加复制按钮
+            const copyBtn = document.createElement('button')
+            copyBtn.className = 'copy-btn no-export'
+            copyBtn.textContent = '复制'
+            copyBtn.title = '复制 Mermaid 代码'
+            wrapper.appendChild(copyBtn)
+
+            // 确保 block 仍在 DOM 中再替换
+            if (block.parentNode) {
+              block.replaceWith(wrapper)
+            }
+          } else {
+            // 渲染失败时显示原始代码
+            const wrapper = document.createElement('pre')
+            wrapper.className = 'language-mermaid mermaid-error-fallback'
+            wrapper.textContent = code
+            if (block.parentNode) {
+              block.replaceWith(wrapper)
+            }
+          }
         }
+      })()
 
-        const id = `mermaid-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`
-
-        try {
-          const { svg } = await mermaid.render(id, code)
-          const wrapper = document.createElement('div')
-          wrapper.className = 'mermaid-container'
-          // 存储原始代码用于复制
-          wrapper.dataset.mermaidCode = btoa(unescape(encodeURIComponent(code)))
-          wrapper.innerHTML = svg
-
-          // v1.5.2: 添加复制按钮
-          const copyBtn = document.createElement('button')
-          copyBtn.className = 'copy-btn no-export'
-          copyBtn.textContent = '复制'
-          copyBtn.title = '复制 Mermaid 代码'
-          wrapper.appendChild(copyBtn)
-
-          block.replaceWith(wrapper)
-        } catch {
-          // 渲染失败时显示原始代码
-          const wrapper = document.createElement('pre')
-          wrapper.className = 'language-mermaid mermaid-error-fallback'
-          wrapper.textContent = code
-          block.replaceWith(wrapper)
-        }
-      })
+      // cleanup：取消未完成的渲染 + 清理临时 DOM
+      return () => {
+        abortController.abort()
+        cleanupMermaidTempElements()
+      }
     }, [html])
 
     // v1.5.1: ECharts 图表渲染（支持图表/代码切换）

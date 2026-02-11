@@ -71,6 +71,7 @@ export interface AppSettings {
   bookmarkBarCollapsed: boolean   // 书签栏是否折叠（v1.3.6）
   maxRecentFiles?: number         // 最近文件上限（v1.5.2）
   maxFolderHistory?: number       // 文件夹历史上限（v1.5.2）
+  showExportBranding?: boolean    // 导出文件显示署名（v1.5.3），默认 true
 }
 
 /**

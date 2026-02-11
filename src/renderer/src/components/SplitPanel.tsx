@@ -120,6 +120,7 @@ function LeafPanel({
       ref={panelRef}
       className={`split-leaf-panel ${isActive ? 'active' : ''} ${dragClass}`}
       onClick={() => onSetActiveLeaf(node.id)}
+      onContextMenu={() => onSetActiveLeaf(node.id)}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
