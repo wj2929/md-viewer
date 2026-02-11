@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.5.1-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.5.3-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -29,10 +29,14 @@
 - 📐 **数学公式** - KaTeX 渲染 LaTeX 公式
 - 📊 **Mermaid 图表** - 支持流程图、时序图、甘特图、C4 架构图、思维导图等
 - 📈 **ECharts 图表** - echarts/js/json 代码块智能检测，交互式图表渲染 (v1.5.0+)
+- 📊 **AntV Infographic** - infographic 代码块渲染信息图，236 个内置模板 (v1.5.2+)
 - 🖼️ **图片 Lightbox** - 点击图片全屏预览，支持缩放、拖拽平移、左右切换 (v1.5.1+)
 - 🪟 **递归分屏** - N 面板水平/垂直分屏，拖拽标签页到面板边缘自动分屏 (v1.5.1+)
 - 🔗 **内部链接跳转** - 点击 .md 链接 IPC 跳转，右键可在分屏中打开 (v1.5.1+)
 - 📂 **全窗口拖拽** - 从 Finder/资源管理器拖拽 .md 文件或文件夹直接打开 (v1.5.1+)
+- 🪟 **多窗口支持** - Cmd+N 新建窗口，书签跨窗口同步 (v1.5.2+)
+- ⚙️ **设置面板** - 主题/字体/最近文件上限/导出署名等可配置 (v1.5.2+)
+- 📌 **书签右键菜单** - 右键书签可分屏打开或删除 (v1.5.3+)
 - 👀 **实时监听** - 文件修改自动刷新，无需手动重载
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
 - 💾 **导出功能** - 右键菜单导出 HTML 和 PDF（支持 Mermaid/ECharts 图表）
@@ -58,8 +62,8 @@
 ### macOS
 
 **下载：**
-- [MD Viewer-1.5.2-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.5.2.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2) (Intel Mac)
+- [MD Viewer-1.5.3-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.5.3.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -86,7 +90,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 3. 点击"仍要打开"
 
 ### Windows
-- [MD Viewer Setup 1.5.2.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2)
+- [MD Viewer Setup 1.5.3.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3)
 
 首次运行安装程序时，SmartScreen 可能显示"Windows 已保护你的电脑"：
 1. 点击"更多信息"
@@ -96,7 +100,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 > 可以在"Windows 安全中心 → 应用和浏览器控制"中查看被阻止的应用并选择"仍要运行"。
 
 ### Linux
-- [MD Viewer-1.5.2.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.2)
+- [MD Viewer-1.5.3.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3)
 
 **AppImage 用户**（Ubuntu 22.04+ / Debian 12+ / Fedora 38+）需要先安装 libfuse2：
 ```bash
@@ -111,13 +115,13 @@ sudo pacman -S fuse2
 ```
 
 ```bash
-chmod +x MD-Viewer-1.5.1.AppImage
-./MD-Viewer-1.5.1.AppImage
+chmod +x MD-Viewer-1.5.3.AppImage
+./MD-Viewer-1.5.3.AppImage
 ```
 
 如果不想安装 FUSE，可以用提取模式运行：
 ```bash
-./MD-Viewer-1.5.1.AppImage --appimage-extract-and-run
+./MD-Viewer-1.5.3.AppImage --appimage-extract-and-run
 ```
 
 ---
@@ -485,7 +489,18 @@ npm run build:linux
 - [x] Mermaid 图表复制代码按钮
 - [x] 剪贴板安全增强
 - [x] UI 微调（导航栏、搜索栏、设置面板）
-- [ ] 跨平台兼容性修复（Windows/Linux）
+- [x] 跨平台兼容性修复（Windows/Linux）
+- [x] 递归分屏（N 面板水平/垂直分屏）
+- [x] 图片 Lightbox（缩放、拖拽平移、左右切换）
+- [x] 内部 .md 链接跳转 + 全窗口拖拽
+- [x] AntV Infographic 信息图支持（236 模板）
+- [x] 架构重构（4 个 Zustand store，App.tsx -52%）
+- [x] 多窗口支持（Cmd+N + 书签跨窗口同步）
+- [x] 设置面板 Tab 化（通用 / 关于）
+- [x] 书签右键菜单（分屏打开 + 删除）
+- [x] 导出署名开关
+- [x] Mermaid 串行渲染（修复并发状态污染）
+- [x] 分屏模式导出修复 + 全屏分屏布局修复
 
 ### v2.0 (计划中)
 - [ ] 跨平台完整支持（Windows/Linux 标题栏、快捷键、文案国际化）
