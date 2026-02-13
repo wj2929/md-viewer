@@ -103,7 +103,8 @@ describe('VirtualizedMarkdown', () => {
         headingText: null,
         headingLevel: null,
         hasSelection: false,
-        linkHref: null
+        linkHref: null,
+        basePath: null
       })
     })
 
@@ -136,7 +137,8 @@ describe('VirtualizedMarkdown', () => {
           headingText: '测试标题',
           headingLevel: 'h1',
           hasSelection: false,
-          linkHref: null
+          linkHref: null,
+          basePath: null
         })
       }
     })
@@ -162,7 +164,8 @@ describe('VirtualizedMarkdown', () => {
         headingText: null,
         headingLevel: null,
         hasSelection: true,
-        linkHref: null
+        linkHref: null,
+        basePath: null
       })
 
       // 恢复 mock

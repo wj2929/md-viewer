@@ -14,7 +14,14 @@ import { echarts, validateEChartsConfig, optimizeEChartsConfig } from '../utils/
 // v1.6.0: Infographic 信息图支持
 import { Infographic, validateInfographicConfig } from '../utils/infographicRenderer'
 
+// v1.5.4: Markmap 思维导图支持
+import { Transformer, Markmap, deriveOptions, validateMarkmapCode } from '../utils/markmapRenderer'
+
+// v1.5.4: Graphviz DOT 图支持
+import { validateGraphvizCode, renderGraphvizToSvg } from '../utils/graphvizRenderer'
+
 // v1.4.0: 页面内搜索
+import { useFileStore } from '../stores/fileStore'
 import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
 
@@ -127,6 +134,7 @@ interface VirtualizedMarkdownProps {
 export function VirtualizedMarkdown({ content, className = '', filePath, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick }: VirtualizedMarkdownProps): JSX.Element {
 
   // v1.3.7：右键菜单处理（添加书签 + 原有功能）
+  const folderPath = useFileStore(state => state.folderPath)
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     if (!filePath) return
@@ -163,11 +171,12 @@ export function VirtualizedMarkdown({ content, className = '', filePath, scrollT
       headingText: heading?.textContent || null,
       headingLevel: heading?.tagName.toLowerCase() || null,
       hasSelection,
-      linkHref
+      linkHref,
+      basePath: folderPath || null
     }).catch(error => {
       console.error('[VirtualizedMarkdown] Failed to show context menu:', error)
     })
-  }, [filePath])
+  }, [filePath, folderPath])
 
   // 统一的链接点击处理（覆盖虚拟滚动和非虚拟滚动路径）
   const handleLinkClick = useCallback((e: React.MouseEvent) => {
@@ -182,7 +191,20 @@ export function VirtualizedMarkdown({ content, className = '', filePath, scrollT
     if (href.startsWith('#')) {
       e.preventDefault()
       const targetId = decodeURIComponent(href.slice(1))
-      const targetElement = document.getElementById(targetId)
+      // 精确匹配
+      let targetElement = document.getElementById(targetId)
+      // fallback：normalize 后模糊匹配（容忍下划线等 slug 差异）
+      if (!targetElement) {
+        const normalize = (s: string) => s.replace(/[_]/g, '').toLowerCase()
+        const normalizedTarget = normalize(targetId)
+        const headings = document.querySelectorAll('[id]')
+        for (const el of headings) {
+          if (normalize(el.id) === normalizedTarget) {
+            targetElement = el as HTMLElement
+            break
+          }
+        }
+      }
       if (targetElement) {
         targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
@@ -984,6 +1006,321 @@ const MarkdownContent = memo(
       return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
     }, [html])
 
+    // v1.5.4: Markmap 思维导图渲染
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const markmapBlocks = combinedRef.current.querySelectorAll('pre.language-markmap')
+      if (markmapBlocks.length === 0) return
+
+      const instances: Markmap[] = []
+
+      markmapBlocks.forEach((block, index) => {
+        const code = block.textContent || ''
+
+        const validation = validateMarkmapCode(code)
+        if (!validation.valid) {
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'markmap-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">Markmap 配置错误</div>
+            <div class="error-message">${validation.error}</div>
+          `
+          block.replaceWith(errorDiv)
+          return
+        }
+
+        try {
+          // 创建包装容器
+          const wrapper = document.createElement('div')
+          wrapper.className = 'markmap-wrapper'
+
+          // 存储原始代码（Base64 编码）
+          wrapper.dataset.markmapCode = btoa(unescape(encodeURIComponent(code)))
+
+          // 创建切换按钮栏
+          const toggleBar = document.createElement('div')
+          toggleBar.className = 'markmap-toggle-bar no-export'
+          toggleBar.innerHTML = `
+            <button class="markmap-toggle-btn active" data-mode="chart">
+              🗺️ 思维导图
+            </button>
+            <button class="markmap-toggle-btn" data-mode="code">
+              💻 代码
+            </button>
+          `
+
+          // 创建思维导图容器
+          const chartContainer = document.createElement('div')
+          chartContainer.className = 'markmap-container'
+          chartContainer.dataset.view = 'chart'
+          chartContainer.style.width = '100%'
+          chartContainer.dataset.markmapIndex = String(index)
+
+          // 创建 SVG 元素
+          const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+          svgEl.setAttribute('width', '100%')
+          svgEl.setAttribute('height', '400')
+          svgEl.style.width = '100%'
+          svgEl.style.minHeight = '300px'
+          chartContainer.appendChild(svgEl)
+
+          // 创建代码视图容器
+          const codeView = document.createElement('div')
+          codeView.className = 'markmap-code-view'
+          codeView.dataset.view = 'code'
+          codeView.style.display = 'none'
+
+          // 创建复制按钮
+          const copyButton = document.createElement('button')
+          copyButton.className = 'copy-btn no-export'
+          copyButton.textContent = '复制'
+          copyButton.title = '复制 Markmap 代码'
+          codeView.appendChild(copyButton)
+
+          // 代码高亮显示
+          const codeElement = document.createElement('code')
+          codeElement.className = 'language-markdown'
+          if (Prism.languages['markdown']) {
+            codeElement.innerHTML = Prism.highlight(code, Prism.languages['markdown'], 'markdown')
+          } else {
+            codeElement.textContent = code
+          }
+
+          const preElement = document.createElement('pre')
+          preElement.className = 'language-markdown'
+          preElement.appendChild(codeElement)
+          codeView.appendChild(preElement)
+
+          // 组装结构
+          wrapper.appendChild(toggleBar)
+          wrapper.appendChild(chartContainer)
+          wrapper.appendChild(codeView)
+
+          block.replaceWith(wrapper)
+
+          // 初始化 Markmap
+          const transformer = new Transformer()
+          const { root, features } = transformer.transform(code)
+          const opts = deriveOptions(features)
+          const mm = Markmap.create(svgEl, opts, root)
+
+          // 渲染后自适应
+          requestAnimationFrame(() => {
+            mm.fit()
+          })
+
+          instances.push(mm)
+        } catch (error) {
+          console.error('[Markmap] 渲染失败:', error)
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'markmap-error'
+          errorDiv.innerHTML = `
+            <div class="error-title">Markmap 渲染失败</div>
+            <div class="error-message">${(error as Error).message}</div>
+          `
+          if (block.parentNode) {
+            block.replaceWith(errorDiv)
+          }
+        }
+      })
+
+      return () => {
+        instances.forEach((mm) => {
+          try {
+            mm.destroy()
+          } catch (e) {
+            console.warn('[Markmap] destroy error:', e)
+          }
+        })
+      }
+    }, [html])
+
+    // v1.5.4: Markmap 切换按钮点击事件处理
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleToggleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+        const btn = target.closest('.markmap-toggle-btn')
+        if (!btn) return
+
+        const mode = btn.getAttribute('data-mode')
+        const wrapper = btn.closest('.markmap-wrapper')
+        if (!wrapper || !mode) return
+
+        wrapper.querySelectorAll('.markmap-toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
+        })
+
+        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+        if (mode === 'chart') {
+          if (chartView) chartView.style.display = ''
+          if (codeViewEl) codeViewEl.style.display = 'none'
+        } else {
+          if (chartView) chartView.style.display = 'none'
+          if (codeViewEl) codeViewEl.style.display = ''
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleToggleClick)
+      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
+    }, [html])
+
+    // v1.5.4: Graphviz DOT 图渲染（异步 WASM 加载）
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const graphvizBlocks = combinedRef.current.querySelectorAll('pre.language-graphviz')
+      if (graphvizBlocks.length === 0) return
+
+      const abortController = new AbortController()
+      const { signal } = abortController
+
+      ;(async () => {
+        for (let index = 0; index < graphvizBlocks.length; index++) {
+          if (signal.aborted) break
+
+          const block = graphvizBlocks[index]
+          const code = block.textContent || ''
+
+          const validation = validateGraphvizCode(code)
+          if (!validation.valid) {
+            const errorDiv = document.createElement('div')
+            errorDiv.className = 'graphviz-error'
+            errorDiv.innerHTML = `
+              <div class="error-title">Graphviz 配置错误</div>
+              <div class="error-message">${validation.error}</div>
+            `
+            if (block.parentNode) block.replaceWith(errorDiv)
+            continue
+          }
+
+          try {
+            const svgString = await renderGraphvizToSvg(code, `preview-${index}`)
+
+            if (signal.aborted) break
+
+            // 创建包装容器
+            const wrapper = document.createElement('div')
+            wrapper.className = 'graphviz-wrapper'
+
+            // 存储原始代码
+            wrapper.dataset.graphvizCode = btoa(unescape(encodeURIComponent(code)))
+
+            // 创建切换按钮栏
+            const toggleBar = document.createElement('div')
+            toggleBar.className = 'graphviz-toggle-bar no-export'
+            toggleBar.innerHTML = `
+              <button class="graphviz-toggle-btn active" data-mode="chart">
+                📐 图表
+              </button>
+              <button class="graphviz-toggle-btn" data-mode="code">
+                💻 代码
+              </button>
+            `
+
+            // 创建图表容器
+            const chartContainer = document.createElement('div')
+            chartContainer.className = 'graphviz-container'
+            chartContainer.dataset.view = 'chart'
+            chartContainer.style.width = '100%'
+            chartContainer.innerHTML = svgString
+
+            // 让 SVG 自适应容器
+            const svg = chartContainer.querySelector('svg')
+            if (svg) {
+              svg.style.maxWidth = '100%'
+              svg.style.height = 'auto'
+            }
+
+            // 创建代码视图容器
+            const codeView = document.createElement('div')
+            codeView.className = 'graphviz-code-view'
+            codeView.dataset.view = 'code'
+            codeView.style.display = 'none'
+
+            // 创建复制按钮
+            const copyButton = document.createElement('button')
+            copyButton.className = 'copy-btn no-export'
+            copyButton.textContent = '复制'
+            copyButton.title = '复制 Graphviz 代码'
+            codeView.appendChild(copyButton)
+
+            // 代码显示
+            const codeElement = document.createElement('code')
+            codeElement.className = 'language-plaintext'
+            codeElement.textContent = code
+
+            const preElement = document.createElement('pre')
+            preElement.className = 'language-plaintext'
+            preElement.appendChild(codeElement)
+            codeView.appendChild(preElement)
+
+            // 组装结构
+            wrapper.appendChild(toggleBar)
+            wrapper.appendChild(chartContainer)
+            wrapper.appendChild(codeView)
+
+            if (block.parentNode) {
+              block.replaceWith(wrapper)
+            }
+          } catch (error) {
+            if (signal.aborted) break
+            console.error('[Graphviz] 渲染失败:', error)
+            const errorDiv = document.createElement('div')
+            errorDiv.className = 'graphviz-error'
+            errorDiv.innerHTML = `
+              <div class="error-title">Graphviz 渲染失败</div>
+              <div class="error-message">${(error as Error).message}</div>
+            `
+            if (block.parentNode) {
+              block.replaceWith(errorDiv)
+            }
+          }
+        }
+      })()
+
+      return () => {
+        abortController.abort()
+      }
+    }, [html])
+
+    // v1.5.4: Graphviz 切换按钮点击事件处理
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleToggleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+        const btn = target.closest('.graphviz-toggle-btn')
+        if (!btn) return
+
+        const mode = btn.getAttribute('data-mode')
+        const wrapper = btn.closest('.graphviz-wrapper')
+        if (!wrapper || !mode) return
+
+        wrapper.querySelectorAll('.graphviz-toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
+        })
+
+        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+
+        if (mode === 'chart') {
+          if (chartView) chartView.style.display = ''
+          if (codeViewEl) codeViewEl.style.display = 'none'
+        } else {
+          if (chartView) chartView.style.display = 'none'
+          if (codeViewEl) codeViewEl.style.display = ''
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleToggleClick)
+      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
+    }, [html])
+
     // 为标题添加 id 属性
     useEffect(() => {
       if (!combinedRef.current) return
@@ -998,7 +1335,7 @@ const MarkdownContent = memo(
         let slug = text
           .toLowerCase()
           .trim()
-          .replace(/[^\p{L}\p{N}\s-]/gu, '')
+          .replace(/[^\p{L}\p{N}\s_-]/gu, '')
           .replace(/\s+/g, '-')
           .replace(/-+/g, '-')
           .replace(/^-|-$/g, '')
@@ -1050,7 +1387,20 @@ const MarkdownContent = memo(
         if (href.startsWith('#')) {
           e.preventDefault()
           const targetId = decodeURIComponent(href.slice(1))
-          const targetElement = document.getElementById(targetId)
+          // 精确匹配
+          let targetElement = document.getElementById(targetId)
+          // fallback：normalize 后模糊匹配（容忍下划线等 slug 差异）
+          if (!targetElement) {
+            const normalize = (s: string) => s.replace(/[_]/g, '').toLowerCase()
+            const normalizedTarget = normalize(targetId)
+            const headings = document.querySelectorAll('[id]')
+            for (const el of headings) {
+              if (normalize(el.id) === normalizedTarget) {
+                targetElement = el as HTMLElement
+                break
+              }
+            }
+          }
           if (targetElement) {
             targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
           }
@@ -1099,13 +1449,13 @@ const MarkdownContent = memo(
       if (!combinedRef.current) return
 
       // 查找所有 pre > code 代码块，排除 Mermaid 和 ECharts（它们有自己的复制按钮）
-      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts)')
+      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz)')
 
       codeBlocks.forEach((pre) => {
         // 跳过已经有复制按钮的代码块
         if (pre.querySelector('.copy-btn')) return
-        // 跳过 ECharts 代码视图中的代码块（已有复制按钮）
-        if (pre.closest('.echarts-code-view')) return
+        // 跳过 ECharts/Infographic/Markmap/Graphviz 代码视图中的代码块（已有复制按钮）
+        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view')) return
 
         const code = pre.querySelector('code')
         if (!code) return
@@ -1139,6 +1489,8 @@ const MarkdownContent = memo(
         // 判断复制按钮所在的容器类型
         const mermaidContainer = target.closest('.mermaid-container')
         const echartsCodeView = target.closest('.echarts-code-view')
+        const markmapCodeView = target.closest('.markmap-code-view')
+        const graphvizCodeView = target.closest('.graphviz-code-view')
         const preBlock = target.closest('pre')
 
         if (mermaidContainer) {
@@ -1158,6 +1510,28 @@ const MarkdownContent = memo(
           if (base64Config) {
             try {
               textToCopy = decodeURIComponent(escape(atob(base64Config)))
+            } catch {
+              textToCopy = ''
+            }
+          }
+        } else if (markmapCodeView) {
+          // Markmap 代码视图：从 wrapper 的 data-markmap-code 获取
+          const wrapper = markmapCodeView.closest('.markmap-wrapper')
+          const base64Code = wrapper?.getAttribute('data-markmap-code')
+          if (base64Code) {
+            try {
+              textToCopy = decodeURIComponent(escape(atob(base64Code)))
+            } catch {
+              textToCopy = ''
+            }
+          }
+        } else if (graphvizCodeView) {
+          // Graphviz 代码视图：从 wrapper 的 data-graphviz-code 获取
+          const wrapper = graphvizCodeView.closest('.graphviz-wrapper')
+          const base64Code = wrapper?.getAttribute('data-graphviz-code')
+          if (base64Code) {
+            try {
+              textToCopy = decodeURIComponent(escape(atob(base64Code)))
             } catch {
               textToCopy = ''
             }

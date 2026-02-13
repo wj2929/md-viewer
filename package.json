@@ -1,6 +1,6 @@
 {
   "name": "md-viewer",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "A simple and powerful Markdown preview tool with Mermaid diagrams and file watching",
   "main": "./out/main/index.js",
   "scripts": {
@@ -130,6 +130,7 @@
   },
   "dependencies": {
     "@antv/infographic": "^0.2.13",
+    "@hpcc-js/wasm-graphviz": "^1.21.0",
     "@types/markdown-it": "^14.1.2",
     "@types/prismjs": "^1.26.5",
     "adm-zip": "^0.5.16",
@@ -145,6 +146,8 @@
     "mark.js": "^8.11.1",
     "markdown-it": "^14.1.0",
     "markdown-it-anchor": "^9.2.0",
+    "markmap-lib": "^0.18.12",
+    "markmap-view": "^0.18.12",
     "mermaid": "^11.12.2",
     "prismjs": "^1.30.0",
     "react-hot-toast": "^2.6.0",

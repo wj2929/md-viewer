@@ -3188,3 +3188,322 @@ body[data-platform="darwin"] .app.fullscreen::before {
   padding: 1px 0;
   transition: background-color 0.5s ease-out;
 }
+
+/* ============================================
+   v1.5.4: Markmap 思维导图样式
+   ============================================ */
+
+.markmap-wrapper {
+  width: 100%;
+  margin: 1.5em 0;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* 切换按钮栏 */
+.markmap-toggle-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.markmap-toggle-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.markmap-toggle-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.markmap-toggle-btn.active {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+.markmap-toggle-btn:first-child {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  border-right: none;
+}
+
+.markmap-toggle-btn:last-child {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* 思维导图容器 */
+.markmap-wrapper .markmap-container {
+  width: 100%;
+  padding: 16px;
+  background: var(--bg-primary);
+  overflow: hidden;
+  border-radius: 0;
+}
+
+.markmap-wrapper .markmap-container svg {
+  max-width: 100%;
+  display: block;
+}
+
+/* 代码视图容器 */
+.markmap-code-view {
+  width: 100%;
+  max-height: 600px;
+  overflow: auto;
+  position: relative;
+  background: var(--code-block-bg);
+}
+
+.markmap-code-view pre {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+}
+
+.markmap-code-view code {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.markmap-code-view .copy-btn {
+  /* 继承 .copy-btn 的样式 */
+}
+
+/* 悬停时显示复制按钮 */
+.markmap-code-view:hover .copy-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 错误提示 */
+.markmap-error {
+  color: #c53030;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin: 1em 0;
+  font-size: 14px;
+}
+
+.markmap-error .error-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.markmap-error .error-message {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+:root[data-theme="dark"] .markmap-error {
+  color: #fc8181;
+  background: #2d1f1f;
+  border-color: #63171b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .markmap-error {
+    color: #fc8181;
+    background: #2d1f1f;
+    border-color: #63171b;
+  }
+}
+
+/* 打印时隐藏切换按钮，只显示思维导图 */
+@media print {
+  .markmap-toggle-bar {
+    display: none !important;
+  }
+
+  .markmap-wrapper {
+    border: none;
+    background: transparent;
+  }
+
+  .markmap-code-view {
+    display: none !important;
+  }
+
+  .markmap-container {
+    display: block !important;
+  }
+}
+
+/* ============================================
+   v1.5.4: Graphviz DOT 图样式
+   ============================================ */
+
+.graphviz-wrapper {
+  width: 100%;
+  margin: 1.5em 0;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* 切换按钮栏 */
+.graphviz-toggle-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.graphviz-toggle-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graphviz-toggle-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.graphviz-toggle-btn.active {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+.graphviz-toggle-btn:first-child {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  border-right: none;
+}
+
+.graphviz-toggle-btn:last-child {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* 图表容器 */
+.graphviz-wrapper .graphviz-container {
+  width: 100%;
+  padding: 16px;
+  background: var(--bg-primary);
+  overflow: auto;
+  border-radius: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.graphviz-wrapper .graphviz-container svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* 代码视图容器 */
+.graphviz-code-view {
+  width: 100%;
+  max-height: 600px;
+  overflow: auto;
+  position: relative;
+  background: var(--code-block-bg);
+}
+
+.graphviz-code-view pre {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+}
+
+.graphviz-code-view code {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.graphviz-code-view .copy-btn {
+  /* 继承 .copy-btn 的样式 */
+}
+
+/* 悬停时显示复制按钮 */
+.graphviz-code-view:hover .copy-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 错误提示 */
+.graphviz-error {
+  color: #c53030;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin: 1em 0;
+  font-size: 14px;
+}
+
+.graphviz-error .error-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.graphviz-error .error-message {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+:root[data-theme="dark"] .graphviz-error {
+  color: #fc8181;
+  background: #2d1f1f;
+  border-color: #63171b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .graphviz-error {
+    color: #fc8181;
+    background: #2d1f1f;
+    border-color: #63171b;
+  }
+}
+
+/* 打印时隐藏切换按钮，只显示图表 */
+@media print {
+  .graphviz-toggle-bar {
+    display: none !important;
+  }
+
+  .graphviz-wrapper {
+    border: none;
+    background: transparent;
+  }
+
+  .graphviz-code-view {
+    display: none !important;
+  }
+
+  .graphviz-container {
+    display: block !important;
+  }
+}

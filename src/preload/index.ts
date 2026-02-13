@@ -69,6 +69,7 @@ const api = {
     headingLevel: string | null
     hasSelection: boolean
     linkHref: string | null
+    basePath: string | null
   }) => ipcRenderer.invoke('preview:show-context-menu', params),
 
   // v1.3 阶段 3：剪贴板状态同步
@@ -100,6 +101,12 @@ const api = {
     ipcRenderer.invoke('folder-history:clear'),
   setFolderPath: (folderPath: string) =>
     ipcRenderer.invoke('folder:setPath', folderPath) as Promise<boolean>,
+
+  // 最近文件右键菜单
+  showRecentFileContextMenu: (file: {
+    filePath: string
+    fileName: string
+  }) => ipcRenderer.invoke('context-menu:recent-file', file),
 
   // v1.3.6：最近文件
   getRecentFiles: () =>
@@ -618,6 +625,13 @@ const api = {
     const handler = (_event: unknown, bookmarkId: string) => callback(bookmarkId)
     ipcRenderer.on('bookmark:delete', handler)
     return () => ipcRenderer.removeListener('bookmark:delete', handler)
+  },
+
+  // 最近文件右键菜单：从历史中移除事件
+  onRecentFileRemove: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('recent-file:remove', handler)
+    return () => ipcRenderer.removeListener('recent-file:remove', handler)
   },
 
   // v1.6.0: 书签跨窗口同步

@@ -98,6 +98,8 @@ const mockApi = {
   // v1.3.6：最近文件
   getRecentFiles: vi.fn().mockResolvedValue([]),
   addRecentFile: vi.fn().mockResolvedValue(undefined),
+  showRecentFileContextMenu: vi.fn().mockResolvedValue(undefined),
+  onRecentFileRemove: vi.fn(() => vi.fn()),
   // v1.3.6：应用设置
   getAppSettings: vi.fn().mockResolvedValue({
     imageDir: '',

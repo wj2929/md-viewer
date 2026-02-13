@@ -12,8 +12,8 @@ export function slugify(text: string): string {
   const slug = text
     .toLowerCase()
     .trim()
-    // 保留字母（含中日韩）、数字、空格、连字符
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    // 保留字母（含中日韩）、数字、空格、下划线、连字符（兼容 GFM）
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
