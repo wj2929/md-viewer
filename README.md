@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.5.3-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.5.4-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -36,7 +36,10 @@
 - 📂 **全窗口拖拽** - 从 Finder/资源管理器拖拽 .md 文件或文件夹直接打开 (v1.5.1+)
 - 🪟 **多窗口支持** - Cmd+N 新建窗口，书签跨窗口同步 (v1.5.2+)
 - ⚙️ **设置面板** - 主题/字体/最近文件上限/导出署名等可配置 (v1.5.2+)
-- 📌 **书签右键菜单** - 右键书签可分屏打开或删除 (v1.5.3+)
+- 📌 **书签右键菜单** - 右键书签可分屏打开或删除 (v1.5.4+)
+- 🗺️ **Markmap 思维导图** - markmap 代码块渲染交互式思维导图，支持缩放/拖拽/折叠 (v1.5.4+)
+- 📐 **Graphviz DOT 图表** - dot/graphviz 代码块渲染有向图/无向图 (v1.5.4+)
+- 🕐 **最近文件右键菜单** - 右键最近文件可分屏打开或从历史移除 (v1.5.4+)
 - 👀 **实时监听** - 文件修改自动刷新，无需手动重载
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
 - 💾 **导出功能** - 右键菜单导出 HTML 和 PDF（支持 Mermaid/ECharts 图表）
@@ -62,8 +65,8 @@
 ### macOS
 
 **下载：**
-- [MD Viewer-1.5.3-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.5.3.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3) (Intel Mac)
+- [MD Viewer-1.5.4-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.5.4.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -90,7 +93,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 3. 点击"仍要打开"
 
 ### Windows
-- [MD Viewer Setup 1.5.3.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3)
+- [MD Viewer Setup 1.5.4.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4)
 
 首次运行安装程序时，SmartScreen 可能显示"Windows 已保护你的电脑"：
 1. 点击"更多信息"
@@ -100,7 +103,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 > 可以在"Windows 安全中心 → 应用和浏览器控制"中查看被阻止的应用并选择"仍要运行"。
 
 ### Linux
-- [MD Viewer-1.5.3.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.3)
+- [MD Viewer-1.5.4.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4)
 
 **AppImage 用户**（Ubuntu 22.04+ / Debian 12+ / Fedora 38+）需要先安装 libfuse2：
 ```bash
@@ -115,13 +118,13 @@ sudo pacman -S fuse2
 ```
 
 ```bash
-chmod +x MD-Viewer-1.5.3.AppImage
-./MD-Viewer-1.5.3.AppImage
+chmod +x MD-Viewer-1.5.4.AppImage
+./MD-Viewer-1.5.4.AppImage
 ```
 
 如果不想安装 FUSE，可以用提取模式运行：
 ```bash
-./MD-Viewer-1.5.3.AppImage --appimage-extract-and-run
+./MD-Viewer-1.5.4.AppImage --appimage-extract-and-run
 ```
 
 ---
@@ -166,6 +169,8 @@ npm run dev
 - **[KaTeX](https://katex.org/)** - 数学公式渲染
 - **[Mermaid](https://mermaid.js.org/)** - 图表渲染 (v1.1+)
 - **[ECharts](https://echarts.apache.org/)** - 交互式图表渲染 (v1.5+)
+- **[Markmap](https://markmap.js.org/)** - 思维导图渲染 (v1.5.4+)
+- **[Graphviz](https://graphviz.org/)** - DOT 有向图渲染 (v1.5.4+)
 
 ### 其他库
 - **[Fuse.js](https://fusejs.io/)** - 模糊搜索
@@ -501,6 +506,9 @@ npm run build:linux
 - [x] 导出署名开关
 - [x] Mermaid 串行渲染（修复并发状态污染）
 - [x] 分屏模式导出修复 + 全屏分屏布局修复
+- [x] Markmap 思维导图（交互式 SVG，支持缩放/拖拽/折叠）
+- [x] Graphviz DOT 图表（WASM 渲染有向图/无向图）
+- [x] 最近文件右键菜单（分屏打开 + 从历史移除）
 
 ### v2.0 (计划中)
 - [ ] 跨平台完整支持（Windows/Linux 标题栏、快捷键、文案国际化）
@@ -535,6 +543,8 @@ npm run build:linux
 - [KaTeX](https://katex.org/)
 - [Mermaid](https://mermaid.js.org/)
 - [ECharts](https://echarts.apache.org/)
+- [Markmap](https://markmap.js.org/)
+- [Graphviz (hpcc-js)](https://github.com/nicedoc/hpcc-js-wasm-graphviz)
 - [Zustand](https://zustand-demo.pmnd.rs/)
 - [Fuse.js](https://fusejs.io/)
 
