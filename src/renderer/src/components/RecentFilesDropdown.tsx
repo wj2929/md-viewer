@@ -33,6 +33,15 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
     }
   }, [isOpen])
 
+  // 监听主进程右键菜单"从历史中移除"事件
+  useEffect(() => {
+    const cleanup = window.api.onRecentFileRemove((filePath: string) => {
+      window.api.removeRecentFile(filePath)
+      setFiles(prev => prev.filter(item => item.path !== filePath))
+    })
+    return cleanup
+  }, [])
+
   // 点击外部关闭
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -53,6 +62,15 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
     e.stopPropagation()
     await window.api.removeRecentFile(path)
     setFiles(prev => prev.filter(item => item.path !== path))
+  }
+
+  const handleContextMenu = (e: React.MouseEvent, file: RecentFile) => {
+    e.preventDefault()
+    e.stopPropagation()
+    window.api.showRecentFileContextMenu({
+      filePath: file.path,
+      fileName: file.name
+    })
   }
 
   const handleClearAll = async () => {
@@ -120,6 +138,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
                   key={file.path}
                   className="recent-file-item"
                   onClick={() => handleSelect(file)}
+                  onContextMenu={(e) => handleContextMenu(e, file)}
                   title={file.path}
                 >
                   <div className="recent-file-info">

@@ -212,6 +212,7 @@ declare global {
         headingLevel: string | null
         hasSelection: boolean
         linkHref: string | null
+        basePath: string | null
       }) => Promise<void>
       onAddBookmarkFromPreview: (callback: (params: {
         filePath: string
@@ -267,6 +268,13 @@ declare global {
         headingText?: string
       }) => Promise<void>
       onBookmarkDelete: (callback: (bookmarkId: string) => void) => () => void
+
+      // 最近文件右键菜单
+      showRecentFileContextMenu: (file: {
+        filePath: string
+        fileName: string
+      }) => Promise<void>
+      onRecentFileRemove: (callback: (filePath: string) => void) => () => void
 
       // v1.6.0：多窗口支持
       getWindowId: () => Promise<number | null>

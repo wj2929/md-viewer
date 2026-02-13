@@ -219,7 +219,7 @@ app.whenReady().then(() => {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const csp = is.dev
       ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net; connect-src 'self' ws://localhost:* http://localhost:*; worker-src 'self' blob:;"
-      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net; connect-src 'self';"
+      : "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net; connect-src 'self';"
 
     callback({
       responseHeaders: {
@@ -1532,6 +1532,72 @@ ipcMain.handle('context-menu:bookmark', (_event, bookmark: {
   menu.popup({ window })
 })
 
+// 最近文件右键菜单
+ipcMain.handle('context-menu:recent-file', (_event, file: {
+  filePath: string
+  fileName: string
+}) => {
+  const window = BrowserWindow.fromWebContents(_event.sender)
+  if (!window) return
+
+  // 最近文件可能跨文件夹，分屏打开前需要扩展安全路径
+  const ensurePathAllowed = (filePath: string): void => {
+    if (!isPathAllowed(filePath)) {
+      const currentBase = getAllowedBasePath()
+      const fileDir = path.dirname(filePath)
+      if (currentBase) {
+        const currentParts = currentBase.split(path.sep)
+        const fileParts = fileDir.split(path.sep)
+        const commonParts: string[] = []
+        for (let i = 0; i < Math.min(currentParts.length, fileParts.length); i++) {
+          if (currentParts[i] === fileParts[i]) {
+            commonParts.push(currentParts[i])
+          } else break
+        }
+        const commonAncestor = commonParts.join(path.sep) || path.sep
+        setAllowedBasePath(commonAncestor)
+      } else {
+        setAllowedBasePath(fileDir)
+      }
+    }
+  }
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '📐 在分屏中打开',
+      submenu: [
+        {
+          label: '向右分屏',
+          click: () => {
+            ensurePathAllowed(file.filePath)
+            window.webContents.send('file:open-in-split', {
+              filePath: file.filePath,
+              direction: 'horizontal'
+            })
+          }
+        },
+        {
+          label: '向下分屏',
+          click: () => {
+            ensurePathAllowed(file.filePath)
+            window.webContents.send('file:open-in-split', {
+              filePath: file.filePath,
+              direction: 'vertical'
+            })
+          }
+        }
+      ]
+    },
+    { type: 'separator' },
+    {
+      label: '🗑️ 从历史中移除',
+      click: () => window.webContents.send('recent-file:remove', file.filePath)
+    }
+  ])
+
+  menu.popup({ window })
+})
+
 // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
 // v1.4.0：新增页面内搜索和查看快捷键入口
 // v1.4.2：新增打印和字体大小调节
@@ -1542,11 +1608,31 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   headingLevel: string | null
   hasSelection: boolean
   linkHref: string | null
+  basePath: string | null
 }) => {
-  // ⚠️ 安全校验
+  // ⚠️ 安全校验：分屏场景下文件可能来自不同文件夹，需要扩展安全路径
+  if (!isPathAllowed(params.filePath)) {
+    const currentBase = getAllowedBasePath()
+    const fileDir = path.dirname(params.filePath)
+    if (currentBase) {
+      // 找到公共祖先路径（与书签菜单逻辑一致）
+      const currentParts = currentBase.split(path.sep)
+      const fileParts = fileDir.split(path.sep)
+      const commonParts: string[] = []
+      for (let i = 0; i < Math.min(currentParts.length, fileParts.length); i++) {
+        if (currentParts[i] === fileParts[i]) {
+          commonParts.push(currentParts[i])
+        } else break
+      }
+      const commonAncestor = commonParts.join(path.sep) || path.sep
+      setAllowedBasePath(commonAncestor)
+    } else {
+      setAllowedBasePath(fileDir)
+    }
+  }
   validatePath(params.filePath)
 
-  const { filePath, headingId, headingText, headingLevel, hasSelection, linkHref } = params
+  const { filePath, headingId, headingText, headingLevel, hasSelection, linkHref, basePath } = params
 
   const menuTemplate: MenuItemConstructorOptions[] = []
 
@@ -1727,6 +1813,42 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   }
 
   // v1.4.0: 查看所有快捷键（打开帮助弹窗）
+  // 文件路径操作菜单项
+  menuTemplate.push({ type: 'separator' })
+
+  const showInFolderLabel =
+    process.platform === 'darwin'
+      ? '📂 在 Finder 中显示'
+      : process.platform === 'win32'
+      ? '📂 在资源管理器中显示'
+      : '📂 在文件管理器中显示'
+
+  menuTemplate.push({
+    label: showInFolderLabel,
+    click: () => {
+      shell.showItemInFolder(filePath)
+    }
+  })
+
+  menuTemplate.push({
+    label: '📋 复制路径',
+    accelerator: 'CmdOrCtrl+Alt+C',
+    click: () => {
+      clipboard.writeText(filePath)
+    }
+  })
+
+  menuTemplate.push({
+    label: '📎 复制相对路径',
+    accelerator: 'Shift+Alt+C',
+    enabled: !!basePath,
+    click: () => {
+      if (basePath) {
+        clipboard.writeText(path.relative(basePath, filePath))
+      }
+    }
+  })
+
   menuTemplate.push({ type: 'separator' })
   menuTemplate.push({
     label: '⌨️ 查看所有快捷键',

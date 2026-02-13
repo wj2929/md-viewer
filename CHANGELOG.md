@@ -7,9 +7,87 @@
 
 ---
 
-## [1.5.3] - 2026-02-11
+## [1.5.4] - 2026-02-13
 
 > **状态**: 🚧 **开发中** | **类型**: 新功能 + 增强 + Bug 修复
+
+### ✨ 新功能
+
+#### 1. Markmap 思维导图渲染 ⭐⭐
+- **功能**：Markdown `markmap` 代码块自动渲染为交互式思维导图
+- **依赖**：`markmap-lib` + `markmap-view`（纯 JS，零 WASM）
+- **渲染器**：`markmapRenderer.ts` — 验证、渲染 SVG、处理导出 HTML
+- **交互**：图表/代码切换按钮（同 ECharts/Infographic 模式）
+- **导出**：HTML 导出时 markmap 以内联 SVG 形式保留
+
+#### 2. Graphviz DOT 图表渲染 ⭐⭐
+- **功能**：Markdown `dot` / `graphviz` 代码块自动渲染为 SVG 有向图
+- **依赖**：`@hpcc-js/wasm-graphviz`（WASM 懒加载，~535KB）
+- **渲染器**：`graphvizRenderer.ts` — WASM 单例加载、验证、渲染 SVG、处理导出 HTML
+- **交互**：图表/代码切换按钮
+- **导出**：HTML 导出时 graphviz 以内联 SVG 形式保留
+- **CSP**：生产环境 `script-src` 添加 `'wasm-unsafe-eval'` 支持 WASM 编译
+
+#### 3. 最近文件右键菜单 ⭐
+- **功能**：右键最近文件列表项 → 在分屏中打开（向右/向下）+ 从历史中移除
+- **安全路径扩展**：跨文件夹时自动扩展 `allowedBasePath` 到公共祖先路径
+- **IPC**：`context-menu:recent-file` handler + `recent-file:remove` 事件
+
+### 🐛 Bug 修复
+
+#### 1. 分屏打开文件 activeTabId 为 null 修复
+- **问题**：无活跃标签页时通过分屏打开文件，`activeTabId` 为 null 导致分屏逻辑静默返回
+- **修复**：`useIPC.ts` 添加 fallback，无活跃标签页时直接激活新标签页
+
+#### 2. 预览区右键菜单跨文件夹修复
+- **问题**：预览区右键"在分屏中打开"跨文件夹文件时被安全路径拦截
+- **修复**：`context-menu:recent-file` 中复用 `ensurePathAllowed` 公共祖先路径扩展
+
+### 🔧 技术实现
+
+#### 新增文件
+| 文件 | 说明 |
+|------|------|
+| `src/renderer/src/utils/markmapRenderer.ts` | Markmap 渲染器 |
+| `src/renderer/src/utils/graphvizRenderer.ts` | Graphviz 渲染器 |
+| `src/renderer/test/utils/markmapRenderer.test.ts` | Markmap 测试 |
+| `src/renderer/test/utils/graphvizRenderer.test.ts` | Graphviz 测试 |
+| `e2e/fixtures/test-markmap.md` | Markmap 测试 fixture |
+| `e2e/fixtures/test-graphviz.md` | Graphviz 测试 fixture（2081 行） |
+
+#### 核心文件变更
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `src/renderer/src/utils/markdownRenderer.ts` | 修改 | markmap/dot/graphviz 代码块检测 + DOMPurify 白名单 |
+| `src/renderer/src/components/VirtualizedMarkdown.tsx` | 修改 | Markmap + Graphviz 渲染 useEffect + 切换按钮事件 |
+| `src/renderer/src/App.tsx` | 修改 | 导出流程添加 processMarkmapInHtml + processGraphvizInHtml |
+| `src/renderer/src/assets/main.css` | 修改 | markmap + graphviz wrapper/toggle/container/error 样式 |
+| `src/main/index.ts` | 修改 | CSP wasm-unsafe-eval + 最近文件右键菜单 |
+| `src/preload/index.ts` | 修改 | showRecentFileContextMenu + onRecentFileRemove API |
+| `src/preload/index.d.ts` | 修改 | 类型声明 |
+| `src/renderer/src/components/RecentFilesDropdown.tsx` | 修改 | 右键菜单 + 从历史移除事件 |
+| `src/renderer/src/hooks/useIPC.ts` | 修改 | activeTabId null fallback |
+| `src/renderer/src/utils/slugify.ts` | 修改 | 小修复 |
+| `src/renderer/test/App.test.tsx` | 修改 | mock 新 API |
+| `src/renderer/test/components/VirtualizedMarkdown.test.tsx` | 修改 | 测试更新 |
+| `package.json` | 修改 | 添加 markmap-lib, markmap-view, @hpcc-js/wasm-graphviz |
+
+### 📊 代码变更统计
+
+```
+21 files changed, +1270 insertions, -22 deletions
+```
+
+### ✅ 测试
+
+- **测试通过率**：492 通过，0 失败
+- **类型检查**：`tsc --noEmit` 通过
+
+---
+
+## [1.5.3] - 2026-02-11
+
+> **状态**: ✅ **已发布** | **类型**: 新功能 + 增强 + Bug 修复
 
 ### ✨ 新功能
 

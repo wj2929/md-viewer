@@ -453,7 +453,11 @@ export function useIPC(options: UseIPCOptions): void {
       setSplitState(prev => {
         if (!prev.root) {
           const currentActiveTabId = useTabStore.getState().activeTabId
-          if (!currentActiveTabId) return prev
+          if (!currentActiveTabId) {
+            // 没有活跃标签页时，直接激活新标签页而不分屏
+            setActiveTabId(tabId)
+            return prev
+          }
           const firstLeaf = createLeaf(currentActiveTabId)
           const secondLeaf = createLeaf(tabId)
           return {
