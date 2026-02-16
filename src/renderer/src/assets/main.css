@@ -2554,12 +2554,87 @@ body[data-platform="darwin"] .titlebar-drag-region {
    Mermaid 图表样式 (v1.3.5)
    ============================================ */
 
-.mermaid-container {
-  display: flex;
-  justify-content: center;
+/* Mermaid wrapper（v1.5.5 统一工具栏） */
+.mermaid-wrapper {
+  position: relative;
+  width: 100%;
   margin: 1.5em 0;
-  overflow-x: auto;
-  position: relative;  /* v1.5.2: 支持复制按钮定位 */
+  border: none;
+  border-radius: 6px;
+  overflow: visible;
+}
+
+.mermaid-wrapper.zoomed-wrapper {
+  overflow: auto;
+}
+
+.mermaid-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.mermaid-action-btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.mermaid-action-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.mermaid-action-btn:active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.mermaid-container {
+  display: inline-flex;
+  min-width: 100%;
+  justify-content: center;
+  overflow: visible;
+  position: relative;
+}
+
+.mermaid-container.zoomed {
+  justify-content: center;
+}
+
+/* Mermaid 代码视图 */
+.mermaid-code-view {
+  width: 100%;
+  max-height: 600px;
+  overflow: auto;
+  position: relative;
+}
+
+.mermaid-code-view pre {
+  margin: 0;
+  border-radius: 0;
+}
+
+.mermaid-code-view code {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mermaid-code-view:hover .copy-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .mermaid-container svg {
@@ -2615,7 +2690,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
 
 /* 悬停时显示复制按钮 */
 pre:hover .copy-btn,
-.mermaid-container:hover .copy-btn,
+.mermaid-code-view:hover .copy-btn,
 .echarts-code-view:hover .copy-btn {
   opacity: 1;
   pointer-events: auto;
@@ -2643,64 +2718,101 @@ pre:hover .copy-btn,
   /* 标记类，用于导出时移除 */
 }
 
+/* 代码视图「返回图表」按钮 */
+.mermaid-back-btn,
+.echarts-back-btn,
+.infographic-back-btn,
+.markmap-back-btn,
+.graphviz-back-btn,
+.drawio-back-btn {
+  position: absolute;
+  top: 8px;
+  right: 56px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mermaid-code-view:hover .mermaid-back-btn,
+.echarts-code-view:hover .echarts-back-btn,
+.infographic-code-view:hover .infographic-back-btn,
+.markmap-code-view:hover .markmap-back-btn,
+.graphviz-code-view:hover .graphviz-back-btn,
+.drawio-code-view:hover .drawio-back-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mermaid-back-btn:hover,
+.echarts-back-btn:hover,
+.infographic-back-btn:hover,
+.markmap-back-btn:hover,
+.graphviz-back-btn:hover,
+.drawio-back-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--accent-color);
+}
+
 /* ============================================
    v1.5.1: ECharts 图表样式（支持图表/代码切换）
    ============================================ */
 
 .echarts-wrapper {
+  position: relative;
   width: 100%;
   margin: 1.5em 0;
   border-radius: 6px;
   overflow: hidden;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: none;
 }
 
 /* 切换按钮栏 */
 .echarts-toggle-bar {
   display: flex;
-  justify-content: flex-end;
-  gap: 0;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.echarts-toggle-btn {
-  padding: 6px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
 }
 
-.echarts-toggle-btn:hover {
+
+.echarts-action-btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.echarts-action-btn:hover {
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
-.echarts-toggle-btn.active {
+.echarts-action-btn:active {
   background: var(--accent-color);
   color: white;
-  border-color: var(--accent-color);
 }
 
-.echarts-toggle-btn:first-child {
-  border-top-left-radius: 4px;
-  border-bottom-left-radius: 4px;
-  border-right: none;
-}
-
-.echarts-toggle-btn:last-child {
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-}
 
 /* 图表容器 */
 .echarts-wrapper .echarts-container {
@@ -2802,59 +2914,51 @@ pre:hover .copy-btn,
    ============================================ */
 
 .infographic-wrapper {
+  position: relative;
   width: 100%;
   margin: 1.5em 0;
   border-radius: 6px;
   overflow: hidden;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: none;
 }
 
 /* 切换按钮栏 */
 .infographic-toggle-bar {
   display: flex;
-  justify-content: flex-end;
-  gap: 0;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.infographic-toggle-btn {
-  padding: 6px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
 }
 
-.infographic-toggle-btn:hover {
+
+.infographic-action-btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.infographic-action-btn:hover {
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
-.infographic-toggle-btn.active {
+.infographic-action-btn:active {
   background: var(--accent-color);
   color: white;
-  border-color: var(--accent-color);
 }
 
-.infographic-toggle-btn:first-child {
-  border-top-left-radius: 4px;
-  border-bottom-left-radius: 4px;
-  border-right: none;
-}
-
-.infographic-toggle-btn:last-child {
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-}
 
 /* 信息图容器 */
 .infographic-wrapper .infographic-container {
@@ -3194,10 +3298,11 @@ body[data-platform="darwin"] .app.fullscreen::before {
    ============================================ */
 
 .markmap-wrapper {
+  position: relative;
   width: 100%;
   margin: 1.5em 0;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
+  border: none;
   overflow: hidden;
   background: var(--bg-primary);
 }
@@ -3205,48 +3310,39 @@ body[data-platform="darwin"] .app.fullscreen::before {
 /* 切换按钮栏 */
 .markmap-toggle-bar {
   display: flex;
-  justify-content: flex-end;
-  gap: 0;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
 }
 
-.markmap-toggle-btn {
-  padding: 6px 16px;
+
+.markmap-action-btn {
+  padding: 4px 8px;
   font-size: 13px;
-  font-weight: 500;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  border: none;
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  line-height: 1;
 }
 
-.markmap-toggle-btn:hover {
+.markmap-action-btn:hover {
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
-.markmap-toggle-btn.active {
+.markmap-action-btn:active {
   background: var(--accent-color);
   color: white;
-  border-color: var(--accent-color);
 }
 
-.markmap-toggle-btn:first-child {
-  border-top-left-radius: 4px;
-  border-bottom-left-radius: 4px;
-  border-right: none;
-}
-
-.markmap-toggle-btn:last-child {
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-}
 
 /* 思维导图容器 */
 .markmap-wrapper .markmap-container {
@@ -3352,68 +3448,68 @@ body[data-platform="darwin"] .app.fullscreen::before {
    ============================================ */
 
 .graphviz-wrapper {
+  position: relative;
   width: 100%;
   margin: 1.5em 0;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
-  overflow: hidden;
+  border: none;
+  overflow: visible;
   background: var(--bg-primary);
+}
+
+.graphviz-wrapper.zoomed-wrapper {
+  overflow: auto;
 }
 
 /* 切换按钮栏 */
 .graphviz-toggle-bar {
   display: flex;
-  justify-content: flex-end;
-  gap: 0;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
 }
 
-.graphviz-toggle-btn {
-  padding: 6px 16px;
+
+.graphviz-action-btn {
+  padding: 4px 8px;
   font-size: 13px;
-  font-weight: 500;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  border: none;
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  line-height: 1;
 }
 
-.graphviz-toggle-btn:hover {
+.graphviz-action-btn:hover {
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
-.graphviz-toggle-btn.active {
+.graphviz-action-btn:active {
   background: var(--accent-color);
   color: white;
-  border-color: var(--accent-color);
 }
 
-.graphviz-toggle-btn:first-child {
-  border-top-left-radius: 4px;
-  border-bottom-left-radius: 4px;
-  border-right: none;
-}
-
-.graphviz-toggle-btn:last-child {
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-}
 
 /* 图表容器 */
 .graphviz-wrapper .graphviz-container {
-  width: 100%;
+  display: inline-flex;
+  min-width: 100%;
   padding: 16px;
   background: var(--bg-primary);
-  overflow: auto;
+  overflow: visible;
   border-radius: 0;
-  display: flex;
+  justify-content: center;
+}
+
+.graphviz-wrapper .graphviz-container.zoomed {
   justify-content: center;
 }
 
@@ -3504,6 +3600,270 @@ body[data-platform="darwin"] .app.fullscreen::before {
   }
 
   .graphviz-container {
+    display: block !important;
+  }
+}
+
+/* ============================================
+   DrawIO 图表样式（v1.5.5）
+   ============================================ */
+
+.drawio-wrapper {
+  position: relative;
+  width: 100%;
+  margin: 1.5em 0;
+  border: none;
+  border-radius: 6px;
+  overflow: visible;
+}
+
+/* 切换按钮栏 */
+.drawio-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+
+
+.drawio-action-btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.drawio-action-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.drawio-action-btn:active {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+/* 图表容器 */
+.drawio-wrapper .drawio-container {
+  width: 100%;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* 隐藏 viewer.min.js 内置悬浮工具栏 */
+.drawio-container .geToolbar,
+.drawio-container .geDiagramContainer + div[style*="position"] {
+  display: none !important;
+}
+
+/* 代码视图容器 */
+.drawio-code-view {
+  width: 100%;
+  max-height: 600px;
+  overflow: auto;
+  position: relative;
+}
+
+.drawio-code-view pre {
+  margin: 0;
+  border-radius: 0;
+}
+
+.drawio-code-view code {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.drawio-code-view .copy-btn {
+  /* 继承 .copy-btn 的样式 */
+}
+
+/* 悬停时显示复制按钮 */
+.drawio-code-view:hover .copy-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 错误提示 */
+.drawio-error {
+  color: #c53030;
+  background: #fff5f5;
+  border: 1px solid #fed7d7;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 1em 0;
+}
+
+.drawio-error .error-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.drawio-error .error-message {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+:root[data-theme="dark"] .drawio-error {
+  color: #fc8181;
+  background: #2d1f1f;
+  border-color: #4a2020;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .drawio-error {
+    color: #fc8181;
+    background: #2d1f1f;
+    border-color: #4a2020;
+  }
+}
+
+/* 打印时隐藏切换按钮，只显示图表 */
+@media print {
+  .drawio-toggle-bar {
+    display: none !important;
+  }
+
+  .drawio-wrapper {
+    border: none;
+    background: transparent;
+  }
+
+  .drawio-code-view {
+    display: none !important;
+  }
+
+  .drawio-container {
+    display: block !important;
+  }
+}
+
+/* ============================================
+   v1.5.5: 图表工具栏悬停显示
+   ============================================ */
+
+/* 默认隐藏工具栏（绝对定位浮层，不占文档流高度） */
+
+/* 所有图表: 右上角按钮组 */
+.mermaid-toggle-bar,
+.echarts-toggle-bar,
+.infographic-toggle-bar,
+.markmap-toggle-bar,
+.graphviz-toggle-bar,
+.drawio-toggle-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease 0.15s, pointer-events 0s 0.35s;
+}
+
+/* 悬停/聚焦时显示工具栏 */
+.mermaid-wrapper:hover .mermaid-toggle-bar,
+.echarts-wrapper:hover .echarts-toggle-bar,
+.infographic-wrapper:hover .infographic-toggle-bar,
+.markmap-wrapper:hover .markmap-toggle-bar,
+.graphviz-wrapper:hover .graphviz-toggle-bar,
+.drawio-wrapper:hover .drawio-toggle-bar,
+.mermaid-wrapper:focus-within .mermaid-toggle-bar,
+.echarts-wrapper:focus-within .echarts-toggle-bar,
+.infographic-wrapper:focus-within .infographic-toggle-bar,
+.markmap-wrapper:focus-within .markmap-toggle-bar,
+.graphviz-wrapper:focus-within .graphviz-toggle-bar,
+.drawio-wrapper:focus-within .drawio-toggle-bar {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.2s ease 0s, pointer-events 0s 0s;
+}
+
+/* ============================================
+   图表全屏模式样式
+   ============================================ */
+
+.mermaid-wrapper:fullscreen,
+.echarts-wrapper:fullscreen,
+.infographic-wrapper:fullscreen,
+.markmap-wrapper:fullscreen,
+.graphviz-wrapper:fullscreen,
+.drawio-wrapper:fullscreen {
+  background: var(--bg-primary);
+  padding: 0;
+}
+
+/* 全屏：右上角按钮组保持可见 */
+.mermaid-wrapper:fullscreen .mermaid-toggle-bar,
+.echarts-wrapper:fullscreen .echarts-toggle-bar,
+.infographic-wrapper:fullscreen .infographic-toggle-bar,
+.markmap-wrapper:fullscreen .markmap-toggle-bar,
+.graphviz-wrapper:fullscreen .graphviz-toggle-bar,
+.drawio-wrapper:fullscreen .drawio-toggle-bar {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mermaid-wrapper:fullscreen .mermaid-container,
+.graphviz-wrapper:fullscreen .graphviz-container {
+  height: calc(100vh - 50px);
+  overflow: auto;
+}
+
+.echarts-wrapper:fullscreen .echarts-container {
+  height: calc(100vh - 50px) !important;
+}
+
+.infographic-wrapper:fullscreen .infographic-container {
+  height: calc(100vh - 50px);
+  overflow: auto;
+}
+
+.markmap-wrapper:fullscreen .markmap-container {
+  height: calc(100vh - 50px);
+  overflow: hidden;
+}
+
+.markmap-wrapper:fullscreen .markmap-container svg {
+  height: calc(100vh - 82px) !important;
+  min-height: calc(100vh - 82px) !important;
+}
+
+/* Mermaid 打印样式 */
+@media print {
+  .mermaid-toggle-bar {
+    display: none !important;
+  }
+
+  .mermaid-wrapper {
+    border: none;
+    background: transparent;
+  }
+
+  .mermaid-code-view {
+    display: none !important;
+  }
+
+  .mermaid-container {
     display: block !important;
   }
 }

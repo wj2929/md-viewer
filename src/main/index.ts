@@ -218,8 +218,8 @@ app.whenReady().then(() => {
   // 生产模式使用严格的 CSP
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const csp = is.dev
-      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net; connect-src 'self' ws://localhost:* http://localhost:*; worker-src 'self' blob:;"
-      : "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net; connect-src 'self';"
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://viewer.diagrams.net; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net https://viewer.diagrams.net; connect-src 'self' ws://localhost:* http://localhost:* https://viewer.diagrams.net; worker-src 'self' blob:;"
+      : "default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://viewer.diagrams.net; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net https://viewer.diagrams.net; connect-src 'self' https://viewer.diagrams.net;"
 
     callback({
       responseHeaders: {
@@ -1333,8 +1333,15 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
 
   fileWatcher.on('add', (filePath: string) => {
     if (pendingUnlink && Date.now() - pendingUnlink.timestamp < RENAME_THRESHOLD_MS) {
-      console.log(`[WATCHER] File renamed: ${pendingUnlink.path} -> ${filePath}`)
-      safeSendToRenderer('file:renamed', { oldPath: pendingUnlink.path, newPath: filePath })
+      if (pendingUnlink.path === filePath) {
+        // 同路径：原子写入（编辑器 delete+create），视为内容变化
+        console.log(`[WATCHER] File changed (atomic write): ${filePath}`)
+        safeSendToRenderer('file:changed', filePath)
+      } else {
+        // 不同路径：真正的重命名
+        console.log(`[WATCHER] File renamed: ${pendingUnlink.path} -> ${filePath}`)
+        safeSendToRenderer('file:renamed', { oldPath: pendingUnlink.path, newPath: filePath })
+      }
       pendingUnlink = null
     } else {
       console.log(`[WATCHER] File added: ${filePath}`)

@@ -110,6 +110,11 @@ export function createMarkdownRenderer(): MarkdownIt {
         return `<pre class="language-graphviz"><code class="language-graphviz">${md.utils.escapeHtml(str)}</code></pre>`
       }
 
+      // DrawIO 图表：支持 drawio 和 dio 两种语言标识
+      if (lang === 'drawio' || lang === 'dio') {
+        return `<pre class="language-drawio"><code class="language-drawio">${md.utils.escapeHtml(str)}</code></pre>`
+      }
+
       if (lang && Prism.languages[lang]) {
         try {
           return `<pre class="language-${lang}"><code class="language-${lang}">${Prism.highlight(str, Prism.languages[lang], lang)}</code></pre>`
@@ -333,6 +338,9 @@ export const DOMPURIFY_CONFIG: Record<string, unknown> = {
     // Graphviz 属性
     'data-graphviz-code',
 
+    // DrawIO 属性
+    'data-drawio-code',
+
     // 通用属性
     'lang', 'dir', 'start', 'type', 'reversed', 'open'
   ],
@@ -471,6 +479,9 @@ export function setupDOMPurifyHooks(): void {
 
     // Graphviz 相关
     'graphviz-container', 'graphviz-error', 'language-graphviz', 'language-dot',
+
+    // DrawIO 相关
+    'drawio-container', 'drawio-error', 'language-drawio',
 
     // KaTeX 相关（完整的 KaTeX 类白名单）
     'katex', 'katex-html', 'katex-mathml', 'katex-display', 'katex-error',

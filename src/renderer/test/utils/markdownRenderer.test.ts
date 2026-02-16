@@ -129,6 +129,25 @@ describe('markdownRenderer 工具函数测试', () => {
       expect(result).toContain('language-json')
       expect(result).not.toContain('language-echarts')
     })
+
+    it('应该将 drawio 代码块标记为 language-drawio', () => {
+      const code = '```drawio\n<mxfile><diagram><mxGraphModel></mxGraphModel></diagram></mxfile>\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-drawio')
+    })
+
+    it('应该将 dio 代码块标记为 language-drawio', () => {
+      const code = '```dio\n<mxfile></mxfile>\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-drawio')
+    })
+
+    it('应该转义 drawio 代码块中的 HTML', () => {
+      const code = '```drawio\n<mxGraphModel dx="100"><root></root></mxGraphModel>\n```'
+      const result = md.render(code)
+      expect(result).toContain('&lt;mxGraphModel')
+      expect(result).toContain('language-drawio')
+    })
   })
 
   describe('行内数学公式（KaTeX）', () => {

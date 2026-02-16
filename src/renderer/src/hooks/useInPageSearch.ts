@@ -76,7 +76,13 @@ const MARK_EXCLUDE_SELECTORS = [
   '.echarts-container',      // ECharts 图表容器
   '.echarts-container *',    // ECharts 图表内部元素
   '.infographic-container',  // Infographic 信息图容器
-  '.infographic-container *' // Infographic 信息图内部元素
+  '.infographic-container *', // Infographic 信息图内部元素
+  '.markmap-container',      // Markmap 思维导图容器
+  '.markmap-container *',    // Markmap 思维导图内部元素
+  '.graphviz-container',     // Graphviz 图表容器
+  '.graphviz-container *',   // Graphviz 图表内部元素
+  '.drawio-container',       // DrawIO 图表容器
+  '.drawio-container *'      // DrawIO 图表内部元素
 ]
 
 /** v1.4.2: 大小写敏感设置存储键 */

@@ -8,6 +8,7 @@ import { processEChartsInHtml } from './utils/echartsRenderer'
 import { processInfographicInHtml } from './utils/infographicRenderer'
 import { processMarkmapInHtml } from './utils/markmapRenderer'
 import { processGraphvizInHtml } from './utils/graphvizRenderer'
+import { processDrawioInHtml } from './utils/drawioRenderer'
 import * as echarts from 'echarts'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
@@ -539,7 +540,21 @@ function App(): React.JSX.Element {
       }
     })
 
-    const unsubscribeAdded = window.api.onFileAdded(async () => {
+    const unsubscribeAdded = window.api.onFileAdded(async (addedPath: string) => {
+      // 如果新增文件匹配已打开的 tab，重新读取内容（覆盖原子写入超时场景）
+      clearFileCache(addedPath)
+      const currentTabs = tabsRef.current
+      const affectedTab = currentTabs.find(tab => tab.file.path === addedPath)
+      if (affectedTab) {
+        try {
+          const newContent = await window.api.readFile(addedPath)
+          setTabs(prev => prev.map(tab =>
+            tab.file.path === addedPath ? { ...tab, content: newContent } : tab
+          ))
+        } catch (error) {
+          console.error('Failed to reload added file:', error)
+        }
+      }
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -578,12 +593,29 @@ function App(): React.JSX.Element {
     })
 
     const unsubscribeRenamed = window.api.onFileRenamed(async ({ oldPath, newPath }) => {
-      setTabs(prev => prev.map(tab => {
-        if (tab.file.path === oldPath) {
-          return { ...tab, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
+      clearFileCache(newPath)
+      const currentTabs = tabsRef.current
+      const affectedTab = currentTabs.find(tab => tab.file.path === oldPath)
+      if (affectedTab) {
+        try {
+          const newContent = await window.api.readFile(newPath)
+          setTabs(prev => prev.map(tab => {
+            if (tab.file.path === oldPath) {
+              return { ...tab, content: newContent, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
+            }
+            return tab
+          }))
+        } catch (error) {
+          console.error('Failed to reload renamed file:', error)
+          // 回退：至少更新路径
+          setTabs(prev => prev.map(tab => {
+            if (tab.file.path === oldPath) {
+              return { ...tab, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
+            }
+            return tab
+          }))
         }
-        return tab
-      }))
+      }
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -704,6 +736,7 @@ function App(): React.JSX.Element {
         htmlContent = await processInfographicInHtml(htmlContent)
         htmlContent = await processMarkmapInHtml(htmlContent)
         htmlContent = await processGraphvizInHtml(htmlContent)
+        htmlContent = await processDrawioInHtml(htmlContent)
       }
       loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
       const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
@@ -797,6 +830,7 @@ function App(): React.JSX.Element {
         htmlContent = await processInfographicInHtml(htmlContent)
         htmlContent = await processMarkmapInHtml(htmlContent)
         htmlContent = await processGraphvizInHtml(htmlContent)
+        htmlContent = await processDrawioInHtml(htmlContent)
       }
       loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
       const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)

@@ -20,6 +20,9 @@ import { Transformer, Markmap, deriveOptions, validateMarkmapCode } from '../uti
 // v1.5.4: Graphviz DOT 图支持
 import { validateGraphvizCode, renderGraphvizToSvg } from '../utils/graphvizRenderer'
 
+// v1.5.5: DrawIO 图表支持
+import { validateDrawioCode, renderDrawioInElement, type HTMLElementWithViewer } from '../utils/drawioRenderer'
+
 // v1.4.0: 页面内搜索
 import { useFileStore } from '../stores/fileStore'
 import { useInPageSearch } from '../hooks/useInPageSearch'
@@ -582,18 +585,63 @@ const MarkdownContent = memo(
           if (signal.aborted) break
 
           if (result) {
+            // 创建包装容器
             const wrapper = document.createElement('div')
-            wrapper.className = 'mermaid-container'
-            // 存储原始代码用于复制
+            wrapper.className = 'mermaid-wrapper'
             wrapper.dataset.mermaidCode = btoa(unescape(encodeURIComponent(code)))
-            wrapper.innerHTML = result.svg
 
-            // 添加复制按钮
-            const copyBtn = document.createElement('button')
-            copyBtn.className = 'copy-btn no-export'
-            copyBtn.textContent = '复制'
-            copyBtn.title = '复制 Mermaid 代码'
-            wrapper.appendChild(copyBtn)
+            // 创建切换按钮栏
+            const toggleBar = document.createElement('div')
+            toggleBar.className = 'mermaid-toggle-bar no-export'
+            toggleBar.innerHTML = `
+              <button class="mermaid-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="mermaid-action-btn" data-action="zoomIn" title="放大">🔍+</button>
+              <button class="mermaid-action-btn" data-action="zoomOut" title="缩小">🔍−</button>
+              <button class="mermaid-action-btn" data-action="fit" title="适应大小">⊡</button>
+              <button class="mermaid-action-btn" data-action="download" title="下载图片">💾</button>
+              <button class="mermaid-action-btn" data-action="fullscreen" title="全屏查看">⛶</button>
+            `
+
+            // 创建图表容器
+            const chartContainer = document.createElement('div')
+            chartContainer.className = 'mermaid-container'
+            chartContainer.dataset.view = 'chart'
+            chartContainer.innerHTML = result.svg
+
+            // 创建代码视图容器
+            const codeView = document.createElement('div')
+            codeView.className = 'mermaid-code-view'
+            codeView.dataset.view = 'code'
+            codeView.style.display = 'none'
+
+            // 创建返回图表按钮
+            const backToChartBtn = document.createElement('button')
+            backToChartBtn.className = 'mermaid-back-btn no-export'
+            backToChartBtn.textContent = '图表'
+            backToChartBtn.title = '返回图表视图'
+            codeView.appendChild(backToChartBtn)
+
+            // 创建复制按钮
+            const copyButton = document.createElement('button')
+            copyButton.className = 'copy-btn no-export'
+            copyButton.textContent = '复制'
+            copyButton.title = '复制 Mermaid 代码'
+            codeView.appendChild(copyButton)
+
+            // 代码高亮显示
+            const codeElement = document.createElement('code')
+            codeElement.className = 'language-mermaid'
+            codeElement.textContent = code
+
+            const preElement = document.createElement('pre')
+            preElement.className = 'language-mermaid'
+            preElement.appendChild(codeElement)
+            codeView.appendChild(preElement)
+
+            // 组装结构
+            wrapper.appendChild(toggleBar)
+            wrapper.appendChild(chartContainer)
+            wrapper.appendChild(codeView)
 
             // 确保 block 仍在 DOM 中再替换
             if (block.parentNode) {
@@ -616,6 +664,168 @@ const MarkdownContent = memo(
         abortController.abort()
         cleanupMermaidTempElements()
       }
+    }, [html])
+
+    // v1.5.5: Mermaid 切换按钮 + 工具栏点击事件处理
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleMermaidClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+
+        // 处理代码视图的「返回图表」按钮
+        const backBtn = target.closest('.mermaid-back-btn')
+        if (backBtn) {
+          const wrapper = backBtn.closest('.mermaid-wrapper') as HTMLElement
+          if (!wrapper) return
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          const toggleBar = wrapper.querySelector('.mermaid-toggle-bar') as HTMLElement
+          if (chartView) chartView.style.display = ''
+          if (codeViewEl) codeViewEl.style.display = 'none'
+          if (toggleBar) toggleBar.style.display = ''
+          return
+        }
+
+        // 处理工具栏操作按钮
+        const actionBtn = target.closest('.mermaid-action-btn')
+        if (actionBtn) {
+          const action = actionBtn.getAttribute('data-action')
+          const wrapper = actionBtn.closest('.mermaid-wrapper') as HTMLElement
+          const container = wrapper?.querySelector('.mermaid-container') as HTMLElement
+          if (!container || !action) return
+
+          const svg = container.querySelector('svg') as SVGSVGElement
+          if (!svg && action !== 'fullscreen' && action !== 'toggleCode') return
+
+          try {
+            const applyMermaidZoom = (percent: number) => {
+              const wrapper = container.closest('.mermaid-wrapper') as HTMLElement
+              if (!wrapper) return
+
+              // 获取 SVG 内在尺寸（viewBox 宽度），而非渲染宽度
+              // SVG width="100%" 时 getBoundingClientRect 返回容器宽度，不能用
+              let baseWidth = parseFloat(container.dataset.baseWidth || '')
+              if (!(baseWidth > 0)) {
+                const vb = svg.viewBox?.baseVal
+                if (vb && vb.width > 0) {
+                  baseWidth = vb.width
+                } else {
+                  // fallback: 尝试从 width 属性解析像素值
+                  const attrW = svg.getAttribute('width')
+                  if (attrW && !attrW.includes('%')) {
+                    baseWidth = parseFloat(attrW)
+                  }
+                }
+                if (!(baseWidth > 0)) return
+                container.dataset.baseWidth = String(baseWidth)
+                container.dataset.origSvgWidth = svg.getAttribute('width') || ''
+              }
+
+              // 清除旧方案残留
+              svg.style.transform = ''
+              svg.style.transformOrigin = ''
+              container.style.height = ''
+              container.style.minWidth = ''
+              svg.removeAttribute('height')
+              svg.style.height = 'auto'
+
+              if (percent === 100) {
+                const origWidth = container.dataset.origSvgWidth
+                if (origWidth) {
+                  svg.setAttribute('width', origWidth)
+                }
+                svg.style.width = ''
+                svg.style.maxWidth = ''
+                container.classList.remove('zoomed')
+                wrapper.classList.remove('zoomed-wrapper')
+              } else {
+                const targetWidth = baseWidth * percent / 100
+                svg.setAttribute('width', String(targetWidth))
+                svg.style.width = `${targetWidth}px`
+                svg.style.maxWidth = 'none'
+                container.classList.add('zoomed')
+
+                if (percent > 100) {
+                  wrapper.classList.add('zoomed-wrapper')
+                } else {
+                  wrapper.classList.remove('zoomed-wrapper')
+                }
+              }
+            }
+
+            switch (action) {
+              case 'toggleCode': {
+                const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+                const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+                const toggleBar = wrapper.querySelector('.mermaid-toggle-bar') as HTMLElement
+                const isShowingCode = codeViewEl?.style.display !== 'none'
+                if (isShowingCode) {
+                  // 切回图表
+                  if (chartView) chartView.style.display = ''
+                  if (codeViewEl) codeViewEl.style.display = 'none'
+                  if (toggleBar) toggleBar.style.display = ''
+                } else {
+                  // 切到代码：隐藏整个 toggle-bar，代码视图有自己的复制按钮
+                  if (chartView) chartView.style.display = 'none'
+                  if (codeViewEl) codeViewEl.style.display = ''
+                  if (toggleBar) toggleBar.style.display = 'none'
+                }
+                break
+              }
+              case 'zoomIn': {
+                const level = parseInt(container.dataset.zoomLevel || '100', 10)
+                const newLevel = Math.min(level + 20, 300)
+                container.dataset.zoomLevel = String(newLevel)
+                applyMermaidZoom(newLevel)
+                break
+              }
+              case 'zoomOut': {
+                const level = parseInt(container.dataset.zoomLevel || '100', 10)
+                const newLevel = Math.max(level - 20, 30)
+                container.dataset.zoomLevel = String(newLevel)
+                applyMermaidZoom(newLevel)
+                break
+              }
+              case 'fit':
+                container.dataset.zoomLevel = '100'
+                applyMermaidZoom(100)
+                break
+              case 'download': {
+                const svgClone = svg.cloneNode(true) as SVGSVGElement
+                const svgData = new XMLSerializer().serializeToString(svgClone)
+                const canvas = document.createElement('canvas')
+                const bbox = svg.getBBox()
+                const scale = 2
+                canvas.width = (bbox.width + bbox.x * 2) * scale || svg.clientWidth * scale
+                canvas.height = (bbox.height + bbox.y * 2) * scale || svg.clientHeight * scale
+                const ctx = canvas.getContext('2d')!
+                const img = new Image()
+                img.onload = () => {
+                  ctx.fillStyle = '#ffffff'
+                  ctx.fillRect(0, 0, canvas.width, canvas.height)
+                  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+                  const a = document.createElement('a')
+                  a.download = `mermaid-${Date.now()}.png`
+                  a.href = canvas.toDataURL('image/png')
+                  a.click()
+                }
+                img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
+                break
+              }
+              case 'fullscreen':
+                wrapper?.requestFullscreen?.()
+                break
+            }
+          } catch (err) {
+            console.error('[Mermaid] 工具栏操作失败:', err)
+          }
+          return
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleMermaidClick)
+      return () => combinedRef.current?.removeEventListener('click', handleMermaidClick)
     }, [html])
 
     // v1.5.1: ECharts 图表渲染（支持图表/代码切换）
@@ -656,13 +866,10 @@ const MarkdownContent = memo(
           const toggleBar = document.createElement('div')
           toggleBar.className = 'echarts-toggle-bar no-export'
           toggleBar.innerHTML = `
-            <button class="echarts-toggle-btn active" data-mode="chart">
-              📊 图表
-            </button>
-            <button class="echarts-toggle-btn" data-mode="code">
-              💻 代码
-            </button>
-          `
+              <button class="echarts-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="echarts-action-btn" data-action="download" title="下载图片">💾</button>
+              <button class="echarts-action-btn" data-action="fullscreen" title="全屏查看">⛶</button>
+            `
 
           // 创建图表容器
           const chartContainer = document.createElement('div')
@@ -677,6 +884,13 @@ const MarkdownContent = memo(
           codeView.className = 'echarts-code-view'
           codeView.dataset.view = 'code'
           codeView.style.display = 'none'
+
+          // 创建返回图表按钮
+          const backToChartBtn = document.createElement('button')
+          backToChartBtn.className = 'echarts-back-btn no-export'
+          backToChartBtn.textContent = '图表'
+          backToChartBtn.title = '返回图表视图'
+          codeView.appendChild(backToChartBtn)
 
           // 创建复制按钮（使用统一的 .copy-btn 类）
           const copyButton = document.createElement('button')
@@ -772,39 +986,89 @@ const MarkdownContent = memo(
       }
     }, [html])
 
-    // v1.5.1: ECharts 切换按钮点击事件处理
+    // v1.5.1: ECharts 切换按钮 + 工具栏点击事件处理
     useEffect(() => {
       if (!combinedRef.current) return
 
-      const handleToggleClick = (e: MouseEvent) => {
+      const handleEchartsClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement
-        const btn = target.closest('.echarts-toggle-btn')
-        if (!btn) return
 
-        const mode = btn.getAttribute('data-mode')
-        const wrapper = btn.closest('.echarts-wrapper')
-        if (!wrapper || !mode) return
-
-        // 切换按钮激活状态
-        wrapper.querySelectorAll('.echarts-toggle-btn').forEach(b => {
-          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
-        })
-
-        // 切换视图显示
-        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-        const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-
-        if (mode === 'chart') {
+        // 处理代码视图的「返回图表」按钮
+        const backBtn = target.closest('.echarts-back-btn')
+        if (backBtn) {
+          const wrapper = backBtn.closest('.echarts-wrapper') as HTMLElement
+          if (!wrapper) return
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          const toggleBar = wrapper.querySelector('.echarts-toggle-bar') as HTMLElement
           if (chartView) chartView.style.display = ''
-          if (codeView) codeView.style.display = 'none'
-        } else {
-          if (chartView) chartView.style.display = 'none'
-          if (codeView) codeView.style.display = ''
+          if (codeViewEl) codeViewEl.style.display = 'none'
+          if (toggleBar) toggleBar.style.display = ''
+          return
+        }
+
+        // 处理工具栏操作按钮
+        const actionBtn = target.closest('.echarts-action-btn')
+        if (actionBtn) {
+          const action = actionBtn.getAttribute('data-action')
+          const wrapper = actionBtn.closest('.echarts-wrapper') as HTMLElement
+          if (!wrapper || !action) return
+
+          const container = wrapper.querySelector('.echarts-container') as HTMLElement
+
+          if (action === 'toggleCode') {
+            const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+            const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+            const toggleBar = wrapper.querySelector('.echarts-toggle-bar') as HTMLElement
+            if (chartView) chartView.style.display = 'none'
+            if (codeViewEl) codeViewEl.style.display = ''
+            if (toggleBar) toggleBar.style.display = 'none'
+          } else if (action === 'fullscreen') {
+            wrapper.requestFullscreen?.()
+            if (container) {
+              const chart = echarts.getInstanceByDom(container)
+              if (chart) setTimeout(() => chart.resize(), 300)
+            }
+          } else if (action === 'download') {
+            if (container) {
+              const chart = echarts.getInstanceByDom(container)
+              if (chart) {
+                const url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' })
+                const a = document.createElement('a')
+                a.download = `echarts-${Date.now()}.png`
+                a.href = url
+                a.click()
+              }
+            }
+          }
+          return
         }
       }
 
-      combinedRef.current.addEventListener('click', handleToggleClick)
-      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
+      // 全屏变化时 resize ECharts
+      const handleFullscreenChange = () => {
+        const fsEl = document.fullscreenElement
+        if (fsEl?.classList.contains('echarts-wrapper')) {
+          const container = fsEl.querySelector('.echarts-container') as HTMLElement
+          if (container) {
+            const chart = echarts.getInstanceByDom(container)
+            if (chart) setTimeout(() => chart.resize(), 300)
+          }
+        } else {
+          // 退出全屏时也需要 resize
+          combinedRef.current?.querySelectorAll('.echarts-container').forEach((container) => {
+            const chart = echarts.getInstanceByDom(container as HTMLElement)
+            if (chart) setTimeout(() => chart.resize(), 300)
+          })
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleEchartsClick)
+      document.addEventListener('fullscreenchange', handleFullscreenChange)
+      return () => {
+        combinedRef.current?.removeEventListener('click', handleEchartsClick)
+        document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      }
     }, [html])
 
     // v1.6.0: Infographic 信息图渲染
@@ -843,13 +1107,10 @@ const MarkdownContent = memo(
           const toggleBar = document.createElement('div')
           toggleBar.className = 'infographic-toggle-bar no-export'
           toggleBar.innerHTML = `
-            <button class="infographic-toggle-btn active" data-mode="chart">
-              🎨 信息图
-            </button>
-            <button class="infographic-toggle-btn" data-mode="code">
-              💻 代码
-            </button>
-          `
+              <button class="infographic-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="infographic-action-btn" data-action="download" title="下载图片">💾</button>
+              <button class="infographic-action-btn" data-action="fullscreen" title="全屏查看">⛶</button>
+            `
 
           // 创建信息图容器
           const chartContainer = document.createElement('div')
@@ -863,6 +1124,13 @@ const MarkdownContent = memo(
           codeView.className = 'infographic-code-view'
           codeView.dataset.view = 'code'
           codeView.style.display = 'none'
+
+          // 创建返回图表按钮
+          const backToChartBtn = document.createElement('button')
+          backToChartBtn.className = 'infographic-back-btn no-export'
+          backToChartBtn.textContent = '图表'
+          backToChartBtn.title = '返回图表视图'
+          codeView.appendChild(backToChartBtn)
 
           // 创建复制按钮
           const copyButton = document.createElement('button')
@@ -971,39 +1239,73 @@ const MarkdownContent = memo(
       }
     }, [html])
 
-    // v1.6.0: Infographic 切换按钮点击事件处理
+    // v1.6.0: Infographic 切换按钮 + 工具栏点击事件处理
     useEffect(() => {
       if (!combinedRef.current) return
 
-      const handleToggleClick = (e: MouseEvent) => {
+      const handleInfographicClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement
-        const btn = target.closest('.infographic-toggle-btn')
-        if (!btn) return
 
-        const mode = btn.getAttribute('data-mode')
-        const wrapper = btn.closest('.infographic-wrapper')
-        if (!wrapper || !mode) return
-
-        // 切换按钮激活状态
-        wrapper.querySelectorAll('.infographic-toggle-btn').forEach(b => {
-          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
-        })
-
-        // 切换视图显示
-        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
-
-        if (mode === 'chart') {
+        // 处理代码视图的「返回图表」按钮
+        const backBtn = target.closest('.infographic-back-btn')
+        if (backBtn) {
+          const wrapper = backBtn.closest('.infographic-wrapper') as HTMLElement
+          if (!wrapper) return
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          const toggleBar = wrapper.querySelector('.infographic-toggle-bar') as HTMLElement
           if (chartView) chartView.style.display = ''
           if (codeViewEl) codeViewEl.style.display = 'none'
-        } else {
-          if (chartView) chartView.style.display = 'none'
-          if (codeViewEl) codeViewEl.style.display = ''
+          if (toggleBar) toggleBar.style.display = ''
+          return
+        }
+
+        // 处理工具栏操作按钮
+        const actionBtn = target.closest('.infographic-action-btn')
+        if (actionBtn) {
+          const action = actionBtn.getAttribute('data-action')
+          const wrapper = actionBtn.closest('.infographic-wrapper') as HTMLElement
+          if (!wrapper || !action) return
+
+          if (action === 'toggleCode') {
+            const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+            const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+            const toggleBar = wrapper.querySelector('.infographic-toggle-bar') as HTMLElement
+            if (chartView) chartView.style.display = 'none'
+            if (codeViewEl) codeViewEl.style.display = ''
+            if (toggleBar) toggleBar.style.display = 'none'
+          } else if (action === 'fullscreen') {
+            wrapper.requestFullscreen?.()
+          } else if (action === 'download') {
+            const container = wrapper.querySelector('.infographic-container') as HTMLElement
+            const svg = container?.querySelector('svg') as SVGSVGElement
+            if (svg) {
+              const svgClone = svg.cloneNode(true) as SVGSVGElement
+              const svgData = new XMLSerializer().serializeToString(svgClone)
+              const canvas = document.createElement('canvas')
+              const scale = 2
+              canvas.width = svg.clientWidth * scale
+              canvas.height = svg.clientHeight * scale
+              const ctx = canvas.getContext('2d')!
+              const img = new Image()
+              img.onload = () => {
+                ctx.fillStyle = '#ffffff'
+                ctx.fillRect(0, 0, canvas.width, canvas.height)
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+                const a = document.createElement('a')
+                a.download = `infographic-${Date.now()}.png`
+                a.href = canvas.toDataURL('image/png')
+                a.click()
+              }
+              img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
+            }
+          }
+          return
         }
       }
 
-      combinedRef.current.addEventListener('click', handleToggleClick)
-      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
+      combinedRef.current.addEventListener('click', handleInfographicClick)
+      return () => combinedRef.current?.removeEventListener('click', handleInfographicClick)
     }, [html])
 
     // v1.5.4: Markmap 思维导图渲染
@@ -1042,13 +1344,13 @@ const MarkdownContent = memo(
           const toggleBar = document.createElement('div')
           toggleBar.className = 'markmap-toggle-bar no-export'
           toggleBar.innerHTML = `
-            <button class="markmap-toggle-btn active" data-mode="chart">
-              🗺️ 思维导图
-            </button>
-            <button class="markmap-toggle-btn" data-mode="code">
-              💻 代码
-            </button>
-          `
+              <button class="markmap-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="markmap-action-btn" data-action="zoomIn" title="放大">🔍+</button>
+              <button class="markmap-action-btn" data-action="zoomOut" title="缩小">🔍−</button>
+              <button class="markmap-action-btn" data-action="fit" title="适应大小">⊡</button>
+              <button class="markmap-action-btn" data-action="download" title="下载图片">💾</button>
+              <button class="markmap-action-btn" data-action="fullscreen" title="全屏查看">⛶</button>
+            `
 
           // 创建思维导图容器
           const chartContainer = document.createElement('div')
@@ -1070,6 +1372,13 @@ const MarkdownContent = memo(
           codeView.className = 'markmap-code-view'
           codeView.dataset.view = 'code'
           codeView.style.display = 'none'
+
+          // 创建返回图表按钮
+          const backToChartBtn = document.createElement('button')
+          backToChartBtn.className = 'markmap-back-btn no-export'
+          backToChartBtn.textContent = '图表'
+          backToChartBtn.title = '返回图表视图'
+          codeView.appendChild(backToChartBtn)
 
           // 创建复制按钮
           const copyButton = document.createElement('button')
@@ -1105,6 +1414,9 @@ const MarkdownContent = memo(
           const opts = deriveOptions(features)
           const mm = Markmap.create(svgEl, opts, root)
 
+          // 存储实例到 DOM 元素，供工具栏操作使用
+          ;(chartContainer as any).__markmapInstance = mm
+
           // 渲染后自适应
           requestAnimationFrame(() => {
             mm.fit()
@@ -1136,37 +1448,112 @@ const MarkdownContent = memo(
       }
     }, [html])
 
-    // v1.5.4: Markmap 切换按钮点击事件处理
+    // v1.5.4: Markmap 切换按钮 + 工具栏点击事件处理
     useEffect(() => {
       if (!combinedRef.current) return
 
-      const handleToggleClick = (e: MouseEvent) => {
+      const handleMarkmapClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement
-        const btn = target.closest('.markmap-toggle-btn')
-        if (!btn) return
 
-        const mode = btn.getAttribute('data-mode')
-        const wrapper = btn.closest('.markmap-wrapper')
-        if (!wrapper || !mode) return
-
-        wrapper.querySelectorAll('.markmap-toggle-btn').forEach(b => {
-          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
-        })
-
-        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
-
-        if (mode === 'chart') {
+        // 处理代码视图的「返回图表」按钮
+        const backBtn = target.closest('.markmap-back-btn')
+        if (backBtn) {
+          const wrapper = backBtn.closest('.markmap-wrapper') as HTMLElement
+          if (!wrapper) return
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          const toggleBar = wrapper.querySelector('.markmap-toggle-bar') as HTMLElement
           if (chartView) chartView.style.display = ''
           if (codeViewEl) codeViewEl.style.display = 'none'
-        } else {
-          if (chartView) chartView.style.display = 'none'
-          if (codeViewEl) codeViewEl.style.display = ''
+          if (toggleBar) toggleBar.style.display = ''
+          return
+        }
+
+        // 处理工具栏操作按钮
+        const actionBtn = target.closest('.markmap-action-btn')
+        if (actionBtn) {
+          const action = actionBtn.getAttribute('data-action')
+          const wrapper = actionBtn.closest('.markmap-wrapper') as HTMLElement
+          const container = wrapper?.querySelector('.markmap-container') as any
+          if (!container || !action) return
+
+          if (action === 'toggleCode') {
+            const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+            const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+            const toggleBar = wrapper.querySelector('.markmap-toggle-bar') as HTMLElement
+            if (chartView) chartView.style.display = 'none'
+            if (codeViewEl) codeViewEl.style.display = ''
+            if (toggleBar) toggleBar.style.display = 'none'
+            return
+          }
+
+          const mm = container.__markmapInstance
+          if (!mm && action !== 'fullscreen' && action !== 'download') return
+
+          try {
+            switch (action) {
+              case 'zoomIn':
+                mm.svg.transition().call(mm.zoom.scaleBy, 1.3)
+                break
+              case 'zoomOut':
+                mm.svg.transition().call(mm.zoom.scaleBy, 0.7)
+                break
+              case 'fit':
+                mm.fit()
+                break
+              case 'download': {
+                const svg = container.querySelector('svg') as SVGSVGElement
+                if (!svg) break
+                const svgClone = svg.cloneNode(true) as SVGSVGElement
+                const svgData = new XMLSerializer().serializeToString(svgClone)
+                const canvas = document.createElement('canvas')
+                const scale = 2
+                canvas.width = svg.clientWidth * scale
+                canvas.height = svg.clientHeight * scale
+                const ctx = canvas.getContext('2d')!
+                const img = new Image()
+                img.onload = () => {
+                  ctx.fillStyle = '#ffffff'
+                  ctx.fillRect(0, 0, canvas.width, canvas.height)
+                  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+                  const a = document.createElement('a')
+                  a.download = `markmap-${Date.now()}.png`
+                  a.href = canvas.toDataURL('image/png')
+                  a.click()
+                }
+                img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
+                break
+              }
+              case 'fullscreen':
+                wrapper?.requestFullscreen?.()
+                // 全屏后重新 fit
+                setTimeout(() => mm?.fit(), 300)
+                break
+            }
+          } catch (err) {
+            console.error('[Markmap] 工具栏操作失败:', err)
+          }
+          return
         }
       }
 
-      combinedRef.current.addEventListener('click', handleToggleClick)
-      return () => combinedRef.current?.removeEventListener('click', handleToggleClick)
+      combinedRef.current.addEventListener('click', handleMarkmapClick)
+
+      // 全屏变化时重新 fit markmap
+      const handleFullscreenChange = () => {
+        const fsEl = document.fullscreenElement
+        if (fsEl?.classList.contains('markmap-wrapper')) {
+          const container = fsEl.querySelector('.markmap-container') as any
+          const mm = container?.__markmapInstance
+          if (mm) setTimeout(() => mm.fit(), 300)
+        }
+      }
+      document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+      return () => {
+        combinedRef.current?.removeEventListener('click', handleMarkmapClick)
+        document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      }
     }, [html])
 
     // v1.5.4: Graphviz DOT 图渲染（异步 WASM 加载）
@@ -1214,12 +1601,12 @@ const MarkdownContent = memo(
             const toggleBar = document.createElement('div')
             toggleBar.className = 'graphviz-toggle-bar no-export'
             toggleBar.innerHTML = `
-              <button class="graphviz-toggle-btn active" data-mode="chart">
-                📐 图表
-              </button>
-              <button class="graphviz-toggle-btn" data-mode="code">
-                💻 代码
-              </button>
+              <button class="graphviz-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="graphviz-action-btn" data-action="zoomIn" title="放大">🔍+</button>
+              <button class="graphviz-action-btn" data-action="zoomOut" title="缩小">🔍−</button>
+              <button class="graphviz-action-btn" data-action="fit" title="适应大小">⊡</button>
+              <button class="graphviz-action-btn" data-action="download" title="下载图片">💾</button>
+              <button class="graphviz-action-btn" data-action="fullscreen" title="全屏查看">⛶</button>
             `
 
             // 创建图表容器
@@ -1232,7 +1619,6 @@ const MarkdownContent = memo(
             // 让 SVG 自适应容器
             const svg = chartContainer.querySelector('svg')
             if (svg) {
-              svg.style.maxWidth = '100%'
               svg.style.height = 'auto'
             }
 
@@ -1241,6 +1627,13 @@ const MarkdownContent = memo(
             codeView.className = 'graphviz-code-view'
             codeView.dataset.view = 'code'
             codeView.style.display = 'none'
+
+            // 创建返回图表按钮
+            const backToChartBtn = document.createElement('button')
+            backToChartBtn.className = 'graphviz-back-btn no-export'
+            backToChartBtn.textContent = '图表'
+            backToChartBtn.title = '返回图表视图'
+            codeView.appendChild(backToChartBtn)
 
             // 创建复制按钮
             const copyButton = document.createElement('button')
@@ -1288,32 +1681,360 @@ const MarkdownContent = memo(
       }
     }, [html])
 
-    // v1.5.4: Graphviz 切换按钮点击事件处理
+    // v1.5.4: Graphviz 切换按钮 + 工具栏点击事件处理
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const handleGraphvizClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement
+
+        // 处理代码视图的「返回图表」按钮
+        const backBtn = target.closest('.graphviz-back-btn')
+        if (backBtn) {
+          const wrapper = backBtn.closest('.graphviz-wrapper') as HTMLElement
+          if (!wrapper) return
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          const toggleBar = wrapper.querySelector('.graphviz-toggle-bar') as HTMLElement
+          if (chartView) chartView.style.display = ''
+          if (codeViewEl) codeViewEl.style.display = 'none'
+          if (toggleBar) toggleBar.style.display = ''
+          return
+        }
+
+        // 处理工具栏操作按钮
+        const actionBtn = target.closest('.graphviz-action-btn')
+        if (actionBtn) {
+          const action = actionBtn.getAttribute('data-action')
+          const wrapper = actionBtn.closest('.graphviz-wrapper') as HTMLElement
+          const container = wrapper?.querySelector('.graphviz-container') as HTMLElement
+          if (!container || !action) return
+
+          if (action === 'toggleCode') {
+            const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+            const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+            const toggleBar = wrapper.querySelector('.graphviz-toggle-bar') as HTMLElement
+            if (chartView) chartView.style.display = 'none'
+            if (codeViewEl) codeViewEl.style.display = ''
+            if (toggleBar) toggleBar.style.display = 'none'
+            return
+          }
+
+          const svg = container.querySelector('svg') as SVGSVGElement
+          if (!svg && action !== 'fullscreen') return
+
+          try {
+            const applyGraphvizZoom = (percent: number) => {
+              const wrapper = container.closest('.graphviz-wrapper') as HTMLElement
+              if (!wrapper) return
+
+              let baseWidth = parseFloat(container.dataset.baseWidth || '')
+              if (!(baseWidth > 0)) {
+                const vb = svg.viewBox?.baseVal
+                if (vb && vb.width > 0) {
+                  baseWidth = vb.width
+                } else {
+                  const attrW = svg.getAttribute('width')
+                  if (attrW && !attrW.includes('%')) {
+                    baseWidth = parseFloat(attrW)
+                  }
+                }
+                if (!(baseWidth > 0)) return
+                container.dataset.baseWidth = String(baseWidth)
+                container.dataset.origSvgWidth = svg.getAttribute('width') || ''
+              }
+
+              svg.style.transform = ''
+              svg.style.transformOrigin = ''
+              container.style.height = ''
+              container.style.minWidth = ''
+              svg.removeAttribute('height')
+              svg.style.height = 'auto'
+
+              if (percent === 100) {
+                const origWidth = container.dataset.origSvgWidth
+                if (origWidth) {
+                  svg.setAttribute('width', origWidth)
+                }
+                svg.style.width = ''
+                svg.style.maxWidth = ''
+                container.classList.remove('zoomed')
+                wrapper.classList.remove('zoomed-wrapper')
+              } else {
+                const targetWidth = baseWidth * percent / 100
+                svg.setAttribute('width', String(targetWidth))
+                svg.style.width = `${targetWidth}px`
+                svg.style.maxWidth = 'none'
+                container.classList.add('zoomed')
+
+                if (percent > 100) {
+                  wrapper.classList.add('zoomed-wrapper')
+                } else {
+                  wrapper.classList.remove('zoomed-wrapper')
+                }
+              }
+            }
+
+            switch (action) {
+              case 'zoomIn': {
+                const level = parseInt(container.dataset.zoomLevel || '100', 10)
+                const newLevel = Math.min(level + 20, 300)
+                container.dataset.zoomLevel = String(newLevel)
+                applyGraphvizZoom(newLevel)
+                break
+              }
+              case 'zoomOut': {
+                const level = parseInt(container.dataset.zoomLevel || '100', 10)
+                const newLevel = Math.max(level - 20, 30)
+                container.dataset.zoomLevel = String(newLevel)
+                applyGraphvizZoom(newLevel)
+                break
+              }
+              case 'fit':
+                container.dataset.zoomLevel = '100'
+                applyGraphvizZoom(100)
+                break
+              case 'download': {
+                const svgClone = svg.cloneNode(true) as SVGSVGElement
+                const svgData = new XMLSerializer().serializeToString(svgClone)
+                const canvas = document.createElement('canvas')
+                const scale = 2
+                canvas.width = svg.clientWidth * scale
+                canvas.height = svg.clientHeight * scale
+                const ctx = canvas.getContext('2d')!
+                const img = new Image()
+                img.onload = () => {
+                  ctx.fillStyle = '#ffffff'
+                  ctx.fillRect(0, 0, canvas.width, canvas.height)
+                  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+                  const a = document.createElement('a')
+                  a.download = `graphviz-${Date.now()}.png`
+                  a.href = canvas.toDataURL('image/png')
+                  a.click()
+                }
+                img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
+                break
+              }
+              case 'fullscreen':
+                wrapper?.requestFullscreen?.()
+                break
+            }
+          } catch (err) {
+            console.error('[Graphviz] 工具栏操作失败:', err)
+          }
+          return
+        }
+      }
+
+      combinedRef.current.addEventListener('click', handleGraphvizClick)
+      return () => combinedRef.current?.removeEventListener('click', handleGraphvizClick)
+    }, [html])
+
+    // v1.5.5: DrawIO 图表渲染（异步加载 viewer.min.js）
+    useEffect(() => {
+      if (!combinedRef.current) return
+
+      const drawioBlocks = combinedRef.current.querySelectorAll('pre.language-drawio')
+      if (drawioBlocks.length === 0) return
+
+      const abortController = new AbortController()
+      const { signal } = abortController
+
+      ;(async () => {
+        for (let index = 0; index < drawioBlocks.length; index++) {
+          if (signal.aborted) break
+
+          const block = drawioBlocks[index]
+          const code = block.textContent || ''
+
+          const validation = validateDrawioCode(code)
+          if (!validation.valid) {
+            const errorDiv = document.createElement('div')
+            errorDiv.className = 'drawio-error'
+            errorDiv.innerHTML = `
+              <div class="error-title">DrawIO 配置错误</div>
+              <div class="error-message">${validation.error}</div>
+            `
+            if (block.parentNode) block.replaceWith(errorDiv)
+            continue
+          }
+
+          try {
+            // 创建包装容器
+            const wrapper = document.createElement('div')
+            wrapper.className = 'drawio-wrapper'
+
+            // 存储原始代码
+            wrapper.dataset.drawioCode = btoa(unescape(encodeURIComponent(code)))
+
+            // 创建切换按钮栏
+            const toggleBar = document.createElement('div')
+            toggleBar.className = 'drawio-toggle-bar no-export'
+            toggleBar.innerHTML = `
+              <button class="drawio-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="drawio-action-btn" data-action="zoomIn" title="放大">🔍+</button>
+              <button class="drawio-action-btn" data-action="zoomOut" title="缩小">🔍−</button>
+              <button class="drawio-action-btn" data-action="fit" title="适应大小">⊡</button>
+              <button class="drawio-action-btn" data-action="download" title="下载图片">💾</button>
+              <button class="drawio-action-btn" data-action="lightbox" title="全屏查看">⛶</button>
+            `
+
+            // 创建图表容器
+            const chartContainer = document.createElement('div')
+            chartContainer.className = 'drawio-container'
+            chartContainer.dataset.view = 'chart'
+            chartContainer.style.width = '100%'
+
+            // 创建代码视图容器
+            const codeView = document.createElement('div')
+            codeView.className = 'drawio-code-view'
+            codeView.dataset.view = 'code'
+            codeView.style.display = 'none'
+
+            // 创建返回图表按钮
+            const backToChartBtn = document.createElement('button')
+            backToChartBtn.className = 'drawio-back-btn no-export'
+            backToChartBtn.textContent = '图表'
+            backToChartBtn.title = '返回图表视图'
+            codeView.appendChild(backToChartBtn)
+
+            // 创建复制按钮
+            const copyButton = document.createElement('button')
+            copyButton.className = 'copy-btn no-export'
+            copyButton.textContent = '复制'
+            copyButton.title = '复制 DrawIO 代码'
+            codeView.appendChild(copyButton)
+
+            // 代码显示（XML 格式）
+            const codeElement = document.createElement('code')
+            codeElement.className = 'language-plaintext'
+            codeElement.textContent = code
+
+            const preElement = document.createElement('pre')
+            preElement.className = 'language-plaintext'
+            preElement.appendChild(codeElement)
+            codeView.appendChild(preElement)
+
+            // 组装结构
+            wrapper.appendChild(toggleBar)
+            wrapper.appendChild(chartContainer)
+            wrapper.appendChild(codeView)
+
+            if (block.parentNode) {
+              block.replaceWith(wrapper)
+            }
+
+            // 渲染 DrawIO
+            await renderDrawioInElement(code, chartContainer)
+
+            if (signal.aborted) break
+          } catch (error) {
+            if (signal.aborted) break
+            console.error('[DrawIO] 渲染失败:', error)
+            const errorDiv = document.createElement('div')
+            errorDiv.className = 'drawio-error'
+            errorDiv.innerHTML = `
+              <div class="error-title">DrawIO 渲染失败</div>
+              <div class="error-message">${(error as Error).message}</div>
+            `
+            if (block.parentNode) {
+              block.replaceWith(errorDiv)
+            }
+          }
+        }
+      })()
+
+      return () => {
+        abortController.abort()
+      }
+    }, [html])
+
+    // v1.5.5: DrawIO 切换按钮 + 工具栏点击事件处理
     useEffect(() => {
       if (!combinedRef.current) return
 
       const handleToggleClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement
-        const btn = target.closest('.graphviz-toggle-btn')
-        if (!btn) return
 
-        const mode = btn.getAttribute('data-mode')
-        const wrapper = btn.closest('.graphviz-wrapper')
-        if (!wrapper || !mode) return
-
-        wrapper.querySelectorAll('.graphviz-toggle-btn').forEach(b => {
-          b.classList.toggle('active', b.getAttribute('data-mode') === mode)
-        })
-
-        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
-
-        if (mode === 'chart') {
+        // 处理代码视图的「返回图表」按钮
+        const backBtn = target.closest('.drawio-back-btn')
+        if (backBtn) {
+          const wrapper = backBtn.closest('.drawio-wrapper') as HTMLElement
+          if (!wrapper) return
+          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
+          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
+          const toggleBar = wrapper.querySelector('.drawio-toggle-bar') as HTMLElement
           if (chartView) chartView.style.display = ''
           if (codeViewEl) codeViewEl.style.display = 'none'
-        } else {
-          if (chartView) chartView.style.display = 'none'
-          if (codeViewEl) codeViewEl.style.display = ''
+          if (toggleBar) toggleBar.style.display = ''
+          return
+        }
+
+        // 处理工具栏操作按钮
+        const actionBtn = target.closest('.drawio-action-btn')
+        if (actionBtn) {
+          const action = actionBtn.getAttribute('data-action')
+          const wrapper = actionBtn.closest('.drawio-wrapper')
+          const container = wrapper?.querySelector('.drawio-container') as HTMLElementWithViewer | null
+          const viewer = container?.__drawioViewer
+          if (!action) return
+
+          if (action === 'toggleCode') {
+            const wrapperEl = wrapper as HTMLElement
+            const chartView = wrapperEl?.querySelector('[data-view="chart"]') as HTMLElement
+            const codeViewEl = wrapperEl?.querySelector('[data-view="code"]') as HTMLElement
+            const toggleBar = wrapperEl?.querySelector('.drawio-toggle-bar') as HTMLElement
+            if (chartView) chartView.style.display = 'none'
+            if (codeViewEl) codeViewEl.style.display = ''
+            if (toggleBar) toggleBar.style.display = 'none'
+            return
+          }
+
+          if (!viewer && action !== 'download') return
+
+          try {
+            switch (action) {
+              case 'zoomIn':
+                viewer?.graph.zoomIn()
+                break
+              case 'zoomOut':
+                viewer?.graph.zoomOut()
+                break
+              case 'fit':
+                viewer?.graph.fit()
+                break
+              case 'download': {
+                const svg = container?.querySelector('svg') as SVGSVGElement
+                if (svg) {
+                  const svgClone = svg.cloneNode(true) as SVGSVGElement
+                  const svgData = new XMLSerializer().serializeToString(svgClone)
+                  const canvas = document.createElement('canvas')
+                  const scale = 2
+                  canvas.width = svg.clientWidth * scale
+                  canvas.height = svg.clientHeight * scale
+                  const ctx = canvas.getContext('2d')!
+                  const img = new Image()
+                  img.onload = () => {
+                    ctx.fillStyle = '#ffffff'
+                    ctx.fillRect(0, 0, canvas.width, canvas.height)
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+                    const a = document.createElement('a')
+                    a.download = `drawio-${Date.now()}.png`
+                    a.href = canvas.toDataURL('image/png')
+                    a.click()
+                  }
+                  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
+                }
+                break
+              }
+              case 'lightbox':
+                viewer?.showLightbox()
+                break
+            }
+          } catch (err) {
+            console.error('[DrawIO] 工具栏操作失败:', err)
+          }
+          return
         }
       }
 
@@ -1449,13 +2170,13 @@ const MarkdownContent = memo(
       if (!combinedRef.current) return
 
       // 查找所有 pre > code 代码块，排除 Mermaid 和 ECharts（它们有自己的复制按钮）
-      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz)')
+      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio)')
 
       codeBlocks.forEach((pre) => {
         // 跳过已经有复制按钮的代码块
         if (pre.querySelector('.copy-btn')) return
         // 跳过 ECharts/Infographic/Markmap/Graphviz 代码视图中的代码块（已有复制按钮）
-        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view')) return
+        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view')) return
 
         const code = pre.querySelector('code')
         if (!code) return
@@ -1487,15 +2208,16 @@ const MarkdownContent = memo(
         let textToCopy = ''
 
         // 判断复制按钮所在的容器类型
-        const mermaidContainer = target.closest('.mermaid-container')
+        const mermaidCodeView = target.closest('.mermaid-code-view')
         const echartsCodeView = target.closest('.echarts-code-view')
         const markmapCodeView = target.closest('.markmap-code-view')
         const graphvizCodeView = target.closest('.graphviz-code-view')
         const preBlock = target.closest('pre')
 
-        if (mermaidContainer) {
-          // Mermaid 图表：从 data-mermaid-code 属性获取原始代码
-          const base64Code = mermaidContainer.getAttribute('data-mermaid-code')
+        if (mermaidCodeView) {
+          // Mermaid 代码视图：从 wrapper 的 data-mermaid-code 获取
+          const wrapper = mermaidCodeView.closest('.mermaid-wrapper')
+          const base64Code = wrapper?.getAttribute('data-mermaid-code')
           if (base64Code) {
             try {
               textToCopy = decodeURIComponent(escape(atob(base64Code)))
@@ -1529,6 +2251,17 @@ const MarkdownContent = memo(
           // Graphviz 代码视图：从 wrapper 的 data-graphviz-code 获取
           const wrapper = graphvizCodeView.closest('.graphviz-wrapper')
           const base64Code = wrapper?.getAttribute('data-graphviz-code')
+          if (base64Code) {
+            try {
+              textToCopy = decodeURIComponent(escape(atob(base64Code)))
+            } catch {
+              textToCopy = ''
+            }
+          }
+        } else if (target.closest('.drawio-code-view')) {
+          // DrawIO 代码视图：从 wrapper 的 data-drawio-code 获取
+          const wrapper = target.closest('.drawio-wrapper')
+          const base64Code = wrapper?.getAttribute('data-drawio-code')
           if (base64Code) {
             try {
               textToCopy = decodeURIComponent(escape(atob(base64Code)))

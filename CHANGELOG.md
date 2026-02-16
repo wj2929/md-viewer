@@ -7,6 +7,73 @@
 
 ---
 
+## [1.5.5] - 2026-02-16
+
+> **状态**: 🚧 **开发中** | **类型**: 新功能 + UI 改进
+
+### ✨ 新功能
+
+#### 1. DrawIO 图表支持 ⭐⭐
+- **功能**：Markdown `drawio` 代码块自动渲染 DrawIO 图表
+- **依赖**：`drawio-viewer.min.js` 本地资源（无外部 CDN）
+- **渲染器**：`drawioRenderer.ts` — XML 验证、mxGraph 渲染、缩放/适应/全屏/下载
+- **交互**：图表/代码切换、缩放控制、适应窗口、全屏查看、SVG 下载
+- **导出**：HTML 导出时 DrawIO 以内联 SVG 形式保留
+
+### 🎨 UI 改进
+
+#### 2. 图表工具栏悬停显示改造 ⭐
+- **影响范围**：Mermaid、ECharts、Infographic、Markmap、Graphviz、DrawIO（全部 6 种）
+- **改造内容**：
+  - 工具栏从始终可见的全宽栏改为右上角紧凑按钮组
+  - 默认隐藏（opacity: 0），鼠标悬停/键盘聚焦时淡入显示
+  - 半透明毛玻璃背景（backdrop-filter: blur(8px)）
+  - 全屏模式下始终可见（position: fixed）
+  - 移除左侧「图表/代码」切换标签，改为 💻 按钮
+  - 代码视图下显示独立的「图表」返回按钮
+  - 移除 wrapper 边框，视觉更干净
+- **CSS 清理**：删除 ~200 行废弃规则（toggle-btn、toggle-left、toolbar-actions）
+
+### 🐛 Bug 修复
+
+#### 1. 页面内搜索排除列表更新
+- **修改**：`useInPageSearch.ts` 排除列表添加 `.markmap-container`、`.graphviz-container`、`.drawio-container`
+
+### 🔧 技术实现
+
+#### 新增文件
+| 文件 | 说明 |
+|------|------|
+| `src/renderer/src/utils/drawioRenderer.ts` | DrawIO 渲染器 |
+| `src/renderer/public/drawio-viewer.min.js` | DrawIO 本地 WASM 资源 |
+| `src/renderer/test/utils/drawioRenderer.test.ts` | DrawIO 测试 |
+| `e2e/fixtures/test-drawio.md` | DrawIO 测试 fixture |
+| `e2e/fixtures/test-all-charts.md` | 全图表类型测试 fixture |
+
+#### 核心文件变更
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `VirtualizedMarkdown.tsx` | 修改 | DrawIO 渲染 + 全部 6 种图表工具栏重写 |
+| `main.css` | 修改 | DrawIO 样式 + 工具栏悬停显示 + 废弃规则清理 |
+| `markdownRenderer.ts` | 修改 | drawio 代码块检测 |
+| `App.tsx` | 修改 | DrawIO 导出处理 |
+| `main/index.ts` | 修改 | CSP 更新 |
+| `useInPageSearch.ts` | 修改 | 搜索排除列表 |
+
+### 📊 代码变更统计
+
+```
+8 files changed (modified), 5 files added (new)
++1425 insertions, -254 deletions
+```
+
+### ✅ 测试
+
+- **测试通过率**：516 通过，0 失败
+- **类型检查**：`tsc --noEmit` 通过
+
+---
+
 ## [1.5.4] - 2026-02-13
 
 > **状态**: ✅ **已发布** | **类型**: 新功能 + 增强 + Bug 修复
@@ -2408,4 +2475,4 @@ a06289d feat(toast): 添加 Toast 通知组件替代 alert
 
 ---
 
-**最后更新**: 2026-02-07
+**最后更新**: 2026-02-16
