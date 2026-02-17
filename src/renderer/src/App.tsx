@@ -9,6 +9,7 @@ import { processInfographicInHtml } from './utils/infographicRenderer'
 import { processMarkmapInHtml } from './utils/markmapRenderer'
 import { processGraphvizInHtml } from './utils/graphvizRenderer'
 import { processDrawioInHtml } from './utils/drawioRenderer'
+import { processPlantUMLInHtml } from './utils/plantumlRenderer'
 import * as echarts from 'echarts'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
@@ -737,6 +738,7 @@ function App(): React.JSX.Element {
         htmlContent = await processMarkmapInHtml(htmlContent)
         htmlContent = await processGraphvizInHtml(htmlContent)
         htmlContent = await processDrawioInHtml(htmlContent)
+        htmlContent = await processPlantUMLInHtml(htmlContent)
       }
       loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
       const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
@@ -831,6 +833,7 @@ function App(): React.JSX.Element {
         htmlContent = await processMarkmapInHtml(htmlContent)
         htmlContent = await processGraphvizInHtml(htmlContent)
         htmlContent = await processDrawioInHtml(htmlContent)
+        htmlContent = await processPlantUMLInHtml(htmlContent)
       }
       loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
       const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)

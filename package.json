@@ -149,6 +149,7 @@
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
     "mermaid": "^11.12.2",
+    "plantuml-encoder": "^1.4.0",
     "prismjs": "^1.30.0",
     "react-hot-toast": "^2.6.0",
     "react-virtuoso": "^4.18.1",

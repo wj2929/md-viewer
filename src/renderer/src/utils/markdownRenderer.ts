@@ -115,6 +115,11 @@ export function createMarkdownRenderer(): MarkdownIt {
         return `<pre class="language-drawio"><code class="language-drawio">${md.utils.escapeHtml(str)}</code></pre>`
       }
 
+      // PlantUML 图表：支持 plantuml 和 puml 两种语言标识
+      if (lang === 'plantuml' || lang === 'puml') {
+        return `<pre class="language-plantuml"><code class="language-plantuml">${md.utils.escapeHtml(str)}</code></pre>`
+      }
+
       if (lang && Prism.languages[lang]) {
         try {
           return `<pre class="language-${lang}"><code class="language-${lang}">${Prism.highlight(str, Prism.languages[lang], lang)}</code></pre>`
@@ -341,6 +346,9 @@ export const DOMPURIFY_CONFIG: Record<string, unknown> = {
     // DrawIO 属性
     'data-drawio-code',
 
+    // PlantUML 属性
+    'data-plantuml-code',
+
     // 通用属性
     'lang', 'dir', 'start', 'type', 'reversed', 'open'
   ],
@@ -482,6 +490,9 @@ export function setupDOMPurifyHooks(): void {
 
     // DrawIO 相关
     'drawio-container', 'drawio-error', 'language-drawio',
+
+    // PlantUML 相关
+    'plantuml-container', 'plantuml-error', 'language-plantuml', 'language-puml',
 
     // KaTeX 相关（完整的 KaTeX 类白名单）
     'katex', 'katex-html', 'katex-mathml', 'katex-display', 'katex-error',

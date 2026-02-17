@@ -82,7 +82,9 @@ const MARK_EXCLUDE_SELECTORS = [
   '.graphviz-container',     // Graphviz 图表容器
   '.graphviz-container *',   // Graphviz 图表内部元素
   '.drawio-container',       // DrawIO 图表容器
-  '.drawio-container *'      // DrawIO 图表内部元素
+  '.drawio-container *',     // DrawIO 图表内部元素
+  '.plantuml-container',     // PlantUML 图表容器
+  '.plantuml-container *'    // PlantUML 图表内部元素
 ]
 
 /** v1.4.2: 大小写敏感设置存储键 */

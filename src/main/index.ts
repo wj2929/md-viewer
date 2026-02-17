@@ -218,8 +218,8 @@ app.whenReady().then(() => {
   // 生产模式使用严格的 CSP
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const csp = is.dev
-      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://viewer.diagrams.net; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net https://viewer.diagrams.net; connect-src 'self' ws://localhost:* http://localhost:* https://viewer.diagrams.net; worker-src 'self' blob:;"
-      : "default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://viewer.diagrams.net; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net https://viewer.diagrams.net; connect-src 'self' https://viewer.diagrams.net;"
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://viewer.diagrams.net; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net https://viewer.diagrams.net; connect-src 'self' ws://localhost:* http://localhost:* https://viewer.diagrams.net https://www.plantuml.com; worker-src 'self' blob:;"
+      : "default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://viewer.diagrams.net; style-src 'self' 'unsafe-inline' https://registry.npmmirror.com https://cdn.jsdelivr.net; img-src 'self' data: https: local-image:; font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net https://viewer.diagrams.net; connect-src 'self' https://viewer.diagrams.net https://www.plantuml.com http://localhost:* http://127.0.0.1:*;"
 
     callback({
       responseHeaders: {

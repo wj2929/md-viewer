@@ -148,6 +148,25 @@ describe('markdownRenderer 工具函数测试', () => {
       expect(result).toContain('&lt;mxGraphModel')
       expect(result).toContain('language-drawio')
     })
+
+    it('应该将 plantuml 代码块标记为 language-plantuml', () => {
+      const code = '```plantuml\n@startuml\nA -> B: hello\n@enduml\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-plantuml')
+    })
+
+    it('应该将 puml 代码块标记为 language-plantuml', () => {
+      const code = '```puml\n@startuml\nA -> B\n@enduml\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-plantuml')
+    })
+
+    it('应该转义 plantuml 代码块中的特殊字符', () => {
+      const code = '```plantuml\n@startuml\nnote right: <b>bold</b> & "quoted"\n@enduml\n```'
+      const result = md.render(code)
+      expect(result).toContain('&lt;b&gt;')
+      expect(result).toContain('language-plantuml')
+    })
   })
 
   describe('行内数学公式（KaTeX）', () => {

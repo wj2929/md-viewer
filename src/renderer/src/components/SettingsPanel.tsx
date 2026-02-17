@@ -96,9 +96,18 @@ function GeneralTab() {
   const [ctxLoading, setCtxLoading] = useState(false)
   const [showEnableGuide, setShowEnableGuide] = useState(false)
 
+  // PlantUML 服务器配置
+  const [plantumlServer, setPlantumlServer] = useState('')
+  const [plantumlTestStatus, setPlantumlTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [showPlantumlGuide, setShowPlantumlGuide] = useState(false)
+
   useEffect(() => {
     loadSettings()
     loadCtxStatus()
+    // 加载 PlantUML 服务器配置
+    try {
+      setPlantumlServer(localStorage.getItem('plantuml-server-url') || '')
+    } catch { /* ignore */ }
   }, [])
 
   const loadSettings = async () => {
@@ -297,6 +306,54 @@ function GeneralTab() {
         <p className="setting-section-hint">在导出的 HTML / PDF 末尾显示「由 MD Viewer 生成」</p>
       </section>
 
+      {/* 图表 */}
+      <section className="settings-section">
+        <h3>图表</h3>
+        <div className="setting-item setting-row">
+          <label>PlantUML 服务器</label>
+          <button
+            className="btn-secondary btn-sm"
+            disabled={plantumlTestStatus === 'testing'}
+            onClick={async () => {
+              setPlantumlTestStatus('testing')
+              try {
+                const server = plantumlServer.trim().replace(/\/+$/, '') || 'https://www.plantuml.com/plantuml'
+                const res = await fetch(`${server}/svg/SoWkIImgAStDuNBAJrBGjLDmpCbCJbMmKiX8pSd9vt98pKi1IW80`, { signal: AbortSignal.timeout(5000) })
+                setPlantumlTestStatus(res.ok ? 'success' : 'error')
+              } catch {
+                setPlantumlTestStatus('error')
+              }
+            }}
+          >
+            {plantumlTestStatus === 'testing' ? '测试中...' : plantumlTestStatus === 'success' ? '已连接' : plantumlTestStatus === 'error' ? '连接失败' : '测试连接'}
+          </button>
+        </div>
+        <div className="setting-item setting-row" style={{ marginTop: '4px' }}>
+          <input
+            type="text"
+            className="settings-input"
+            style={{ width: '100%' }}
+            placeholder="默认：https://www.plantuml.com/plantuml"
+            value={plantumlServer}
+            onChange={e => {
+              setPlantumlServer(e.target.value)
+              setPlantumlTestStatus('idle')
+            }}
+            onBlur={() => {
+              try {
+                const val = plantumlServer.trim()
+                if (val) {
+                  localStorage.setItem('plantuml-server-url', val)
+                } else {
+                  localStorage.removeItem('plantuml-server-url')
+                }
+              } catch { /* ignore */ }
+            }}
+          />
+        </div>
+        <p className="setting-section-hint">留空使用官方服务器。<a href="#" className="setting-help-link" onClick={e => { e.preventDefault(); setShowPlantumlGuide(true) }}>如何配置本地服务器？</a></p>
+      </section>
+
       {/* 系统集成 */}
       <section className="settings-section">
         <h3>系统集成</h3>
@@ -368,6 +425,46 @@ function GeneralTab() {
             </div>
             <button onClick={() => setShowEnableGuide(false)} className="btn-link">
               稍后设置
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* PlantUML 本地服务器配置帮助 */}
+      {showPlantumlGuide && (
+        <div className="enable-guide-modal" onClick={() => setShowPlantumlGuide(false)}>
+          <div className="plantuml-guide-content" onClick={e => e.stopPropagation()}>
+            <h2>配置本地 PlantUML 服务器</h2>
+            <p className="guide-subtitle">本地服务器可实现离线渲染，保护代码隐私</p>
+
+            <div className="guide-section">
+              <h4>方式一：Docker（推荐）</h4>
+              <div className="guide-code-block">
+                <code>docker run -d -p 8080:8080 plantuml/plantuml-server:jetty</code>
+                <button className="guide-copy-btn" onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText('docker run -d -p 8080:8080 plantuml/plantuml-server:jetty')
+                  } catch { /* ignore */ }
+                }}>复制</button>
+              </div>
+              <p className="guide-note">服务器地址填写：<code>http://localhost:8080</code></p>
+            </div>
+
+            <div className="guide-section">
+              <h4>方式二：Java 直接运行</h4>
+              <div className="guide-code-block">
+                <code>java -jar plantuml.war</code>
+              </div>
+              <p className="guide-note">需要安装 Java 运行时和 Graphviz。从 <a href="#" onClick={e => { e.preventDefault(); window.api?.openExternal?.('https://plantuml.com/download') }}>plantuml.com/download</a> 下载 WAR 文件</p>
+            </div>
+
+            <div className="guide-section">
+              <h4>验证</h4>
+              <p className="guide-note">启动后在浏览器访问 <code>http://localhost:8080</code>，看到 PlantUML 页面即表示成功。然后在上方输入框填入地址并点击「测试连接」。</p>
+            </div>
+
+            <button onClick={() => setShowPlantumlGuide(false)} className="btn-primary" style={{ marginTop: '16px' }}>
+              知道了
             </button>
           </div>
         </div>
