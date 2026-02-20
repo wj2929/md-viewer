@@ -4197,6 +4197,278 @@ Test XML special characters in node values.
 ```
 ---
 
+## MD Viewer 系统专属测试
+
+> 以下用例围绕 MD Viewer 自身的架构展开，增强代入感。
+
+### MD-1. MD Viewer Electron 进程架构
+
+> 展示 Electron 主进程、渲染进程、Preload 脚本之间的通信关系。
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="mdv-electron-arch">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <!-- Main Process container -->
+        <mxCell id="mp0" value="Main Process (Node.js)" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="300" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="mp1" value="BrowserWindow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="mp0">
+          <mxGeometry x="30" y="50" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="mp2" value="ipcMain" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="mp0">
+          <mxGeometry x="160" y="50" width="110" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="mp3" value="fs / path&#xa;(文件读取)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="mp0">
+          <mxGeometry x="30" y="110" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="mp4" value="Menu / Dialog" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="mp0">
+          <mxGeometry x="160" y="110" width="110" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="mp5" value="shell.openExternal&#xa;(白名单校验)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="mp0">
+          <mxGeometry x="30" y="170" width="240" height="40" as="geometry"/>
+        </mxCell>
+        <!-- Preload Script -->
+        <mxCell id="ps0" value="Preload Script (preload.js)" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=14;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="330" width="260" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="ps1" value="contextBridge.exposeInMainWorld" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="ps0">
+          <mxGeometry x="20" y="45" width="220" height="40" as="geometry"/>
+        </mxCell>
+        <!-- Renderer Process container -->
+        <mxCell id="rp0" value="Renderer Process (Chromium)" style="swimlane;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=14;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="490" width="500" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="rp1" value="markdown-it&#xa;(Markdown 解析)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="rp0">
+          <mxGeometry x="20" y="50" width="140" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="rp2" value="图表渲染器&#xa;Mermaid / ECharts / DrawIO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="rp0">
+          <mxGeometry x="180" y="50" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="rp3" value="DOMPurify&#xa;(XSS 防护)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="rp0">
+          <mxGeometry x="360" y="50" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="rp4" value="ipcRenderer (via preload)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="rp0">
+          <mxGeometry x="120" y="130" width="200" height="40" as="geometry"/>
+        </mxCell>
+        <!-- Arrows -->
+        <mxCell id="a1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;" edge="1" parent="1" source="mp2" target="ps0">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a1l" value="IPC 通道" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=11;" vertex="1" connectable="0" parent="a1">
+          <mxGeometry x="-0.1" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="a2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d6b656;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;" edge="1" parent="1" source="ps0" target="rp0">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2l" value="contextBridge" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=11;" vertex="1" connectable="0" parent="a2">
+          <mxGeometry x="-0.1" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+        </mxCell>
+        <!-- Security note -->
+        <mxCell id="sec1" value="nodeIntegration: false&#xa;contextIsolation: true&#xa;sandbox: true" style="shape=note;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="400" y="60" width="180" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a3" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#b85450;" edge="1" parent="1" source="sec1" target="mp0">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+### MD-2. MD Viewer 图表渲染管线
+
+> 展示从 Markdown 输入到最终 DOM 输出的完整图表渲染管线。
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="mdv-render-pipeline">
+    <mxGraphModel dx="1400" dy="860" grid="1" gridSize="10" guides="1">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <!-- Input -->
+        <mxCell id="n1" value="Markdown 文件输入" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="260" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <!-- markdown-it -->
+        <mxCell id="n2" value="markdown-it&#xa;解析器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="260" y="260" width="130" height="50" as="geometry"/>
+        </mxCell>
+        <!-- Detect chart type (decision) -->
+        <mxCell id="n3" value="检测图表类型" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="445" y="240" width="140" height="90" as="geometry"/>
+        </mxCell>
+        <!-- Renderers -->
+        <mxCell id="r1" value="Mermaid" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="660" y="40" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="r2" value="ECharts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="660" y="100" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="r3" value="PlantUML" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="660" y="160" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="r4" value="Graphviz&#xa;(@viz-js/viz)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="660" y="220" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="r5" value="Markmap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="660" y="280" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="r6" value="DrawIO&#xa;(mxGraph)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="660" y="340" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="r7" value="普通代码块&#xa;(highlight.js)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="660" y="400" width="120" height="40" as="geometry"/>
+        </mxCell>
+        <!-- DOMPurify -->
+        <mxCell id="n4" value="DOMPurify&#xa;消毒" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="860" y="200" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <!-- Output -->
+        <mxCell id="n5" value="DOM 输出&#xa;(安全 HTML)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="200" width="140" height="50" as="geometry"/>
+        </mxCell>
+        <!-- Arrows: input -> markdown-it -> detect -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="n1" target="n2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="n2" target="n3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- detect -> renderers -->
+        <mxCell id="e3a" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d6b656;" edge="1" parent="1" source="n3" target="r1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3b" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d6b656;" edge="1" parent="1" source="n3" target="r2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3c" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d6b656;" edge="1" parent="1" source="n3" target="r3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3d" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d6b656;" edge="1" parent="1" source="n3" target="r4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3e" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d6b656;" edge="1" parent="1" source="n3" target="r5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3f" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1" source="n3" target="r6">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3g" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="n3" target="r7">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- renderers -> DOMPurify -->
+        <mxCell id="e4a" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;" edge="1" parent="1" source="r1" target="n4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4b" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;" edge="1" parent="1" source="r2" target="n4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4c" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;" edge="1" parent="1" source="r3" target="n4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4d" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;" edge="1" parent="1" source="r4" target="n4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4e" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;" edge="1" parent="1" source="r5" target="n4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4f" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="r6" target="n4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4g" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;dashed=1;" edge="1" parent="1" source="r7" target="n4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- DOMPurify -> output -->
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="n4" target="n5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+### MD-3. MD Viewer 安全防护层
+
+> 展示 MD Viewer 的多层安全防护机制：DOMPurify、CSP、导航拦截、路径限制、外部链接白名单。
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="mdv-security-layers">
+    <mxGraphModel dx="1300" dy="900" grid="1" gridSize="10" guides="1">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <!-- Title -->
+        <mxCell id="t1" value="MD Viewer 安全防护层" style="text;html=1;fontSize=18;fontStyle=1;align=center;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="350" y="10" width="300" height="30" as="geometry"/>
+        </mxCell>
+        <!-- Outer: Electron sandbox -->
+        <mxCell id="L0" value="Layer 0: Electron Sandbox (contextIsolation + sandbox)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=12;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="920" height="560" as="geometry"/>
+        </mxCell>
+        <!-- Layer 1: CSP -->
+        <mxCell id="L1" value="Layer 1: Content-Security-Policy (script-src &amp;apos;self&amp;apos;; style-src &amp;apos;self&amp;apos; &amp;apos;unsafe-inline&amp;apos;)" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;rounded=1;" vertex="1" parent="L0">
+          <mxGeometry x="30" y="50" width="860" height="480" as="geometry"/>
+        </mxCell>
+        <!-- Layer 2: will-navigate -->
+        <mxCell id="L2" value="Layer 2: will-navigate 拦截 (阻止页面跳转)" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=11;rounded=1;" vertex="1" parent="L1">
+          <mxGeometry x="30" y="50" width="800" height="400" as="geometry"/>
+        </mxCell>
+        <!-- Layer 3: DOMPurify -->
+        <mxCell id="L3" value="Layer 3: DOMPurify (HTML/SVG 消毒)" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=11;rounded=1;" vertex="1" parent="L2">
+          <mxGeometry x="30" y="50" width="740" height="320" as="geometry"/>
+        </mxCell>
+        <!-- Inside: the app content -->
+        <mxCell id="app" value="MD Viewer 渲染内容" style="swimlane;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;rounded=1;" vertex="1" parent="L3">
+          <mxGeometry x="30" y="50" width="680" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1" value="Markdown&#xa;HTML 输出" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="app">
+          <mxGeometry x="20" y="50" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value="Mermaid&#xa;SVG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="app">
+          <mxGeometry x="160" y="50" width="100" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" value="DrawIO&#xa;SVG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="app">
+          <mxGeometry x="280" y="50" width="100" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" value="ECharts&#xa;Canvas" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="app">
+          <mxGeometry x="400" y="50" width="100" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="c5" value="外部链接" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="app">
+          <mxGeometry x="520" y="50" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <!-- Security mechanisms detail -->
+        <mxCell id="s1" value="allowedBasePath&#xa;限制文件访问范围" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="app">
+          <mxGeometry x="20" y="140" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="s2" value="shell.openExternal&#xa;白名单: https:// 协议" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="app">
+          <mxGeometry x="200" y="140" width="180" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3" value="webPreferences&#xa;nodeIntegration: false&#xa;webSecurity: true" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="app">
+          <mxGeometry x="400" y="140" width="180" height="50" as="geometry"/>
+        </mxCell>
+        <!-- Arrows from content to security -->
+        <mxCell id="ea1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;dashed=1;" edge="1" parent="app" source="c1" target="s1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ea2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;dashed=1;" edge="1" parent="app" source="c5" target="s2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+---
+
 ## 测试覆盖总结清单
 
 | 编号 | 测试类型 | 说明 | 预期结果 |
@@ -4267,3 +4539,6 @@ Test XML special characters in node values.
 | 64 | 威胁建模图 | DFD + 信任边界 | 边界穿越数据流清晰 |
 | 65 | 线框图 | 页头导航内容侧栏页脚 | 低保真结构完整 |
 | 66 | 超大压力测试 | 110 节点网格布局 | 大图渲染稳定性验证 |
+| MD-1 | Electron 进程架构 | Main/Renderer/Preload 通信 | 正常渲染 |
+| MD-2 | 图表渲染管线 | 7 种渲染器分支管线 | 正常渲染 |
+| MD-3 | 安全防护层 | 5 层嵌套安全边界 | 正常渲染 |

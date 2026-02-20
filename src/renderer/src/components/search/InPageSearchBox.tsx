@@ -39,6 +39,14 @@ export interface InPageSearchBoxProps {
   caseSensitive?: boolean
   /** v1.4.2: 切换大小写敏感 */
   onToggleCaseSensitive?: () => void
+  /** 搜索历史 */
+  searchHistory?: string[]
+  /** 选择历史项 */
+  onSelectHistory?: (keyword: string) => void
+  /** 删除历史项 */
+  onRemoveHistory?: (keyword: string) => void
+  /** 清空历史 */
+  onClearHistory?: () => void
 }
 
 // ============================================================================
@@ -55,17 +63,26 @@ export function InPageSearchBox({
   onPrev,
   onClose,
   caseSensitive = false,
-  onToggleCaseSensitive
+  onToggleCaseSensitive,
+  searchHistory = [],
+  onSelectHistory,
+  onRemoveHistory,
+  onClearHistory
 }: InPageSearchBoxProps): React.JSX.Element | null {
   // -------------------------------------------------------------------------
   // Refs
   // -------------------------------------------------------------------------
   const inputRef = useRef<HTMLInputElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
 
   // -------------------------------------------------------------------------
   // 状态
   // -------------------------------------------------------------------------
   const [isClosing, setIsClosing] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
+
+  const showHistory = isFocused && !query.trim() && searchHistory.length > 0
+  const historyToShow = searchHistory.slice(0, 8)
 
   // -------------------------------------------------------------------------
   // 打开时自动聚焦
@@ -81,6 +98,20 @@ export function InPageSearchBox({
       return () => clearTimeout(timer)
     }
   }, [visible, isClosing])
+
+  // -------------------------------------------------------------------------
+  // 点击外部关闭历史下拉
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!showHistory) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setIsFocused(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showHistory])
 
   // -------------------------------------------------------------------------
   // 键盘快捷键
@@ -150,6 +181,7 @@ export function InPageSearchBox({
   // -------------------------------------------------------------------------
   return (
     <div
+      ref={boxRef}
       className={`in-page-search-box ${isClosing ? 'closing' : ''}`}
       role="search"
       aria-label="页面内搜索"
@@ -176,6 +208,7 @@ export function InPageSearchBox({
           placeholder="在当前文档中搜索..."
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
+          onFocus={() => setIsFocused(true)}
           maxLength={200}
           aria-label="搜索词"
           aria-describedby={hasQuery ? 'search-count' : undefined}
@@ -250,6 +283,48 @@ export function InPageSearchBox({
           </svg>
         </button>
       </div>
+
+      {/* 搜索历史下拉 */}
+      {showHistory && (
+        <div className="in-page-search-history">
+          {historyToShow.map((keyword) => (
+            <div
+              key={keyword}
+              className="in-page-search-history-item"
+              onClick={() => {
+                onSelectHistory?.(keyword)
+                setIsFocused(false)
+              }}
+            >
+              <span className="in-page-search-history-icon">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="8" r="6.5" />
+                  <polyline points="8 4.5 8 8 10.5 9.5" />
+                </svg>
+              </span>
+              <span className="in-page-search-history-keyword">{keyword}</span>
+              <button
+                className="in-page-search-history-remove"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onRemoveHistory?.(keyword)
+                }}
+                aria-label={`删除 ${keyword}`}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          ))}
+          <button
+            className="in-page-search-history-clear"
+            onClick={() => onClearHistory?.()}
+          >
+            清空历史
+          </button>
+        </div>
+      )}
     </div>
   )
 }

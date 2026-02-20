@@ -153,8 +153,9 @@ export async function renderDrawioInElement(
       highlight: '#0000ff',
       nav: true,
       resize: true,
-      toolbar: '',
-      edit: '_blank',
+      toolbar: 'none',
+      'toolbar-nohide': false,
+      edit: null,
       'check-visible-state': false,
     })
   )
@@ -168,10 +169,28 @@ export async function renderDrawioInElement(
   }
 
   try {
+    // viewer.min.js 会给 mxDiv 加 margin-top:26px（为内置 toolbar 留空间）
+    // 用 setInterval 持续清除，直到渲染完成
+    const clearMargin = setInterval(() => {
+      mxDiv.style.setProperty('margin-top', '0px', 'important')
+    }, 50)
+    setTimeout(() => clearInterval(clearMargin), 5000)
+
     gv.createViewerForElement(mxDiv, (viewer: DrawioViewerInstance) => {
       // 将 viewer 实例存储到容器上，供工具栏按钮调用
       container.dataset.drawioReady = 'true'
       ;(container as HTMLElementWithViewer).__drawioViewer = viewer
+
+      mxDiv.style.setProperty('margin-top', '0px', 'important')
+      clearInterval(clearMargin)
+
+      // 隐藏 viewer 在 body 下创建的 toolbar div（height:26px, z-index:999）
+      document.querySelectorAll<HTMLElement>('body > div').forEach((div) => {
+        const style = div.getAttribute('style') || ''
+        if (style.includes('z-index') && style.includes('height: 26px') && style.includes('margin-top: -26px')) {
+          div.style.display = 'none'
+        }
+      })
     })
   } catch (err) {
     console.error('[DrawIO] createViewerForElement 异常:', err)

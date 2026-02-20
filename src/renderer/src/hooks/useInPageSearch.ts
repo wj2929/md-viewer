@@ -15,6 +15,7 @@
 import { useState, useEffect, useRef, RefObject, useCallback, useMemo } from 'react'
 import Mark from 'mark.js'
 import { useDebouncedValue } from './useDebouncedValue'
+import { useSearchHistoryStore } from '../stores'
 
 // ============================================================================
 // 类型定义
@@ -49,6 +50,14 @@ export interface InPageSearchResult {
   caseSensitive: boolean
   /** v1.4.2: 切换大小写敏感 */
   toggleCaseSensitive: () => void
+  /** 搜索历史 */
+  searchHistory: string[]
+  /** 选择历史项 */
+  onSelectHistory: (keyword: string) => void
+  /** 删除历史项 */
+  onRemoveHistory: (keyword: string) => void
+  /** 清空历史 */
+  onClearHistory: () => void
 }
 
 // ============================================================================
@@ -146,11 +155,40 @@ export function useInPageSearch(
   const [query, setQueryRaw] = useState('')
   const [currentIndex, setCurrentIndex] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
-  const [isVisible, setVisible] = useState(false)
+  const [isVisible, setVisibleRaw] = useState(false)
   // v1.4.2: 大小写敏感（默认不敏感，更符合用户习惯）
   const [caseSensitive, setCaseSensitive] = useState(() => {
     return localStorage.getItem(CASE_SENSITIVE_KEY) === 'true'
   })
+
+  // 搜索历史
+  const inPageSearchHistory = useSearchHistoryStore(s => s.inPageSearchHistory)
+  const addInPageSearchHistory = useSearchHistoryStore(s => s.addInPageSearchHistory)
+  const removeInPageSearchHistory = useSearchHistoryStore(s => s.removeInPageSearchHistory)
+  const clearInPageSearchHistory = useSearchHistoryStore(s => s.clearInPageSearchHistory)
+
+  // 包装 setVisible，关闭时保存历史
+  const setVisible = useCallback((visible: boolean) => {
+    if (!visible && query.trim()) {
+      addInPageSearchHistory(query.trim())
+    }
+    setVisibleRaw(visible)
+  }, [query, addInPageSearchHistory])
+
+  // 选择历史项
+  const onSelectHistory = useCallback((keyword: string) => {
+    setQueryRaw(keyword)
+  }, [])
+
+  // 删除历史项
+  const onRemoveHistory = useCallback((keyword: string) => {
+    removeInPageSearchHistory(keyword)
+  }, [removeInPageSearchHistory])
+
+  // 清空历史
+  const onClearHistory = useCallback(() => {
+    clearInPageSearchHistory()
+  }, [clearInPageSearchHistory])
 
   // -------------------------------------------------------------------------
   // Refs
@@ -347,7 +385,12 @@ export function useInPageSearch(
     setVisible,
     // v1.4.2: 大小写敏感
     caseSensitive,
-    toggleCaseSensitive
+    toggleCaseSensitive,
+    // 搜索历史
+    searchHistory: inPageSearchHistory,
+    onSelectHistory,
+    onRemoveHistory,
+    onClearHistory
   }
 }
 

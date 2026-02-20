@@ -832,3 +832,331 @@ const tree = {
 ## 这也是一个很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长的二级标题
 - 这是一个很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长的叶子节点
 ```
+
+---
+
+## MD Viewer 系统专属补充测试
+
+> 以下用例进一步围绕 MD Viewer 内部架构和开发流程展开。
+
+## MD-1. 版本演进路线图
+
+```markmap
+# MD Viewer 版本演进
+## v1.3.x 基础功能
+### v1.3.5 初始版本
+- 文件树浏览
+- Markdown 渲染
+- 代码高亮
+- Mermaid 图表
+- KaTeX 数学公式
+### v1.3.6 混合方案架构
+- 书签系统
+- 标签页固定
+- 最近文件
+- 三列布局
+### v1.3.7 书签增强
+- 右键添加书签
+- 拖拽排序
+## v1.4.x UI 增强
+### v1.4.0 搜索系统
+- Cmd+Shift+F 页面搜索
+- Fuse.js 模糊搜索
+- mark.js 高亮
+### v1.4.2 架构升级
+- Zustand 状态管理
+- 窗口置顶 Cmd+Option+T
+- 字体调节 Cmd+/-/0
+- 打印功能 Cmd+P
+### v1.4.3 全屏查看
+- Cmd+F11 全屏
+- macOS 原生全屏
+### v1.4.7 导出增强
+- HTML 所见即所得
+- 内联 CSS + SVG
+## v1.5.x 图表生态
+### v1.5.0 ECharts
+- echarts/js/json 代码块
+- 智能检测渲染
+- 跨平台兼容
+- 链接安全处理
+### v1.5.1 分屏系统
+- 递归分屏
+- 图片 Lightbox
+- .md 链接跳转
+### v1.5.2 Infographic
+- AntV 信息图
+- 236 种模板
+- 设置面板 Tab 化
+- 多窗口支持
+### v1.5.3 稳定性
+- Mermaid 串行渲染
+- 分屏导出修复
+- 书签右键菜单
+### v1.5.4 图表扩展
+- Markmap 思维导图
+- Graphviz DOT (WASM)
+- 最近文件右键菜单
+### v1.5.5 开发中
+- DrawIO 图表支持
+- 图表工具栏悬停显示
+- PlantUML 支持
+```
+
+## MD-2. Electron 进程架构
+
+```markmap
+# Electron 进程模型
+## Main Process (主进程)
+### index.ts 入口
+- BrowserWindow 创建
+- IPC Handler 注册
+- will-navigate 安全拦截
+- 全局快捷键
+### appDataManager.ts
+- electron-store 持久化
+- 书签 CRUD
+- 固定标签管理
+- 最近文件记录
+- 窗口位置记忆
+### contextMenuHandler.ts
+- 文件树右键菜单
+- 预览区右键菜单
+- 跨平台文案适配
+### shortcuts.ts
+- Cmd+Shift+F 搜索
+- Cmd+Option+T 置顶
+- Cmd+P 打印
+- Cmd+F11 全屏
+- Cmd+N 新窗口
+### pandocExporter.ts
+- DOCX 导出
+- Lua 过滤器
+- 模板引用
+## Renderer Process (渲染进程)
+### App.tsx 核心组件
+- 统一状态初始化
+- 路由管理
+- 主题切换
+### 组件层
+#### VirtualizedMarkdown.tsx
+- Markdown 渲染主路径
+- 图表检测与渲染
+- 滚动位置保持
+#### FileTree.tsx
+- 文件夹递归展示
+- 文件类型图标
+- 拖拽打开
+#### NavigationBar.tsx
+- Logo + 路径面包屑
+- 搜索入口
+- 置顶按钮
+- 设置入口
+#### TabBar.tsx
+- 多标签管理
+- 固定标签
+- 关闭/关闭其他
+#### BookmarkBar.tsx
+- 顶部书签栏
+- 折叠/展开
+### 渲染器层
+#### markdownRenderer.ts
+- markdown-it 配置
+- 插件注册
+- 代码块检测
+#### echartsRenderer.ts
+- ECharts 实例管理
+- 主题适配
+- 销毁清理
+#### markmapRenderer.ts
+- Transformer 转换
+- SVG 渲染
+- 交互式缩放
+#### graphvizRenderer.ts
+- WASM 初始化
+- DOT → SVG
+- 布局引擎选择
+#### drawioRenderer.ts
+- XML 解析
+- mxGraph 渲染
+### 状态管理层 (Zustand)
+#### windowStore.ts
+- isAlwaysOnTop
+- toggleAlwaysOnTop()
+#### uiStore.ts
+- fontSize
+- theme
+- increaseFontSize()
+- decreaseFontSize()
+- resetFontSize()
+#### clipboardStore.ts
+- clipboard data
+## Preload Script (预加载)
+### index.ts
+- contextBridge 暴露 API
+- ipcRenderer.invoke 封装
+- 安全白名单
+```
+
+## MD-3. 安全防护体系
+
+```markmap
+# MD Viewer 安全防护
+## 输入净化
+### DOMPurify
+- 标签白名单
+- 属性白名单
+- CSS 属性白名单
+- 自定义 hook
+### 路径校验
+- allowedBasePath 限制
+- 路径遍历防护
+- 相对路径存储
+## 输出安全
+### CSP 策略
+- script-src 'self'
+- wasm-unsafe-eval (Graphviz)
+- style-src 'self' 'unsafe-inline'
+- img-src 'self' data: https:
+### will-navigate 拦截
+- 阻止非同源导航
+- 防止 BrowserWindow 劫持
+## 链接处理
+### 三层策略
+- 锚点 → 页内滚动
+- http/https → 系统浏览器
+- 其他 → 阻止默认行为
+### shell.openExternal
+- 仅允许 http/https
+- 阻止 file:// 协议
+- 阻止 javascript: 协议
+## 数据安全
+### 书签上限 100 条
+- LRU 清理策略
+### 固定标签上限 15 个
+- 每文件夹独立计数
+### 文件大小限制
+- 10000 行截断保护
+- 大文件警告提示
+## XSS 防护
+### Markdown 渲染
+- HTML 标签转义
+- 事件属性移除
+- iframe/script 过滤
+### PlantUML SVG
+- 服务端返回净化
+- 客户端二次净化
+### 用户输入
+- 搜索关键词转义
+- 文件名特殊字符处理
+```
+
+## MD-4. 测试策略全景
+
+```markmap
+# MD Viewer 测试策略
+## 单元测试 (Vitest)
+### 渲染器测试
+- markdownRenderer 解析
+- echartsRenderer 配置验证
+- plantumlRenderer 编码
+- graphvizRenderer DOT 解析
+### 工具函数测试
+- 路径处理
+- 文件类型判断
+- 搜索匹配
+### Store 测试
+- windowStore 状态切换
+- uiStore 字体操作
+- 数据持久化
+### 覆盖率目标
+- 语句覆盖 ≥80%
+- 分支覆盖 ≥80%
+- 当前：492 用例通过
+## E2E 测试 (Playwright)
+### Fixture 文件
+- test-mermaid.md
+- test-echarts.md
+- test-plantuml.md
+- test-graphviz.md
+- test-markmap.md
+- test-drawio.md
+- test-katex.md
+- test-all-charts.md
+### 测试场景
+- 文件打开与预览
+- 图表渲染验证
+- 导出功能
+- 搜索功能
+- 书签操作
+- 快捷键响应
+## 手动测试
+### 跨平台验证
+- macOS (ARM + Intel)
+- Windows
+- Linux
+### 性能测试
+- 大文件渲染
+- 多图表并发
+- 内存泄漏检查
+### 兼容性测试
+- 各种 Markdown 方言
+- 特殊字符
+- 中文内容
+```
+
+## MD-5. 开发工作流
+
+```markmap
+# MD Viewer 开发工作流
+## 环境准备
+### 依赖安装
+- `npm install`
+- Node.js 20+
+- Electron 39
+### 开发启动
+- `npm run dev`
+- Vite HMR 热重载
+- Electron 自动重启
+## 编码规范
+### TypeScript 严格模式
+- strict: true
+- noImplicitAny
+- strictNullChecks
+### Conventional Commits
+- feat: 新功能
+- fix: Bug 修复
+- docs: 文档更新
+- chore: 构建配置
+- refactor: 重构
+- test: 测试
+- perf: 性能优化
+### 禁止项
+- ❌ AI 辅助标识
+- ❌ Co-Authored-By
+- ❌ Generated with
+## 提交前检查
+### 自动化
+- `npm test -- --run`
+- `npm run typecheck`
+- `git status`
+### 手动验证
+- 功能回归测试
+- 跨平台检查
+## 发布流程
+### 版本号更新
+- package.json
+- CHANGELOG.md
+### 构建打包
+- `npm run build:mac`
+- DMG + ZIP
+### 发布检查
+- `npm run release:check`
+- Git tag 匹配
+- 工作区干净
+- GitHub Release 发布
+### 文档更新
+- PROGRESS.md
+- CONTEXT-RECOVERY.md
+- README.md
+```

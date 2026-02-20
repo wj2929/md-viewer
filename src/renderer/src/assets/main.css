@@ -892,13 +892,13 @@ body[data-platform="darwin"] .titlebar-drag-region {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.35);
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 100px;
+  padding-top: clamp(60px, 10vh, 100px);
   z-index: 1000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px);
 }
 
 .search-modal {
@@ -992,7 +992,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
 }
 
 .search-results {
-  max-height: 400px;
+  max-height: min(60vh, 500px);
   overflow-y: auto;
 }
 
@@ -1000,7 +1000,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   cursor: pointer;
   transition: background-color 0.15s;
 }
@@ -1054,6 +1054,9 @@ body[data-platform="darwin"] .titlebar-drag-region {
   text-align: center;
   color: var(--text-muted);
   font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 /* 搜索加载状态 */
@@ -1128,7 +1131,8 @@ body[data-platform="darwin"] .titlebar-drag-region {
 .result-expand-toggle {
   flex-shrink: 0;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--accent-color);
+  font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
   background: var(--bg-tertiary);
@@ -1189,6 +1193,93 @@ body[data-platform="darwin"] .titlebar-drag-region {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* SearchBar 搜索历史 */
+.search-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.search-history-clear-btn {
+  border: none;
+  background: none;
+  color: var(--accent-color);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.search-history-clear-btn:hover {
+  background: var(--accent-color-alpha);
+}
+
+.search-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.search-history-item:hover {
+  background-color: var(--bg-secondary);
+}
+
+.search-history-item.selected {
+  background-color: var(--accent-color-alpha);
+}
+
+.search-history-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.search-history-keyword {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-history-remove-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.search-history-item:hover .search-history-remove-btn {
+  opacity: 1;
+}
+
+.search-history-remove-btn:hover {
+  background: var(--bg-tertiary);
+  color: #dc3545;
 }
 
 .search-footer {
@@ -2905,7 +2996,12 @@ body[data-platform="darwin"] .titlebar-drag-region {
 /* 悬停时显示复制按钮 */
 pre:hover .copy-btn,
 .mermaid-code-view:hover .copy-btn,
-.echarts-code-view:hover .copy-btn {
+.echarts-code-view:hover .copy-btn,
+.infographic-code-view:hover .copy-btn,
+.markmap-code-view:hover .copy-btn,
+.graphviz-code-view:hover .copy-btn,
+.drawio-code-view:hover .copy-btn,
+.plantuml-code-view:hover .copy-btn {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2938,7 +3034,8 @@ pre:hover .copy-btn,
 .infographic-back-btn,
 .markmap-back-btn,
 .graphviz-back-btn,
-.drawio-back-btn {
+.drawio-back-btn,
+.plantuml-back-btn {
   position: absolute;
   top: 8px;
   right: 56px;
@@ -2961,7 +3058,8 @@ pre:hover .copy-btn,
 .infographic-code-view:hover .infographic-back-btn,
 .markmap-code-view:hover .markmap-back-btn,
 .graphviz-code-view:hover .graphviz-back-btn,
-.drawio-code-view:hover .drawio-back-btn {
+.drawio-code-view:hover .drawio-back-btn,
+.plantuml-code-view:hover .plantuml-back-btn {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2971,7 +3069,8 @@ pre:hover .copy-btn,
 .infographic-back-btn:hover,
 .markmap-back-btn:hover,
 .graphviz-back-btn:hover,
-.drawio-back-btn:hover {
+.drawio-back-btn:hover,
+.plantuml-back-btn:hover {
   background: var(--bg-primary);
   color: var(--text-primary);
   border-color: var(--accent-color);
@@ -3873,17 +3972,18 @@ body[data-platform="darwin"] .app.fullscreen::before {
 /* 图表容器 */
 .drawio-wrapper .drawio-container {
   width: 100%;
-  min-height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
 }
 
-/* 隐藏 viewer.min.js 内置悬浮工具栏 */
-.drawio-container .geToolbar,
-.drawio-container .geDiagramContainer + div[style*="position"] {
+/* 隐藏 viewer.min.js 内置工具栏：viewer 在 body 下创建 absolute 定位的 toolbar div */
+body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] {
   display: none !important;
+}
+.drawio-container .mxgraph {
+  margin-top: 0px !important;
 }
 
 /* 代码视图容器 */
@@ -4045,8 +4145,31 @@ body[data-platform="darwin"] .app.fullscreen::before {
 .mermaid-wrapper:fullscreen .mermaid-container,
 .graphviz-wrapper:fullscreen .graphviz-container,
 .plantuml-wrapper:fullscreen .plantuml-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   height: calc(100vh - 50px);
   overflow: auto;
+}
+
+/* 全屏模式下代码视图：撑满全屏高度 */
+.mermaid-wrapper:fullscreen .mermaid-code-view,
+.echarts-wrapper:fullscreen .echarts-code-view,
+.infographic-wrapper:fullscreen .infographic-code-view,
+.markmap-wrapper:fullscreen .markmap-code-view,
+.graphviz-wrapper:fullscreen .graphviz-code-view,
+.plantuml-wrapper:fullscreen .plantuml-code-view {
+  max-height: calc(100vh - 50px);
+}
+
+/* 全屏模式下 SVG 保持宽高比，不拉伸 */
+.mermaid-wrapper:fullscreen .mermaid-container svg,
+.graphviz-wrapper:fullscreen .graphviz-container svg,
+.plantuml-wrapper:fullscreen .plantuml-container svg {
+  max-height: calc(100vh - 82px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .echarts-wrapper:fullscreen .echarts-container {
@@ -4054,8 +4177,16 @@ body[data-platform="darwin"] .app.fullscreen::before {
 }
 
 .infographic-wrapper:fullscreen .infographic-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   height: calc(100vh - 50px);
   overflow: auto;
+}
+
+/* 全屏模式下 Infographic SVG 垂直居中，限制最大高度 */
+.infographic-wrapper:fullscreen .infographic-container svg {
+  max-height: calc(100vh - 82px);
 }
 
 .markmap-wrapper:fullscreen .markmap-container {
@@ -4177,27 +4308,6 @@ body[data-platform="darwin"] .app.fullscreen::before {
   border-radius: 0;
 }
 
-/* 返回图表按钮 */
-.plantuml-back-btn {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 5;
-  padding: 4px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-secondary);
-  transition: all 0.15s ease;
-}
-
-.plantuml-back-btn:hover {
-  background: var(--accent-color);
-  color: white;
-  border-color: var(--accent-color);
-}
 
 /* 错误样式 */
 .plantuml-error {

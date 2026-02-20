@@ -677,3 +677,445 @@ pie title 市场份额
 13. ✅ 雷达图
 14. ✅ 漏斗图
 15. ✅ 带数据缩放的图表
+
+---
+
+## MD Viewer 系统专属测试
+
+> 以下用例围绕 MD Viewer 自身的数据指标和功能统计展开，增强代入感。
+
+## MD-1. 版本代码量增长趋势
+
+```echarts
+{
+  "title": {
+    "text": "MD Viewer 版本代码量增长",
+    "subtext": "单位：行（估算）"
+  },
+  "tooltip": {
+    "trigger": "axis"
+  },
+  "xAxis": {
+    "type": "category",
+    "data": ["v1.3.5", "v1.3.6", "v1.4.0", "v1.4.2", "v1.4.7", "v1.5.0", "v1.5.2", "v1.5.4", "v1.5.5"]
+  },
+  "yAxis": {
+    "type": "value",
+    "name": "代码行数"
+  },
+  "series": [
+    {
+      "name": "TypeScript",
+      "type": "line",
+      "smooth": true,
+      "areaStyle": {"color": "rgba(49, 120, 198, 0.2)"},
+      "data": [2800, 3500, 4200, 5100, 6000, 7500, 9200, 11000, 12500]
+    },
+    {
+      "name": "CSS",
+      "type": "line",
+      "smooth": true,
+      "areaStyle": {"color": "rgba(76, 175, 80, 0.2)"},
+      "data": [400, 500, 650, 800, 950, 1100, 1300, 1500, 1650]
+    },
+    {
+      "name": "测试代码",
+      "type": "line",
+      "smooth": true,
+      "areaStyle": {"color": "rgba(255, 152, 0, 0.2)"},
+      "data": [200, 400, 800, 1200, 1800, 2500, 3200, 4000, 4500]
+    }
+  ],
+  "legend": {
+    "data": ["TypeScript", "CSS", "测试代码"]
+  }
+}
+```
+
+## MD-2. 图表渲染器性能对比
+
+```echarts
+{
+  "title": {
+    "text": "各渲染器首次渲染耗时",
+    "subtext": "单位：毫秒（ms）"
+  },
+  "tooltip": {
+    "trigger": "axis",
+    "axisPointer": {"type": "shadow"}
+  },
+  "xAxis": {
+    "type": "value",
+    "name": "耗时 (ms)"
+  },
+  "yAxis": {
+    "type": "category",
+    "data": ["Mermaid", "ECharts", "PlantUML", "Graphviz (WASM)", "Markmap", "DrawIO", "Infographic"]
+  },
+  "series": [{
+    "name": "首次渲染",
+    "type": "bar",
+    "data": [
+      {"value": 120, "itemStyle": {"color": "#5470c6"}},
+      {"value": 80, "itemStyle": {"color": "#91cc75"}},
+      {"value": 800, "itemStyle": {"color": "#ee6666"}},
+      {"value": 200, "itemStyle": {"color": "#fac858"}},
+      {"value": 60, "itemStyle": {"color": "#73c0de"}},
+      {"value": 150, "itemStyle": {"color": "#3ba272"}},
+      {"value": 300, "itemStyle": {"color": "#fc8452"}}
+    ],
+    "label": {
+      "show": true,
+      "position": "right",
+      "formatter": "{c} ms"
+    }
+  }]
+}
+```
+
+## MD-3. 功能模块占比环形图
+
+```echarts
+{
+  "title": {
+    "text": "MD Viewer 功能模块分布",
+    "left": "center"
+  },
+  "tooltip": {
+    "trigger": "item",
+    "formatter": "{b}: {c} 个功能点 ({d}%)"
+  },
+  "legend": {
+    "top": "bottom"
+  },
+  "series": [{
+    "name": "功能模块",
+    "type": "pie",
+    "radius": ["35%", "65%"],
+    "avoidLabelOverlap": false,
+    "itemStyle": {
+      "borderRadius": 10,
+      "borderColor": "#fff",
+      "borderWidth": 2
+    },
+    "label": {
+      "show": true,
+      "formatter": "{b}\n{d}%"
+    },
+    "data": [
+      {"value": 8, "name": "图表渲染"},
+      {"value": 5, "name": "文件管理"},
+      {"value": 4, "name": "导出功能"},
+      {"value": 6, "name": "UI 交互"},
+      {"value": 3, "name": "搜索系统"},
+      {"value": 4, "name": "安全防护"},
+      {"value": 3, "name": "状态管理"}
+    ]
+  }]
+}
+```
+
+## MD-4. 版本发布频率柱状图
+
+```echarts
+{
+  "title": {
+    "text": "MD Viewer 月度版本发布数"
+  },
+  "tooltip": {
+    "trigger": "axis"
+  },
+  "xAxis": {
+    "type": "category",
+    "data": ["2026-01 上旬", "2026-01 中旬", "2026-01 下旬", "2026-02 上旬", "2026-02 中旬"]
+  },
+  "yAxis": {
+    "type": "value",
+    "name": "版本数"
+  },
+  "series": [
+    {
+      "name": "正式版本",
+      "type": "bar",
+      "stack": "total",
+      "data": [7, 1, 1, 4, 2],
+      "itemStyle": {"color": "#5470c6"}
+    },
+    {
+      "name": "热修复",
+      "type": "bar",
+      "stack": "total",
+      "data": [1, 0, 0, 0, 0],
+      "itemStyle": {"color": "#ee6666"}
+    }
+  ],
+  "legend": {
+    "data": ["正式版本", "热修复"]
+  }
+}
+```
+
+## MD-5. 图表类型支持雷达图
+
+```echarts
+{
+  "title": {
+    "text": "MD Viewer 图表能力评估"
+  },
+  "tooltip": {},
+  "radar": {
+    "indicator": [
+      {"name": "图表类型数", "max": 10},
+      {"name": "渲染速度", "max": 10},
+      {"name": "离线支持", "max": 10},
+      {"name": "交互能力", "max": 10},
+      {"name": "导出兼容", "max": 10},
+      {"name": "主题适配", "max": 10}
+    ]
+  },
+  "series": [{
+    "name": "能力评估",
+    "type": "radar",
+    "data": [
+      {
+        "value": [8, 7, 6, 7, 8, 9],
+        "name": "v1.5.4",
+        "areaStyle": {"color": "rgba(84, 112, 198, 0.3)"}
+      },
+      {
+        "value": [9, 7, 6, 8, 8, 9],
+        "name": "v1.5.5",
+        "areaStyle": {"color": "rgba(145, 204, 117, 0.3)"}
+      }
+    ]
+  }]
+}
+```
+
+## MD-6. 测试覆盖率仪表盘
+
+```echarts
+{
+  "series": [
+    {
+      "name": "测试覆盖率",
+      "type": "gauge",
+      "min": 0,
+      "max": 100,
+      "splitNumber": 10,
+      "detail": {
+        "formatter": "{value}%",
+        "fontSize": 24
+      },
+      "data": [{"value": 82, "name": "语句覆盖率"}],
+      "axisLine": {
+        "lineStyle": {
+          "width": 20,
+          "color": [
+            [0.6, "#ee6666"],
+            [0.8, "#fac858"],
+            [1, "#91cc75"]
+          ]
+        }
+      },
+      "pointer": {
+        "itemStyle": {"color": "auto"}
+      },
+      "title": {
+        "fontSize": 14
+      }
+    }
+  ]
+}
+```
+
+## MD-7. 依赖包大小分析
+
+```echarts
+{
+  "title": {
+    "text": "MD Viewer 主要依赖包大小",
+    "subtext": "gzip 后体积（KB）"
+  },
+  "tooltip": {
+    "trigger": "item",
+    "formatter": "{b}: {c} KB ({d}%)"
+  },
+  "series": [{
+    "name": "依赖大小",
+    "type": "pie",
+    "radius": "55%",
+    "roseType": "area",
+    "data": [
+      {"value": 380, "name": "Mermaid"},
+      {"value": 320, "name": "ECharts"},
+      {"value": 180, "name": "React + ReactDOM"},
+      {"value": 150, "name": "Graphviz WASM"},
+      {"value": 120, "name": "KaTeX"},
+      {"value": 90, "name": "Markmap"},
+      {"value": 60, "name": "Prism.js"},
+      {"value": 45, "name": "markdown-it"},
+      {"value": 30, "name": "Zustand"},
+      {"value": 25, "name": "DOMPurify"}
+    ]
+  }]
+}
+```
+
+## MD-8. 用户操作转化漏斗
+
+```echarts
+{
+  "title": {
+    "text": "MD Viewer 用户操作漏斗"
+  },
+  "tooltip": {
+    "trigger": "item",
+    "formatter": "{b}: {c}%"
+  },
+  "series": [{
+    "name": "操作漏斗",
+    "type": "funnel",
+    "left": "10%",
+    "width": "80%",
+    "label": {
+      "formatter": "{b}: {c}%"
+    },
+    "data": [
+      {"value": 100, "name": "打开应用"},
+      {"value": 90, "name": "选择文件夹"},
+      {"value": 75, "name": "预览 Markdown"},
+      {"value": 45, "name": "查看图表"},
+      {"value": 30, "name": "使用搜索"},
+      {"value": 20, "name": "导出文件"},
+      {"value": 10, "name": "添加书签"}
+    ]
+  }]
+}
+```
+
+## MD-9. 快捷键使用频率热力散点图
+
+```echarts
+{
+  "title": {
+    "text": "快捷键使用频率 vs 功能重要性"
+  },
+  "xAxis": {
+    "name": "使用频率",
+    "type": "value",
+    "min": 0,
+    "max": 100
+  },
+  "yAxis": {
+    "name": "功能重要性",
+    "type": "value",
+    "min": 0,
+    "max": 100
+  },
+  "tooltip": {
+    "trigger": "item",
+    "formatter": "{a}: 频率 {c}"
+  },
+  "series": [
+    {
+      "name": "Cmd+Shift+F 搜索",
+      "type": "scatter",
+      "symbolSize": 30,
+      "data": [[85, 90]],
+      "itemStyle": {"color": "#5470c6"}
+    },
+    {
+      "name": "Cmd+P 打印",
+      "type": "scatter",
+      "symbolSize": 22,
+      "data": [[40, 70]],
+      "itemStyle": {"color": "#91cc75"}
+    },
+    {
+      "name": "Cmd+/-/0 字体",
+      "type": "scatter",
+      "symbolSize": 25,
+      "data": [[60, 50]],
+      "itemStyle": {"color": "#fac858"}
+    },
+    {
+      "name": "Cmd+Option+T 置顶",
+      "type": "scatter",
+      "symbolSize": 20,
+      "data": [[35, 45]],
+      "itemStyle": {"color": "#ee6666"}
+    },
+    {
+      "name": "Cmd+F11 全屏",
+      "type": "scatter",
+      "symbolSize": 18,
+      "data": [[25, 60]],
+      "itemStyle": {"color": "#73c0de"}
+    },
+    {
+      "name": "Cmd+N 新窗口",
+      "type": "scatter",
+      "symbolSize": 20,
+      "data": [[30, 55]],
+      "itemStyle": {"color": "#fc8452"}
+    }
+  ]
+}
+```
+
+## MD-10. 各版本新增功能数量堆叠面积图
+
+```echarts
+{
+  "title": {
+    "text": "MD Viewer 各版本功能增长"
+  },
+  "tooltip": {
+    "trigger": "axis",
+    "axisPointer": {"type": "cross"}
+  },
+  "legend": {
+    "data": ["核心功能", "图表支持", "UI 增强", "安全修复"]
+  },
+  "xAxis": {
+    "type": "category",
+    "boundaryGap": false,
+    "data": ["v1.3.5", "v1.3.7", "v1.4.2", "v1.4.7", "v1.5.0", "v1.5.2", "v1.5.4", "v1.5.5"]
+  },
+  "yAxis": {
+    "type": "value",
+    "name": "累计功能数"
+  },
+  "series": [
+    {
+      "name": "核心功能",
+      "type": "line",
+      "stack": "total",
+      "areaStyle": {},
+      "data": [5, 8, 12, 14, 16, 19, 21, 23]
+    },
+    {
+      "name": "图表支持",
+      "type": "line",
+      "stack": "total",
+      "areaStyle": {},
+      "data": [1, 1, 1, 1, 2, 3, 5, 7]
+    },
+    {
+      "name": "UI 增强",
+      "type": "line",
+      "stack": "total",
+      "areaStyle": {},
+      "data": [2, 3, 6, 7, 8, 10, 11, 12]
+    },
+    {
+      "name": "安全修复",
+      "type": "line",
+      "stack": "total",
+      "areaStyle": {},
+      "data": [0, 0, 1, 2, 4, 4, 5, 5]
+    }
+  ]
+}
+```

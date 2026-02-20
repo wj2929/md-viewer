@@ -1,6 +1,5 @@
 export { FileTree } from './FileTree'
 export type { FileInfo } from './FileTree'
-export { MarkdownRenderer } from './MarkdownRenderer'
 export { VirtualizedMarkdown } from './VirtualizedMarkdown'
 export { TabBar } from './TabBar'
 export type { Tab } from './TabBar'

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle, 
 import Fuse from 'fuse.js'
 import { FileInfo } from './FileTree'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useSearchHistoryStore } from '../stores'
 import type { SearchRequest, SearchResponse, SearchResult } from '../workers/searchWorker'
 
 interface SearchBarProps {
@@ -357,9 +358,15 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
   // v1.5.1: 键盘导航索引
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const resultListRef = useRef<HTMLDivElement>(null)
+  // 搜索历史键盘导航索引
+  const [historySelectedIndex, setHistorySelectedIndex] = useState(-1)
 
   // 点击搜索结果
   const handleResultClick = (file: FileInfo, lineNumber?: number): void => {
+    const keyword = debouncedQuery.trim() || query.trim()
+    if (keyword) {
+      useSearchHistoryStore.getState().addSearchBarHistory(keyword)
+    }
     onFileSelect(file, lineNumber, debouncedQuery.trim() || undefined)
     setQuery('')
     setSearchResults([])
@@ -396,6 +403,21 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     return items
   }, [searchResults, expandedFiles, searchMode])
 
+  // 读取搜索历史
+  const searchBarHistory = useSearchHistoryStore(s => s.searchBarHistory)
+  const removeSearchBarHistory = useSearchHistoryStore(s => s.removeSearchBarHistory)
+  const clearSearchBarHistory = useSearchHistoryStore(s => s.clearSearchBarHistory)
+  const showHistory = !query.trim() && searchBarHistory.length > 0
+
+  // 点击历史项：填入搜索框并触发搜索
+  const handleHistorySelect = useCallback((keyword: string) => {
+    setQuery(keyword)
+    setHistorySelectedIndex(-1)
+    setIsSearching(true)
+    // 聚焦回输入框
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }, [])
+
   // 键盘快捷键：Cmd/Ctrl + K 打开搜索 + 上下箭头导航
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -410,6 +432,19 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
         setTotalCount(0)
         setExpandedFiles(new Set())
         setSelectedIndex(-1)
+        setHistorySelectedIndex(-1)
+      } else if (isOpen && showHistory) {
+        // 历史列表导航
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setHistorySelectedIndex(prev => Math.min(prev + 1, searchBarHistory.length - 1))
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setHistorySelectedIndex(prev => Math.max(prev - 1, -1))
+        } else if (e.key === 'Enter' && historySelectedIndex >= 0 && historySelectedIndex < searchBarHistory.length) {
+          e.preventDefault()
+          handleHistorySelect(searchBarHistory[historySelectedIndex])
+        }
       } else if (isOpen && e.key === 'ArrowDown') {
         e.preventDefault()
         setSelectedIndex(prev => Math.min(prev + 1, flatNavItems.length - 1))
@@ -434,7 +469,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, selectedIndex, flatNavItems, searchMode, searchResults])
+  }, [isOpen, selectedIndex, flatNavItems, searchMode, searchResults, showHistory, searchBarHistory, historySelectedIndex, handleHistorySelect])
 
   // 点击外部关闭
   useEffect(() => {
@@ -499,7 +534,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
 
       {isOpen && (
         <div className="search-overlay">
-          <div className="search-modal">
+          <div className="search-modal" onClick={(e) => e.stopPropagation()}>
             <div className="search-input-wrapper">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
@@ -510,7 +545,10 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
                 className="search-input"
                 placeholder={searchMode === 'filename' ? '搜索文件名...' : '搜索文件内容...'}
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setHistorySelectedIndex(-1)
+                }}
                 autoFocus
               />
               {/* 搜索中状态指示器 */}
@@ -556,8 +594,65 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
               </button>
             </div>
 
+            {/* 搜索历史区域（输入为空时显示） */}
+            {showHistory && (
+              <div className="search-results">
+                <div className="search-history-header">
+                  <span>最近搜索</span>
+                  <button
+                    className="search-history-clear-btn"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      clearSearchBarHistory()
+                    }}
+                  >
+                    清空
+                  </button>
+                </div>
+                {searchBarHistory.map((keyword, idx) => (
+                  <div
+                    key={keyword}
+                    className={`search-history-item ${historySelectedIndex === idx ? 'selected' : ''}`}
+                    onClick={() => handleHistorySelect(keyword)}
+                  >
+                    <span className="search-history-icon">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="8" cy="8" r="6.5" />
+                        <polyline points="8 4.5 8 8 10.5 9.5" />
+                      </svg>
+                    </span>
+                    <span className="search-history-keyword">{keyword}</span>
+                    <button
+                      className="search-history-remove-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removeSearchBarHistory(keyword)
+                      }}
+                      aria-label={`删除 ${keyword}`}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 无历史且无输入时的提示 */}
+            {!query.trim() && searchBarHistory.length === 0 && (
+              <div className="search-results">
+                <div className="search-no-results">
+                  <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.3, marginBottom: 8 }}>
+                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
+                  </svg>
+                  <p>输入关键词搜索文件</p>
+                </div>
+              </div>
+            )}
+
             {/* 搜索结果区域 */}
-            {(query || searchResults.length > 0) && (
+            {query.trim() && (
               <div className="search-results" ref={resultListRef}>
                 {isSearching && searchResults.length === 0 ? (
                   <div className="search-searching">
@@ -618,7 +713,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
                                 const actualNavIndex = fileNavIndex + 1 + idx
                                 return (
                                   <div
-                                    key={`${file.path}-L${match.lineNumber || idx}`}
+                                    key={`${file.path}-L${match.lineNumber || 0}-${idx}`}
                                     className={`search-match-line ${selectedIndex === actualNavIndex ? 'selected' : ''}`}
                                     onClick={(e) => {
                                       e.stopPropagation()

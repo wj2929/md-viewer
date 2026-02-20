@@ -23,6 +23,7 @@ const PLANTUML_CONFIG = {
   DEFAULT_SERVER: 'https://www.plantuml.com/plantuml',
   FETCH_TIMEOUT: 8000, // 8s
   MAX_GET_LENGTH: 4000, // 编码后超过此长度改用 POST
+  MAX_CACHE_SIZE: 100, // SVG 缓存最大条目数
 }
 
 /** SVG 缓存：key = code hash, value = SVG string */
@@ -132,7 +133,11 @@ export async function renderPlantUMLToSvg(code: string): Promise<string> {
       throw new Error('服务器返回了非 SVG 内容')
     }
 
-    // 存入缓存
+    // 存入缓存（LRU：超过上限时删除最早的条目）
+    if (svgCache.size >= PLANTUML_CONFIG.MAX_CACHE_SIZE) {
+      const firstKey = svgCache.keys().next().value
+      if (firstKey !== undefined) svgCache.delete(firstKey)
+    }
     svgCache.set(cacheKey, svg)
     return svg
   } catch (error) {

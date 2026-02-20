@@ -2079,3 +2079,262 @@ digraph Inheritance {
     y2 -> z1
 }
 ```
+
+---
+
+## MD Viewer 系统专属补充测试
+
+> 以下用例进一步围绕 MD Viewer 内部架构展开。
+
+## 51. IPC 通信全景图
+
+```dot
+digraph IPC {
+    rankdir=LR
+    node [shape=box, style="rounded,filled", fontsize=9, fillcolor=white]
+    edge [fontsize=8]
+
+    subgraph cluster_renderer {
+        label="Renderer Process"
+        style="filled,rounded"
+        fillcolor="#E3F2FD"
+        color="#1565C0"
+        fontsize=11
+
+        App [label="App.tsx", fillcolor="#BBDEFB"]
+        FileTree [label="FileTree.tsx", fillcolor="#BBDEFB"]
+        VM [label="VirtualizedMarkdown", fillcolor="#BBDEFB"]
+        Nav [label="NavigationBar", fillcolor="#BBDEFB"]
+        Settings [label="SettingsPanel", fillcolor="#BBDEFB"]
+    }
+
+    subgraph cluster_preload {
+        label="Preload (contextBridge)"
+        style="filled,rounded"
+        fillcolor="#FFF9C4"
+        color="#F9A825"
+        fontsize=11
+
+        api [label="window.api", fillcolor="#FFF59D"]
+    }
+
+    subgraph cluster_main {
+        label="Main Process"
+        style="filled,rounded"
+        fillcolor="#E8F5E9"
+        color="#2E7D32"
+        fontsize=11
+
+        index [label="index.ts\nipcMain.handle", fillcolor="#C8E6C9"]
+        appData [label="appDataManager.ts", fillcolor="#C8E6C9"]
+        shortcuts [label="shortcuts.ts", fillcolor="#C8E6C9"]
+        ctxMenu [label="contextMenuHandler.ts", fillcolor="#C8E6C9"]
+        clipboard [label="clipboardManager.ts", fillcolor="#C8E6C9"]
+        pandoc [label="pandocExporter.ts", fillcolor="#C8E6C9"]
+    }
+
+    subgraph cluster_fs {
+        label="系统资源"
+        style="filled,rounded"
+        fillcolor="#FFF3E0"
+        color="#E65100"
+        fontsize=11
+
+        files [label="文件系统\n.md 文件", fillcolor="#FFE0B2"]
+        store [label="electron-store\n持久化", fillcolor="#FFE0B2"]
+        shell [label="shell\nopenExternal", fillcolor="#FFE0B2"]
+    }
+
+    // Renderer -> Preload
+    App -> api [label="readFile\nwriteFile"]
+    FileTree -> api [label="readDir\ngetFileInfo"]
+    VM -> api [label="openExternal"]
+    Nav -> api [label="toggleAlwaysOnTop"]
+    Settings -> api [label="getSettings\nsaveSettings"]
+
+    // Preload -> Main
+    api -> index [label="ipcRenderer.invoke"]
+
+    // Main -> 系统
+    index -> files [label="fs.readFile"]
+    index -> appData [label="书签/标签"]
+    appData -> store [label="读写"]
+    index -> shell [label="打开链接"]
+    shortcuts -> index [label="注册快捷键"]
+    ctxMenu -> index [label="右键菜单"]
+    clipboard -> index [label="剪贴板"]
+    pandoc -> files [label="导出 DOCX"]
+}
+```
+
+## 52. 图表工具栏悬停显示架构
+
+```dot
+digraph ChartToolbar {
+    rankdir=TB
+    node [shape=box, style="rounded,filled", fontsize=9, fillcolor="#E3F2FD"]
+    edge [fontsize=8]
+
+    container [label="图表容器\n.chart-container", fillcolor="#BBDEFB"]
+    toolbar [label="工具栏\n.chart-toolbar\n(opacity: 0)", fillcolor="#FFF9C4"]
+    hover [label="mouseenter 事件", shape=ellipse, fillcolor="#C8E6C9"]
+    leave [label="mouseleave 事件", shape=ellipse, fillcolor="#FFCDD2"]
+
+    subgraph cluster_buttons {
+        label="工具栏按钮"
+        style="filled,rounded"
+        fillcolor="#F5F5F5"
+        btn_fullscreen [label="全屏查看"]
+        btn_copy [label="复制代码"]
+        btn_download [label="下载 SVG"]
+        btn_zoom_in [label="放大"]
+        btn_zoom_out [label="缩小"]
+        btn_reset [label="重置"]
+    }
+
+    subgraph cluster_charts {
+        label="支持的图表类型"
+        style="filled,rounded"
+        fillcolor="#E8F5E9"
+        mermaid [label="Mermaid", fillcolor="#C8E6C9"]
+        echarts [label="ECharts", fillcolor="#C8E6C9"]
+        plantuml [label="PlantUML", fillcolor="#C8E6C9"]
+        graphviz [label="Graphviz", fillcolor="#C8E6C9"]
+        markmap [label="Markmap", fillcolor="#C8E6C9"]
+        drawio [label="DrawIO", fillcolor="#C8E6C9"]
+    }
+
+    container -> hover [label="鼠标进入"]
+    hover -> toolbar [label="opacity: 1\ntransition 0.2s"]
+    container -> leave [label="鼠标离开"]
+    leave -> toolbar [label="opacity: 0\ntransition 0.2s"]
+
+    toolbar -> btn_fullscreen
+    toolbar -> btn_copy
+    toolbar -> btn_download
+    toolbar -> btn_zoom_in
+    toolbar -> btn_zoom_out
+    toolbar -> btn_reset
+
+    mermaid -> container
+    echarts -> container
+    plantuml -> container
+    graphviz -> container
+    markmap -> container
+    drawio -> container
+}
+```
+
+## 53. 导出 HTML 所见即所得流程
+
+```graphviz
+digraph ExportHTML {
+    rankdir=TB
+    node [shape=box, style="rounded,filled", fontsize=9, fillcolor="#E3F2FD"]
+    edge [fontsize=8]
+
+    start [label="用户点击\n导出 HTML", shape=ellipse, fillcolor="#C8E6C9"]
+
+    clone [label="1. 克隆当前 DOM\ndocument.cloneNode(true)"]
+    css [label="2. 内联所有 CSS\ngetComputedStyle → inline"]
+    mermaid [label="3. Mermaid SVG\n已渲染，直接保留"]
+    echarts [label="4. ECharts\ngetDataURL() → img"]
+    plantuml [label="5. PlantUML SVG\n已渲染，直接保留"]
+    graphviz [label="6. Graphviz SVG\n已渲染，直接保留"]
+    markmap [label="7. Markmap SVG\n已渲染，直接保留"]
+    drawio [label="8. DrawIO SVG\n已渲染，直接保留"]
+    katex [label="9. KaTeX CSS\n内联 + CDN 降级"]
+    prism [label="10. 代码高亮\n内联 Prism 样式"]
+    assemble [label="11. 组装完整 HTML\n<!DOCTYPE html>..."]
+    write [label="12. 写入文件\nfs.writeFile()"]
+    done [label="导出完成\nToast 通知", shape=ellipse, fillcolor="#C8E6C9"]
+
+    start -> clone -> css
+    css -> mermaid
+    css -> echarts
+    css -> plantuml
+    css -> graphviz
+    css -> markmap
+    css -> drawio
+    mermaid -> katex
+    echarts -> katex
+    plantuml -> katex
+    graphviz -> katex
+    markmap -> katex
+    drawio -> katex
+    katex -> prism -> assemble -> write -> done
+}
+```
+
+## 54. 安全边界检查决策树
+
+```dot
+digraph SecurityCheck {
+    rankdir=TB
+    node [shape=box, style="rounded,filled", fontsize=9, fillcolor="#E3F2FD"]
+    edge [fontsize=8]
+
+    input [label="用户输入/操作", shape=ellipse, fillcolor="#FFF9C4"]
+
+    check_path [label="路径检查\nallowedBasePath", shape=diamond, fillcolor="#FFE0B2"]
+    check_protocol [label="协议检查\nhttp/https only", shape=diamond, fillcolor="#FFE0B2"]
+    check_navigate [label="导航检查\nwill-navigate", shape=diamond, fillcolor="#FFE0B2"]
+    check_dom [label="DOM 净化\nDOMPurify", shape=diamond, fillcolor="#FFE0B2"]
+
+    allow [label="✅ 允许操作", fillcolor="#C8E6C9"]
+    block [label="❌ 阻止操作", fillcolor="#FFCDD2"]
+    sanitize [label="🧹 净化后输出", fillcolor="#B3E5FC"]
+
+    input -> check_path [label="文件操作"]
+    input -> check_protocol [label="链接点击"]
+    input -> check_navigate [label="页面导航"]
+    input -> check_dom [label="HTML 渲染"]
+
+    check_path -> allow [label="在允许范围内"]
+    check_path -> block [label="路径遍历"]
+
+    check_protocol -> allow [label="http/https"]
+    check_protocol -> block [label="file://\njavascript:"]
+
+    check_navigate -> allow [label="同源"]
+    check_navigate -> block [label="非同源"]
+
+    check_dom -> sanitize [label="移除危险标签"]
+}
+```
+
+## 55. 窗口生命周期状态机
+
+```graphviz
+digraph WindowLifecycle {
+    rankdir=LR
+    node [shape=ellipse, style=filled, fillcolor="#E3F2FD", fontsize=9]
+    edge [fontsize=8]
+
+    created [label="窗口创建\nnew BrowserWindow", fillcolor="#C8E6C9"]
+    loading [label="加载中\nloadURL", fillcolor="#FFF9C4"]
+    ready [label="就绪\nready-to-show", fillcolor="#A5D6A7", shape=doublecircle]
+    focused [label="获得焦点\nfocus", fillcolor="#81C784"]
+    blurred [label="失去焦点\nblur", fillcolor="#E0E0E0"]
+    minimized [label="最小化\nminimize", fillcolor="#BDBDBD"]
+    maximized [label="最大化\nmaximize", fillcolor="#90CAF9"]
+    fullscreen [label="全屏\nenter-full-screen", fillcolor="#64B5F6"]
+    closing [label="关闭中\nclose", fillcolor="#FFCDD2"]
+    destroyed [label="已销毁\nclosed", fillcolor="#EF9A9A"]
+
+    created -> loading [label="loadURL()"]
+    loading -> ready [label="did-finish-load"]
+    ready -> focused [label="show()"]
+    focused -> blurred [label="blur"]
+    blurred -> focused [label="focus"]
+    focused -> minimized [label="minimize()"]
+    minimized -> focused [label="restore()"]
+    focused -> maximized [label="maximize()"]
+    maximized -> focused [label="unmaximize()"]
+    focused -> fullscreen [label="setFullScreen(true)"]
+    fullscreen -> focused [label="setFullScreen(false)"]
+    focused -> closing [label="close()"]
+    blurred -> closing [label="close()"]
+    closing -> destroyed [label="destroy()"]
+}
+```
