@@ -519,7 +519,7 @@ npm run build:linux
 - [x] 导出 HTML 所见即所得（与预览 100% 一致）(v1.4.7)
 - [x] 文件监听器安全修复 (v1.4.7)
 
-### v1.5/v1.6 ✅
+### v1.5 ✅
 - [x] ECharts 交互式图表支持（echarts/js/json 智能检测）
 - [x] ECharts 标题/图例重叠自动修复
 - [x] 导出 HTML KaTeX 样式修复（CDN 降级方案）
@@ -544,11 +544,15 @@ npm run build:linux
 - [x] 最近文件右键菜单（分屏打开 + 从历史移除）
 - [x] DrawIO 图表支持（drawio 代码块渲染）
 - [x] 图表工具栏悬停显示（6 种图表，右上角紧凑按钮组）
+
+### v1.6 ✅
 - [x] PlantUML 图表支持（服务器地址可配置）
 - [x] 主进程 IPC 模块化（index.ts 拆分为 6 个模块）
 - [x] 图表渲染 Hooks 拆分（7 种图表独立 hook）
 - [x] 搜索结果公平分配（每组保底 3 条，解决当前文件夹垄断）
 - [x] 搜索历史记录（持久化 electron-store）
+- [x] 图表下载图片裁剪优化（getBBox 裁剪空白）
+- [x] ECharts SVG 渲染器下载兼容修复
 
 ### v2.0 (计划中)
 - [ ] 拖拽排序文件
