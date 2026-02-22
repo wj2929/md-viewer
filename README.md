@@ -3,7 +3,7 @@
 > 一个简洁、高效的桌面端 Markdown 预览工具
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.5.4-green.svg)](https://github.com/wj2929/md-viewer/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0-green.svg)](https://github.com/wj2929/md-viewer/releases)
 [![Electron](https://img.shields.io/badge/Electron-39-blue.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
@@ -96,8 +96,8 @@ MD Viewer 支持 **8 种图表/公式渲染**，在 Markdown 代码块中直接�
 ### macOS
 
 **下载：**
-- [MD Viewer-1.5.4-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4) (Apple Silicon M1/M2/M3)
-- [MD Viewer-1.5.4.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4) (Intel Mac)
+- [MD Viewer-1.6.0-arm64.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.6.0) (Apple Silicon M1/M2/M3)
+- [MD Viewer-1.6.0.dmg](https://github.com/wj2929/md-viewer/releases/tag/v1.6.0) (Intel Mac)
 
 ⚠️ **首次安装说明**
 
@@ -124,7 +124,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 3. 点击"仍要打开"
 
 ### Windows
-- [MD Viewer Setup 1.5.4.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4)
+- [MD Viewer Setup 1.6.0.exe](https://github.com/wj2929/md-viewer/releases/tag/v1.6.0)
 
 首次运行安装程序时，SmartScreen 可能显示"Windows 已保护你的电脑"：
 1. 点击"更多信息"
@@ -134,7 +134,7 @@ xattr -d com.apple.provenance /Applications/MD\ Viewer.app
 > 可以在"Windows 安全中心 → 应用和浏览器控制"中查看被阻止的应用并选择"仍要运行"。
 
 ### Linux
-- [MD Viewer-1.5.4.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.5.4)
+- [MD Viewer-1.6.0.AppImage](https://github.com/wj2929/md-viewer/releases/tag/v1.6.0)
 
 **AppImage 用户**（Ubuntu 22.04+ / Debian 12+ / Fedora 38+）需要先安装 libfuse2：
 ```bash
@@ -149,13 +149,13 @@ sudo pacman -S fuse2
 ```
 
 ```bash
-chmod +x MD-Viewer-1.5.4.AppImage
-./MD-Viewer-1.5.4.AppImage
+chmod +x MD-Viewer-1.6.0.AppImage
+./MD-Viewer-1.6.0.AppImage
 ```
 
 如果不想安装 FUSE，可以用提取模式运行：
 ```bash
-./MD-Viewer-1.5.4.AppImage --appimage-extract-and-run
+./MD-Viewer-1.6.0.AppImage --appimage-extract-and-run
 ```
 
 ---
@@ -519,7 +519,7 @@ npm run build:linux
 - [x] 导出 HTML 所见即所得（与预览 100% 一致）(v1.4.7)
 - [x] 文件监听器安全修复 (v1.4.7)
 
-### v1.5 (当前版本)
+### v1.5/v1.6 ✅
 - [x] ECharts 交互式图表支持（echarts/js/json 智能检测）
 - [x] ECharts 标题/图例重叠自动修复
 - [x] 导出 HTML KaTeX 样式修复（CDN 降级方案）
