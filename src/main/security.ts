@@ -185,6 +185,17 @@ export function validateSecurePath(targetPath: string): void {
 }
 
 /**
+ * 搜索专用路径验证：仅拦截系统/敏感路径，不限制 allowedBasePath
+ * 用于跨文件夹搜索场景
+ */
+export function validateSearchPath(targetPath: string): void {
+  const normalized = path.resolve(targetPath)
+  if (PROTECTED_PATTERNS.some(pattern => pattern.test(normalized))) {
+    throw new Error(`安全错误：路径 "${targetPath}" 是受保护的系统路径`)
+  }
+}
+
+/**
  * 重置安全配置（测试用）
  */
 export function resetSecurity(): void {

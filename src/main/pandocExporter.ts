@@ -134,10 +134,6 @@ ${htmlContent}
     await fs.writeFile(htmlPath, fullHtml, 'utf-8')
 
     console.log('[Pandoc] HTML 文件已保存:', htmlPath)
-    // 调试：保存一份 HTML 副本用于检查
-    const debugHtmlPath = '/tmp/pandoc-debug-input.html'
-    await fs.writeFile(debugHtmlPath, fullHtml, 'utf-8')
-    console.log('[Pandoc] 调试 HTML 已保存:', debugHtmlPath)
 
     // 3. 调用 Pandoc 转换 HTML -> DOCX
     // 根据 docStyle 选择不同的 reference.docx

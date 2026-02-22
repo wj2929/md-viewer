@@ -8,11 +8,16 @@ import { FileInfo } from '../../src/components/FileTree'
 const mockReadFile = vi.fn()
 global.window.api = {
   readFile: mockReadFile,
-  platform: 'darwin'
+  platform: 'darwin',
+  getRecentFiles: vi.fn().mockResolvedValue([]),
+  getFolderHistory: vi.fn().mockResolvedValue([]),
+  searchReadDir: vi.fn().mockResolvedValue([]),
+  searchReadFile: vi.fn().mockResolvedValue('')
 } as any
 
 describe('SearchBar', () => {
   const mockOnFileSelect = vi.fn()
+  const mockOnExternalFileOpen = vi.fn()
 
   const createMockFile = (name: string, path: string): FileInfo => ({
     name,
@@ -34,19 +39,19 @@ describe('SearchBar', () => {
 
   describe('基础渲染', () => {
     it('应该渲染搜索按钮', () => {
-      render(<SearchBar files={[]} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={[]} folderPath={null} onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       expect(screen.getByText('搜索文件...')).toBeInTheDocument()
     })
 
     it('应该显示快捷键提示', () => {
-      render(<SearchBar files={[]} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={[]} folderPath={null} onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       expect(screen.getByText('⌘K')).toBeInTheDocument()
     })
 
     it('点击搜索按钮应该打开搜索框', async () => {
-      render(<SearchBar files={[]} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={[]} folderPath={null} onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -63,7 +68,7 @@ describe('SearchBar', () => {
     ]
 
     it('应该模糊搜索文件名', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -77,7 +82,7 @@ describe('SearchBar', () => {
     })
 
     it('应该匹配文件路径', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -92,7 +97,7 @@ describe('SearchBar', () => {
     })
 
     it('没有匹配结果时应该显示提示', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -110,7 +115,7 @@ describe('SearchBar', () => {
         createMockFile(`file${i}.md`, `/file${i}.md`)
       )
 
-      const { container } = render(<SearchBar files={manyFiles} onFileSelect={mockOnFileSelect} />)
+      const { container } = render(<SearchBar files={manyFiles} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -144,7 +149,7 @@ describe('SearchBar', () => {
     })
 
     it('应该显示搜索模式切换按钮', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -154,7 +159,7 @@ describe('SearchBar', () => {
     })
 
     it('切换到全文模式应该加载文件内容', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -169,7 +174,7 @@ describe('SearchBar', () => {
     })
 
     it('全文搜索应该显示匹配片段', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -193,7 +198,7 @@ describe('SearchBar', () => {
     })
 
     it('全文搜索无匹配时应该显示提示', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -215,10 +220,10 @@ describe('SearchBar', () => {
   })
 
   describe('搜索结果操作', () => {
-    const files = [createMockFile('test.md', '/test.md')]
+    const files = [createMockFile('test.md', '/test/test.md')]
 
     it('点击搜索结果应该选择文件', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -237,7 +242,7 @@ describe('SearchBar', () => {
     })
 
     it('选择文件后应该关闭搜索框', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -258,7 +263,7 @@ describe('SearchBar', () => {
     })
 
     it('选择文件后应该清空搜索关键词', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -281,7 +286,7 @@ describe('SearchBar', () => {
     const files = [createMockFile('test.md', '/test.md')]
 
     it('输入内容后应该显示清空按钮', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -294,7 +299,7 @@ describe('SearchBar', () => {
     })
 
     it('点击清空按钮应该清除输入', async () => {
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -318,7 +323,7 @@ describe('SearchBar', () => {
         createMockFile('readme.md', '/readme.md')
       ]
 
-      render(<SearchBar files={files} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)
@@ -335,7 +340,7 @@ describe('SearchBar', () => {
 
   describe('空文件列表', () => {
     it('空文件列表应该显示无结果', async () => {
-      render(<SearchBar files={[]} onFileSelect={mockOnFileSelect} />)
+      render(<SearchBar files={[]} folderPath={null} onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 
       const trigger = screen.getByRole('button', { name: /搜索文件/i })
       await userEvent.click(trigger)

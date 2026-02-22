@@ -1,5 +1,4 @@
 // 简单的文件日志工具
-const LOG_FILE = '/tmp/md-viewer-debug.log'
 
 export function logToFile(message: string): void {
   const timestamp = new Date().toISOString()

@@ -11,6 +11,10 @@ const api = {
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
 
+  // 搜索专用：跨文件夹访问（仅检查 PROTECTED_PATTERNS）
+  searchReadDir: (path: string) => ipcRenderer.invoke('search:readDir', path),
+  searchReadFile: (path: string) => ipcRenderer.invoke('search:readFile', path),
+
   // 文件监听 (v1.1 新增) - 只监听已打开的文件
   watchFolder: (path: string) => ipcRenderer.invoke('fs:watchFolder', path),
   watchFile: (path: string) => ipcRenderer.invoke('fs:watchFile', path),
@@ -133,6 +137,16 @@ const api = {
     ipcRenderer.invoke('settings:get') as Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number }>,
   updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number }>) =>
     ipcRenderer.invoke('settings:update', updates),
+
+  // 搜索历史（原子 IPC）
+  loadSearchHistory: () =>
+    ipcRenderer.invoke('search-history:load') as Promise<{ searchBarHistory: string[]; inPageSearchHistory: string[] }>,
+  addSearchHistory: (type: 'searchBar' | 'inPage', keyword: string) =>
+    ipcRenderer.invoke('search-history:add', type, keyword) as Promise<string[]>,
+  removeSearchHistory: (type: 'searchBar' | 'inPage', keyword: string) =>
+    ipcRenderer.invoke('search-history:remove', type, keyword) as Promise<string[]>,
+  clearSearchHistory: (type: 'searchBar' | 'inPage') =>
+    ipcRenderer.invoke('search-history:clear', type) as Promise<void>,
 
   // v1.3.6：书签管理
   getBookmarks: () =>

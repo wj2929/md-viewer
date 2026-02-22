@@ -7,7 +7,9 @@ import type { SearchRequest, SearchResponse, SearchResult } from '../workers/sea
 
 interface SearchBarProps {
   files: FileInfo[]
+  folderPath: string | null
   onFileSelect: (file: FileInfo, scrollToLine?: number, highlightKeyword?: string) => void
+  onExternalFileOpen: (filePath: string) => void
 }
 
 export interface SearchBarHandle {
@@ -16,6 +18,54 @@ export interface SearchBarHandle {
 
 interface FileWithContent extends FileInfo {
   content?: string
+}
+
+// 跨平台路径前缀判断（兼容 Windows '\' 和 Unix '/'）
+const isSubPath = (child: string, parent: string): boolean =>
+  child.startsWith(parent + '/') || child.startsWith(parent + '\\')
+
+function fairAllocate(
+  rawResults: SearchResult[],
+  folderPath: string | null,
+  recentPaths: Set<string>,
+  maxTotal = 20,
+  minPerGroup = 3
+): SearchResult[] {
+  if (rawResults.length <= maxTotal) return rawResults
+
+  const buckets: Record<string, SearchResult[]> = {
+    current: [], recentFiles: [], recentFolders: []
+  }
+  for (const r of rawResults) {
+    if (folderPath && isSubPath(r.file.path, folderPath)) buckets.current.push(r)
+    else if (recentPaths.has(r.file.path)) buckets.recentFiles.push(r)
+    else buckets.recentFolders.push(r)
+  }
+
+  const nonEmpty = Object.values(buckets).filter(b => b.length > 0)
+  if (nonEmpty.length <= 1) return rawResults.slice(0, maxTotal)
+
+  const seen = new Set<string>()
+  const selected: SearchResult[] = []
+  for (const items of nonEmpty) {
+    const take = Math.min(items.length, minPerGroup)
+    for (let i = 0; i < take; i++) {
+      if (!seen.has(items[i].file.path)) {
+        seen.add(items[i].file.path)
+        selected.push(items[i])
+      }
+    }
+  }
+
+  for (const r of rawResults) {
+    if (selected.length >= maxTotal) break
+    if (!seen.has(r.file.path)) {
+      seen.add(r.file.path)
+      selected.push(r)
+    }
+  }
+
+  return selected
 }
 
 // Worker 实例（模块级别，避免重复创建）
@@ -39,10 +89,13 @@ function countMatches(content: string, query: string): number {
   return matches ? matches.length : 0
 }
 
-export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, onFileSelect }, ref) => {
+export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, folderPath, onFileSelect, onExternalFileOpen }, ref) => {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
+  // 分组折叠状态（session 级持久化，不随 isOpen 重置）
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [searchMode, setSearchMode] = useState<'filename' | 'content'>('filename')
+  const [searchScope, setSearchScope] = useState<'all' | 'currentFolder'>('all')
   const [filesWithContent, setFilesWithContent] = useState<FileWithContent[]>([])
   const [isLoadingContent, setIsLoadingContent] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
@@ -51,6 +104,13 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
   const inputRef = useRef<HTMLInputElement>(null)
   const workerRef = useRef<Worker | null>(null)
   const currentSearchIdRef = useRef<number>(0)
+
+  // 外部数据源状态
+  const [recentFilesList, setRecentFilesList] = useState<FileInfo[]>([])
+  const [recentFolderFiles, setRecentFolderFiles] = useState<FileInfo[]>([])
+  const [isLoadingExternal, setIsLoadingExternal] = useState(false)
+  const [loadingProgress, setLoadingProgress] = useState('')
+  const loadRequestIdRef = useRef(0)
 
   // 防抖查询值 - 300ms 延迟
   const debouncedQuery = useDebouncedValue(query, 300)
@@ -81,6 +141,88 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     return result
   }, [files])
 
+  // 展平文件树的通用辅助函数
+  const flattenTree = (items: FileInfo[]): FileInfo[] => {
+    const out: FileInfo[] = []
+    const walk = (list: FileInfo[]): void => {
+      for (const item of list) {
+        if (item.isDirectory && item.children) walk(item.children)
+        else if (!item.isDirectory) out.push(item)
+      }
+    }
+    walk(items)
+    return out
+  }
+
+  // scope 切换处理
+  const handleScopeChange = useCallback((scope: 'all' | 'currentFolder') => {
+    setSearchScope(scope)
+    setFilesWithContent([])
+    setSearchResults([])
+    setTotalCount(0)
+    setSelectedIndex(-1)
+  }, [])
+
+  // 加载外部数据源（最近文件 + 最近文件夹）
+  useEffect(() => {
+    if (!isOpen) return
+    const requestId = ++loadRequestIdRef.current
+
+    if (searchScope === 'currentFolder') {
+      setRecentFilesList([])
+      setRecentFolderFiles([])
+      setIsLoadingExternal(false)
+      return
+    }
+
+    const load = async (): Promise<void> => {
+      setIsLoadingExternal(true)
+      try {
+        const currentPaths = new Set(flatFiles.map(f => f.path))
+
+        // 加载最近文件
+        const recentFiles = await window.api.getRecentFiles()
+        if (requestId !== loadRequestIdRef.current) return
+        setRecentFilesList(
+          recentFiles
+            .map((f: { name: string; path: string }) => ({ name: f.name, path: f.path, isDirectory: false }))
+            .filter((f: FileInfo) => !currentPaths.has(f.path))
+        )
+
+        // 加载最近文件夹
+        const folders = await window.api.getFolderHistory()
+        if (requestId !== loadRequestIdRef.current) return
+        const top5 = folders
+          .filter((f: { path: string }) => f.path !== folderPath)
+          .slice(0, 5)
+
+        const allFolderFiles: FileInfo[] = []
+        for (let i = 0; i < top5.length; i++) {
+          setLoadingProgress(`扫描文件夹 ${i + 1}/${top5.length}...`)
+          try {
+            const tree = await window.api.searchReadDir(top5[i].path)
+            if (requestId !== loadRequestIdRef.current) return
+            allFolderFiles.push(...flattenTree(tree).slice(0, 500))
+          } catch { /* 文件夹不存在，跳过 */ }
+        }
+        if (requestId !== loadRequestIdRef.current) return
+
+        // 去重：排除当前文件夹和最近文件中已有的
+        const existingPaths = new Set([
+          ...currentPaths,
+          ...recentFiles.map((f: { path: string }) => f.path)
+        ])
+        setRecentFolderFiles(allFolderFiles.filter(f => !existingPaths.has(f.path)))
+      } finally {
+        if (requestId === loadRequestIdRef.current) {
+          setIsLoadingExternal(false)
+          setLoadingProgress('')
+        }
+      }
+    }
+    load()
+  }, [isOpen, folderPath, searchScope])
+
   // 用于追踪已加载内容的文件路径集合
   const loadedPathsRef = useRef<Set<string>>(new Set())
 
@@ -100,33 +242,45 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     }
   }, [flatFiles])
 
-  // 当切换到全文搜索模式时，加载所有文件内容
+  // 内容加载 loadId 防竞态
+  const contentLoadIdRef = useRef(0)
+
+  // 当切换到全文搜索模式时，加载所有文件内容（含外部文件）
   useEffect(() => {
-    if (searchMode === 'content' && filesWithContent.length === 0 && flatFiles.length > 0) {
+    if (searchMode === 'content' && filesWithContent.length === 0) {
+      const filesToLoad = searchScope === 'currentFolder'
+        ? flatFiles
+        : [...flatFiles, ...recentFilesList, ...recentFolderFiles]
+      if (filesToLoad.length === 0) return
+      const loadId = ++contentLoadIdRef.current
       const loadAllContents = async (): Promise<void> => {
         setIsLoadingContent(true)
         try {
+          const currentPaths = new Set(flatFiles.map(f => f.path))
           const results = await Promise.all(
-            flatFiles.map(async (file) => {
+            filesToLoad.map(async (file) => {
               try {
-                const content = await window.api.readFile(file.path)
+                const content = currentPaths.has(file.path)
+                  ? await window.api.readFile(file.path)
+                  : await window.api.searchReadFile(file.path)
                 return { ...file, content }
-              } catch (error) {
-                console.error(`Failed to read ${file.path}:`, error)
+              } catch {
                 return { ...file, content: '' }
               }
             })
           )
+          if (contentLoadIdRef.current !== loadId) return
           setFilesWithContent(results)
-          // 更新已加载路径
-          loadedPathsRef.current = new Set(flatFiles.map(f => f.path))
+          loadedPathsRef.current = new Set(filesToLoad.map(f => f.path))
         } finally {
-          setIsLoadingContent(false)
+          if (contentLoadIdRef.current === loadId) {
+            setIsLoadingContent(false)
+          }
         }
       }
       loadAllContents()
     }
-  }, [searchMode, flatFiles, filesWithContent.length])
+  }, [searchMode, flatFiles, recentFilesList, recentFolderFiles, filesWithContent.length, searchScope])
 
   // 初始化 Web Worker
   useEffect(() => {
@@ -221,7 +375,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     if (searchMode === 'filename') {
       const allResults = filenameFuse.search(queryStr)
       return {
-        results: allResults.slice(0, 20).map(r => ({
+        results: allResults.slice(0, 60).map(r => ({
           file: r.item as FileWithContent,
           matches: []
         })),
@@ -268,7 +422,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
           .map(item => item.file)
 
         return {
-          results: sortedMatches.slice(0, 20).map(file => ({
+          results: sortedMatches.slice(0, 60).map(file => ({
             file,
             matches: extractExactMatches(file.content || '', queryStr)
           })),
@@ -320,13 +474,17 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     if (workerRef.current) {
       setIsSearching(true)
 
-      const filesToSearch = searchMode === 'filename' ? flatFiles : filesWithContent
+      const allFiles = searchMode === 'filename'
+        ? searchScope === 'currentFolder'
+          ? flatFiles
+          : [...flatFiles, ...recentFilesList, ...recentFolderFiles]
+        : filesWithContent
 
       const request: SearchRequest = {
         type: 'search',
         id: searchId,
         query: debouncedQuery,
-        files: filesToSearch.map(f => ({
+        files: allFiles.map(f => ({
           name: f.name,
           path: f.path,
           isDirectory: f.isDirectory,
@@ -351,7 +509,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
         }
       }, 0)
     }
-  }, [debouncedQuery, searchMode, flatFiles, filesWithContent, searchInMainThread])
+  }, [debouncedQuery, searchMode, flatFiles, recentFilesList, recentFolderFiles, filesWithContent, searchInMainThread, searchScope])
 
   // v1.5.1: 展开/折叠状态（按文件路径）
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
@@ -367,7 +525,12 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     if (keyword) {
       useSearchHistoryStore.getState().addSearchBarHistory(keyword)
     }
-    onFileSelect(file, lineNumber, debouncedQuery.trim() || undefined)
+    const isInternal = folderPath && isSubPath(file.path, folderPath)
+    if (isInternal) {
+      onFileSelect(file, lineNumber, debouncedQuery.trim() || undefined)
+    } else {
+      onExternalFileOpen(file.path)
+    }
     setQuery('')
     setSearchResults([])
     setTotalCount(0)
@@ -389,10 +552,60 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
     })
   }
 
+  // 切换分组折叠
+  const toggleGroupCollapse = useCallback((groupKey: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(groupKey)) next.delete(groupKey)
+      else next.add(groupKey)
+      return next
+    })
+  }, [])
+
+  // 搜索结果分组（公平分配后再分组）
+  const groupedResults = useMemo(() => {
+    const recentPaths = new Set(recentFilesList.map(f => f.path))
+    const allocated = searchScope === 'currentFolder'
+      ? searchResults.slice(0, 20)
+      : fairAllocate(searchResults, folderPath, recentPaths)
+
+    const groups: { current: SearchResult[]; recentFiles: SearchResult[]; recentFolders: SearchResult[] } = {
+      current: [], recentFiles: [], recentFolders: []
+    }
+    for (const result of allocated) {
+      if (folderPath && isSubPath(result.file.path, folderPath)) {
+        groups.current.push(result)
+      } else if (recentPaths.has(result.file.path)) {
+        groups.recentFiles.push(result)
+      } else {
+        groups.recentFolders.push(result)
+      }
+    }
+    return groups
+  }, [searchResults, recentFilesList, folderPath, searchScope])
+
+  // 分组后的有序结果（用于键盘导航）
+  const orderedResults = useMemo(() => [
+    ...groupedResults.current,
+    ...groupedResults.recentFiles,
+    ...groupedResults.recentFolders
+  ], [groupedResults])
+
   // v1.5.1: 构建扁平化的导航列表（用于键盘导航）
   const flatNavItems = useMemo(() => {
     const items: Array<{ file: FileInfo; lineNumber?: number; type: 'file' | 'match' }> = []
-    for (const { file, matches } of searchResults) {
+    // 当前范围下忽略折叠
+    const collapsedPaths = new Set<string>()
+    if (searchScope !== 'currentFolder' && collapsedGroups.size > 0) {
+      const groupMap = { current: groupedResults.current, recentFiles: groupedResults.recentFiles, recentFolders: groupedResults.recentFolders }
+      for (const [key, results] of Object.entries(groupMap)) {
+        if (collapsedGroups.has(key)) {
+          results.forEach(r => collapsedPaths.add(r.file.path))
+        }
+      }
+    }
+    for (const { file, matches } of orderedResults) {
+      if (collapsedPaths.has(file.path)) continue
       items.push({ file, type: 'file' })
       if (searchMode === 'content' && matches && matches.length > 0 && expandedFiles.has(file.path)) {
         for (const match of matches) {
@@ -401,7 +614,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
       }
     }
     return items
-  }, [searchResults, expandedFiles, searchMode])
+  }, [orderedResults, expandedFiles, searchMode, collapsedGroups, groupedResults, searchScope])
 
   // 读取搜索历史
   const searchBarHistory = useSearchHistoryStore(s => s.searchBarHistory)
@@ -543,7 +756,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
                 ref={inputRef}
                 type="text"
                 className="search-input"
-                placeholder={searchMode === 'filename' ? '搜索文件名...' : '搜索文件内容...'}
+                placeholder={searchScope === 'currentFolder' ? '搜索当前文件夹...' : (searchMode === 'filename' ? '搜索文件名...' : '搜索文件内容...')}
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value)
@@ -576,12 +789,32 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
                   </svg>
                 </button>
               )}
+              {/* 搜索范围切换：文件夹图标 */}
+              <div className="search-scope-wrapper">
+                <button
+                  className={`search-scope-toggle ${searchScope === 'currentFolder' ? 'active' : ''}`}
+                  onClick={() => handleScopeChange(searchScope === 'currentFolder' ? 'all' : 'currentFolder')}
+                  disabled={!folderPath}
+                  aria-pressed={searchScope === 'currentFolder'}
+                  aria-label={searchScope === 'currentFolder' ? '仅搜索当前文件夹' : '搜索全部数据源'}
+                >
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 4c0-.6.4-1 1-1h3.2c.4 0 .8.2 1 .5l.6.8c.2.3.6.5 1 .5H13c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1V4z"/>
+                  </svg>
+                </button>
+                <span className="search-scope-tooltip">
+                  {searchScope === 'currentFolder'
+                    ? '🔍 仅当前文件夹 · 点击切换为搜索全部'
+                    : '🌐 搜索全部（当前文件夹 + 最近文件 + 最近文件夹）· 点击切换为仅当前文件夹'}
+                </span>
+              </div>
             </div>
 
             <div className="search-mode-toggle">
               <button
                 className={`mode-btn ${searchMode === 'filename' ? 'active' : ''}`}
                 onClick={() => setSearchMode('filename')}
+                aria-pressed={searchMode === 'filename'}
               >
                 文件名
               </button>
@@ -589,6 +822,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
                 className={`mode-btn ${searchMode === 'content' ? 'active' : ''}`}
                 onClick={() => setSearchMode('content')}
                 disabled={isLoadingContent}
+                aria-pressed={searchMode === 'content'}
               >
                 {isLoadingContent ? '加载中...' : '全文'}
               </button>
@@ -643,7 +877,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
             {!query.trim() && searchBarHistory.length === 0 && (
               <div className="search-results">
                 <div className="search-no-results">
-                  <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.3, marginBottom: 8 }}>
+                  <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor" className="search-no-results-icon">
                     <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
                   </svg>
                   <p>输入关键词搜索文件</p>
@@ -661,75 +895,110 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, o
                 ) : searchResults.length > 0 ? (
                   <>
                     {/* 结果计数 */}
-                    {totalCount > 0 && (
-                      <div className="search-result-count">
-                        找到 {totalCount} 个{searchMode === 'content' ? '文件' : '结果'}{totalCount > 20 ? '，显示前 20 个' : ''}
-                        {searchMode === 'content' && (() => {
-                          const totalMatches = searchResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
-                          return totalMatches > 0 ? `（${totalMatches} 处匹配）` : ''
-                        })()}
-                      </div>
-                    )}
-                    {searchResults.map(({ file, matches }) => {
-                      const isExpanded = expandedFiles.has(file.path)
-                      const hasMatches = searchMode === 'content' && matches && matches.length > 0
-                      // 计算当前文件在 flatNavItems 中的索引
-                      const fileNavIndex = flatNavItems.findIndex(item => item.type === 'file' && item.file.path === file.path)
-
+                    {totalCount > 0 && (() => {
+                      const displayedCount = searchScope === 'currentFolder'
+                        ? groupedResults.current.length
+                        : groupedResults.current.length + groupedResults.recentFiles.length + groupedResults.recentFolders.length
                       return (
-                        <div key={file.path} className="search-result-group">
-                          <div
-                            className={`search-result-item ${selectedIndex === fileNavIndex ? 'selected' : ''}`}
-                            onClick={() => {
-                              if (hasMatches) {
-                                toggleFileExpand(file.path)
-                              } else {
-                                handleResultClick(file)
-                              }
-                            }}
-                          >
-                            <span className="result-icon">📄</span>
-                            <div className="result-content">
-                              <div className="result-name">{file.name}</div>
-                              {!hasMatches && matches && matches.length > 0 && (
-                                <div className="result-snippet">{getMatchSnippet(matches[0])}</div>
-                              )}
-                              <div className="result-path">{file.path}</div>
-                            </div>
-                            {hasMatches && (
-                              <span className="result-expand-toggle">
-                                {isExpanded ? '▼' : '▶'} {matches.length}
-                              </span>
-                            )}
-                          </div>
-                          {/* v1.5.1: 展开的匹配行列表 */}
-                          {hasMatches && isExpanded && (
-                            <div className="search-match-lines">
-                              {matches.map((match: any, idx: number) => {
-                                const matchNavIndex = flatNavItems.findIndex(
-                                  item => item.type === 'match' && item.file.path === file.path && item.lineNumber === match.lineNumber && flatNavItems.indexOf(item) >= fileNavIndex
-                                )
-                                // 如果 findIndex 不精确，用偏移量
-                                const actualNavIndex = fileNavIndex + 1 + idx
-                                return (
-                                  <div
-                                    key={`${file.path}-L${match.lineNumber || 0}-${idx}`}
-                                    className={`search-match-line ${selectedIndex === actualNavIndex ? 'selected' : ''}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleResultClick(file, match.lineNumber)
-                                    }}
-                                  >
-                                    <span className="match-line-number">L{match.lineNumber || '?'}</span>
-                                    <span className="match-line-snippet">{getMatchSnippet(match)}</span>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
+                        <div className="search-result-count">
+                          找到 {totalCount} 个{searchMode === 'content' ? '文件' : '结果'}{totalCount > displayedCount ? `，显示前 ${displayedCount} 个` : ''}
+                          {searchMode === 'content' && (() => {
+                            const totalMatches = searchResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
+                            return totalMatches > 0 ? `（${totalMatches} 处匹配）` : ''
+                          })()}
+                          {isLoadingExternal && <span className="search-loading-progress"> · {loadingProgress}</span>}
                         </div>
                       )
-                    })}
+                    })()}
+                    {/* 渲染搜索结果 */}
+                    {(() => {
+                      const renderResultItem = ({ file, matches }: SearchResult) => {
+                        const isExpanded = expandedFiles.has(file.path)
+                        const hasMatches = searchMode === 'content' && matches && matches.length > 0
+                        const fileNavIndex = flatNavItems.findIndex(item => item.type === 'file' && item.file.path === file.path)
+                        const isExternal = !folderPath || !isSubPath(file.path, folderPath)
+
+                        return (
+                          <div key={file.path} className="search-result-group">
+                            <div
+                              className={`search-result-item ${selectedIndex === fileNavIndex ? 'selected' : ''}`}
+                              onClick={() => {
+                                if (hasMatches) {
+                                  toggleFileExpand(file.path)
+                                } else {
+                                  handleResultClick(file)
+                                }
+                              }}
+                            >
+                              <span className="result-icon">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                  <path fillRule="evenodd" d="M4 1h5.586L13 4.414V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm5 1v3h3L9 2zM4 2v12h8V6H9a1 1 0 0 1-1-1V2H4z"/>
+                                </svg>
+                              </span>
+                              <div className="result-content">
+                                <div className="result-name">{file.name}</div>
+                                {!hasMatches && matches && matches.length > 0 && (
+                                  <div className="result-snippet">{getMatchSnippet(matches[0])}</div>
+                                )}
+                                <div className="result-path">
+                                  {file.path}
+                                  {isExternal && (
+                                    <span className="search-result-source">
+                                      {file.path.split('/').slice(-2, -1)[0]}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {hasMatches && (
+                                <span className="result-expand-toggle">
+                                  {isExpanded ? '▼' : '▶'} {matches.length}
+                                </span>
+                              )}
+                            </div>
+                            {hasMatches && isExpanded && (
+                              <div className="search-match-lines">
+                                {matches.map((match: any, idx: number) => {
+                                  const actualNavIndex = fileNavIndex + 1 + idx
+                                  return (
+                                    <div
+                                      key={`${file.path}-L${match.lineNumber || 0}-${idx}`}
+                                      className={`search-match-line ${selectedIndex === actualNavIndex ? 'selected' : ''}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleResultClick(file, match.lineNumber)
+                                      }}
+                                    >
+                                      <span className="match-line-number">L{match.lineNumber || '?'}</span>
+                                      <span className="match-line-snippet">{getMatchSnippet(match)}</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      }
+
+                      return searchScope === 'currentFolder'
+                        ? groupedResults.current.map(result => renderResultItem(result))
+                        : ([
+                            { key: 'current', label: '📂 当前文件夹', items: groupedResults.current },
+                            { key: 'recentFiles', label: '🕐 最近文件', items: groupedResults.recentFiles },
+                            { key: 'recentFolders', label: '📁 最近文件夹', items: groupedResults.recentFolders },
+                          ] as const).map(group => group.items.length > 0 && (
+                            <div key={group.key}>
+                              <div
+                                className="search-group-header"
+                                onClick={() => toggleGroupCollapse(group.key)}
+                              >
+                                <span className="search-group-toggle">{collapsedGroups.has(group.key) ? '▶' : '▼'}</span>
+                                {group.label}
+                                <span className="search-group-count">{group.items.length}</span>
+                              </div>
+                              {!collapsedGroups.has(group.key) && group.items.map(result => renderResultItem(result))}
+                            </div>
+                          ))
+                    })()}
                   </>
                 ) : query.trim() && !isSearching ? (
                   <div className="search-no-results">

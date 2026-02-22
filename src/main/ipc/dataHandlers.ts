@@ -218,6 +218,30 @@ ipcMain.handle('settings:update', async (_, updates: Record<string, unknown>) =>
   ctx.appDataManager.updateSettings(updates)
 })
 
+  // ============== 搜索历史管理（原子操作） ==============
+
+ipcMain.handle('search-history:load', async () => {
+  return ctx.appDataManager.getSearchHistory()
+})
+
+ipcMain.handle('search-history:add', async (_, type: 'searchBar' | 'inPage', keyword: string) => {
+  return type === 'searchBar'
+    ? ctx.appDataManager.addSearchBarHistory(keyword)
+    : ctx.appDataManager.addInPageSearchHistory(keyword)
+})
+
+ipcMain.handle('search-history:remove', async (_, type: 'searchBar' | 'inPage', keyword: string) => {
+  return type === 'searchBar'
+    ? ctx.appDataManager.removeSearchBarHistory(keyword)
+    : ctx.appDataManager.removeInPageSearchHistory(keyword)
+})
+
+ipcMain.handle('search-history:clear', async (_, type: 'searchBar' | 'inPage') => {
+  type === 'searchBar'
+    ? ctx.appDataManager.clearSearchBarHistory()
+    : ctx.appDataManager.clearInPageSearchHistory()
+})
+
   // ============== 书签管理 ==============
 
 // ============== v1.3.6：书签管理 ==============

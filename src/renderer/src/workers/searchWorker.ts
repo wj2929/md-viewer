@@ -159,7 +159,7 @@ function searchByFilename(
   const allResults = fuse.search(query)
   const totalCount = allResults.length
 
-  const results = allResults.slice(0, 20).map((r: FuseResult<FileWithContent>) => ({
+  const results = allResults.slice(0, 60).map((r: FuseResult<FileWithContent>) => ({
     file: r.item,
     matches: [],
     score: r.score
@@ -205,7 +205,7 @@ function searchByContent(
     const sortedMatches = sortExactMatches(exactMatches, query)
     const totalCount = sortedMatches.length
 
-    const results = sortedMatches.slice(0, 20).map(file => ({
+    const results = sortedMatches.slice(0, 60).map(file => ({
       file,
       matches: extractExactMatches(file.content || '', query)
     }))

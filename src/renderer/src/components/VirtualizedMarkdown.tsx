@@ -584,13 +584,13 @@ const MarkdownContent = memo(
       if (!combinedRef.current) return
 
       // 查找所有 pre > code 代码块，排除 Mermaid 和 ECharts（它们有自己的复制按钮）
-      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio)')
+      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio):not(.language-plantuml)')
 
       codeBlocks.forEach((pre) => {
         // 跳过已经有复制按钮的代码块
         if (pre.querySelector('.copy-btn')) return
         // 跳过 ECharts/Infographic/Markmap/Graphviz 代码视图中的代码块（已有复制按钮）
-        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view')) return
+        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view') || pre.closest('.plantuml-code-view')) return
 
         const code = pre.querySelector('code')
         if (!code) return
@@ -676,6 +676,17 @@ const MarkdownContent = memo(
           // DrawIO 代码视图：从 wrapper 的 data-drawio-code 获取
           const wrapper = target.closest('.drawio-wrapper')
           const base64Code = wrapper?.getAttribute('data-drawio-code')
+          if (base64Code) {
+            try {
+              textToCopy = decodeURIComponent(escape(atob(base64Code)))
+            } catch {
+              textToCopy = ''
+            }
+          }
+        } else if (target.closest('.plantuml-code-view')) {
+          // PlantUML 代码视图：从 wrapper 的 data-plantuml-code 获取
+          const wrapper = target.closest('.plantuml-wrapper')
+          const base64Code = wrapper?.getAttribute('data-plantuml-code')
           if (base64Code) {
             try {
               textToCopy = decodeURIComponent(escape(atob(base64Code)))

@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as os from 'os'
 import chokidar from 'chokidar'
 import { IPCContext } from './context'
-import { setAllowedBasePath, validateSecurePath, validatePath } from '../security'
+import { setAllowedBasePath, validateSecurePath, validatePath, validateSearchPath } from '../security'
 
 // 文件信息接口
 interface FileInfo {
@@ -323,43 +323,20 @@ export function registerFileHandlers(ctx: IPCContext): void {
 
   // 读取文件内容
   ipcMain.handle('fs:readFile', async (_, filePath: string) => {
-    const logFile = '/tmp/md-viewer-main-debug.log'
-    const log = (msg: string) => {
-      const timestamp = new Date().toISOString()
-      const logLine = `[${timestamp}] ${msg}\n`
-      require('fs').appendFileSync(logFile, logLine)
-      console.log(msg)
-    }
-
     try {
       validatePath(filePath)
 
-      log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-      log(`[MAIN] 📖 fs:readFile called for: ${filePath}`)
-
-      const statsStart = Date.now()
       const stats = await fs.stat(filePath)
-      log(`[MAIN] ✅ fs.stat() completed in ${Date.now() - statsStart}ms`)
-      log(`[MAIN] File size: ${stats.size} bytes`)
-
       const MAX_SIZE = 5 * 1024 * 1024
 
       if (stats.size > MAX_SIZE) {
         const sizeMB = (stats.size / 1024 / 1024).toFixed(2)
-        log(`[MAIN] ❌ File too large: ${sizeMB}MB`)
         throw new Error(`文件过大 (${sizeMB}MB)，请选择小于 5MB 的文件`)
       }
 
-      const readStart = Date.now()
       const content = await fs.readFile(filePath, 'utf-8')
-      log(`[MAIN] ✅ fs.readFile() completed in ${Date.now() - readStart}ms`)
-      log(`[MAIN] Content length: ${content.length} chars`)
-      log(`[MAIN] 🎉 Returning content to renderer`)
-      log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-
       return content
     } catch (error) {
-      log(`[MAIN] ❌ Error reading file: ${error}`)
       if (error instanceof Error) {
         throw error
       }
@@ -521,6 +498,32 @@ export function registerFileHandlers(ctx: IPCContext): void {
     } catch (error) {
       console.error('Failed to check if directory:', error)
       return false
+    }
+  })
+
+  // 搜索专用：读取任意文件夹的 md 文件列表（仅检查 PROTECTED_PATTERNS）
+  ipcMain.handle('search:readDir', async (_, dirPath: string) => {
+    try {
+      validateSearchPath(dirPath)
+      return await scanMarkdownFiles(dirPath)
+    } catch (error) {
+      console.error('Failed to search readDir:', error)
+      if (error instanceof Error && error.message.includes('安全错误')) throw error
+      return []
+    }
+  })
+
+  // 搜索专用：读取任意文件内容（仅检查 PROTECTED_PATTERNS）
+  ipcMain.handle('search:readFile', async (_, filePath: string) => {
+    try {
+      validateSearchPath(filePath)
+      const stats = await fs.stat(filePath)
+      if (stats.size > 5 * 1024 * 1024) throw new Error('文件过大')
+      return await fs.readFile(filePath, 'utf-8')
+    } catch (error) {
+      if (error instanceof Error) throw error
+      console.error('Failed to search readFile:', error)
+      return ''
     }
   })
 }

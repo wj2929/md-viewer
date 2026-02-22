@@ -72,6 +72,8 @@ export interface AppSettings {
   maxRecentFiles?: number         // 最近文件上限（v1.5.2）
   maxFolderHistory?: number       // 文件夹历史上限（v1.5.2）
   showExportBranding?: boolean    // 导出文件显示署名（v1.5.3），默认 true
+  searchBarHistory?: string[]     // 搜索栏历史
+  inPageSearchHistory?: string[]  // 页内搜索历史
 }
 
 /**
@@ -110,7 +112,7 @@ class AppDataManager {
           imageDir: 'assets',
           autoSave: true,
           bookmarkPanelWidth: 240,
-          bookmarkPanelCollapsed: false,
+          bookmarkPanelCollapsed: true,
           bookmarkBarCollapsed: true
         }
       }
@@ -500,6 +502,49 @@ class AppDataManager {
   updateSettings(updates: Partial<AppSettings>): void {
     const settings = this.store.get('settings')
     this.store.set('settings', { ...settings, ...updates })
+  }
+
+  // ============== 搜索历史管理（原子操作） ==============
+
+  private static readonly MAX_SEARCH_HISTORY = 20
+
+  private _addHistory(key: 'searchBarHistory' | 'inPageSearchHistory', keyword: string): string[] {
+    const trimmed = keyword.trim()
+    if (!trimmed) return this.getSettings()[key] || []
+    const settings = this.getSettings()
+    const history = settings[key] || []
+    const filtered = history.filter(item => item !== trimmed)
+    const updated = [trimmed, ...filtered].slice(0, AppDataManager.MAX_SEARCH_HISTORY)
+    this.store.set('settings', { ...settings, [key]: updated })
+    return updated
+  }
+
+  private _removeHistory(key: 'searchBarHistory' | 'inPageSearchHistory', keyword: string): string[] {
+    const settings = this.getSettings()
+    const updated = (settings[key] || []).filter(item => item !== keyword)
+    this.store.set('settings', { ...settings, [key]: updated })
+    return updated
+  }
+
+  private _clearHistory(key: 'searchBarHistory' | 'inPageSearchHistory'): void {
+    const settings = this.getSettings()
+    this.store.set('settings', { ...settings, [key]: [] })
+  }
+
+  addSearchBarHistory(keyword: string): string[] { return this._addHistory('searchBarHistory', keyword) }
+  removeSearchBarHistory(keyword: string): string[] { return this._removeHistory('searchBarHistory', keyword) }
+  clearSearchBarHistory(): void { this._clearHistory('searchBarHistory') }
+
+  addInPageSearchHistory(keyword: string): string[] { return this._addHistory('inPageSearchHistory', keyword) }
+  removeInPageSearchHistory(keyword: string): string[] { return this._removeHistory('inPageSearchHistory', keyword) }
+  clearInPageSearchHistory(): void { this._clearHistory('inPageSearchHistory') }
+
+  getSearchHistory(): { searchBarHistory: string[]; inPageSearchHistory: string[] } {
+    const settings = this.getSettings()
+    return {
+      searchBarHistory: settings.searchBarHistory || [],
+      inPageSearchHistory: settings.inPageSearchHistory || []
+    }
   }
 
   /**

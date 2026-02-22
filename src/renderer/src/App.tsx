@@ -346,6 +346,31 @@ function App(): React.JSX.Element {
     }
   }, [toast])
 
+  // 打开外部文件（跨文件夹搜索结果）：直接打开到 tab，不切换文件夹
+  const handleExternalFileOpen = useCallback(async (filePath: string) => {
+    const fileName = filePath.split(/[/\\]/).pop() || filePath
+    const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
+    if (existingTab) {
+      setActiveTabId(existingTab.id)
+      return
+    }
+    try {
+      const content = await window.api.searchReadFile(filePath)
+      const newTab: Tab = {
+        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file: { name: fileName, path: filePath, isDirectory: false },
+        content,
+        isPinned: false
+      }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(newTab.id)
+      const fileFolder = filePath.slice(0, Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')))
+      window.api.addRecentFile({ path: filePath, name: fileName, folderPath: fileFolder }).catch(() => {})
+    } catch (error) {
+      toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [toast])
+
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => { setActiveTabId(tabId) }, [])
 
@@ -796,18 +821,39 @@ function App(): React.JSX.Element {
       <main className="main-content">
         {!folderPath ? (
           <div className="welcome">
-            <div className="welcome-icon">📁</div>
-            <h2>欢迎使用 MD Viewer</h2>
-            <p>一个简洁的 Markdown 预览工具</p>
-            <div className="welcome-actions">
-              <button className="open-folder-btn" onClick={handleOpenFolder}>
-                打开文件夹
-              </button>
-              <FolderHistoryDropdown
-                onSelectFolder={handleSelectHistoryFolder}
+            <Header>
+              <NavigationBar
+                folderPath={null}
+                files={[]}
+                theme={theme}
+                searchBarRef={searchBarRef}
+                isAlwaysOnTop={isAlwaysOnTop}
+                onToggleAlwaysOnTop={toggleAlwaysOnTop}
                 onOpenFolder={handleOpenFolder}
+                onSelectHistoryFolder={handleSelectHistoryFolder}
+                onSelectRecentFile={handleSelectRecentFile}
+                onFileSelect={handleFileSelect}
+                onExternalFileOpen={handleExternalFileOpen}
+                onSettingsClick={() => setShowSettings(true)}
+                onThemeChange={setTheme}
+                onRefreshFiles={handleRefreshFiles}
+                isLoading={isLoading}
               />
-              <RecentFilesDropdown onSelectFile={handleSelectRecentFile} />
+            </Header>
+            <div className="welcome-content">
+              <div className="welcome-icon">📁</div>
+              <h2>欢迎使用 MD Viewer</h2>
+              <p>一个简洁的 Markdown 预览工具</p>
+              <div className="welcome-actions">
+                <button className="open-folder-btn" onClick={handleOpenFolder}>
+                  打开文件夹
+                </button>
+                <FolderHistoryDropdown
+                  onSelectFolder={handleSelectHistoryFolder}
+                  onOpenFolder={handleOpenFolder}
+                />
+                <RecentFilesDropdown onSelectFile={handleSelectRecentFile} />
+              </div>
             </div>
           </div>
         ) : (
@@ -824,6 +870,7 @@ function App(): React.JSX.Element {
                 onSelectHistoryFolder={handleSelectHistoryFolder}
                 onSelectRecentFile={handleSelectRecentFile}
                 onFileSelect={handleFileSelect}
+                onExternalFileOpen={handleExternalFileOpen}
                 onSettingsClick={() => setShowSettings(true)}
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}

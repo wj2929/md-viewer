@@ -4,7 +4,7 @@
  */
 
 .navigation-bar {
-  height: 50px;
+  height: var(--titlebar-height);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -19,7 +19,7 @@ body[data-platform="darwin"] .navigation-bar {
   padding: 0 16px 0 80px;
 }
 
-/* macOS 拖拽区域 */
+/* macOS 拖拽区域（统一维护） */
 .titlebar-drag-region {
   position: absolute;
   top: 0;
@@ -28,6 +28,10 @@ body[data-platform="darwin"] .navigation-bar {
   height: 100%;
   -webkit-app-region: drag;
   z-index: 0;
+}
+
+body[data-platform="darwin"] .titlebar-drag-region {
+  left: 80px;
 }
 
 /* 所有可交互元素需要禁用拖拽 */
@@ -44,7 +48,7 @@ body[data-platform="darwin"] .navigation-bar {
   gap: 6px;
   font-weight: 600;
   font-size: 14px;
-  color: var(--color-text);
+  color: var(--text-primary);
   z-index: 1;
   -webkit-app-region: no-drag;
 }
@@ -68,20 +72,31 @@ body[data-platform="darwin"] .navigation-bar {
 
 .nav-folder-path {
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.nav-refresh-btn {
-  padding: 4px 8px;
+/* 导航栏按钮统一基础样式 */
+.nav-refresh-btn,
+.nav-settings-btn,
+.nav-always-on-top-btn,
+.recent-files-btn,
+.folder-btn,
+.history-toggle-btn {
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   cursor: pointer;
   border-radius: 4px;
-  font-size: 14px;
   transition: background 0.15s;
 }
 
@@ -110,31 +125,11 @@ body[data-platform="darwin"] .navigation-bar {
   z-index: 1;
 }
 
-.nav-settings-btn {
-  padding: 6px 10px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 16px;
-  transition: background 0.15s;
-}
-
 .nav-settings-btn:hover {
   background: var(--bg-tertiary);
 }
 
 /* v1.4.2：窗口置顶按钮 */
-.nav-always-on-top-btn {
-  padding: 6px 10px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 16px;
-  transition: all 0.15s;
-}
-
 .nav-always-on-top-btn:hover {
   background: var(--bg-tertiary);
 }

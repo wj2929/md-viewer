@@ -48,7 +48,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color, #e0e0e0);
   background: var(--bg-secondary, #f8f8f8);
 }
@@ -99,8 +99,8 @@
 }
 
 .bookmark-empty-icon {
-  font-size: 32px;
-  opacity: 0.6;
+  font-size: 28px;
+  opacity: 0.5;
 }
 
 .bookmark-empty-hint {
@@ -117,11 +117,11 @@
 .bookmark-item {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
+  padding: 8px 12px;
   cursor: pointer;
   transition: background-color 0.15s;
   border-left: 3px solid transparent;
-  gap: 10px;
+  gap: 8px;
 }
 
 .bookmark-item:hover {

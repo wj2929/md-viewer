@@ -26,6 +26,7 @@ interface NavigationBarProps {
   onSelectHistoryFolder: (folderPath: string) => void
   onSelectRecentFile: (path: string) => void
   onFileSelect: (file: FileInfo) => void
+  onExternalFileOpen: (filePath: string) => void
   onSettingsClick: () => void
   onThemeChange: (theme: 'light' | 'dark' | 'auto') => void
   onRefreshFiles: () => void
@@ -43,6 +44,7 @@ export function NavigationBar({
   onSelectHistoryFolder,
   onSelectRecentFile,
   onFileSelect,
+  onExternalFileOpen,
   onSettingsClick,
   onThemeChange,
   onRefreshFiles,
@@ -81,16 +83,16 @@ export function NavigationBar({
         </div>
       )}
 
-      {/* 搜索框（仅在有文件夹时显示） */}
-      {folderPath && (
-        <div className="nav-search-section">
-          <SearchBar
-            ref={searchBarRef}
-            files={files}
-            onFileSelect={onFileSelect}
-          />
-        </div>
-      )}
+      {/* 搜索框（始终显示） */}
+      <div className="nav-search-section">
+        <SearchBar
+          ref={searchBarRef}
+          files={files}
+          folderPath={folderPath}
+          onFileSelect={onFileSelect}
+          onExternalFileOpen={onExternalFileOpen}
+        />
+      </div>
 
       {/* 右侧操作区 */}
       <div className="nav-actions">
