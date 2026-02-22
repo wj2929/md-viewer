@@ -42,6 +42,9 @@
 - 🕐 **最近文件右键菜单** - 右键最近文件可分屏打开或从历史移除 (v1.5.4+)
 - 📊 **DrawIO 图表** - drawio 代码块渲染 DrawIO 图表，支持缩放/全屏/下载 (v1.5.5+)
 - 🎯 **图表工具栏悬停显示** - 6 种图表工具栏鼠标悬停时显示，视觉更干净 (v1.5.5+)
+- 🌿 **PlantUML 图表** - plantuml 代码块渲染 UML 图表，服务器地址可配置 (v1.6.0+)
+- ⚖️ **搜索结果公平分配** - 全部模式下每组保底展示，解决当前文件夹垄断问题 (v1.6.0+)
+- 📜 **搜索历史记录** - 搜索历史持久化，跨会话保留 (v1.6.0+)
 - 👀 **实时监听** - 文件修改自动刷新，无需手动重载
 - 🔍 **强大搜索** - 文件名模糊搜索 + 全文搜索
 - 💾 **导出功能** - 右键菜单导出 HTML 和 PDF（支持 Mermaid/ECharts 图表）
@@ -59,6 +62,32 @@
 ## 🖼️ 截图
 
 ![MD Viewer 欢迎页](docs/images/welcome.png)
+
+---
+
+## 📊 图表渲染展示
+
+MD Viewer 支持 **8 种图表/公式渲染**，在 Markdown 代码块中直接编写即可实时预览，导出 HTML/PDF 时完整保留。
+
+|  Mermaid 流程图/时序图/类图  |  ECharts 交互式图表  |
+| :---: | :---: |
+| ![Mermaid](docs/images/chart-mermaid.png) | ![ECharts](docs/images/chart-echarts.png) |
+| 支持 15+ 图表类型：流程图、时序图、甘特图、饼图、C4 架构图等 | 智能检测 echarts/js/json 代码块，自动渲染交互式图表 |
+
+|  Markmap 思维导图  |  Graphviz 有向图  |
+| :---: | :---: |
+| ![Markmap](docs/images/chart-markmap.png) | ![Graphviz](docs/images/chart-graphviz.png) |
+| 交互式 SVG，支持缩放/拖拽/折叠节点 | WASM 渲染 DOT 语言，支持有向图/无向图/子图 |
+
+|  PlantUML UML 图  |  DrawIO 图表  |
+| :---: | :---: |
+| ![PlantUML](docs/images/chart-plantuml.png) | ![DrawIO](docs/images/chart-drawio.png) |
+| 服务器地址可配置，支持类图/时序图/用例图等 | 本地 WASM 渲染，支持缩放/全屏/SVG 下载 |
+
+|  AntV Infographic 信息图  |  KaTeX 数学公式  |
+| :---: | :---: |
+| ![Infographic](docs/images/chart-infographic.png) | ![KaTeX](docs/images/chart-katex.png) |
+| 236 个内置模板，自定义缩进语法 | LaTeX 公式渲染，行内 `$...$` 和块级 `$$...$$` |
 
 ---
 
@@ -174,6 +203,7 @@ npm run dev
 - **[Markmap](https://markmap.js.org/)** - 思维导图渲染 (v1.5.4+)
 - **[Graphviz](https://graphviz.org/)** - DOT 有向图渲染 (v1.5.4+)
 - **DrawIO (mxGraph)** - DrawIO 图表渲染 (v1.5.5+)
+- **[PlantUML](https://plantuml.com/)** - UML 图表渲染 (v1.6.0+)
 
 ### 其他库
 - **[Fuse.js](https://fusejs.io/)** - 模糊搜索
@@ -514,14 +544,17 @@ npm run build:linux
 - [x] 最近文件右键菜单（分屏打开 + 从历史移除）
 - [x] DrawIO 图表支持（drawio 代码块渲染）
 - [x] 图表工具栏悬停显示（6 种图表，右上角紧凑按钮组）
+- [x] PlantUML 图表支持（服务器地址可配置）
+- [x] 主进程 IPC 模块化（index.ts 拆分为 6 个模块）
+- [x] 图表渲染 Hooks 拆分（7 种图表独立 hook）
+- [x] 搜索结果公平分配（每组保底 3 条，解决当前文件夹垄断）
+- [x] 搜索历史记录（持久化 electron-store）
 
 ### v2.0 (计划中)
-- [ ] 跨平台完整支持（Windows/Linux 标题栏、快捷键、文案国际化）
 - [ ] 拖拽排序文件
 - [ ] 插件系统
 - [ ] 简单编辑功能
 - [ ] 多语言支持
-- [ ] PlantUML 支持
 
 ---
 
@@ -551,6 +584,7 @@ npm run build:linux
 - [Markmap](https://markmap.js.org/)
 - [Graphviz (hpcc-js)](https://github.com/nicedoc/hpcc-js-wasm-graphviz)
 - [DrawIO (mxGraph)](https://github.com/jgraph/mxgraph)
+- [PlantUML](https://plantuml.com/)
 - [Zustand](https://zustand-demo.pmnd.rs/)
 - [Fuse.js](https://fusejs.io/)
 

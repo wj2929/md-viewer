@@ -7,6 +7,109 @@
 
 ---
 
+## [1.6.0] - 2026-02-22
+
+> **状态**: 🚧 **开发中** | **类型**: 新功能 + 架构重构 + 搜索增强
+
+### ✨ 新功能
+
+#### 1. PlantUML 图表支持 ⭐⭐
+- **功能**：Markdown `plantuml` 代码块自动渲染为 SVG 图表
+- **依赖**：`plantuml-encoder`（编码）+ PlantUML 服务器（渲染）
+- **渲染器**：`plantumlRenderer.ts` — 编码、服务器请求、SVG 渲染
+- **设置面板**：PlantUML 服务器地址可配置（默认 plantuml.com）
+- **交互**：图表/代码切换按钮（同其他图表模式）
+- **导出**：HTML 导出时 PlantUML 以内联 SVG 形式保留
+- **测试**：plantumlRenderer.test.ts（128 行）+ test-plantuml.md fixture（1257 行）
+
+#### 2. 搜索结果公平分配 ⭐⭐
+- **问题**：「全部」模式搜索时，当前文件夹匹配多时占满 20 条名额，最近文件和最近文件夹结果被完全挤掉
+- **方案**：Worker 多返回（60 条）+ 主线程 `fairAllocate` 公平分配（每组保底 3 条）
+- **算法**：Phase 1 保底分配（每个非空组 ≥3 条）→ Phase 2 按原始相关度填充剩余名额
+- **去重**：`seen` Set + `selected` 数组避免重复 path 超限
+- **性能**：仅 filename + 精确匹配放宽到 60 条，模糊搜索保持 20 条（避免 structured clone 传输量暴增）
+- **计数**：保留 `totalCount` 真实命中总数，新增 `displayedCount` 显示实际展示数
+
+#### 3. 搜索历史记录 ⭐
+- **功能**：搜索历史持久化到 electron-store，跨会话保留
+- **Store**：`searchHistoryStore.ts`（Zustand）— 添加/删除/清空/置顶
+- **IPC**：`search-history:get` / `search-history:save` 持久化通道
+- **UI**：搜索框下拉显示历史记录，支持删除单条和清空全部
+
+### 🏗️ 架构重构
+
+#### 4. 主进程 IPC 模块化 ⭐⭐
+- **问题**：`src/main/index.ts` 超过 2400 行，职责混杂
+- **方案**：拆分为 6 个 IPC 模块
+- **新增文件**：
+  | 文件 | 说明 |
+  |------|------|
+  | `src/main/ipc/context.ts` | 共享上下文（mainWindow、allowedBasePath 等） |
+  | `src/main/ipc/dataHandlers.ts` | 数据相关 IPC（书签、设置、搜索历史） |
+  | `src/main/ipc/exportHandlers.ts` | 导出相关 IPC（HTML/PDF/DOCX） |
+  | `src/main/ipc/fileHandlers.ts` | 文件操作 IPC（读取、监听、重命名） |
+  | `src/main/ipc/menuHandlers.ts` | 菜单相关 IPC（右键菜单、标签菜单） |
+  | `src/main/ipc/windowHandlers.ts` | 窗口相关 IPC（置顶、全屏、打印） |
+  | `src/main/ipc/index.ts` | 统一注册入口 |
+- **效果**：`index.ts` 从 ~2400 行降至核心启动逻辑
+
+#### 5. 图表渲染 Hooks 拆分 ⭐⭐
+- **问题**：`VirtualizedMarkdown.tsx` 包含 7 种图表的渲染逻辑，代码臃肿
+- **方案**：每种图表提取为独立 hook
+- **新增文件**：
+  | 文件 | 说明 |
+  |------|------|
+  | `src/renderer/src/components/charts/useMermaidChart.ts` | Mermaid 图表 hook |
+  | `src/renderer/src/components/charts/useEChartsChart.ts` | ECharts 图表 hook |
+  | `src/renderer/src/components/charts/useInfographicChart.ts` | Infographic 图表 hook |
+  | `src/renderer/src/components/charts/useMarkmapChart.ts` | Markmap 图表 hook |
+  | `src/renderer/src/components/charts/useGraphvizChart.ts` | Graphviz 图表 hook |
+  | `src/renderer/src/components/charts/useDrawIOChart.ts` | DrawIO 图表 hook |
+  | `src/renderer/src/components/charts/usePlantUMLChart.ts` | PlantUML 图表 hook |
+  | `src/renderer/src/components/charts/index.ts` | 统一导出 |
+  | `src/renderer/src/utils/chartUtils.ts` | 图表公共工具函数 |
+- **效果**：`VirtualizedMarkdown.tsx` 大幅瘦身
+
+#### 6. 导出逻辑提取
+- **新增**：`src/renderer/src/hooks/useExport.ts`（430 行）— 从 App.tsx 提取导出相关逻辑
+- **删除**：`src/renderer/src/components/MarkdownRenderer.tsx`（旧组件，390 行）
+
+### 🎨 UI 改进
+
+#### 7. 搜索 UI 优化
+- **SearchBar**：布局优化、交互增强、分组渲染改进
+- **InPageSearchBox**：样式重构（109 行 CSS 变更）
+- **NavigationBar**：样式微调
+
+### 🔧 技术实现
+
+#### 测试 Fixtures 增强
+- 新增/更新 5 个图表测试 fixture：
+  | 文件 | 说明 |
+  |------|------|
+  | `e2e/fixtures/test-plantuml.md` | PlantUML 测试（1257 行） |
+  | `e2e/fixtures/test-drawio.md` | DrawIO 测试（275 行，重写） |
+  | `e2e/fixtures/test-echarts.md` | ECharts 测试（442 行） |
+  | `e2e/fixtures/test-graphviz.md` | Graphviz 测试（259 行，重写） |
+  | `e2e/fixtures/test-markmap.md` | Markmap 测试（328 行） |
+  | `e2e/fixtures/test-mermaid.md` | Mermaid 测试（420 行） |
+
+### 📊 代码变更统计
+
+```
+提交 1 (PlantUML): 13 files, +2351 / -10
+提交 2 (架构重构): 37 files, +7414 / -5343
+提交 3 (公平分配): 21 files, +868 / -285
+合计: 71 files, +10633 / -5638
+```
+
+### ✅ 测试
+
+- **测试通过率**：509 通过，0 失败
+- **类型检查**：`tsc --noEmit` 通过
+
+---
+
 ## [1.5.5] - 2026-02-16
 
 > **状态**: 🚧 **开发中** | **类型**: 新功能 + UI 改进
