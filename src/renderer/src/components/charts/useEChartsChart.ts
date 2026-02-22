@@ -12,6 +12,7 @@ import { useEffect } from 'react'
 import * as echarts from '../../utils/echartsRenderer'
 import { validateEChartsConfig, optimizeEChartsConfig } from '../../utils/echartsRenderer'
 import Prism from 'prismjs'
+import { downloadSvgAsPng } from '../../utils/chartUtils'
 
 /**
  * ECharts 图表渲染 Hook
@@ -230,13 +231,9 @@ export function useEChartsChart(
           }
         } else if (action === 'download') {
           if (container) {
-            const chart = echarts.echarts.getInstanceByDom(container)
-            if (chart) {
-              const url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' })
-              const a = document.createElement('a')
-              a.download = `echarts-${Date.now()}.png`
-              a.href = url
-              a.click()
+            const svg = container.querySelector('svg') as SVGSVGElement
+            if (svg) {
+              downloadSvgAsPng(svg, `echarts-${Date.now()}`)
             }
           }
         }

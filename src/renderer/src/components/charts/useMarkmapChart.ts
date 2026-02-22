@@ -215,25 +215,7 @@ export function useMarkmapChart(ref: React.RefObject<HTMLElement>, html: string)
               break
             case 'download': {
               const svg = container.querySelector('svg') as SVGSVGElement
-              if (!svg) break
-              const svgClone = svg.cloneNode(true) as SVGSVGElement
-              const svgData = new XMLSerializer().serializeToString(svgClone)
-              const canvas = document.createElement('canvas')
-              const scale = 2
-              canvas.width = svg.clientWidth * scale
-              canvas.height = svg.clientHeight * scale
-              const ctx = canvas.getContext('2d')!
-              const img = new Image()
-              img.onload = () => {
-                ctx.fillStyle = '#ffffff'
-                ctx.fillRect(0, 0, canvas.width, canvas.height)
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-                const a = document.createElement('a')
-                a.download = `markmap-${Date.now()}.png`
-                a.href = canvas.toDataURL('image/png')
-                a.click()
-              }
-              img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
+              if (svg) downloadSvgAsPng(svg, `markmap-${Date.now()}`)
               break
             }
             case 'fullscreen':

@@ -20,24 +20,38 @@ import Prism from 'prismjs'
 export function downloadSvgAsPng(
   svg: SVGSVGElement,
   filename: string,
-  scale = 2
+  scale = 2,
+  padding = 10
 ): void {
   const svgClone = svg.cloneNode(true) as SVGSVGElement
-  const svgData = new XMLSerializer().serializeToString(svgClone)
-  const canvas = document.createElement('canvas')
 
-  // 优先使用 getBBox 获取精确尺寸，回退到 clientWidth/Height
+  // 用 getBBox 裁剪到实际内容区域，避免大量空白
   let width: number
   let height: number
   try {
     const bbox = svg.getBBox()
-    width = (bbox.width + bbox.x * 2) || svg.clientWidth
-    height = (bbox.height + bbox.y * 2) || svg.clientHeight
+    if (bbox.width > 0 && bbox.height > 0) {
+      // 设置 viewBox 为实际内容区域 + padding
+      const vx = bbox.x - padding
+      const vy = bbox.y - padding
+      const vw = bbox.width + padding * 2
+      const vh = bbox.height + padding * 2
+      svgClone.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`)
+      svgClone.setAttribute('width', String(vw))
+      svgClone.setAttribute('height', String(vh))
+      width = vw
+      height = vh
+    } else {
+      width = svg.clientWidth || 800
+      height = svg.clientHeight || 600
+    }
   } catch {
-    width = svg.clientWidth
-    height = svg.clientHeight
+    width = svg.clientWidth || 800
+    height = svg.clientHeight || 600
   }
 
+  const svgData = new XMLSerializer().serializeToString(svgClone)
+  const canvas = document.createElement('canvas')
   canvas.width = width * scale
   canvas.height = height * scale
   const ctx = canvas.getContext('2d')!

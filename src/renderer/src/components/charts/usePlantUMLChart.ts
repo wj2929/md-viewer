@@ -11,6 +11,7 @@
 
 import { useEffect } from 'react'
 import { validatePlantUMLCode, renderPlantUMLToSvg } from '../../utils/plantumlRenderer'
+import { downloadSvgAsPng } from '../../utils/chartUtils'
 
 export function usePlantUMLChart(ref: React.RefObject<HTMLElement>, html: string): void {
   // v1.6.0: PlantUML 图表渲染（异步 fetch 远程服务器）
@@ -220,24 +221,7 @@ export function usePlantUMLChart(ref: React.RefObject<HTMLElement>, html: string
               applyPlantUMLZoom(100)
               break
             case 'download': {
-              const svgClone = svg.cloneNode(true) as SVGSVGElement
-              const svgData = new XMLSerializer().serializeToString(svgClone)
-              const canvas = document.createElement('canvas')
-              const scale = 2
-              canvas.width = svg.clientWidth * scale
-              canvas.height = svg.clientHeight * scale
-              const ctx = canvas.getContext('2d')!
-              const img = new Image()
-              img.onload = (): void => {
-                ctx.fillStyle = '#ffffff'
-                ctx.fillRect(0, 0, canvas.width, canvas.height)
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-                const a = document.createElement('a')
-                a.download = `plantuml-${Date.now()}.png`
-                a.href = canvas.toDataURL('image/png')
-                a.click()
-              }
-              img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
+              downloadSvgAsPng(svg, `plantuml-${Date.now()}`)
               break
             }
             case 'fullscreen':
