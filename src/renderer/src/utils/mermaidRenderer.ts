@@ -17,13 +17,19 @@ export function resetMermaidInit(): void {
  */
 const MERMAID_BASE_CONFIG = {
   startOnLoad: false,
-  securityLevel: 'strict' as const,  // 关键：严格安全模式
+  // securityLevel='loose'：strict 会让 Mermaid 内部调 DOMPurify.sanitize(svgCode)，
+  // 而项目 VirtualizedMarkdown 注册的全局 DOMPurify hook 会把 Mermaid 节点 <g> 的
+  // class="node default" 剥掉（不在项目 class 白名单内），导致导出 HTML 的 SVG
+  // 节点无 class → CSS .node rect 匹配失败 → 节点默认黑色。
+  // 输入侧有 validateMermaidCode 拒绝 <script>/on*/iframe，strict 在这里冗余。
+  securityLevel: 'loose' as const,
   maxTextSize: 50000,       // 限制输入大小
   maxEdges: 500,            // 限制复杂度
-  // 使用纯 SVG text 元素渲染文本（不使用 foreignObject）
-  // 这样可以确保中文等文字正确显示，同时避免 XSS 风险
+  // 启用 htmlLabels 保证中文节点宽度测量准确（Mermaid 11 SVG text 模式中文常溢出）
+  htmlLabels: true,
   flowchart: {
-    htmlLabels: false,      // 使用 SVG text 而非 foreignObject
+    htmlLabels: true,
+    useMaxWidth: true,
   },
   sequence: {
     useMaxWidth: true,

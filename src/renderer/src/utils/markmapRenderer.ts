@@ -55,12 +55,10 @@ export function validateMarkmapCode(code: string): { valid: boolean; error?: str
  * 4. 销毁实例，返回静态 SVG
  */
 async function renderMarkmapToSvg(code: string, id: string): Promise<string> {
+  // 离屏容器用 visibility:hidden（而非 left:-9999px），保留正常布局以便 getBBox 准确
   const container = document.createElement('div')
   container.id = `markmap-offscreen-${id}`
-  container.style.cssText =
-    'position: fixed; left: -9999px; top: -9999px; opacity: 0; pointer-events: none;'
-  container.style.width = `${MARKMAP_CONFIG.DEFAULT_WIDTH}px`
-  container.style.height = `${MARKMAP_CONFIG.DEFAULT_HEIGHT}px`
+  container.style.cssText = `position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; width: ${MARKMAP_CONFIG.DEFAULT_WIDTH}px; height: ${MARKMAP_CONFIG.DEFAULT_HEIGHT}px;`
   document.body.appendChild(container)
 
   let mm: Markmap | null = null
@@ -70,47 +68,37 @@ async function renderMarkmapToSvg(code: string, id: string): Promise<string> {
     const { root, features } = transformer.transform(code)
     const opts = deriveOptions(features)
 
-    // 创建 SVG 元素
+    // SVG 占满容器
     const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svgEl.setAttribute('width', String(MARKMAP_CONFIG.DEFAULT_WIDTH))
     svgEl.setAttribute('height', String(MARKMAP_CONFIG.DEFAULT_HEIGHT))
+    svgEl.style.cssText = `width: ${MARKMAP_CONFIG.DEFAULT_WIDTH}px; height: ${MARKMAP_CONFIG.DEFAULT_HEIGHT}px;`
     container.appendChild(svgEl)
 
-    // 创建 Markmap 实例
     mm = Markmap.create(svgEl, opts, root)
 
-    // 等待渲染完成
+    // fit 之前等一帧让 foreignObject 测量文本宽度；fit 之后再等两帧让 d3 transition 完成
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     await mm.fit()
     await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve())
-      })
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     })
 
-    // 获取实际内容边界
-    const gEl = svgEl.querySelector('g')
-    if (!gEl) {
-      throw new Error('渲染后未找到 SVG 内容')
-    }
-
-    const bbox = gEl.getBBox()
-    const padding = 20
-    const vbX = bbox.x - padding
-    const vbY = bbox.y - padding
-    const vbW = bbox.width + padding * 2
-    const vbH = bbox.height + padding * 2
-
-    // 克隆为静态 SVG
+    // markmap 的 fit() 已经把内容 transform 到 SVG 可视区正中
+    // 我们不自己算 viewBox（getBBox 在离屏场景下经常测错），
+    // 直接让导出 SVG 用 0 0 W H 的 viewBox，保持和屏幕显示一样的比例
     const clonedSvg = svgEl.cloneNode(true) as SVGSVGElement
-    clonedSvg.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`)
-    clonedSvg.setAttribute('width', String(Math.min(vbW, MARKMAP_CONFIG.DEFAULT_WIDTH)))
     clonedSvg.setAttribute(
-      'height',
-      String(
-        Math.min(vbH, MARKMAP_CONFIG.DEFAULT_HEIGHT)
-      )
+      'viewBox',
+      `0 0 ${MARKMAP_CONFIG.DEFAULT_WIDTH} ${MARKMAP_CONFIG.DEFAULT_HEIGHT}`
     )
-    clonedSvg.removeAttribute('style')
+    clonedSvg.removeAttribute('width')
+    clonedSvg.removeAttribute('height')
+    clonedSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+    clonedSvg.setAttribute(
+      'style',
+      `width: 100%; max-width: ${MARKMAP_CONFIG.DEFAULT_WIDTH}px; height: auto; display: block; margin: 0 auto;`
+    )
 
     return clonedSvg.outerHTML
   } finally {

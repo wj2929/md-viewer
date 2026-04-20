@@ -2,14 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { Tab } from '../components/TabBar'
 import { SplitState, findLeaf } from '../utils/splitTree'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
-import { processMermaidInHtml } from '../utils/mermaidRenderer'
-import { processEChartsInHtml } from '../utils/echartsRenderer'
-import { processInfographicInHtml } from '../utils/infographicRenderer'
-import { processMarkmapInHtml } from '../utils/markmapRenderer'
-import { processGraphvizInHtml } from '../utils/graphvizRenderer'
-import { processDrawioInHtml } from '../utils/drawioRenderer'
-import { processPlantUMLInHtml } from '../utils/plantumlRenderer'
-import * as echarts from 'echarts'
+import { buildExportHtmlContent } from '../utils/exportHtml'
 
 interface UseExportParams {
   splitState: SplitState
@@ -48,109 +41,15 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
     return undefined
   }, [splitState, tabs, activeTabId])
 
-  // 导出前禁用 ECharts 动画，确保 SVG 是最终状态
-  async function prepareEChartsForExport(markdownBody: Element): Promise<() => void> {
-    const instances: echarts.ECharts[] = []
-    markdownBody.querySelectorAll('.echarts-container').forEach((container) => {
-      const instance = echarts.getInstanceByDom(container as HTMLElement)
-      if (instance) {
-        instances.push(instance)
-        instance.setOption({ animation: false })
-      }
-    })
-    // 等待无动画重绘完成
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    // 返回恢复函数
-    return () => {
-      instances.forEach((inst) => {
-        try {
-          inst.setOption({ animation: true })
-        } catch {
-          /* ignore disposed */
-        }
-      })
-    }
-  }
-
-  // 导出 HTML
+  // 导出 HTML：统一使用 buildExportHtmlContent（和文件树右键路径共享）
   const handleExportHTML = useCallback(async () => {
-    // 分屏模式下取活跃面板的 tab，否则取全局 activeTab
     const exportTab = splitState.root && splitState.activeLeafId
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
     let loadingId: string | undefined
     try {
-      let htmlContent: string
-      // 分屏模式下 previewRef 为 null，fallback 到活跃面板的 .markdown-body
-      const markdownBody = document.querySelector('.split-leaf-panel.active .markdown-body')
-      if (markdownBody) {
-        const restoreECharts = await prepareEChartsForExport(markdownBody)
-        const clone = markdownBody.cloneNode(true) as HTMLElement
-        clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
-        clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
-          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-          if (chartView) chartView.style.display = ''
-          if (codeView) codeView.style.display = 'none'
-        })
-        // Infographic: 导出时只显示信息图，隐藏代码
-        clone.querySelectorAll('.infographic-wrapper').forEach(wrapper => {
-          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-          if (chartView) chartView.style.display = ''
-          if (codeView) codeView.style.display = 'none'
-        })
-        const originalSvgs = markdownBody.querySelectorAll('.echarts-container svg')
-        const svgBboxes: { x: number; y: number; width: number; height: number }[] = []
-        originalSvgs.forEach((svg) => {
-          try {
-            const svgEl = svg as SVGSVGElement
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-            Array.from(svgEl.children).forEach((child) => {
-              try {
-                const el = child as SVGGraphicsElement
-                if (el.getAttribute('visibility') === 'hidden' || el.getAttribute('display') === 'none') return
-                const bbox = el.getBBox()
-                minX = Math.min(minX, bbox.x); minY = Math.min(minY, bbox.y)
-                maxX = Math.max(maxX, bbox.x + bbox.width); maxY = Math.max(maxY, bbox.y + bbox.height)
-              } catch { /* ignore */ }
-            })
-            if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
-              svgBboxes.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
-            } else { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
-          } catch { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
-        })
-        const clonedContainers = clone.querySelectorAll('.echarts-container')
-        clonedContainers.forEach((container, index) => {
-          const svg = container.querySelector('svg')
-          if (!svg) return
-          const bbox = svgBboxes[index]
-          if (bbox) {
-            const padding = 10
-            svg.setAttribute('viewBox', `${Math.max(0, bbox.x - padding)} ${Math.max(0, bbox.y - padding)} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`)
-          }
-          svg.removeAttribute('width'); svg.removeAttribute('height')
-          svg.style.cssText = 'width: 100%; height: auto; display: block;'
-          const innerDiv = svg.parentElement
-          if (innerDiv && innerDiv !== container) { container.appendChild(svg); innerDiv.remove() }
-          const el = container as HTMLElement
-          el.removeAttribute('_echarts_instance_'); el.removeAttribute('data-echarts-index')
-          el.style.cssText = 'width: 100%;'
-        })
-        htmlContent = clone.innerHTML
-        restoreECharts()
-      } else {
-        const md = createMarkdownRenderer()
-        htmlContent = md.render(exportTab.content)
-        htmlContent = await processMermaidInHtml(htmlContent)
-        htmlContent = await processEChartsInHtml(htmlContent)
-        htmlContent = await processInfographicInHtml(htmlContent)
-        htmlContent = await processMarkmapInHtml(htmlContent)
-        htmlContent = await processGraphvizInHtml(htmlContent)
-        htmlContent = await processDrawioInHtml(htmlContent)
-        htmlContent = await processPlantUMLInHtml(htmlContent)
-      }
+      const htmlContent = await buildExportHtmlContent(exportTab.content)
       loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
       const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
       toast.close(loadingId)
@@ -166,85 +65,15 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
     }
   }, [activeTab, splitState, tabs, toast])
 
-  // 导出 PDF
+  // 导出 PDF：和 HTML 共用 buildExportHtmlContent
   const handleExportPDF = useCallback(async () => {
-    // 分屏模式下取活跃面板的 tab，否则取全局 activeTab
     const exportTab = splitState.root && splitState.activeLeafId
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
     let loadingId: string | undefined
     try {
-      let htmlContent: string
-      // 分屏模式下 previewRef 为 null，fallback 到活跃面板的 .markdown-body
-      const markdownBody = document.querySelector('.split-leaf-panel.active .markdown-body')
-      if (markdownBody) {
-        const restoreECharts = await prepareEChartsForExport(markdownBody)
-        const clone = markdownBody.cloneNode(true) as HTMLElement
-        clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
-        clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {
-          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-          if (chartView) chartView.style.display = ''
-          if (codeView) codeView.style.display = 'none'
-        })
-        // Infographic: 导出时只显示信息图，隐藏代码
-        clone.querySelectorAll('.infographic-wrapper').forEach(wrapper => {
-          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-          const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
-          if (chartView) chartView.style.display = ''
-          if (codeView) codeView.style.display = 'none'
-        })
-        const originalSvgs = markdownBody.querySelectorAll('.echarts-container svg')
-        const svgBboxes: { x: number; y: number; width: number; height: number }[] = []
-        originalSvgs.forEach((svg) => {
-          try {
-            const svgEl = svg as SVGSVGElement
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-            Array.from(svgEl.children).forEach((child) => {
-              try {
-                const el = child as SVGGraphicsElement
-                if (el.getAttribute('visibility') === 'hidden' || el.getAttribute('display') === 'none') return
-                const bbox = el.getBBox()
-                minX = Math.min(minX, bbox.x); minY = Math.min(minY, bbox.y)
-                maxX = Math.max(maxX, bbox.x + bbox.width); maxY = Math.max(maxY, bbox.y + bbox.height)
-              } catch { /* ignore */ }
-            })
-            if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
-              svgBboxes.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
-            } else { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
-          } catch { svgBboxes.push({ x: 0, y: 0, width: 600, height: 400 }) }
-        })
-        const clonedContainers = clone.querySelectorAll('.echarts-container')
-        clonedContainers.forEach((container, index) => {
-          const svg = container.querySelector('svg')
-          if (!svg) return
-          const bbox = svgBboxes[index]
-          if (bbox) {
-            const padding = 10
-            svg.setAttribute('viewBox', `${Math.max(0, bbox.x - padding)} ${Math.max(0, bbox.y - padding)} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`)
-          }
-          svg.removeAttribute('width'); svg.removeAttribute('height')
-          svg.style.cssText = 'width: 100%; height: auto; display: block;'
-          const innerDiv = svg.parentElement
-          if (innerDiv && innerDiv !== container) { container.appendChild(svg); innerDiv.remove() }
-          const el = container as HTMLElement
-          el.removeAttribute('_echarts_instance_'); el.removeAttribute('data-echarts-index')
-          el.style.cssText = 'width: 100%;'
-        })
-        htmlContent = clone.innerHTML
-        restoreECharts()
-      } else {
-        const md = createMarkdownRenderer()
-        htmlContent = md.render(exportTab.content)
-        htmlContent = await processMermaidInHtml(htmlContent)
-        htmlContent = await processEChartsInHtml(htmlContent)
-        htmlContent = await processInfographicInHtml(htmlContent)
-        htmlContent = await processMarkmapInHtml(htmlContent)
-        htmlContent = await processGraphvizInHtml(htmlContent)
-        htmlContent = await processDrawioInHtml(htmlContent)
-        htmlContent = await processPlantUMLInHtml(htmlContent)
-      }
+      const htmlContent = await buildExportHtmlContent(exportTab.content)
       loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
       const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)
       toast.close(loadingId)

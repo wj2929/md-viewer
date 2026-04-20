@@ -172,11 +172,17 @@ function getBuiltinMarkdownCSS(): string {
 .markdown-body table {
   border-collapse: collapse;
   width: 100%;
+  /* 列多 + 单元格含长 URL/路径时，默认 table-layout:auto 会让某列撑爆导致最后列被裁。
+     配合单元格 word-break，允许内容换行而不是撑宽列。 */
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .markdown-body th, .markdown-body td {
   padding: 6px 13px;
   border: 1px solid var(--border-color);
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .markdown-body th {
@@ -457,9 +463,28 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
       }
 
       .markdown-body pre,
-      .markdown-body table,
       .markdown-body blockquote {
         page-break-inside: avoid;
+      }
+
+      /* 表格：允许跨页（table 整体 avoid 在长表下导致溢出被裁），
+         但同一行不跨页 */
+      .markdown-body table {
+        page-break-inside: auto;
+        /* 列多时用 fixed 布局兜底：列按首行或 colgroup 等宽分配，
+           避免某列内容长导致其他列被裁 */
+        table-layout: fixed;
+      }
+      .markdown-body tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+      }
+
+      /* 列多时字号略缩，缓解挤压 */
+      .markdown-body th,
+      .markdown-body td {
+        font-size: 90%;
+        padding: 4px 8px;
       }
 
       /* 优化代码块显示 */
@@ -467,6 +492,13 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
         white-space: pre-wrap;       /* ✅ 自动换行 */
         word-wrap: break-word;
         overflow-x: visible;
+      }
+
+      /* 表格单元格里内嵌的代码 / 行内代码，同样允许换行 */
+      .markdown-body td code,
+      .markdown-body th code {
+        white-space: pre-wrap;
+        word-break: break-all;
       }
     }
   </style>

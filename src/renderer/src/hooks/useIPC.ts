@@ -3,7 +3,7 @@ import { useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useClipboa
 import type { Tab } from '../components'
 import { readFileWithCache, clearFileCache } from '../utils/fileCache'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
-import { processMermaidInHtml } from '../utils/mermaidRenderer'
+import { buildExportHtmlContent } from '../utils/exportHtml'
 import { createLeaf, splitLeaf, getTreeDepth, MAX_SPLIT_DEPTH, findLeafByTabId, PanelNode } from '../utils/splitTree'
 import type { useToast } from './useToast'
 
@@ -75,10 +75,8 @@ export function useIPC(options: UseIPCOptions): void {
       async (data: { path: string; type: 'html' | 'pdf' }) => {
         try {
           const content = await window.api.readFile(data.path)
-          const md = createMarkdownRenderer()
-          let htmlContent = md.render(content)
           const fileName = data.path.split(/[/\\]/).pop() || 'export'
-          htmlContent = await processMermaidInHtml(htmlContent)
+          const htmlContent = await buildExportHtmlContent(content)
 
           if (data.type === 'html') {
             const result = await window.api.exportHTML(htmlContent, fileName)
