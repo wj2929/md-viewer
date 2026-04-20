@@ -4,6 +4,8 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { useFilePreview } from '../hooks/useFilePreview'
+import { FilePreviewTooltip } from './FilePreviewTooltip'
 import './RecentFilesDropdown.css'
 
 interface RecentFile {
@@ -21,6 +23,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [files, setFiles] = useState<RecentFile[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const { tooltipProps, handleMouseEnter, handleMouseLeave } = useFilePreview()
 
   // 加载最近文件
   useEffect(() => {
@@ -139,7 +142,9 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
                   className="recent-file-item"
                   onClick={() => handleSelect(file)}
                   onContextMenu={(e) => handleContextMenu(e, file)}
-                  title={file.path}
+                  onMouseEnter={(e) => handleMouseEnter(file.path, e)}
+                  onMouseLeave={handleMouseLeave}
+                  aria-describedby="file-preview-tooltip"
                 >
                   <div className="recent-file-info">
                     <span className="recent-file-icon">📄</span>
@@ -164,6 +169,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
           )}
         </div>
       )}
+      <FilePreviewTooltip {...tooltipProps} />
     </div>
   )
 }

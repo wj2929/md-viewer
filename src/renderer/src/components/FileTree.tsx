@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useClipboardStore } from '../stores/clipboardStore'
+import { useFilePreview } from '../hooks/useFilePreview'
+import { FilePreviewTooltip } from './FilePreviewTooltip'
 
 interface FileInfo {
   name: string
@@ -32,10 +34,13 @@ interface FileTreeItemProps {
   flatIndex: number
   // v1.5.3: 从父组件接收重命名目标路径
   renamingPath?: string | null
+  // 文件预览 tooltip
+  onFileMouseEnter?: (filePath: string, event: React.MouseEvent) => void
+  onFileMouseLeave?: () => void
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave }: FileTreeItemProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
@@ -138,10 +143,13 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
         onClick={handleClick}
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
+        onMouseEnter={!item.isDirectory && onFileMouseEnter ? (e) => onFileMouseEnter(item.path, e) : undefined}
+        onMouseLeave={!item.isDirectory ? onFileMouseLeave : undefined}
         role="treeitem"
         tabIndex={0}
         aria-expanded={item.isDirectory ? isExpanded : undefined}
         aria-selected={isSelected || isMultiSelected}
+        aria-describedby={!item.isDirectory && item.path.endsWith('.md') ? 'file-preview-tooltip' : undefined}
         data-flat-index={flatIndex}
       >
         {/* 展开/折叠图标 */}
@@ -174,7 +182,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
             onBlur={handleRenameSubmit}
           />
         ) : (
-          <span className="file-name" title={item.path}>
+          <span className="file-name" title={item.isDirectory ? item.path : undefined}>
             {item.name}
           </span>
         )}
@@ -196,6 +204,8 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               onMultiSelect={onMultiSelect}
               flatIndex={flatIndex + idx + 1}
               renamingPath={renamingPath}
+              onFileMouseEnter={onFileMouseEnter}
+              onFileMouseLeave={onFileMouseLeave}
             />
           ))}
         </div>
@@ -228,6 +238,9 @@ function flattenFileTree(files: FileInfo[]): FileInfo[] {
 export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onSelectionChange }: FileTreeProps): JSX.Element {
   // v1.3 阶段 5：扁平化文件列表用于区间选择
   const flatFiles = useMemo(() => flattenFileTree(files), [files])
+
+  // 文件预览 tooltip（父组件级别单一实例）
+  const { tooltipProps, handleMouseEnter, handleMouseLeave } = useFilePreview()
 
   // v1.5.3: 在父组件统一监听重命名事件（只注册一次，避免 MaxListeners 警告）
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
@@ -327,8 +340,11 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
           onMultiSelect={handleMultiSelect}
           flatIndex={index}
           renamingPath={renamingPath}
+          onFileMouseEnter={handleMouseEnter}
+          onFileMouseLeave={handleMouseLeave}
         />
       ))}
+      <FilePreviewTooltip {...tooltipProps} />
     </div>
   )
 }

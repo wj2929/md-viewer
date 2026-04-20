@@ -24,6 +24,7 @@ declare global {
       openFolder: () => Promise<string | null>
       readDir: (path: string) => Promise<FileInfo[]>
       readFile: (path: string) => Promise<string>
+      readFilePreview: (path: string) => Promise<string>
 
       // 搜索专用：跨文件夹访问
       searchReadDir: (path: string) => Promise<FileInfo[]>

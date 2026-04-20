@@ -530,6 +530,22 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
+  // 文件预览：只读前 1024 字节（用于 tooltip 预览）
+  // 使用 validateSearchPath 而非 validatePath，允许跨文件夹预览（最近文件可能不在当前 basePath 内）
+  ipcMain.handle('fs:readFilePreview', async (_, filePath: string) => {
+    try {
+      validateSearchPath(filePath)
+      const { open } = await import('node:fs/promises')
+      const fh = await open(filePath, 'r')
+      const buf = Buffer.alloc(4096)
+      const { bytesRead } = await fh.read(buf, 0, 4096, 0)
+      await fh.close()
+      return buf.toString('utf-8', 0, bytesRead)
+    } catch {
+      return ''
+    }
+  })
+
   // 搜索专用：读取任意文件夹的 md 文件列表（仅检查 PROTECTED_PATTERNS）
   ipcMain.handle('search:readDir', async (_, dirPath: string) => {
     try {

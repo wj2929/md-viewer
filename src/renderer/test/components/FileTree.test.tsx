@@ -323,13 +323,13 @@ describe('FileTree', () => {
   })
 
   describe('title 属性', () => {
-    it('应该显示文件完整路径', () => {
+    it('非目录文件不应有 title（使用自定义 tooltip 替代）', () => {
       const files = [createMockFile('test.md', '/path/to/test.md')]
 
       const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
       const fileName = container.querySelector('.file-name')
-      expect(fileName).toHaveAttribute('title', '/path/to/test.md')
+      expect(fileName).not.toHaveAttribute('title')
     })
   })
 

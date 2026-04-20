@@ -10,6 +10,7 @@ const api = {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
+  readFilePreview: (path: string) => ipcRenderer.invoke('fs:readFilePreview', path) as Promise<string>,
 
   // 搜索专用：跨文件夹访问（仅检查 PROTECTED_PATTERNS）
   searchReadDir: (path: string) => ipcRenderer.invoke('search:readDir', path),

@@ -4503,3 +4503,66 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
     display: block !important;
   }
 }
+
+/* ============== 文件预览 Tooltip ============== */
+
+.file-preview-tooltip {
+  position: fixed;
+  z-index: 10000;
+  width: 320px;
+  max-height: 300px;
+  padding: 8px 12px;
+  background: rgba(30, 30, 30, 0.92);
+  color: #e0e0e0;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+}
+
+.file-preview-tooltip .tooltip-filename {
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-preview-tooltip .tooltip-content {
+  color: #c0c0c0;
+  overflow: hidden;
+}
+
+.file-preview-tooltip .tooltip-error {
+  color: #999;
+  font-style: italic;
+}
+
+:root[data-theme="light"] .file-preview-tooltip {
+  background: rgba(255, 255, 255, 0.96);
+  color: #333;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-color);
+}
+
+:root[data-theme="light"] .file-preview-tooltip .tooltip-filename {
+  color: #111;
+  border-bottom-color: var(--border-color);
+}
+
+:root[data-theme="light"] .file-preview-tooltip .tooltip-content {
+  color: #555;
+}
+
+:root[data-theme="light"] .file-preview-tooltip .tooltip-error {
+  color: #999;
+}
