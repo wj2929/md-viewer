@@ -23,6 +23,11 @@ const watchedFiles = new Set<string>()
 
 let watchedWebContentsId: number | null = null
 
+// 多目录监听：每个目录一个 watcher + 引用计数
+const dirWatchers = new Map<string, { watcher: ReturnType<typeof chokidar.watch>; refCount: number }>()
+// 窗口 → 监听的目录路径（用于 cleanup 时减引用计数）
+const windowWatchedDir = new Map<number, string>()
+
 // 每个窗口独立的文件监听器
 interface WindowWatcherState {
   watcher: ReturnType<typeof chokidar.watch>
@@ -73,35 +78,33 @@ function isWatchPathSafe(targetPath: string): { safe: boolean; reason?: string }
   return { safe: true }
 }
 
-// 安全发送函数
+// 安全发送函数：广播给所有窗口（多窗口支持）
 function safeSendToRenderer(channel: string, data: unknown): void {
-  if (watchedWebContentsId === null) return
-
   const allWindows = BrowserWindow.getAllWindows()
-  const targetWindow = allWindows.find(w => w.webContents.id === watchedWebContentsId)
-
-  if (targetWindow && !targetWindow.isDestroyed() && !targetWindow.webContents.isDestroyed()) {
-    targetWindow.webContents.send(channel, data)
+  for (const win of allWindows) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send(channel, data)
+    }
   }
 }
 
-// 监听目录
+// 监听目录（多窗口支持：引用计数 + 多目录并行）
 function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
-  if (watchedDir === dirPath && fileWatcher) {
+  // 兼容旧逻辑
+  watchedDir = dirPath
+  watchedWebContentsId = sender.id
+
+  // 已有 watcher，增加引用计数
+  const existing = dirWatchers.get(dirPath)
+  if (existing) {
+    existing.refCount++
+    console.log(`[WATCHER] Reusing watcher for ${dirPath} (refCount: ${existing.refCount})`)
     return
   }
 
-  if (fileWatcher) {
-    fileWatcher.close()
-    fileWatcher = null
-  }
-  watchedDir = dirPath
-  pendingUnlink = null
-  watchedWebContentsId = sender.id
-
   console.log(`[WATCHER] Watching directory: ${dirPath}`)
 
-  fileWatcher = chokidar.watch(dirPath, {
+  const watcher = chokidar.watch(dirPath, {
     persistent: true,
     ignoreInitial: true,
     depth: WATCHER_CONFIG.MAX_DEPTH,
@@ -119,12 +122,17 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
     }
   })
 
-  fileWatcher.on('error', (error: unknown) => {
+  // 也赋值给旧的全局变量，保持兼容
+  fileWatcher = watcher
+
+  dirWatchers.set(dirPath, { watcher, refCount: 1 })
+
+  watcher.on('error', (error: unknown) => {
     console.error('[WATCHER] Error:', error)
   })
 
-  fileWatcher.on('ready', () => {
-    const watched = fileWatcher?.getWatched() || {}
+  watcher.on('ready', () => {
+    const watched = watcher.getWatched() || {}
     let fileCount = 0
     let dirCount = 0
     for (const dir of Object.keys(watched)) {
@@ -134,12 +142,12 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
     console.log(`[WATCHER] Ready! Watching ${dirCount} directories, ${fileCount} files`)
   })
 
-  fileWatcher.on('change', (filePath: string) => {
+  watcher.on('change', (filePath: string) => {
     console.log(`[WATCHER] File changed: ${filePath}`)
     safeSendToRenderer('file:changed', filePath)
   })
 
-  fileWatcher.on('add', (filePath: string) => {
+  watcher.on('add', (filePath: string) => {
     if (pendingUnlink && Date.now() - pendingUnlink.timestamp < RENAME_THRESHOLD_MS) {
       if (pendingUnlink.path === filePath) {
         console.log(`[WATCHER] File changed (atomic write): ${filePath}`)
@@ -155,7 +163,7 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
     }
   })
 
-  fileWatcher.on('unlink', (filePath: string) => {
+  watcher.on('unlink', (filePath: string) => {
     console.log(`[WATCHER] File unlinked: ${filePath}`)
     pendingUnlink = { path: filePath, timestamp: Date.now() }
 
@@ -169,14 +177,14 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
     }, RENAME_THRESHOLD_MS + 50)
   })
 
-  fileWatcher.on('addDir', (addedDirPath: string) => {
+  watcher.on('addDir', (addedDirPath: string) => {
     if (addedDirPath !== dirPath) {
       console.log(`[WATCHER] Directory added: ${addedDirPath}`)
       safeSendToRenderer('folder:added', addedDirPath)
     }
   })
 
-  fileWatcher.on('unlinkDir', (removedDirPath: string) => {
+  watcher.on('unlinkDir', (removedDirPath: string) => {
     console.log(`[WATCHER] Directory removed: ${removedDirPath}`)
     safeSendToRenderer('folder:removed', removedDirPath)
   })
@@ -259,6 +267,20 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
   return sortTree(tree)
 }
 
+// 减少目录 watcher 引用计数，归零时关闭
+function unwatchDirectoryRef(dirPath: string): void {
+  const entry = dirWatchers.get(dirPath)
+  if (!entry) return
+  entry.refCount--
+  if (entry.refCount <= 0) {
+    console.log(`[WATCHER] Closing watcher for ${dirPath} (refCount: 0)`)
+    entry.watcher.close()
+    dirWatchers.delete(dirPath)
+  } else {
+    console.log(`[WATCHER] Decreased refCount for ${dirPath} (refCount: ${entry.refCount})`)
+  }
+}
+
 // 导出文件监听器状态，供 index.ts 窗口关闭清理使用
 export function getFileWatcherState() {
   return {
@@ -266,19 +288,18 @@ export function getFileWatcherState() {
     fileWatcher: () => fileWatcher,
     watchedWebContentsId: () => watchedWebContentsId,
     cleanup: (webContentsId: number) => {
+      // 清理窗口级 watcher
       const watcher = windowFileWatchers.get(webContentsId)
       if (watcher) {
         console.log(`[WATCHER] Window ${webContentsId} closing, cleaning up file watcher`)
         watcher.watcher.close()
         windowFileWatchers.delete(webContentsId)
       }
-      if (fileWatcher && webContentsId === watchedWebContentsId) {
-        console.log('[WATCHER] Window closing, cleaning up global file watcher')
-        fileWatcher.close()
-        fileWatcher = null
-        watchedDir = null
-        watchedWebContentsId = null
-        watchedFiles.clear()
+      // 减少目录 watcher 引用计数
+      const dir = windowWatchedDir.get(webContentsId)
+      if (dir) {
+        unwatchDirectoryRef(dir)
+        windowWatchedDir.delete(webContentsId)
       }
     }
   }
@@ -358,6 +379,14 @@ export function registerFileHandlers(ctx: IPCContext): void {
 
       _baseFolderPath = folderPath
       watchedFiles.clear()
+
+      // 如果该窗口之前监听了另一个目录，先减引用计数
+      const webContentsId = event.sender.id
+      const prevDir = windowWatchedDir.get(webContentsId)
+      if (prevDir && prevDir !== folderPath) {
+        unwatchDirectoryRef(prevDir)
+      }
+      windowWatchedDir.set(webContentsId, folderPath)
 
       watchDirectory(folderPath, event.sender)
 
