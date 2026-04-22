@@ -2306,6 +2306,253 @@ body {
   text-decoration: underline;
 }
 
+/* DOCX 导出服务配置 */
+.docx-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.docx-status-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.docx-status-badge.success {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.docx-status-badge.error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.docx-off-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 0;
+}
+
+.docx-url-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1;
+}
+
+.docx-url-row .settings-input {
+  flex: 1;
+}
+
+.settings-select {
+  padding: 5px 8px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-primary, white);
+  color: var(--text-primary, #333);
+  cursor: pointer;
+  min-width: 100px;
+}
+
+.docx-advanced-toggle {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-secondary, #999);
+  cursor: pointer;
+  user-select: none;
+}
+
+.docx-advanced-toggle:hover {
+  color: var(--text-primary, #333);
+}
+
+.docx-advanced-panel {
+  padding: 4px 12px 8px;
+  border-top: 1px solid var(--border-color, #eee);
+  margin-top: 4px;
+}
+
+.guide-note-muted {
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+  margin: 4px 0 0 0;
+  line-height: 1.5;
+}
+
+.guide-info-box {
+  background: var(--bg-secondary, #f8f9fa);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.guide-info-box p {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  color: var(--text-primary, #333);
+  line-height: 1.5;
+}
+
+.guide-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary, #333);
+}
+
+.checklist-icon {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+/* DocxSetupGuide 模态 */
+.docx-setup-content {
+  background: var(--bg-primary, white);
+  border-radius: 12px;
+  padding: 24px 28px;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.docx-setup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.docx-setup-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary, #333);
+}
+
+.docx-steps-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 0 4px;
+}
+
+.step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-tertiary, #e0e0e0);
+  color: var(--text-secondary, #999);
+  transition: all 0.2s;
+}
+
+.step-dot.active {
+  background: var(--accent-color, #007aff);
+  color: white;
+}
+
+.step-dot.current {
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+}
+
+.step-label {
+  font-size: 13px;
+  color: var(--text-secondary, #999);
+  margin-left: auto;
+}
+
+.docx-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.docx-step-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.docx-polling-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #999);
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.docx-conn-result {
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.docx-conn-result.success {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.docx-conn-result.error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.conn-result-row {
+  margin: 2px 0;
+}
+
+/* 部署帮助折叠区 */
+.docx-deploy-help {
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--bg-secondary, #f8f9fa);
+}
+
+.docx-deploy-help-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #333);
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+.deploy-help-close {
+  font-size: 12px;
+  color: var(--accent-color, #007aff);
+  font-weight: 400;
+}
+
+.deploy-help-close:hover {
+  text-decoration: underline;
+}
+
 /* Radio 组 */
 .setting-radios {
   display: flex;
@@ -2868,6 +3115,57 @@ body {
   color: #ccc;
 }
 
+:root[data-theme="dark"] .docx-setup-content {
+  background: #2d2d2d;
+}
+
+:root[data-theme="dark"] .docx-setup-header h2 {
+  color: #ddd;
+}
+
+:root[data-theme="dark"] .docx-status-badge.success {
+  background: #1b5e20;
+  color: #a5d6a7;
+}
+
+:root[data-theme="dark"] .docx-status-badge.error {
+  background: #b71c1c;
+  color: #ef9a9a;
+}
+
+:root[data-theme="dark"] .docx-conn-result.success {
+  background: #1b5e20;
+  color: #a5d6a7;
+}
+
+:root[data-theme="dark"] .docx-conn-result.error {
+  background: #3e2723;
+  color: #ef9a9a;
+}
+
+:root[data-theme="dark"] .settings-select {
+  background: #333;
+  border-color: #555;
+  color: #ddd;
+}
+
+:root[data-theme="dark"] .guide-info-box {
+  background: #333;
+}
+
+:root[data-theme="dark"] .guide-info-box p {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .docx-deploy-help {
+  border-color: #555;
+  background: #333;
+}
+
+:root[data-theme="dark"] .docx-deploy-help-header {
+  color: #ddd;
+}
+
 :root[data-theme="dark"] .about-update-status.success {
   background: #1a3320;
   color: #4caf50;
@@ -2971,6 +3269,46 @@ body {
   :root:not([data-theme="light"]):not([data-theme="dark"]) .about-update-status.error {
     background: #3d3520;
     color: #ffc107;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-setup-content {
+    background: #2d2d2d;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-setup-header h2 {
+    color: #ddd;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-status-badge.success {
+    background: #1b5e20;
+    color: #a5d6a7;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-status-badge.error {
+    background: #b71c1c;
+    color: #ef9a9a;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-conn-result.success {
+    background: #1b5e20;
+    color: #a5d6a7;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-conn-result.error {
+    background: #3e2723;
+    color: #ef9a9a;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .settings-select {
+    background: #333;
+    border-color: #555;
+    color: #ddd;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .guide-info-box {
+    background: #333;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .guide-info-box p {
+    color: #ccc;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-deploy-help {
+    border-color: #555;
+    background: #333;
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .docx-deploy-help-header {
+    color: #ddd;
   }
 }
 

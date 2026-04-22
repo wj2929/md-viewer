@@ -24,18 +24,38 @@ const api = {
   // 导出功能
   exportHTML: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:html', htmlContent, fileName),
   exportPDF: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:pdf', htmlContent, fileName),
-  exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string) =>
-    ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown, undefined, docStyle) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>,
+  exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>) =>
+    ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown, undefined, docStyle, remoteImages) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>,
 
   // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
   renderCodeBlockToPng: (code: string) =>
     ipcRenderer.invoke('render:codeBlockToPng', code) as Promise<{
       success: boolean
-      data?: string  // base64 PNG
+      data?: string
       width?: number
       height?: number
       error?: string
     }>,
+
+  renderSvgToPng: (svgString: string, width?: number) =>
+    ipcRenderer.invoke('render:svgToPng', svgString, width) as Promise<{
+      success: boolean
+      data?: string
+      width?: number
+      height?: number
+      error?: string
+    }>,
+
+  testDocxConnection: (serverUrl: string, apiKey?: string) =>
+    ipcRenderer.invoke('docx:testConnection', serverUrl, apiKey) as Promise<{
+      ok: boolean
+      version?: string
+      mode?: string
+      styles?: string[]
+      fontsAvailable?: string[]
+      error?: string
+    }>,
+
 
   // 右键菜单 (v1.2 阶段 1 新增)
   showContextMenu: (file: { name: string; path: string; isDirectory: boolean }, basePath: string) =>
@@ -135,8 +155,8 @@ const api = {
 
   // v1.3.6：应用设置
   getAppSettings: () =>
-    ipcRenderer.invoke('settings:get') as Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number }>,
-  updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number }>) =>
+    ipcRenderer.invoke('settings:get'),
+  updateAppSettings: (updates: Record<string, unknown>) =>
     ipcRenderer.invoke('settings:update', updates),
 
   // 搜索历史（原子 IPC）

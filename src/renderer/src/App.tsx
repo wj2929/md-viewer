@@ -38,6 +38,7 @@ function App(): React.JSX.Element {
   // v1.3.6：加载书签设置
   useEffect(() => { loadBookmarkSettings() }, [])
 
+
   // v1.4.2：初始化 Zustand stores
   useEffect(() => {
     const platform = window.api?.platform || 'darwin'

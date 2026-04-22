@@ -1,5 +1,16 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
+// v1.7.0：DOCX 导出设置
+interface DocxExportSettings {
+  remoteEnabled: boolean
+  serverUrl?: string
+  apiKey?: string
+  style: 'standard' | 'official' | 'internal' | 'report'
+  timeoutMs: number
+  embedFont: boolean
+  localFallbackEnabled: boolean
+}
+
 // v1.3.6：书签接口
 interface Bookmark {
   id: string
@@ -38,7 +49,7 @@ declare global {
       // 导出功能
       exportHTML: (htmlContent: string, fileName: string) => Promise<string | null>
       exportPDF: (htmlContent: string, fileName: string) => Promise<string | null>
-      exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean } | null>
+      exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>
 
       // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
       renderCodeBlockToPng: (code: string) => Promise<{
@@ -103,9 +114,28 @@ declare global {
       removePinnedTab: (filePath: string) => Promise<void>
       isTabPinned: (filePath: string) => Promise<boolean>
 
+      // v1.7.0：SVG → PNG 截图（主进程 BrowserWindow）
+      renderSvgToPng: (svgString: string, width?: number) => Promise<{
+        success: boolean
+        data?: string
+        width?: number
+        height?: number
+        error?: string
+      }>
+
+      // v1.7.0：DOCX 远程服务
+      testDocxConnection: (serverUrl: string, apiKey?: string) => Promise<{
+        ok: boolean
+        version?: string
+        mode?: string
+        styles?: string[]
+        fontsAvailable?: string[]
+        error?: string
+      }>
+
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings }>) => Promise<void>
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>

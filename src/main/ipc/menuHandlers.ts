@@ -5,6 +5,7 @@ import { setAllowedBasePath, getAllowedBasePath, isPathAllowed, validatePath } f
 import { showContextMenu } from '../contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from '../markdownMenuHandler'
+import { appDataManager } from '../appDataManager'
 
 // 文件信息接口（与 fileHandlers 共享）
 interface FileInfo {
@@ -321,20 +322,15 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     click: () => event.sender.send('markdown:export-pdf')
   })
 
-  // Word 导出暂时隐藏（效果不理想）
-  // menuTemplate.push({
-  //   label: '📝 导出 Word',
-  //   submenu: [
-  //     {
-  //       label: '标准格式',
-  //       click: () => event.sender.send('markdown:export-docx', 'standard')
-  //     },
-  //     {
-  //       label: '公文格式（GB/T 9704）',
-  //       click: () => event.sender.send('markdown:export-docx', 'gongwen')
-  //     }
-  //   ]
-  // })
+  // Word 导出：根据 docxExport 设置条件显示
+  const docxConfig = appDataManager.getSettings().docxExport
+  const docxVisible = docxConfig?.remoteEnabled || docxConfig?.localFallbackEnabled
+  if (docxVisible) {
+    menuTemplate.push({
+      label: docxConfig?.remoteEnabled ? '📝 导出 Word' : '📝 导出 Word（离线）',
+      click: () => event.sender.send('markdown:export-docx')
+    })
+  }
 
   // v1.4.2：打印功能
   menuTemplate.push({

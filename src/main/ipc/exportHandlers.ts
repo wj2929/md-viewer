@@ -8,6 +8,7 @@ import { IPCContext } from './context'
 import { appDataManager } from '../appDataManager'
 import { exportToDocx, ChartImageData } from '../docxExporter'
 import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
+import { exportViaRemote, testConnection, RemoteImage } from '../remoteDocxExporter'
 
 // 获取导出用的完整 CSS（包含所有必需的变量和样式）
 async function getExportStyles(): Promise<{ markdownCss: string; prismCss: string }> {
@@ -813,14 +814,80 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
 })
 
 
-ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: string, basePath: string, markdown?: string, chartImages?: ChartImageData[], docStyle?: string) => {
+ipcMain.handle('render:svgToPng', async (_, svgString: string, width?: number) => {
+  try {
+    const renderWidth = width || 1170
+    const renderWindow = new BrowserWindow({
+      show: false,
+      width: renderWidth + 40,
+      height: 800,
+      webPreferences: { nodeIntegration: false, contextIsolation: true }
+    })
+
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>* { margin: 0; padding: 0; } html, body { background: white; width: fit-content; height: fit-content; }
+.svg-container { display: block; background: white; padding: 8px; width: ${renderWidth}px; }
+.svg-container svg { display: block; width: 100%; max-width: ${renderWidth}px; height: auto; }
+</style></head>
+<body><div class="svg-container">${svgString}</div></body></html>`
+
+    const tmpPath = path.join(os.tmpdir(), `md-viewer-svg-${Date.now()}.html`)
+    await fs.writeFile(tmpPath, html, 'utf-8')
+    try { await renderWindow.loadFile(tmpPath) } finally { fs.remove(tmpPath).catch(() => {}) }
+
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    const bounds = await renderWindow.webContents.executeJavaScript(`
+      (() => {
+        const c = document.querySelector('.svg-container');
+        if (!c) return { width: 800, height: 400 };
+        const r = c.getBoundingClientRect();
+        return { width: Math.ceil(r.width) + 4, height: Math.ceil(r.height) + 4 };
+      })()
+    `)
+
+    renderWindow.setSize(Math.min(bounds.width, 2400), Math.min(bounds.height, 4000))
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    let image = await renderWindow.webContents.capturePage({
+      x: 0, y: 0, width: Math.min(bounds.width, 2400), height: Math.min(bounds.height, 4000)
+    })
+    let pngBuffer = image.toPNG()
+
+    if (pngBuffer.length < 1000) {
+      await new Promise(resolve => setTimeout(resolve, 500))
+      image = await renderWindow.webContents.capturePage({
+        x: 0, y: 0, width: Math.min(bounds.width, 2400), height: Math.min(bounds.height, 4000)
+      })
+      pngBuffer = image.toPNG()
+    }
+
+    renderWindow.close()
+
+    if (pngBuffer.length < 500) {
+      return { success: false, error: 'Screenshot empty' }
+    }
+
+    return { success: true, data: pngBuffer.toString('base64'), width: bounds.width, height: bounds.height }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+
+ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: string, basePath: string, markdown?: string, chartImages?: ChartImageData[], docStyle?: string, remoteImages?: RemoteImage[]) => {
   try {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (!window) {
       throw new Error('无法获取窗口实例')
     }
 
-    const styleLabel = docStyle === 'gongwen' ? '（公文格式）' : ''
+    const settings = appDataManager.getSettings()
+    const docxConfig = settings.docxExport
+
+    const styleLabel = docStyle === 'gongwen' ? '（公文格式）' :
+      (docxConfig?.style && docxConfig.style !== 'standard' ? `（${docxConfig.style}）` : '')
     const result = await dialog.showSaveDialog(window, {
       title: `导出 Word 文档${styleLabel}`,
       defaultPath: fileName.replace(/\.md$/, '.docx'),
@@ -833,34 +900,91 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
       return null
     }
 
-    // 检查 Pandoc 是否可用
-    const pandocAvailable = await isPandocAvailable()
-
     let filePath: string
-    let warnings: string[]
+    let warnings: string[] = []
     let usedPandoc = false
+    let usedRemote = false
+    let imagesFailed = 0
 
-    if (pandocAvailable) {
-      // 使用 Pandoc 导出（高质量，从 HTML 转换）
-      console.log(`[DOCX Export] 使用 Pandoc 从 HTML 导出${docStyle === 'gongwen' ? '（公文格式）' : ''}`)
-      const pandocResult = await exportWithPandoc(htmlContent, result.filePath, basePath, docStyle)
-      filePath = pandocResult.filePath
-      warnings = pandocResult.warnings
-      usedPandoc = true
-    } else if (markdown) {
-      // 回退到 docx 库（需要 markdown 和 chartImages）
-      console.log('[DOCX Export] Pandoc 不可用，使用 docx 库导出')
-      const docxResult = await exportToDocx(markdown, result.filePath, basePath, chartImages || [])
-      filePath = docxResult.filePath
-      warnings = docxResult.warnings
+    // 三分支路由
+    if (docxConfig?.remoteEnabled && docxConfig.serverUrl) {
+      // 路径 1：远程服务
+      try {
+        console.log(`[DOCX Export] 使用远程服务: ${docxConfig.serverUrl}`)
+        const remoteResult = await exportViaRemote(
+          markdown || htmlContent,
+          result.filePath,
+          {
+            style: docxConfig.style || 'standard',
+            title: undefined,
+            images: remoteImages,
+            embedFont: docxConfig.embedFont,
+          }
+        )
+        filePath = remoteResult.filePath
+        warnings = remoteResult.warnings
+        usedRemote = true
+        imagesFailed = remoteResult.imagesFailed
+      } catch (remoteErr) {
+        console.error('[DOCX Export] 远程服务失败:', remoteErr)
+
+        if (docxConfig.localFallbackEnabled) {
+          console.log('[DOCX Export] 降级到本地路径')
+          warnings.push(`远程服务失败: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr)}`)
+          const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle)
+          filePath = localResult.filePath
+          warnings.push(...localResult.warnings)
+          usedPandoc = localResult.usedPandoc
+        } else {
+          throw new Error(`DOCX 服务不可用: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr)}`)
+        }
+      }
+    } else if (docxConfig?.localFallbackEnabled) {
+      // 路径 2：本地路径（用户主动启用）
+      console.log('[DOCX Export] 使用本地路径（用户启用离线模式）')
+      const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle)
+      filePath = localResult.filePath
+      warnings = localResult.warnings
+      usedPandoc = localResult.usedPandoc
     } else {
-      throw new Error('Pandoc 不可用，且未提供 Markdown 内容作为回退')
+      // 路径 3：两个开关都未启用（理论上 UI 已隐藏菜单，不应走到）
+      throw new Error('DOCX 导出未启用，请在设置中开启远程服务或本地导出')
     }
 
-    return { filePath, warnings, usedPandoc }
+    return { filePath, warnings, usedPandoc, usedRemote, imagesFailed }
   } catch (error) {
     console.error('Failed to export DOCX:', error)
     throw error
   }
 })
+
+// 本地 DOCX 导出（Pandoc → docx 库 fallback，保持原有逻辑）
+async function _exportLocalDocx(
+  htmlContent: string,
+  outputPath: string,
+  basePath: string,
+  markdown?: string,
+  chartImages?: ChartImageData[],
+  docStyle?: string
+): Promise<{ filePath: string; warnings: string[]; usedPandoc: boolean }> {
+  const pandocAvailable = await isPandocAvailable()
+
+  if (pandocAvailable) {
+    console.log(`[DOCX Export] 本地 Pandoc 导出${docStyle === 'gongwen' ? '（公文格式）' : ''}`)
+    const pandocResult = await exportWithPandoc(htmlContent, outputPath, basePath, docStyle)
+    return { filePath: pandocResult.filePath, warnings: pandocResult.warnings, usedPandoc: true }
+  } else if (markdown) {
+    console.log('[DOCX Export] Pandoc 不可用，使用 docx 库导出')
+    const docxResult = await exportToDocx(markdown, outputPath, basePath, chartImages || [])
+    return { filePath: docxResult.filePath, warnings: docxResult.warnings, usedPandoc: false }
+  } else {
+    throw new Error('Pandoc 不可用，且未提供 Markdown 内容')
+  }
+}
+
+// 测试 DOCX 服务连接
+ipcMain.handle('docx:testConnection', async (_, serverUrl: string, apiKey?: string) => {
+  return testConnection(serverUrl, apiKey)
+})
+
 }

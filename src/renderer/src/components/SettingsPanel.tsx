@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTheme, Theme } from '../hooks/useTheme'
 import { useUIStore, FONT_SIZE } from '../stores/uiStore'
+import { DocxSetupGuide } from './DocxSetupGuide'
 
 // ============================================================================
 // 类型定义
@@ -101,6 +102,19 @@ function GeneralTab() {
   const [plantumlTestStatus, setPlantumlTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [showPlantumlGuide, setShowPlantumlGuide] = useState(false)
 
+  // DOCX 远程服务配置
+  const [docxEnabled, setDocxEnabled] = useState(false)
+  const [docxServerUrl, setDocxServerUrl] = useState('')
+  const [docxApiKey, setDocxApiKey] = useState('')
+  const [docxStyle, setDocxStyle] = useState<'standard' | 'official' | 'internal' | 'report'>('standard')
+  const [docxTimeoutMs, setDocxTimeoutMs] = useState(60000)
+  const [docxEmbedFont, setDocxEmbedFont] = useState(true)
+  const [docxLocalFallback, setDocxLocalFallback] = useState(false)
+  const [docxTestStatus, setDocxTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[] } | null>(null)
+  const [showDocxSetupGuide, setShowDocxSetupGuide] = useState(false)
+  const [docxAdvancedOpen, setDocxAdvancedOpen] = useState(false)
+
   useEffect(() => {
     loadSettings()
     loadCtxStatus()
@@ -118,6 +132,16 @@ function GeneralTab() {
         maxFolderHistory: appSettings.maxFolderHistory ?? prev.maxFolderHistory,
         showExportBranding: appSettings.showExportBranding !== false
       }))
+      const dx = appSettings.docxExport
+      if (dx) {
+        setDocxEnabled(dx.remoteEnabled)
+        setDocxServerUrl(dx.serverUrl || '')
+        setDocxApiKey(dx.apiKey || '')
+        setDocxStyle(dx.style || 'standard')
+        setDocxTimeoutMs(dx.timeoutMs || 60000)
+        setDocxEmbedFont(dx.embedFont !== false)
+        setDocxLocalFallback(dx.localFallbackEnabled || false)
+      }
     } catch { /* 使用默认值 */ }
   }
 
@@ -130,6 +154,75 @@ function GeneralTab() {
     setSettings(prev => ({ ...prev, [key]: value }))
     await window.api.updateAppSettings({ [key]: value })
   }, [])
+
+  // ---- DOCX 服务操作 ----
+
+  const saveDocxSettings = useCallback(async (overrides: Record<string, unknown> = {}) => {
+    const docxExport = {
+      remoteEnabled: docxEnabled,
+      serverUrl: docxServerUrl.trim().replace(/\/+$/, '') || undefined,
+      apiKey: docxApiKey || undefined,
+      style: docxStyle,
+      timeoutMs: docxTimeoutMs,
+      embedFont: docxEmbedFont,
+      localFallbackEnabled: docxLocalFallback,
+      ...overrides
+    }
+    await window.api.updateAppSettings({ docxExport })
+  }, [docxEnabled, docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+
+  const handleDocxTest = useCallback(async () => {
+    const url = docxServerUrl.trim().replace(/\/+$/, '')
+    if (!url) return
+    setDocxTestStatus('testing')
+    setDocxTestInfo(null)
+    try {
+      const result = await window.api.testDocxConnection(url, docxApiKey || undefined)
+      if (result.ok) {
+        setDocxTestStatus('success')
+        setDocxTestInfo({ version: result.version, fonts: result.fontsAvailable })
+      } else {
+        setDocxTestStatus('error')
+      }
+    } catch {
+      setDocxTestStatus('error')
+    }
+  }, [docxServerUrl, docxApiKey])
+
+  const handleDocxSetupComplete = useCallback(async (serverUrl: string) => {
+    setDocxServerUrl(serverUrl)
+    setDocxEnabled(true)
+    setShowDocxSetupGuide(false)
+    setDocxTestStatus('success')
+    const docxExport = {
+      remoteEnabled: true,
+      serverUrl,
+      apiKey: docxApiKey || undefined,
+      style: docxStyle,
+      timeoutMs: docxTimeoutMs,
+      embedFont: docxEmbedFont,
+      localFallbackEnabled: docxLocalFallback,
+    }
+    await window.api.updateAppSettings({ docxExport })
+  }, [docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+
+  const handleDocxToggle = useCallback(async (enabled: boolean) => {
+    if (enabled && !docxServerUrl) {
+      setShowDocxSetupGuide(true)
+      return
+    }
+    setDocxEnabled(enabled)
+    const docxExport = {
+      remoteEnabled: enabled,
+      serverUrl: docxServerUrl.trim().replace(/\/+$/, '') || undefined,
+      apiKey: docxApiKey || undefined,
+      style: docxStyle,
+      timeoutMs: docxTimeoutMs,
+      embedFont: docxEmbedFont,
+      localFallbackEnabled: docxLocalFallback,
+    }
+    await window.api.updateAppSettings({ docxExport })
+  }, [docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
 
   // ---- 右键菜单操作 ----
 
@@ -306,6 +399,166 @@ function GeneralTab() {
         <p className="setting-section-hint">在导出的 HTML / PDF 末尾显示「由 MD Viewer 生成」</p>
       </section>
 
+      {/* DOCX 导出服务 */}
+      <section className="settings-section">
+        <h3>DOCX 导出服务</h3>
+        <div className="setting-item setting-row">
+          <label>启用 DOCX 服务</label>
+          <div className="docx-toggle-row">
+            <label className="setting-switch">
+              <input
+                type="checkbox"
+                checked={docxEnabled}
+                onChange={e => handleDocxToggle(e.target.checked)}
+              />
+              <span className="switch-slider"></span>
+            </label>
+            {docxEnabled && docxTestStatus === 'success' && (
+              <span className="docx-status-badge success">已连接{docxTestInfo?.version ? ` · v${docxTestInfo.version}` : ''}</span>
+            )}
+            {docxEnabled && docxTestStatus === 'error' && (
+              <span className="docx-status-badge error">连接失败</span>
+            )}
+          </div>
+        </div>
+
+        {!docxEnabled ? (
+          <>
+            <p className="setting-section-hint">
+              DOCX 导出需要连接 md-viewer-docx-service 来保证排版质量。未启用时，菜单中不会显示「导出 DOCX」选项。
+            </p>
+            <div className="docx-off-actions">
+              <button className="btn-primary btn-sm" onClick={() => setShowDocxSetupGuide(true)}>
+                启用并配置
+              </button>
+              <button className="btn-secondary btn-sm" onClick={() => {
+                window.api?.openExternal?.('https://github.com/wj2929/md-viewer-docx-service')
+              }}>
+                查看部署文档
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="setting-item setting-row" style={{ marginTop: 4 }}>
+              <label>服务器地址</label>
+              <div className="docx-url-row">
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={docxServerUrl}
+                  placeholder="http://localhost:3179"
+                  onChange={e => { setDocxServerUrl(e.target.value); setDocxTestStatus('idle') }}
+                  onBlur={() => saveDocxSettings()}
+                />
+                <button
+                  className="btn-secondary btn-sm"
+                  disabled={docxTestStatus === 'testing'}
+                  onClick={handleDocxTest}
+                >
+                  {docxTestStatus === 'testing' ? '测试中...' : '测试'}
+                </button>
+              </div>
+            </div>
+
+            <div className="setting-item setting-row" style={{ marginTop: 4 }}>
+              <label>默认样式</label>
+              <select
+                className="settings-select"
+                value={docxStyle}
+                onChange={e => {
+                  const v = e.target.value as typeof docxStyle
+                  setDocxStyle(v)
+                  saveDocxSettings({ style: v })
+                }}
+              >
+                <option value="standard">标准</option>
+                <option value="official">公文</option>
+                <option value="internal">机关内部</option>
+                <option value="report">调研报告</option>
+              </select>
+            </div>
+
+            {/* 高级选项折叠 */}
+            <div className="docx-advanced-toggle" onClick={() => setDocxAdvancedOpen(!docxAdvancedOpen)}>
+              <span>{docxAdvancedOpen ? '▾' : '▸'} 高级选项</span>
+            </div>
+
+            {docxAdvancedOpen && (
+              <div className="docx-advanced-panel">
+                <div className="setting-item setting-row">
+                  <label>API Key</label>
+                  <input
+                    type="password"
+                    className="settings-input"
+                    style={{ width: 180 }}
+                    value={docxApiKey}
+                    placeholder="未设置"
+                    onChange={e => setDocxApiKey(e.target.value)}
+                    onBlur={() => saveDocxSettings()}
+                  />
+                </div>
+                <div className="setting-item setting-row" style={{ marginTop: 4 }}>
+                  <label>超时时间</label>
+                  <div className="setting-slider-group">
+                    <input
+                      type="range"
+                      min={15}
+                      max={180}
+                      step={5}
+                      value={docxTimeoutMs / 1000}
+                      onChange={e => {
+                        const ms = Number(e.target.value) * 1000
+                        setDocxTimeoutMs(ms)
+                        saveDocxSettings({ timeoutMs: ms })
+                      }}
+                      className="settings-slider"
+                    />
+                    <span className="slider-value">{docxTimeoutMs / 1000}s</span>
+                  </div>
+                </div>
+                <div className="setting-item setting-row" style={{ marginTop: 4 }}>
+                  <label>嵌入字体到 DOCX</label>
+                  <label className="setting-switch">
+                    <input
+                      type="checkbox"
+                      checked={docxEmbedFont}
+                      onChange={e => {
+                        setDocxEmbedFont(e.target.checked)
+                        saveDocxSettings({ embedFont: e.target.checked })
+                      }}
+                    />
+                    <span className="switch-slider"></span>
+                  </label>
+                </div>
+                <p className="setting-section-hint">接收方电脑没安装字体时也能正确显示。文件增大约 5-10 MB。</p>
+                <div className="setting-item setting-row" style={{ marginTop: 8 }}>
+                  <label>启用离线导出</label>
+                  <label className="setting-switch">
+                    <input
+                      type="checkbox"
+                      checked={docxLocalFallback}
+                      onChange={e => {
+                        setDocxLocalFallback(e.target.checked)
+                        saveDocxSettings({ localFallbackEnabled: e.target.checked })
+                      }}
+                    />
+                    <span className="switch-slider"></span>
+                  </label>
+                </div>
+                <p className="setting-section-hint">不依赖 Docker 服务，但图表和线框图会显示为代码文本。</p>
+              </div>
+            )}
+
+            <div className="docx-off-actions" style={{ marginTop: 8 }}>
+              <button className="btn-danger-outline btn-sm" onClick={() => handleDocxToggle(false)}>
+                禁用服务
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+
       {/* 图表 */}
       <section className="settings-section">
         <h3>图表</h3>
@@ -428,6 +681,15 @@ function GeneralTab() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* DOCX Setup Guide 模态 */}
+      {showDocxSetupGuide && (
+        <DocxSetupGuide
+          onClose={() => setShowDocxSetupGuide(false)}
+          onComplete={handleDocxSetupComplete}
+          initialUrl={docxServerUrl || undefined}
+        />
       )}
 
       {/* PlantUML 本地服务器配置帮助 */}

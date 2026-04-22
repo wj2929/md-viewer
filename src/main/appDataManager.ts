@@ -74,6 +74,15 @@ export interface AppSettings {
   showExportBranding?: boolean    // 导出文件显示署名（v1.5.3），默认 true
   searchBarHistory?: string[]     // 搜索栏历史
   inPageSearchHistory?: string[]  // 页内搜索历史
+  docxExport?: {
+    remoteEnabled: boolean
+    serverUrl?: string
+    apiKey?: string
+    style: 'standard' | 'official' | 'internal' | 'report'
+    timeoutMs: number
+    embedFont: boolean
+    localFallbackEnabled: boolean
+  }
 }
 
 /**

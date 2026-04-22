@@ -3,6 +3,7 @@ import { Tab } from '../components/TabBar'
 import { SplitState, findLeaf } from '../utils/splitTree'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
 import { buildExportHtmlContent } from '../utils/exportHtml'
+import { renderChartsForDocx } from '../utils/docxChartRenderer'
 
 interface UseExportParams {
   splitState: SplitState
@@ -91,7 +92,6 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
 
   // 导出 DOCX
   const handleExportDOCX = useCallback(async (docStyle?: string) => {
-    // 分屏模式下取活跃面板的 tab，否则取全局 activeTab
     const exportTab = splitState.root && splitState.activeLeafId
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
@@ -99,7 +99,6 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
     let loadingId: string | undefined
     try {
       let htmlContent: string
-      // 分屏模式下 previewRef 为 null，fallback 到活跃面板的 .markdown-body
       const markdownBody = document.querySelector('.split-leaf-panel.active .markdown-body')
       if (markdownBody) {
         const clone = markdownBody.cloneNode(true) as HTMLElement
@@ -110,7 +109,6 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
           if (chartView) chartView.style.display = ''
           if (codeView) codeView.style.display = 'none'
         })
-        // Infographic: 导出时只显示信息图，隐藏代码
         clone.querySelectorAll('.infographic-wrapper').forEach(wrapper => {
           const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
           const codeView = wrapper.querySelector('[data-view="code"]') as HTMLElement
@@ -121,8 +119,8 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
         clonedContainers.forEach((container) => {
           const svg = container.querySelector('svg')
           if (!svg) return
-          let viewBox = svg.getAttribute('viewBox')
           let vbWidth: number, vbHeight: number
+          const viewBox = svg.getAttribute('viewBox')
           if (viewBox) {
             const parts = viewBox.split(/\s+/)
             if (parts.length === 4) { vbWidth = parseFloat(parts[2]); vbHeight = parseFloat(parts[3]) }
@@ -216,30 +214,67 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
         const md = createMarkdownRenderer()
         htmlContent = md.render(exportTab.content)
       }
-      loadingId = toast.info('正在导出 Word...', { duration: 60000 })
-      const result = await window.api.exportDOCX(htmlContent, exportTab.file.name, folderPath || '', exportTab.content, docStyle)
-      toast.close(loadingId)
-      if (result) {
-        const { filePath, warnings, usedPandoc } = result
-        if (usedPandoc) {
-          const styleLabel = docStyle === 'gongwen' ? '公文格式' : 'Pandoc 高质量'
-          const message = warnings && warnings.length > 0
-            ? `Word 已导出（${styleLabel}）（${warnings.length} 个警告）`
-            : `Word 已导出（${styleLabel}）`
-          toast.success(message, {
-            action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
+
+      // 检查远程服务是否启用，如果是则先渲染图表为 PNG
+      let markdownForExport = exportTab.content
+      let remoteImages: Array<{ id: string; pngBase64: string; widthCm?: number }> | undefined
+      let chartWarnings: string[] = []
+
+      try {
+        const settings = await window.api.getAppSettings()
+        if (settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl) {
+          loadingId = toast.info('正在渲染图表...', { duration: 300000 })
+          const chartResult = await renderChartsForDocx(exportTab.content, (current, total, type) => {
+            if (loadingId) {
+              toast.close(loadingId)
+              loadingId = toast.info(`正在渲染图表 ${current}/${total}（${type}）...`, { duration: 300000 })
+            }
           })
-        } else {
-          const pandocPromptChoice = localStorage.getItem('pandoc-prompt-choice')
-          if (pandocPromptChoice === 'never') {
-            toast.success('导出成功', {
-              action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
-            })
+          markdownForExport = chartResult.modifiedMarkdown
+          remoteImages = chartResult.images
+          chartWarnings = chartResult.warnings
+          if (loadingId) { toast.close(loadingId); loadingId = undefined }
+        }
+      } catch (chartErr) {
+        console.warn('[DOCX] Chart rendering failed, exporting without charts:', chartErr)
+        chartWarnings.push(`图表渲染失败: ${chartErr instanceof Error ? chartErr.message : String(chartErr)}`)
+        if (loadingId) { toast.close(loadingId); loadingId = undefined }
+      }
+
+      loadingId = toast.info('正在生成 Word 文档...', { duration: 120000 })
+      const result = await window.api.exportDOCX(htmlContent, exportTab.file.name, folderPath || '', markdownForExport, docStyle, remoteImages)
+      toast.close(loadingId)
+
+      if (result) {
+        const { filePath, usedPandoc, usedRemote, imagesFailed } = result
+        const warnings = [...(result.warnings || []), ...chartWarnings]
+        const showAction = { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (e) { console.error('Failed to show item:', e) } } }
+
+        if (usedRemote) {
+          if (imagesFailed && imagesFailed > 0) {
+            toast.success(`Word 已导出，${imagesFailed} 个图表显示为代码文本`, { action: showAction })
           } else {
-            toast.success('导出成功', {
-              description: '安装 Pandoc 可支持数学公式和复杂表格',
-              duration: 10000,
-              action: { label: '查看安装指南', onClick: async () => { try { await window.api.openExternal('https://pandoc.org/installing.html') } catch (error) { console.error('Failed to open external URL:', error); toast.error('无法打开链接') } } }
+            toast.success('Word 已导出', { action: showAction })
+          }
+        } else if (usedPandoc) {
+          const styleLabel = docStyle === 'gongwen' ? '公文格式' : 'Pandoc'
+          const hasRemoteFallbackWarning = warnings?.some(w => w.startsWith('远程服务失败'))
+          if (hasRemoteFallbackWarning) {
+            toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: showAction })
+          } else {
+            const message = warnings && warnings.length > 0
+              ? `Word 已导出（${styleLabel}，${warnings.length} 个警告）`
+              : `Word 已导出（${styleLabel}）`
+            toast.success(message, { action: showAction })
+          }
+        } else {
+          const hasRemoteFallbackWarning = warnings?.some(w => w.startsWith('远程服务失败'))
+          if (hasRemoteFallbackWarning) {
+            toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: showAction })
+          } else {
+            toast.success('Word 已导出（离线模式）', {
+              description: '图表和线框图显示为代码文本',
+              action: showAction
             })
           }
         }
@@ -247,7 +282,12 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
     } catch (error) {
       if (loadingId) toast.close(loadingId)
       console.error('导出 DOCX 失败:', error)
-      toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
+      const errMsg = error instanceof Error ? error.message : '未知错误'
+      if (errMsg.includes('DOCX 服务不可用') || errMsg.includes('无法连接')) {
+        toast.error('导出失败：无法连接服务器')
+      } else {
+        toast.error(`导出失败：${errMsg}`)
+      }
     }
   }, [activeTab, splitState, tabs, folderPath, toast])
 

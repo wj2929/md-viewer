@@ -54,7 +54,7 @@ export function validateMarkmapCode(code: string): { valid: boolean; error?: str
  * 3. 克隆 SVG 并设置固定 viewBox
  * 4. 销毁实例，返回静态 SVG
  */
-async function renderMarkmapToSvg(code: string, id: string): Promise<string> {
+export async function renderMarkmapToSvg(code: string, id: string): Promise<string> {
   // 离屏容器用 visibility:hidden（而非 left:-9999px），保留正常布局以便 getBBox 准确
   const container = document.createElement('div')
   container.id = `markmap-offscreen-${id}`
