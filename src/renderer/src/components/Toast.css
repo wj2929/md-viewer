@@ -75,8 +75,15 @@
   background: var(--accent-hover);
 }
 
-.toast-close {
+.toast-actions-col {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.toast-close {
   width: 20px;
   height: 20px;
   display: flex;
@@ -88,12 +95,53 @@
   cursor: pointer;
   font-size: 16px;
   padding: 0;
-  margin-top: 2px;  /* 微调对齐，与图标对齐 */
   transition: color 0.2s;
 }
 
 .toast-close:hover {
   color: var(--text-primary);
+}
+
+/* 进度条 */
+.toast-progress-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.toast-progress-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color);
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.toast-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-color);
+  transition: width 0.3s ease;
+}
+
+.toast-progress-percent {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  text-align: right;
+}
+
+.toast-cancel-btn {
+  background: transparent !important;
+  color: var(--text-muted) !important;
+  border: 1px solid var(--border-color) !important;
+  font-size: 12px !important;
+  padding: 2px 10px !important;
+}
+
+.toast-cancel-btn:hover {
+  color: var(--text-primary) !important;
+  border-color: var(--text-muted) !important;
 }
 
 /* Toast 类型样式 */

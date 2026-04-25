@@ -5,7 +5,9 @@
  * 接收二进制 DOCX 响应并写入指定路径。
  */
 import * as fs from 'fs-extra'
-import { net } from 'electron'
+import * as http from 'http'
+import * as https from 'https'
+import { app } from 'electron'
 import { appDataManager } from './appDataManager'
 
 export interface RemoteImage {
@@ -20,6 +22,27 @@ export interface RemoteConvertResult {
   serviceVersion: string
   imagesFailed: number
   mode: string
+}
+
+export type DocxErrorType = 'network' | 'timeout' | 'client_error' | 'server_error' | 'write_error' | 'unknown'
+
+export interface DocxErrorDetail {
+  errorType: DocxErrorType
+  message: string
+  statusCode?: number
+  serverUrl: string
+  serviceVersion?: string
+  timestamp: string
+  raw?: string
+}
+
+export class DocxExportError extends Error {
+  detail: DocxErrorDetail
+  constructor(detail: DocxErrorDetail) {
+    super(detail.message)
+    this.name = 'DocxExportError'
+    this.detail = detail
+  }
 }
 
 export async function exportViaRemote(
@@ -37,7 +60,12 @@ export async function exportViaRemote(
   const docxConfig = settings.docxExport
 
   if (!docxConfig?.remoteEnabled || !docxConfig.serverUrl) {
-    throw new Error('远程 DOCX 服务未启用或未配置服务器地址')
+    throw new DocxExportError({
+      errorType: 'unknown',
+      message: '远程 DOCX 服务未启用或未配置服务器地址',
+      serverUrl: '',
+      timestamp: new Date().toISOString(),
+    })
   }
 
   const url = `${docxConfig.serverUrl.replace(/\/+$/, '')}/convert`
@@ -55,80 +83,130 @@ export async function exportViaRemote(
     })),
     renderCharts: false,
     embedFont: options.embedFont ?? docxConfig.embedFont ?? false,
-    clientVersion: '1.7.0',
+    clientVersion: app.getVersion(),
   })
 
+  const parsedUrl = new URL(url)
+  const client = parsedUrl.protocol === 'https:' ? https : http
+
   return new Promise<RemoteConvertResult>((resolve, reject) => {
-    const controller = new AbortController()
     const timer = setTimeout(() => {
-      controller.abort()
-      reject(new Error(`请求超时（${timeoutMs / 1000}s），请检查服务器状态`))
+      req.destroy()
+      reject(new DocxExportError({
+        errorType: 'timeout',
+        message: `请求超时（${timeoutMs / 1000}s），文档可能过大或服务器繁忙`,
+        serverUrl: docxConfig.serverUrl || '',
+        timestamp: new Date().toISOString(),
+      }))
     }, timeoutMs)
 
-    const request = net.request({
+    const reqOptions: http.RequestOptions = {
       method: 'POST',
-      url,
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port,
+      path: parsedUrl.pathname,
       headers: {
         'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
         ...(docxConfig.apiKey ? { 'X-API-Key': docxConfig.apiKey } : {}),
       },
-    })
+      timeout: timeoutMs,
+    }
 
-    const chunks: Buffer[] = []
-    let statusCode = 0
-    let responseHeaders: Record<string, string> = {}
+    const req = client.request(reqOptions, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
 
-    request.on('response', (response) => {
-      statusCode = response.statusCode
-      for (const [key, value] of Object.entries(response.headers)) {
-        if (typeof value === 'string') {
-          responseHeaders[key.toLowerCase()] = value
-        } else if (Array.isArray(value) && value.length > 0) {
-          responseHeaders[key.toLowerCase()] = value[0]
-        }
-      }
-
-      response.on('data', (chunk) => {
-        chunks.push(chunk)
-      })
-
-      response.on('end', async () => {
+      res.on('end', async () => {
         clearTimeout(timer)
         const data = Buffer.concat(chunks)
+        const headers = res.headers
 
-        if (statusCode !== 200) {
-          let errMsg = `服务端返回 ${statusCode}`
+        if (res.statusCode !== 200) {
+          let errBody = `HTTP ${res.statusCode}`
           try {
             const json = JSON.parse(data.toString('utf-8'))
-            errMsg = json.error || json.detail?.error || errMsg
+            errBody = json.error || json.detail?.error || errBody
           } catch { /* not JSON */ }
-          reject(new Error(errMsg))
+          const code = res.statusCode || 0
+          const errorType: DocxErrorType = code >= 500 ? 'server_error' : 'client_error'
+          const message = code >= 500
+            ? `服务处理出错：${errBody}`
+            : `请求被拒绝：${errBody}`
+          reject(new DocxExportError({
+            errorType,
+            message,
+            statusCode: code,
+            serverUrl: docxConfig.serverUrl || '',
+            serviceVersion: (headers['x-service-version'] as string) || undefined,
+            timestamp: new Date().toISOString(),
+            raw: errBody,
+          }))
           return
         }
 
         try {
           await fs.writeFile(outputPath, data)
+          const warnings = parseWarnings(headers['x-convert-warnings'] as string | undefined)
+          const minVer = headers['x-min-client-version'] as string | undefined
+          if (minVer && compareVersions(app.getVersion(), minVer) < 0) {
+            warnings.push(`文件已正常生成。建议升级客户端至 ≥ v${minVer} 以保持兼容性`)
+          }
           resolve({
             filePath: outputPath,
-            warnings: parseWarnings(responseHeaders['x-convert-warnings']),
-            serviceVersion: responseHeaders['x-service-version'] || 'unknown',
-            imagesFailed: parseInt(responseHeaders['x-charts-failed'] || '0', 10),
-            mode: responseHeaders['x-service-mode'] || 'unknown',
+            warnings,
+            serviceVersion: (headers['x-service-version'] as string) || 'unknown',
+            imagesFailed: parseInt((headers['x-charts-failed'] as string) || '0', 10),
+            mode: (headers['x-service-mode'] as string) || 'unknown',
           })
         } catch (writeErr) {
-          reject(new Error(`写入文件失败: ${writeErr}`))
+          reject(new DocxExportError({
+            errorType: 'write_error',
+            message: `写入文件失败：${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
+            serverUrl: docxConfig.serverUrl || '',
+            timestamp: new Date().toISOString(),
+            raw: String(writeErr),
+          }))
         }
       })
     })
 
-    request.on('error', (err) => {
+    req.on('error', (err) => {
       clearTimeout(timer)
-      reject(new Error(`无法连接服务器 ${docxConfig.serverUrl}: ${err.message}`))
+      reject(new DocxExportError({
+        errorType: 'network',
+        message: `无法连接 DOCX 服务`,
+        serverUrl: docxConfig.serverUrl || '',
+        timestamp: new Date().toISOString(),
+        raw: err.message,
+      }))
     })
 
-    request.write(body)
-    request.end()
+    req.on('timeout', () => {
+      req.destroy()
+      clearTimeout(timer)
+      reject(new DocxExportError({
+        errorType: 'timeout',
+        message: `请求超时（${timeoutMs / 1000}s），文档可能过大或服务器繁忙`,
+        serverUrl: docxConfig.serverUrl || '',
+        timestamp: new Date().toISOString(),
+      }))
+    })
+
+    req.write(body)
+    req.end()
   })
+}
+
+function compareVersions(a: string, b: string): number {
+  const clean = (v: string) => (v || '').split('+')[0].split('-')[0].split('.').map(Number)
+  const pa = clean(a)
+  const pb = clean(b)
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1
+  }
+  return 0
 }
 
 function parseWarnings(raw: string | undefined): string[] {
@@ -150,21 +228,24 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
   error?: string
 }> {
   const url = `${serverUrl.replace(/\/+$/, '')}/healthz`
+  const parsedUrl = new URL(url)
+  const client = parsedUrl.protocol === 'https:' ? https : http
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       resolve({ ok: false, error: '连接超时（5s）' })
     }, 5000)
 
-    const request = net.request({ method: 'GET', url })
+    const headers: Record<string, string> = {}
+    if (apiKey) headers['X-API-Key'] = apiKey
 
-    request.on('response', (response) => {
+    const req = client.get(url, { headers, timeout: 5000 }, (res) => {
       const chunks: Buffer[] = []
-      response.on('data', (chunk) => chunks.push(chunk))
-      response.on('end', () => {
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('end', () => {
         clearTimeout(timer)
-        if (response.statusCode !== 200) {
-          resolve({ ok: false, error: `HTTP ${response.statusCode}` })
+        if (res.statusCode !== 200) {
+          resolve({ ok: false, error: `HTTP ${res.statusCode}` })
           return
         }
         try {
@@ -182,11 +263,15 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
       })
     })
 
-    request.on('error', (err) => {
+    req.on('error', (err) => {
       clearTimeout(timer)
       resolve({ ok: false, error: `无法连接: ${err.message}` })
     })
 
-    request.end()
+    req.on('timeout', () => {
+      req.destroy()
+      clearTimeout(timer)
+      resolve({ ok: false, error: '连接超时（5s）' })
+    })
   })
 }

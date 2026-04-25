@@ -42,7 +42,8 @@ function isEChartsConfig(code: string): boolean {
   // 3. 检查是否包含 ECharts 特征属性
   const echartsKeys = [
     'title', 'series', 'xAxis', 'yAxis', 'tooltip',
-    'legend', 'grid', 'radar', 'dataZoom', 'visualMap'
+    'legend', 'grid', 'radar', 'dataZoom', 'visualMap',
+    'geo', 'calendar', 'toolbox', 'dataset', 'graphic',
   ]
 
   let matchCount = 0

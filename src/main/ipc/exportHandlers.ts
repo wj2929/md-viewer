@@ -8,7 +8,13 @@ import { IPCContext } from './context'
 import { appDataManager } from '../appDataManager'
 import { exportToDocx, ChartImageData } from '../docxExporter'
 import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
-import { exportViaRemote, testConnection, RemoteImage } from '../remoteDocxExporter'
+import { exportViaRemote, testConnection, RemoteImage, DocxExportError } from '../remoteDocxExporter'
+
+let lastDocxExportPath: string | null = null
+
+export function getLastDocxExportPath(): string | null {
+  return lastDocxExportPath
+}
 
 // 获取导出用的完整 CSS（包含所有必需的变量和样式）
 async function getExportStyles(): Promise<{ markdownCss: string; prismCss: string }> {
@@ -936,7 +942,15 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
           warnings.push(...localResult.warnings)
           usedPandoc = localResult.usedPandoc
         } else {
-          throw new Error(`DOCX 服务不可用: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr)}`)
+          const detail = remoteErr instanceof DocxExportError
+            ? remoteErr.detail
+            : {
+                errorType: 'unknown' as const,
+                message: `DOCX 服务不可用: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr)}`,
+                serverUrl: docxConfig.serverUrl || '',
+                timestamp: new Date().toISOString(),
+              }
+          return { error: detail }
         }
       }
     } else if (docxConfig?.localFallbackEnabled) {
@@ -951,9 +965,13 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
       throw new Error('DOCX 导出未启用，请在设置中开启远程服务或本地导出')
     }
 
+    lastDocxExportPath = filePath
     return { filePath, warnings, usedPandoc, usedRemote, imagesFailed }
   } catch (error) {
     console.error('Failed to export DOCX:', error)
+    if (error instanceof DocxExportError) {
+      return { error: error.detail }
+    }
     throw error
   }
 })
@@ -985,6 +1003,17 @@ async function _exportLocalDocx(
 // 测试 DOCX 服务连接
 ipcMain.handle('docx:testConnection', async (_, serverUrl: string, apiKey?: string) => {
   return testConnection(serverUrl, apiKey)
+})
+
+ipcMain.handle('docx:getLastExportedFile', () => lastDocxExportPath)
+
+ipcMain.handle('docx:openLastExport', async () => {
+  if (!lastDocxExportPath) return { ok: false, error: '没有导出记录' }
+  const exists = await fs.pathExists(lastDocxExportPath)
+  if (!exists) return { ok: false, error: '文件已不存在' }
+  const { shell } = require('electron')
+  const err = await shell.openPath(lastDocxExportPath)
+  return err ? { ok: false, error: err } : { ok: true }
 })
 
 }

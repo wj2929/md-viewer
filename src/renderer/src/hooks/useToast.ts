@@ -1,12 +1,14 @@
 import { useState, useCallback } from 'react'
-import { ToastMessage, ToastType, ToastAction } from '../components/Toast'
+import { ToastMessage, ToastType, ToastAction, ToastProgress } from '../components/Toast'
 
 let toastId = 0
 
 export interface ToastOptions {
-  description?: string  // 可选的描述文本
+  description?: string
   duration?: number
   action?: ToastAction
+  actions?: ToastAction[]
+  progress?: ToastProgress
 }
 
 export function useToast() {
@@ -20,7 +22,9 @@ export function useToast() {
       message,
       description: options?.description,
       duration: options?.duration,
-      action: options?.action
+      action: options?.action,
+      actions: options?.actions,
+      progress: options?.progress,
     }])
     return id
   }, [])
@@ -45,12 +49,19 @@ export function useToast() {
     setMessages(prev => prev.filter(msg => msg.id !== id))
   }, [])
 
+  const updateToast = useCallback((id: string, updates: Partial<Pick<ToastMessage, 'message' | 'description' | 'progress' | 'action' | 'actions' | 'type'>>) => {
+    setMessages(prev => prev.map(msg =>
+      msg.id === id ? { ...msg, ...updates } : msg
+    ))
+  }, [])
+
   return {
     messages,
     success,
     error,
     warning,
     info,
-    close: closeToast
+    close: closeToast,
+    update: updateToast,
   }
 }

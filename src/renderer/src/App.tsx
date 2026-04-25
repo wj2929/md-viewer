@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
 import { readFileWithCache, clearFileCache } from './utils/fileCache'
 import { useToast } from './hooks/useToast'
@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIPC } from './hooks/useIPC'
 import { useExport } from './hooks/useExport'
 import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore } from './stores'
+import { useExportTaskStore } from './stores/exportTaskStore'
 
 function App(): React.JSX.Element {
   // v1.6.0: Zustand stores
@@ -17,8 +18,17 @@ function App(): React.JSX.Element {
   const { bookmarks, bookmarksLoading, bookmarkPanelCollapsed, setBookmarkPanelCollapsed, bookmarkPanelWidth, setBookmarkPanelWidth, bookmarkBarCollapsed, setBookmarkBarCollapsed, loadBookmarks, loadSettings: loadBookmarkSettings } = useBookmarkStore()
   const { sidebarWidth, setSidebarWidth, isResizing, setIsResizing, showSettings, setShowSettings, showShortcutsHelp, setShowShortcutsHelp, isFullscreen, isDragOver, lightbox, setLightbox } = useLayoutStore()
 
+  const { lastExportedFilePath, lastExportedTime } = useExportTaskStore()
+
   const toast = useToast()
   const { theme, setTheme } = useTheme()
+
+  const handleOpenLastExport = useCallback(async () => {
+    try {
+      const result = await window.api.openLastDocxExport()
+      if (!result.ok) toast.error(result.error || '无法打开文件')
+    } catch { toast.error('无法打开文件') }
+  }, [toast])
   const { isAlwaysOnTop, toggleAlwaysOnTop, initialize: initWindowStore, syncFromMain: syncAlwaysOnTop } = useWindowStore()
   const { applyCSSVariable } = useUIStore()
 
@@ -803,6 +813,10 @@ function App(): React.JSX.Element {
     <ErrorBoundary>
       <div className={`app ${isFullscreen ? 'fullscreen' : ''}`}>
       <ToastContainer messages={toast.messages} onClose={toast.close} />
+      <ExportTaskView
+        onShowInFolder={async (p) => { try { await window.api.showItemInFolder(p) } catch {} }}
+        onOpenSettings={() => setShowSettings(true)}
+      />
 
       {isDragOver && (
         <div className="drag-overlay">
@@ -839,6 +853,9 @@ function App(): React.JSX.Element {
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
+                lastExportedFilePath={lastExportedFilePath}
+                lastExportedTime={lastExportedTime}
+                onOpenLastExport={handleOpenLastExport}
               />
             </Header>
             <div className="welcome-content">
@@ -876,6 +893,9 @@ function App(): React.JSX.Element {
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
+                lastExportedFilePath={lastExportedFilePath}
+                lastExportedTime={lastExportedTime}
+                onOpenLastExport={handleOpenLastExport}
               />
               {tabs.length > 0 && (
                 <TabBar

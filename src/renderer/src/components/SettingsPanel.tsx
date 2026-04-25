@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTheme, Theme } from '../hooks/useTheme'
 import { useUIStore, FONT_SIZE } from '../stores/uiStore'
 import { DocxSetupGuide } from './DocxSetupGuide'
+import { DocxStyleCards } from './DocxStyleCards'
 
 // ============================================================================
 // 类型定义
@@ -111,7 +112,8 @@ function GeneralTab() {
   const [docxEmbedFont, setDocxEmbedFont] = useState(true)
   const [docxLocalFallback, setDocxLocalFallback] = useState(false)
   const [docxTestStatus, setDocxTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[] } | null>(null)
+  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[]; styles?: string[]; mode?: string; error?: string } | null>(null)
+  const [docxTestDetailOpen, setDocxTestDetailOpen] = useState(false)
   const [showDocxSetupGuide, setShowDocxSetupGuide] = useState(false)
   const [docxAdvancedOpen, setDocxAdvancedOpen] = useState(false)
 
@@ -180,12 +182,14 @@ function GeneralTab() {
       const result = await window.api.testDocxConnection(url, docxApiKey || undefined)
       if (result.ok) {
         setDocxTestStatus('success')
-        setDocxTestInfo({ version: result.version, fonts: result.fontsAvailable })
+        setDocxTestInfo({ version: result.version, fonts: result.fontsAvailable, styles: result.styles, mode: result.mode })
       } else {
         setDocxTestStatus('error')
+        setDocxTestInfo({ error: result.error || '连接失败' })
       }
-    } catch {
+    } catch (e) {
       setDocxTestStatus('error')
+      setDocxTestInfo({ error: e instanceof Error ? e.message : '连接失败' })
     }
   }, [docxServerUrl, docxApiKey])
 
@@ -461,23 +465,37 @@ function GeneralTab() {
               </div>
             </div>
 
-            <div className="setting-item setting-row" style={{ marginTop: 4 }}>
-              <label>默认样式</label>
-              <select
-                className="settings-select"
-                value={docxStyle}
-                onChange={e => {
-                  const v = e.target.value as typeof docxStyle
-                  setDocxStyle(v)
-                  saveDocxSettings({ style: v })
-                }}
-              >
-                <option value="standard">标准</option>
-                <option value="official">公文</option>
-                <option value="internal">机关内部</option>
-                <option value="report">调研报告</option>
-              </select>
-            </div>
+            {docxTestStatus === 'success' && docxTestInfo && (
+              <div className="docx-test-result-info">
+                <div className="docx-test-result-summary">
+                  v{docxTestInfo.version}{docxTestInfo.mode ? ` · ${docxTestInfo.mode}` : ''}{docxTestInfo.styles ? ` · ${docxTestInfo.styles.length} 种样式可用` : ''}
+                  <span className="docx-test-detail-toggle" onClick={() => setDocxTestDetailOpen(!docxTestDetailOpen)}>
+                    {docxTestDetailOpen ? ' ▾ 收起' : ' ▸ 查看详情'}
+                  </span>
+                </div>
+                {docxTestDetailOpen && (
+                  <div className="docx-test-result-detail">
+                    {docxTestInfo.fonts && docxTestInfo.fonts.length > 0 && (
+                      <div className="docx-test-result-row">字体：{docxTestInfo.fonts.join(', ')}</div>
+                    )}
+                    {docxTestInfo.styles && docxTestInfo.styles.length > 0 && (
+                      <div className="docx-test-result-row">样式：{docxTestInfo.styles.join(' · ')}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {docxTestStatus === 'error' && docxTestInfo?.error && (
+              <div className="docx-test-result-error">{docxTestInfo.error}</div>
+            )}
+
+            <DocxStyleCards
+              value={docxStyle}
+              onChange={v => {
+                setDocxStyle(v)
+                saveDocxSettings({ style: v })
+              }}
+            />
 
             {/* 高级选项折叠 */}
             <div className="docx-advanced-toggle" onClick={() => setDocxAdvancedOpen(!docxAdvancedOpen)}>

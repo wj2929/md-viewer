@@ -502,6 +502,15 @@ export async function renderMermaidToSvg(
   }
 
   try {
+    // 清理上一次 mermaid.render() 残留的临时 DOM 元素
+    // Mermaid 在 body 下创建 <div id="dmermaid-xxx"> 临时容器来渲染 SVG，
+    // graph 类型含 <br/> 时用 foreignObject 渲染 HTML 标签，
+    // 连续调用如果残留未清理会导致内部状态冲突
+    if (typeof document !== 'undefined') {
+      document.querySelectorAll('body > [id^="dmermaid-"]')
+        .forEach(el => el.remove())
+    }
+
     // 生成安全的 ID
     const safeId = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     const { svg } = await mermaid.render(safeId, code)

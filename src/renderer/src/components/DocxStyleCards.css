@@ -1,0 +1,70 @@
+.docx-style-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: none;
+  padding: 0;
+  margin: 4px 0 0;
+}
+
+.docx-style-cards legend {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.docx-style-card {
+  position: relative;
+  min-width: 45%;
+  max-width: 110px;
+  flex: 1 1 100px;
+  padding: 8px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: var(--bg-primary);
+}
+
+.docx-style-card:hover {
+  border-color: var(--text-muted);
+}
+
+.docx-style-card.active {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 1px var(--accent-color);
+}
+
+.docx-style-card:focus-within {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.docx-style-card input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.docx-style-card-thumbnail {
+  display: block;
+  margin: 0 auto 6px;
+}
+
+.docx-style-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.docx-style-card-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  margin-top: 2px;
+}

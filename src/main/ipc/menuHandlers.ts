@@ -6,6 +6,8 @@ import { showContextMenu } from '../contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from '../markdownMenuHandler'
 import { appDataManager } from '../appDataManager'
+import { getLastDocxExportPath } from './exportHandlers'
+import * as fs from 'fs'
 
 // 文件信息接口（与 fileHandlers 共享）
 interface FileInfo {
@@ -329,6 +331,18 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     menuTemplate.push({
       label: docxConfig?.remoteEnabled ? '📝 导出 Word' : '📝 导出 Word（离线）',
       click: () => event.sender.send('markdown:export-docx')
+    })
+  }
+
+  const lastExportPath = getLastDocxExportPath()
+  if (lastExportPath && fs.existsSync(lastExportPath)) {
+    const lastExportName = path.basename(lastExportPath)
+    menuTemplate.push({
+      label: `📎 上次导出：${lastExportName}`,
+      submenu: [
+        { label: '打开文件', click: () => shell.openPath(lastExportPath!) },
+        { label: '在 Finder 中显示', click: () => shell.showItemInFolder(lastExportPath!) },
+      ]
     })
   }
 

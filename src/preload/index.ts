@@ -56,6 +56,11 @@ const api = {
       error?: string
     }>,
 
+  getLastDocxExportPath: () =>
+    ipcRenderer.invoke('docx:getLastExportedFile') as Promise<string | null>,
+
+  openLastDocxExport: () =>
+    ipcRenderer.invoke('docx:openLastExport') as Promise<{ ok: boolean; error?: string }>,
 
   // 右键菜单 (v1.2 阶段 1 新增)
   showContextMenu: (file: { name: string; path: string; isDirectory: boolean }, basePath: string) =>

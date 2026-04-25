@@ -34,3 +34,6 @@ export type { LightboxState } from './ImageLightbox'
 // v1.5.1: 递归分屏面板
 export { SplitPanel } from './SplitPanel'
 export type { SplitPanelProps } from './SplitPanel'
+
+// v1.7.0: DOCX 导出进度面板
+export { ExportTaskView } from './ExportTaskView'

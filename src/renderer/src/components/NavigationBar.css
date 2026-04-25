@@ -82,6 +82,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
 /* 导航栏按钮统一基础样式 */
 .nav-refresh-btn,
 .nav-settings-btn,
+.nav-last-export-btn,
 .nav-always-on-top-btn,
 .recent-files-btn,
 .folder-btn,

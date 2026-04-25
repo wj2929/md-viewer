@@ -1,9 +1,10 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { Tab } from '../components/TabBar'
 import { SplitState, findLeaf } from '../utils/splitTree'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
 import { buildExportHtmlContent } from '../utils/exportHtml'
 import { renderChartsForDocx } from '../utils/docxChartRenderer'
+import { useExportTaskStore } from '../stores/exportTaskStore'
 
 interface UseExportParams {
   splitState: SplitState
@@ -11,9 +12,10 @@ interface UseExportParams {
   activeTabId: string | null
   folderPath: string | null
   toast: {
-    info: (msg: string, options?: { duration?: number }) => string
+    info: (msg: string, options?: { duration?: number; progress?: { current: number; total: number; label?: string; cancelable?: boolean; onCancel?: () => void } }) => string
     close: (id: string) => void
-    success: (msg: string, options?: { description?: string; duration?: number; action?: { label: string; onClick: () => void } }) => void
+    update: (id: string, updates: { message?: string; description?: string; progress?: { current: number; total: number; label?: string; cancelable?: boolean; onCancel?: () => void }; action?: { label: string; onClick: () => void }; actions?: { label: string; onClick: () => void }[] }) => void
+    success: (msg: string, options?: { description?: string; duration?: number; action?: { label: string; onClick: () => void }; actions?: { label: string; onClick: () => void }[] }) => void
     error: (msg: string) => void
   }
 }
@@ -25,6 +27,8 @@ interface UseExportReturn {
 }
 
 export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: UseExportParams): UseExportReturn {
+  const cancelledRef = useRef(false)
+
   // 计算当前活动标签
   // 分屏模式：通过 splitState 找到活跃叶子面板的 tab
   // 非分屏模式：直接通过 activeTabId 查找
@@ -219,62 +223,77 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
       let markdownForExport = exportTab.content
       let remoteImages: Array<{ id: string; pngBase64: string; widthCm?: number }> | undefined
       let chartWarnings: string[] = []
+      const store = useExportTaskStore.getState()
+      let useRemotePath = false
 
       try {
         const settings = await window.api.getAppSettings()
         if (settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl) {
-          loadingId = toast.info('正在渲染图表...', { duration: 300000 })
+          useRemotePath = true
+
+          if (store.status !== 'idle') return
+          store.startExport(exportTab.file.name)
+          cancelledRef.current = false
+
           const chartResult = await renderChartsForDocx(exportTab.content, (current, total, type) => {
-            if (loadingId) {
-              toast.close(loadingId)
-              loadingId = toast.info(`正在渲染图表 ${current}/${total}（${type}）...`, { duration: 300000 })
-            }
+            if (cancelledRef.current) return
+            useExportTaskStore.getState().updateChartProgress(current, total, type)
           })
+          if (cancelledRef.current) {
+            useExportTaskStore.getState().close()
+            return
+          }
           markdownForExport = chartResult.modifiedMarkdown
           remoteImages = chartResult.images
           chartWarnings = chartResult.warnings
-          if (loadingId) { toast.close(loadingId); loadingId = undefined }
         }
       } catch (chartErr) {
         console.warn('[DOCX] Chart rendering failed, exporting without charts:', chartErr)
         chartWarnings.push(`图表渲染失败: ${chartErr instanceof Error ? chartErr.message : String(chartErr)}`)
-        if (loadingId) { toast.close(loadingId); loadingId = undefined }
       }
 
-      loadingId = toast.info('正在生成 Word 文档...', { duration: 120000 })
-      const result = await window.api.exportDOCX(htmlContent, exportTab.file.name, folderPath || '', markdownForExport, docStyle, remoteImages)
-      toast.close(loadingId)
+      if (useRemotePath) {
+        useExportTaskStore.getState().setGenerating()
+      } else {
+        loadingId = toast.info('正在生成 Word 文档...', { duration: 120000 })
+      }
+
+      const result = await window.api.exportDOCX(htmlContent, exportTab.file.name, folderPath || '', markdownForExport, docStyle, remoteImages) as any
+
+      if (loadingId) toast.close(loadingId)
+
+      if (result?.error) {
+        const detail = result.error
+        useExportTaskStore.getState().setError(detail.message, detail)
+        return
+      }
 
       if (result) {
         const { filePath, usedPandoc, usedRemote, imagesFailed } = result
         const warnings = [...(result.warnings || []), ...chartWarnings]
-        const showAction = { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (e) { console.error('Failed to show item:', e) } } }
+        const openFolder = { label: '打开位置', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (e) { console.error('Failed to show item:', e) } } }
 
-        if (usedRemote) {
-          if (imagesFailed && imagesFailed > 0) {
-            toast.success(`Word 已导出，${imagesFailed} 个图表显示为代码文本`, { action: showAction })
-          } else {
-            toast.success('Word 已导出', { action: showAction })
-          }
+        if (usedRemote && useRemotePath) {
+          useExportTaskStore.getState().setDone(filePath, imagesFailed || 0, warnings)
         } else if (usedPandoc) {
           const styleLabel = docStyle === 'gongwen' ? '公文格式' : 'Pandoc'
           const hasRemoteFallbackWarning = warnings?.some(w => w.startsWith('远程服务失败'))
           if (hasRemoteFallbackWarning) {
-            toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: showAction })
+            toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: openFolder })
           } else {
             const message = warnings && warnings.length > 0
               ? `Word 已导出（${styleLabel}，${warnings.length} 个警告）`
               : `Word 已导出（${styleLabel}）`
-            toast.success(message, { action: showAction })
+            toast.success(message, { action: openFolder })
           }
         } else {
           const hasRemoteFallbackWarning = warnings?.some(w => w.startsWith('远程服务失败'))
           if (hasRemoteFallbackWarning) {
-            toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: showAction })
+            toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: openFolder })
           } else {
             toast.success('Word 已导出（离线模式）', {
               description: '图表和线框图显示为代码文本',
-              action: showAction
+              action: openFolder
             })
           }
         }
@@ -283,8 +302,8 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
       if (loadingId) toast.close(loadingId)
       console.error('导出 DOCX 失败:', error)
       const errMsg = error instanceof Error ? error.message : '未知错误'
-      if (errMsg.includes('DOCX 服务不可用') || errMsg.includes('无法连接')) {
-        toast.error('导出失败：无法连接服务器')
+      if (useExportTaskStore.getState().status !== 'idle') {
+        useExportTaskStore.getState().setError(`导出失败：${errMsg}`)
       } else {
         toast.error(`导出失败：${errMsg}`)
       }

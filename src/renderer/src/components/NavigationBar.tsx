@@ -31,6 +31,9 @@ interface NavigationBarProps {
   onThemeChange: (theme: 'light' | 'dark' | 'auto') => void
   onRefreshFiles: () => void
   isLoading: boolean
+  lastExportedFilePath?: string
+  lastExportedTime?: string
+  onOpenLastExport?: () => void
 }
 
 export function NavigationBar({
@@ -48,7 +51,10 @@ export function NavigationBar({
   onSettingsClick,
   onThemeChange,
   onRefreshFiles,
-  isLoading
+  isLoading,
+  lastExportedFilePath,
+  lastExportedTime,
+  onOpenLastExport,
 }: NavigationBarProps): JSX.Element {
   return (
     <div className="navigation-bar">
@@ -96,6 +102,14 @@ export function NavigationBar({
 
       {/* 右侧操作区 */}
       <div className="nav-actions">
+        {lastExportedFilePath && onOpenLastExport && (
+          <button
+            className="nav-last-export-btn"
+            onClick={onOpenLastExport}
+            title={`上次导出：${lastExportedFilePath.split(/[/\\]/).pop()}${lastExportedTime ? `（${lastExportedTime}）` : ''}`}
+            aria-label="打开上次导出的文件"
+          >📄</button>
+        )}
         {/* v1.4.2：窗口置顶按钮 */}
         <button
           className={`nav-always-on-top-btn ${isAlwaysOnTop ? 'active' : ''}`}

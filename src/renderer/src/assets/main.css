@@ -2376,6 +2376,50 @@ body {
   margin-top: 4px;
 }
 
+.docx-test-result-info {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.docx-test-result-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.docx-test-detail-toggle {
+  cursor: pointer;
+  color: var(--accent-color);
+  font-size: 11px;
+}
+
+.docx-test-detail-toggle:hover {
+  text-decoration: underline;
+}
+
+.docx-test-result-detail {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.docx-test-result-row {
+  margin-bottom: 2px;
+}
+
+.docx-test-result-error {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
 .guide-note-muted {
   font-size: 12px;
   color: var(--text-secondary, #999);

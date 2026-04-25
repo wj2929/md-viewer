@@ -133,6 +133,9 @@ declare global {
         error?: string
       }>
 
+      getLastDocxExportPath: () => Promise<string | null>
+      openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
+
       // v1.3.6：应用设置
       getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings }>
       updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings }>) => Promise<void>

@@ -14,6 +14,13 @@ import {
   GaugeChart,
   FunnelChart,
   CustomChart,
+  HeatmapChart,
+  SankeyChart,
+  TreeChart,
+  TreemapChart,
+  GraphChart,
+  SunburstChart,
+  BoxplotChart,
 } from 'echarts/charts'
 import {
   TitleComponent,
@@ -23,8 +30,15 @@ import {
   DataZoomComponent,
   MarkPointComponent,
   MarkLineComponent,
+  MarkAreaComponent,
   RadarComponent,
   PolarComponent,
+  VisualMapComponent,
+  ToolboxComponent,
+  GraphicComponent,
+  DatasetComponent,
+  GeoComponent,
+  CalendarComponent,
 } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
@@ -40,6 +54,13 @@ echarts.use([
   GaugeChart,
   FunnelChart,
   CustomChart,
+  HeatmapChart,
+  SankeyChart,
+  TreeChart,
+  TreemapChart,
+  GraphChart,
+  SunburstChart,
+  BoxplotChart,
   // 组件
   TitleComponent,
   TooltipComponent,
@@ -48,8 +69,15 @@ echarts.use([
   DataZoomComponent,
   MarkPointComponent,
   MarkLineComponent,
+  MarkAreaComponent,
   RadarComponent,
   PolarComponent,
+  VisualMapComponent,
+  ToolboxComponent,
+  GraphicComponent,
+  DatasetComponent,
+  GeoComponent,
+  CalendarComponent,
   // 渲染器
   SVGRenderer,
 ])
@@ -263,10 +291,21 @@ export function optimizeEChartsConfig(option: EChartsOption): EChartsOption {
   // 当 title 和 legend 同时存在时，自动调整 legend.top 避免重叠
   if (option.title && option.legend) {
     const legend = optimized.legend as Record<string, unknown>
-    // 仅在用户没有设置足够大的 top 值时才调整
     const legendTop = legend?.top
     if (legendTop === undefined || (typeof legendTop === 'number' && legendTop < 40)) {
       optimized.legend = { ...legend, top: 40 }
+    }
+  }
+
+  // 当图例项过多时启用滚动图例，避免图例占据过多垂直空间
+  if (option.legend && !Array.isArray(option.legend)) {
+    const legend = option.legend as Record<string, unknown>
+    if (!legend.type) {
+      const series = Array.isArray(option.series) ? option.series : option.series ? [option.series] : []
+      const legendItemCount = Array.isArray(legend.data) ? legend.data.length : series.length
+      if (legendItemCount > 8) {
+        optimized.legend = { ...(optimized.legend as Record<string, unknown>), type: 'scroll' }
+      }
     }
   }
 
