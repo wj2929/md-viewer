@@ -79,8 +79,13 @@ const api = {
       mode?: string
       styles?: string[]
       fontsAvailable?: string[]
+      embedFontSupported?: boolean
+      chartRenderersAvailable?: string[]
       error?: string
     }>,
+
+  selectReferenceDocx: () =>
+    ipcRenderer.invoke('docx:selectReferenceDocx') as Promise<string | null>,
 
   getLastDocxExportPath: () =>
     ipcRenderer.invoke('docx:getLastExportedFile') as Promise<string | null>,

@@ -82,6 +82,7 @@ export interface AppSettings {
     timeoutMs: number
     embedFont: boolean
     localFallbackEnabled: boolean
+    referenceDocxPath?: string
   }
 }
 

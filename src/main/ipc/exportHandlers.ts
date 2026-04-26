@@ -1005,6 +1005,20 @@ ipcMain.handle('docx:testConnection', async (_, serverUrl: string, apiKey?: stri
   return testConnection(serverUrl, apiKey)
 })
 
+ipcMain.handle('docx:selectReferenceDocx', async (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  const options = {
+    title: '选择 reference.docx 模板',
+    properties: ['openFile'],
+    filters: [{ name: 'Word 模板', extensions: ['docx'] }],
+  } as Electron.OpenDialogOptions
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options)
+  if (result.canceled || !result.filePaths[0]) return null
+  return result.filePaths[0]
+})
+
 ipcMain.handle('docx:getLastExportedFile', () => lastDocxExportPath)
 
 ipcMain.handle('docx:openLastExport', async () => {

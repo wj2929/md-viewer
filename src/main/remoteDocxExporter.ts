@@ -84,6 +84,7 @@ export async function exportViaRemote(
     renderCharts: false,
     embedFont: options.embedFont ?? docxConfig.embedFont ?? false,
     clientVersion: app.getVersion(),
+    referenceDocxBase64: await readReferenceDocxBase64(docxConfig.referenceDocxPath),
   })
 
   const parsedUrl = new URL(url)
@@ -198,6 +199,18 @@ export async function exportViaRemote(
   })
 }
 
+async function readReferenceDocxBase64(referenceDocxPath?: string): Promise<string | undefined> {
+  if (!referenceDocxPath) return undefined
+  try {
+    const stat = await fs.stat(referenceDocxPath)
+    if (!stat.isFile() || stat.size > 15 * 1024 * 1024) return undefined
+    const data = await fs.readFile(referenceDocxPath)
+    return data.toString('base64')
+  } catch {
+    return undefined
+  }
+}
+
 function compareVersions(a: string, b: string): number {
   const clean = (v: string) => (v || '').split('+')[0].split('-')[0].split('.').map(Number)
   const pa = clean(a)
@@ -225,6 +238,8 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
   mode?: string
   styles?: string[]
   fontsAvailable?: string[]
+  embedFontSupported?: boolean
+  chartRenderersAvailable?: string[]
   error?: string
 }> {
   const url = `${serverUrl.replace(/\/+$/, '')}/healthz`
@@ -256,6 +271,8 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
             mode: json.mode,
             styles: json.styles,
             fontsAvailable: json.fontsAvailable,
+            embedFontSupported: json.embedFontSupported,
+            chartRenderersAvailable: json.chartRenderersAvailable,
           })
         } catch {
           resolve({ ok: false, error: '响应格式不正确，请确认是 md-viewer-docx-service' })

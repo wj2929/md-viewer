@@ -111,8 +111,9 @@ function GeneralTab() {
   const [docxTimeoutMs, setDocxTimeoutMs] = useState(60000)
   const [docxEmbedFont, setDocxEmbedFont] = useState(true)
   const [docxLocalFallback, setDocxLocalFallback] = useState(false)
+  const [docxReferencePath, setDocxReferencePath] = useState('')
   const [docxTestStatus, setDocxTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[]; styles?: string[]; mode?: string; error?: string } | null>(null)
+  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[]; styles?: string[]; mode?: string; embedFontSupported?: boolean; chartRenderers?: string[]; error?: string } | null>(null)
   const [docxTestDetailOpen, setDocxTestDetailOpen] = useState(false)
   const [showDocxSetupGuide, setShowDocxSetupGuide] = useState(false)
   const [docxAdvancedOpen, setDocxAdvancedOpen] = useState(false)
@@ -143,6 +144,7 @@ function GeneralTab() {
         setDocxTimeoutMs(dx.timeoutMs || 60000)
         setDocxEmbedFont(dx.embedFont !== false)
         setDocxLocalFallback(dx.localFallbackEnabled || false)
+        setDocxReferencePath(dx.referenceDocxPath || '')
       }
     } catch { /* 使用默认值 */ }
   }
@@ -168,10 +170,11 @@ function GeneralTab() {
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
+      referenceDocxPath: docxReferencePath || undefined,
       ...overrides
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxEnabled, docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+  }, [docxEnabled, docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
 
   const handleDocxTest = useCallback(async () => {
     const url = docxServerUrl.trim().replace(/\/+$/, '')
@@ -182,7 +185,14 @@ function GeneralTab() {
       const result = await window.api.testDocxConnection(url, docxApiKey || undefined)
       if (result.ok) {
         setDocxTestStatus('success')
-        setDocxTestInfo({ version: result.version, fonts: result.fontsAvailable, styles: result.styles, mode: result.mode })
+        setDocxTestInfo({
+          version: result.version,
+          fonts: result.fontsAvailable,
+          styles: result.styles,
+          mode: result.mode,
+          embedFontSupported: result.embedFontSupported,
+          chartRenderers: result.chartRenderersAvailable,
+        })
       } else {
         setDocxTestStatus('error')
         setDocxTestInfo({ error: result.error || '连接失败' })
@@ -206,9 +216,10 @@ function GeneralTab() {
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
+      referenceDocxPath: docxReferencePath || undefined,
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+  }, [docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
 
   const handleDocxToggle = useCallback(async (enabled: boolean) => {
     if (enabled && !docxServerUrl) {
@@ -224,9 +235,17 @@ function GeneralTab() {
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
+      referenceDocxPath: docxReferencePath || undefined,
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+  }, [docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
+
+  const handleSelectReferenceDocx = useCallback(async () => {
+    const selected = await window.api.selectReferenceDocx?.()
+    if (!selected) return
+    setDocxReferencePath(selected)
+    await saveDocxSettings({ referenceDocxPath: selected })
+  }, [saveDocxSettings])
 
   // ---- 右键菜单操作 ----
 
@@ -481,6 +500,10 @@ function GeneralTab() {
                     {docxTestInfo.styles && docxTestInfo.styles.length > 0 && (
                       <div className="docx-test-result-row">样式：{docxTestInfo.styles.join(' · ')}</div>
                     )}
+                    {docxTestInfo.chartRenderers && docxTestInfo.chartRenderers.length > 0 && (
+                      <div className="docx-test-result-row">服务端渲染：{docxTestInfo.chartRenderers.join(' · ')}</div>
+                    )}
+                    <div className="docx-test-result-row">字体嵌入：{docxTestInfo.embedFontSupported ? '服务端声明支持' : '服务端将按降级策略处理'}</div>
                   </div>
                 )}
               </div>
@@ -550,6 +573,33 @@ function GeneralTab() {
                   </label>
                 </div>
                 <p className="setting-section-hint">接收方电脑没安装字体时也能正确显示。文件增大约 5-10 MB。</p>
+                <div className="setting-item setting-row" style={{ marginTop: 8 }}>
+                  <label>自定义模板</label>
+                  <div className="docx-url-row">
+                    <input
+                      type="text"
+                      className="settings-input"
+                      value={docxReferencePath}
+                      placeholder="未选择 reference.docx"
+                      readOnly
+                    />
+                    <button className="btn-secondary btn-sm" onClick={handleSelectReferenceDocx}>
+                      选择
+                    </button>
+                    {docxReferencePath && (
+                      <button
+                        className="btn-secondary btn-sm"
+                        onClick={() => {
+                          setDocxReferencePath('')
+                          saveDocxSettings({ referenceDocxPath: undefined })
+                        }}
+                      >
+                        清除
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="setting-section-hint">导出时会把该 DOCX 作为参考模板发送给本地服务；模板异常时服务端回退内置样式。</p>
                 <div className="setting-item setting-row" style={{ marginTop: 8 }}>
                   <label>启用离线导出</label>
                   <label className="setting-switch">

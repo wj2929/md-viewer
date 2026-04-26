@@ -9,6 +9,7 @@ interface DocxExportSettings {
   timeoutMs: number
   embedFont: boolean
   localFallbackEnabled: boolean
+  referenceDocxPath?: string
 }
 
 // v1.3.6：书签接口
@@ -154,8 +155,11 @@ declare global {
         mode?: string
         styles?: string[]
         fontsAvailable?: string[]
+        embedFontSupported?: boolean
+        chartRenderersAvailable?: string[]
         error?: string
       }>
+      selectReferenceDocx: () => Promise<string | null>
 
       getLastDocxExportPath: () => Promise<string | null>
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
