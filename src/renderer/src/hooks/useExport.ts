@@ -5,6 +5,8 @@ import { createMarkdownRenderer } from '../utils/markdownRenderer'
 import { buildExportHtmlContent } from '../utils/exportHtml'
 import { renderChartsForDocx } from '../utils/docxChartRenderer'
 import { useExportTaskStore } from '../stores/exportTaskStore'
+import { createExportGuard } from '../utils/exportGuard'
+import { useEditSessionStore } from '../stores/editSessionStore'
 
 interface UseExportParams {
   splitState: SplitState
@@ -18,6 +20,7 @@ interface UseExportParams {
     success: (msg: string, options?: { description?: string; duration?: number; action?: { label: string; onClick: () => void }; actions?: { label: string; onClick: () => void }[] }) => void
     error: (msg: string) => void
   }
+  saveBeforeExport?: (canonicalPath: string) => Promise<boolean | void>
 }
 
 interface UseExportReturn {
@@ -26,8 +29,16 @@ interface UseExportReturn {
   handleExportDOCX: (docStyle?: string) => Promise<void>
 }
 
-export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: UseExportParams): UseExportReturn {
+function getExportContent(tab: Tab): string {
+  const session = Object.values(useEditSessionStore.getState().sessions).find(item =>
+    item.displayPath === tab.file.path || item.canonicalPath === tab.file.path
+  )
+  return session?.draft ?? tab.content
+}
+
+export function useExport({ splitState, tabs, activeTabId, folderPath, toast, saveBeforeExport }: UseExportParams): UseExportReturn {
   const cancelledRef = useRef(false)
+  const exportGuard = useMemo(() => createExportGuard({ toast, saveBeforeExport }), [toast, saveBeforeExport])
 
   // 计算当前活动标签
   // 分屏模式：通过 splitState 找到活跃叶子面板的 tab
@@ -52,9 +63,11 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
+    if (!(await exportGuard(exportTab.file.path))) return
+    const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
-      const htmlContent = await buildExportHtmlContent(exportTab.content)
+      const htmlContent = await buildExportHtmlContent(exportContent)
       loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
       const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
       toast.close(loadingId)
@@ -68,7 +81,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
       console.error('导出 HTML 失败:', error)
       toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab, splitState, tabs, toast])
+  }, [activeTab, exportGuard, splitState, tabs, toast])
 
   // 导出 PDF：和 HTML 共用 buildExportHtmlContent
   const handleExportPDF = useCallback(async () => {
@@ -76,9 +89,11 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
+    if (!(await exportGuard(exportTab.file.path))) return
+    const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
-      const htmlContent = await buildExportHtmlContent(exportTab.content)
+      const htmlContent = await buildExportHtmlContent(exportContent)
       loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
       const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)
       toast.close(loadingId)
@@ -92,7 +107,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
       console.error('导出 PDF 失败:', error)
       toast.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeTab, splitState, tabs, toast])
+  }, [activeTab, exportGuard, splitState, tabs, toast])
 
   // 导出 DOCX
   const handleExportDOCX = useCallback(async (docStyle?: string) => {
@@ -100,6 +115,8 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
+    if (!(await exportGuard(exportTab.file.path))) return
+    const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
       let htmlContent: string
@@ -216,11 +233,11 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
         htmlContent = clone.innerHTML
       } else {
         const md = createMarkdownRenderer()
-        htmlContent = md.render(exportTab.content)
+        htmlContent = md.render(exportContent)
       }
 
       // 检查远程服务是否启用，如果是则先渲染图表为 PNG
-      let markdownForExport = exportTab.content
+      let markdownForExport = exportContent
       let remoteImages: Array<{ id: string; pngBase64: string; widthCm?: number }> | undefined
       let chartWarnings: string[] = []
       const store = useExportTaskStore.getState()
@@ -235,7 +252,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
           store.startExport(exportTab.file.name)
           cancelledRef.current = false
 
-          const chartResult = await renderChartsForDocx(exportTab.content, (current, total, type) => {
+          const chartResult = await renderChartsForDocx(exportContent, (current, total, type) => {
             if (cancelledRef.current) return
             useExportTaskStore.getState().updateChartProgress(current, total, type)
           })
@@ -308,7 +325,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast }: 
         toast.error(`导出失败：${errMsg}`)
       }
     }
-  }, [activeTab, splitState, tabs, folderPath, toast])
+  }, [activeTab, exportGuard, splitState, tabs, folderPath, toast])
 
   return {
     handleExportHTML,

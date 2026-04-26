@@ -7,6 +7,8 @@ import { useFileStore } from '../src/stores/fileStore'
 import { useTabStore } from '../src/stores/tabStore'
 import { useBookmarkStore } from '../src/stores/bookmarkStore'
 import { useLayoutStore } from '../src/stores/layoutStore'
+import { useEditSessionStore } from '../src/stores/editSessionStore'
+import { useQuickEditPlacementStore } from '../src/stores/quickEditPlacementStore'
 
 // Mock window.api
 const mockApi = {
@@ -16,6 +18,8 @@ const mockApi = {
   watchFolder: vi.fn().mockResolvedValue(undefined),
   unwatchFolder: vi.fn().mockResolvedValue(undefined),
   watchFile: vi.fn().mockResolvedValue(undefined),
+  openEditableMarkdown: vi.fn(),
+  saveEditableMarkdown: vi.fn(),
   exportHTML: vi.fn(),
   exportPDF: vi.fn(),
   showContextMenu: vi.fn().mockResolvedValue({ success: true }),
@@ -117,6 +121,7 @@ const mockApi = {
   // v1.3.7：预览区右键菜单
   showPreviewContextMenu: vi.fn().mockResolvedValue(undefined),
   onAddBookmarkFromPreview: vi.fn(() => vi.fn()),
+  onQuickEditFromPreview: vi.fn(() => vi.fn()),
   onAddBookmarkFromFileTree: vi.fn(() => vi.fn()),
   // v1.4.0：快捷键帮助弹窗
   onOpenShortcutsHelp: vi.fn(() => vi.fn()),
@@ -182,6 +187,17 @@ const localStorageMock = {
 }
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
+class MockIntersectionObserver {
+  observe = vi.fn()
+  unobserve = vi.fn()
+  disconnect = vi.fn()
+}
+
+Object.defineProperty(window, 'IntersectionObserver', {
+  writable: true,
+  value: MockIntersectionObserver
+})
+
 describe('App 集成测试', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -191,10 +207,25 @@ describe('App 集成测试', () => {
     useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
     useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
     useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
+    useEditSessionStore.getState().reset()
+    useQuickEditPlacementStore.getState().reset()
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    mockApi.onQuickEditFromPreview.mockImplementation(() => vi.fn())
+    mockApi.openEditableMarkdown.mockResolvedValue({
+      canonicalPath: '/real/test/folder/report.md',
+      displayPath: '/test/folder/report.md',
+      fileName: 'report.md',
+      content: '# Report',
+      mtimeMs: 1000,
+      size: 8,
+      revisionToken: '1000:8'
+    })
+    mockApi.saveEditableMarkdown.mockResolvedValue({ success: true, mtimeMs: 2000, size: 9, revisionToken: '2000:9' })
   })
 
   afterEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllGlobals()
   })
 
   describe('应用初始化', () => {
@@ -621,6 +652,138 @@ describe('App 集成测试', () => {
       expect(app).toBeInTheDocument()
     })
   })
+
+  describe('快速编辑', () => {
+    beforeEach(() => {
+      useFileStore.setState({
+        folderPath: '/test/folder',
+        files: [{ name: 'report.md', path: '/test/folder/report.md', isDirectory: false }],
+        isLoading: false,
+        selectedPaths: new Set()
+      })
+      useTabStore.setState({
+        tabs: [{
+          id: 'tab-1',
+          file: { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+          content: '# Report'
+        }],
+        activeTabId: 'tab-1',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        highlightKeyword: undefined
+      })
+    })
+
+    it('不应该在正文区显示快速编辑按钮', () => {
+      render(<App />)
+
+      expect(screen.queryByRole('button', { name: '快速编辑 report.md' })).not.toBeInTheDocument()
+    })
+
+    it('应该通过预览区右键菜单事件打开快速编辑抽屉', async () => {
+      let quickEditCallback: (params: { filePath: string }) => void = () => {}
+      mockApi.onQuickEditFromPreview.mockImplementation((callback) => {
+        quickEditCallback = callback
+        return vi.fn()
+      })
+
+      render(<App />)
+
+      act(() => {
+        quickEditCallback({ filePath: '/test/folder/report.md' })
+      })
+
+      await waitFor(() => {
+        expect(mockApi.openEditableMarkdown).toHaveBeenCalledWith('/test/folder/report.md')
+      })
+      expect(await screen.findByLabelText('Markdown 源码编辑区')).toHaveValue('# Report')
+    })
+
+    it('保存快速编辑后应该更新当前标签内容', async () => {
+      render(<App />)
+
+      act(() => {
+        const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
+        callback({ filePath: '/test/folder/report.md' })
+      })
+      const editor = await screen.findByLabelText('Markdown 源码编辑区')
+
+      fireEvent.change(editor, { target: { value: '# Changed' } })
+      fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+
+      await waitFor(() => {
+        expect(mockApi.saveEditableMarkdown).toHaveBeenCalledWith({
+          canonicalPath: '/real/test/folder/report.md',
+          content: '# Changed',
+          expectedRevisionToken: '1000:8',
+          force: false
+        })
+      })
+      expect(useTabStore.getState().tabs[0].content).toBe('# Changed')
+      expect(useEditSessionStore.getState().sessions['/real/test/folder/report.md'].dirty).toBe(false)
+    })
+
+    it('编辑快速草稿时应该实时更新预览并显示草稿状态', async () => {
+      render(<App />)
+
+      act(() => {
+        const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
+        callback({ filePath: '/test/folder/report.md' })
+      })
+      const editor = await screen.findByLabelText('Markdown 源码编辑区')
+
+      fireEvent.change(editor, { target: { value: '# Draft Preview' } })
+
+      expect(await screen.findByText('草稿预览，未保存')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Draft Preview' })).toBeInTheDocument()
+      })
+    })
+
+    it('存在未保存快速编辑草稿时应该拦截导出 HTML', async () => {
+      let exportHtmlCallback: () => Promise<void> | void = () => {}
+      mockApi.onShortcutExportHTML.mockImplementation((callback) => {
+        exportHtmlCallback = callback
+        return vi.fn()
+      })
+
+      render(<App />)
+
+      act(() => {
+        const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
+        callback({ filePath: '/test/folder/report.md' })
+      })
+      const editor = await screen.findByLabelText('Markdown 源码编辑区')
+      fireEvent.change(editor, { target: { value: '# Unsaved Draft' } })
+
+      await act(async () => {
+        await exportHtmlCallback()
+      })
+
+      expect(await screen.findByText('请先保存快速编辑草稿后再导出')).toBeInTheDocument()
+      expect(mockApi.exportHTML).not.toHaveBeenCalled()
+    })
+
+    it('应该通过分屏预览区右键菜单事件打开面板内快速编辑抽屉', async () => {
+      useTabStore.setState(state => ({
+        ...state,
+        splitState: {
+          root: { type: 'leaf', id: 'leaf-1', tabId: 'tab-1' },
+          activeLeafId: 'leaf-1'
+        }
+      }))
+
+      render(<App />)
+
+      act(() => {
+        const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
+        callback({ filePath: '/test/folder/report.md' })
+      })
+
+      expect(await screen.findByLabelText('Markdown 源码编辑区')).toHaveValue('# Report')
+      expect(document.querySelector('.split-panel-content.with-quick-edit .quick-edit-drawer')).toBeInTheDocument()
+    })
+  })
 })
 
 describe('App 边界条件测试', () => {
@@ -632,6 +795,13 @@ describe('App 边界条件测试', () => {
     useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
     useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
     useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
+    useEditSessionStore.getState().reset()
+    vi.stubGlobal('confirm', vi.fn(() => false))
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('应该处理空文件列表', async () => {

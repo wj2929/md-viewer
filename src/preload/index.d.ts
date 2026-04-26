@@ -36,6 +36,30 @@ declare global {
       readDir: (path: string) => Promise<FileInfo[]>
       readFile: (path: string) => Promise<string>
       readFilePreview: (path: string) => Promise<string>
+      openEditableMarkdown: (filePath: string) => Promise<{
+        canonicalPath: string
+        displayPath: string
+        fileName: string
+        content: string
+        mtimeMs: number
+        size: number
+        revisionToken: string
+      }>
+      saveEditableMarkdown: (payload: {
+        canonicalPath: string
+        content: string
+        expectedRevisionToken: string
+        force?: boolean
+      }) => Promise<{
+        success: boolean
+        mtimeMs?: number
+        size?: number
+        revisionToken?: string
+        conflict?: {
+          reason: string
+          diskRevisionToken: string
+        }
+      }>
 
       // 搜索专用：跨文件夹访问
       searchReadDir: (path: string) => Promise<FileInfo[]>
@@ -245,10 +269,15 @@ declare global {
       // v1.3.7：预览区域右键菜单
       showPreviewContextMenu: (params: {
         filePath: string
+        tabId?: string
+        leafId?: string | null
         headingId: string | null
         headingText: string | null
         headingLevel: string | null
         hasSelection: boolean
+        selectionText?: string
+        sourceLine?: number | null
+        scrollRatio?: number | null
         linkHref: string | null
         basePath: string | null
       }) => Promise<void>
@@ -256,6 +285,17 @@ declare global {
         filePath: string
         headingId: string | null
         headingText: string | null
+      }) => void) => () => void
+      onQuickEditFromPreview: (callback: (params: {
+        filePath: string
+        tabId?: string
+        leafId?: string | null
+        canonicalPath?: string
+        targetText?: string
+        targetLine?: number
+        sourceLine?: number
+        scrollRatio?: number
+        mode: 'document' | 'selection' | 'source-line' | 'scroll-ratio'
       }) => void) => () => void
 
       // v1.3.7：文件树右键添加书签

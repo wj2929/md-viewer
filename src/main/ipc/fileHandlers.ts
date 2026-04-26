@@ -36,9 +36,25 @@ interface WindowWatcherState {
 }
 const windowFileWatchers = new Map<number, WindowWatcherState>()
 
+// 每个窗口独立的可编辑文件授权集合。必须先通过 fs:openEditableMarkdown 授权，
+// 才允许后续 fs:saveEditableMarkdown 写入。
+const windowEditableFiles = new Map<number, Set<string>>()
+
 // 重命名检测
 let pendingUnlink: { path: string; timestamp: number } | null = null
 const RENAME_THRESHOLD_MS = 500
+
+function buildRevisionToken(stats: fs.Stats): string {
+  return `${stats.mtimeMs}:${stats.size}`
+}
+
+async function getBestEffortCanonicalPath(filePath: string): Promise<string> {
+  try {
+    return await fs.realpath(filePath)
+  } catch {
+    return path.resolve(filePath)
+  }
+}
 
 // 配置常量
 const WATCHER_CONFIG = {
@@ -363,6 +379,95 @@ export function registerFileHandlers(ctx: IPCContext): void {
       }
       console.error('Failed to read file:', error)
       return ''
+    }
+  })
+
+  // 打开可编辑 Markdown：读取内容，返回规范路径和文件版本信息，并授权当前窗口保存
+  ipcMain.handle('fs:openEditableMarkdown', async (event, filePath: string) => {
+    validateSecurePath(filePath)
+
+    const canonicalPath = await getBestEffortCanonicalPath(filePath)
+    if (!canonicalPath.toLowerCase().endsWith('.md')) {
+      throw new Error('只能编辑 Markdown 文件')
+    }
+
+    const stats = await fs.stat(canonicalPath)
+    const MAX_SIZE = 5 * 1024 * 1024
+    if (!stats.isFile()) {
+      throw new Error('目标不是文件')
+    }
+    if (stats.size > MAX_SIZE) {
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2)
+      throw new Error(`文件过大 (${sizeMB}MB)，请选择小于 5MB 的文件`)
+    }
+
+    const content = await fs.readFile(canonicalPath, 'utf-8')
+    const senderId = event.sender.id
+    const editableFiles = windowEditableFiles.get(senderId) || new Set<string>()
+    editableFiles.add(canonicalPath)
+    windowEditableFiles.set(senderId, editableFiles)
+
+    return {
+      canonicalPath,
+      displayPath: filePath,
+      fileName: path.basename(canonicalPath),
+      content,
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      revisionToken: buildRevisionToken(stats),
+    }
+  })
+
+  // 保存可编辑 Markdown：仅允许当前窗口已授权文件，保存前校验版本标识，避免静默覆盖外部修改
+  ipcMain.handle('fs:saveEditableMarkdown', async (event, payload: {
+    canonicalPath: string
+    content: string
+    expectedRevisionToken: string
+    force?: boolean
+  }) => {
+    const { canonicalPath, content, expectedRevisionToken, force = false } = payload
+    validateSecurePath(canonicalPath)
+
+    if (!canonicalPath.toLowerCase().endsWith('.md')) {
+      throw new Error('只能保存 Markdown 文件')
+    }
+    if (typeof content !== 'string') {
+      throw new Error('保存内容必须是字符串')
+    }
+    const contentBytes = Buffer.byteLength(content, 'utf-8')
+    const MAX_SIZE = 5 * 1024 * 1024
+    if (contentBytes > MAX_SIZE) {
+      throw new Error('文件内容超过 5MB，无法保存')
+    }
+
+    const senderId = event.sender.id
+    const editableFiles = windowEditableFiles.get(senderId)
+    if (!editableFiles?.has(canonicalPath)) {
+      throw new Error('未授权编辑此文件')
+    }
+
+    const stats = await fs.stat(canonicalPath)
+    if (!stats.isFile()) {
+      throw new Error('目标不是文件')
+    }
+    const diskRevisionToken = buildRevisionToken(stats)
+    if (!force && diskRevisionToken !== expectedRevisionToken) {
+      return {
+        success: false,
+        conflict: {
+          reason: 'revision_changed',
+          diskRevisionToken,
+        },
+      }
+    }
+
+    await fs.writeFile(canonicalPath, content, 'utf-8')
+    const nextStats = await fs.stat(canonicalPath)
+    return {
+      success: true,
+      mtimeMs: nextStats.mtimeMs,
+      size: nextStats.size,
+      revisionToken: buildRevisionToken(nextStats),
     }
   })
 

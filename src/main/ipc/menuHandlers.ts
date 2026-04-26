@@ -200,10 +200,15 @@ ipcMain.handle('context-menu:recent-file', (_event, file: {
 // v1.4.2：新增打印和字体大小调节
 ipcMain.handle('preview:show-context-menu', async (event, params: {
   filePath: string
+  tabId?: string
+  leafId?: string | null
   headingId: string | null
   headingText: string | null
   headingLevel: string | null
   hasSelection: boolean
+  selectionText?: string
+  sourceLine?: number | null
+  scrollRatio?: number | null
   linkHref: string | null
   basePath: string | null
 }) => {
@@ -229,7 +234,20 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   }
   validatePath(params.filePath)
 
-  const { filePath, headingId, headingText, headingLevel, hasSelection, linkHref, basePath } = params
+  const {
+    filePath,
+    tabId,
+    leafId,
+    headingId,
+    headingText,
+    headingLevel,
+    hasSelection,
+    selectionText,
+    sourceLine,
+    scrollRatio,
+    linkHref,
+    basePath
+  } = params
 
   const menuTemplate: MenuItemConstructorOptions[] = []
 
@@ -258,6 +276,31 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
         headingText: null
       })
     }
+  })
+
+  menuTemplate.push({ type: 'separator' })
+
+  const quickEditMode = selectionText?.trim()
+    ? 'selection'
+    : typeof sourceLine === 'number'
+      ? 'source-line'
+      : typeof scrollRatio === 'number'
+        ? 'scroll-ratio'
+        : 'document'
+  const quickEditTarget = {
+    filePath,
+    ...(tabId ? { tabId } : {}),
+    ...(leafId ? { leafId } : {}),
+    ...(selectionText?.trim() ? { targetText: selectionText.trim() } : {}),
+    ...(typeof sourceLine === 'number' ? { targetLine: sourceLine, sourceLine } : {}),
+    ...(typeof scrollRatio === 'number' ? { scrollRatio } : {}),
+    mode: quickEditMode,
+  }
+
+  // 轻量编辑：弱入口，放在预览区右键菜单中，避免占用正文工具栏空间
+  menuTemplate.push({
+    label: quickEditMode === 'document' ? '✏️ 快速编辑' : '🎯 快速编辑此处',
+    click: () => event.sender.send('markdown:quick-edit', quickEditTarget)
   })
 
   menuTemplate.push({ type: 'separator' })

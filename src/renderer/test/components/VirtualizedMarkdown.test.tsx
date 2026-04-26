@@ -103,6 +103,11 @@ describe('VirtualizedMarkdown', () => {
         headingText: null,
         headingLevel: null,
         hasSelection: false,
+        selectionText: '',
+        sourceLine: null,
+        scrollRatio: 0,
+        tabId: undefined,
+        leafId: null,
         linkHref: null,
         basePath: null
       })
@@ -116,6 +121,36 @@ describe('VirtualizedMarkdown', () => {
       fireEvent.contextMenu(markdownBody!)
 
       expect(mockShowPreviewContextMenu).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['Shift+F10', { key: 'F10', shiftKey: true }],
+      ['菜单键', { key: 'ContextMenu' }],
+    ])('应该支持通过 %s 打开同一个预览区上下文菜单', async (_label, keyEvent) => {
+      const content = '# 测试'
+      const { container } = render(
+        <VirtualizedMarkdown content={content} filePath="/test/file.md" tabId="tab-a" leafId="leaf-a" />
+      )
+
+      const markdownBody = container.querySelector('.markdown-body') as HTMLElement
+      expect(markdownBody.tabIndex).toBe(0)
+
+      fireEvent.keyDown(markdownBody, keyEvent)
+
+      expect(mockShowPreviewContextMenu).toHaveBeenCalledWith({
+        filePath: '/test/file.md',
+        headingId: null,
+        headingText: null,
+        headingLevel: null,
+        hasSelection: false,
+        selectionText: '',
+        sourceLine: null,
+        scrollRatio: 0,
+        tabId: 'tab-a',
+        leafId: 'leaf-a',
+        linkHref: null,
+        basePath: null
+      })
     })
 
     it('应该检测标题元素', () => {
@@ -137,6 +172,11 @@ describe('VirtualizedMarkdown', () => {
           headingText: '测试标题',
           headingLevel: 'h1',
           hasSelection: false,
+          selectionText: '',
+          sourceLine: 1,
+          scrollRatio: 0,
+          tabId: undefined,
+          leafId: null,
           linkHref: null,
           basePath: null
         })
@@ -164,6 +204,11 @@ describe('VirtualizedMarkdown', () => {
         headingText: null,
         headingLevel: null,
         hasSelection: true,
+        selectionText: '选中的文本',
+        sourceLine: null,
+        scrollRatio: 0,
+        tabId: undefined,
+        leafId: null,
         linkHref: null,
         basePath: null
       })
