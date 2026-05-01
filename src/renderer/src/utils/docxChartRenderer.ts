@@ -40,6 +40,78 @@ const CONTAINER_CLASS_MAP: Record<string, string> = {
   drawio: 'drawio-container',
 }
 
+const DOCX_CHART_SAFE_PADDING_PX = 32
+
+interface SvgBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function parseSvgViewBoxValue(viewBox: string | null): SvgBox | null {
+  if (!viewBox) return null
+  const parts = viewBox.trim().split(/[\s,]+/).map(Number)
+  if (parts.length !== 4 || parts.some(part => !Number.isFinite(part)) || parts[2] <= 0 || parts[3] <= 0) {
+    return null
+  }
+  return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] }
+}
+
+function parseSvgLength(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function readSvgTagAttribute(svgTag: string, attrName: string): string | null {
+  const match = svgTag.match(new RegExp(`\\s${attrName}\\s*=\\s*(['"])(.*?)\\1`, 'i'))
+  return match?.[2] ?? null
+}
+
+function parseSvgTagSize(svgTag: string): SvgBox | null {
+  const width = parseSvgLength(readSvgTagAttribute(svgTag, 'width'))
+  const height = parseSvgLength(readSvgTagAttribute(svgTag, 'height'))
+  if (!width || !height) return null
+  return { x: 0, y: 0, width, height }
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(3)))
+}
+
+function formatViewBox(box: SvgBox): string {
+  return [box.x, box.y, box.width, box.height].map(formatNumber).join(' ')
+}
+
+function setSvgTagAttribute(svgTag: string, attrName: string, attrValue: string): string {
+  const attrPattern = new RegExp(`(\\s${attrName}\\s*=\\s*)(['"])(.*?)\\2`, 'i')
+  if (attrPattern.test(svgTag)) {
+    return svgTag.replace(attrPattern, (_match, prefix) => `${prefix}"${attrValue}"`)
+  }
+  return svgTag.replace(/\s*\/?>$/, end => ` ${attrName}="${attrValue}"${end}`)
+}
+
+export function addSvgSafePaddingForDocx(svgString: string, paddingPx = DOCX_CHART_SAFE_PADDING_PX): string {
+  const svgTagMatch = svgString.match(/<svg\b[^>]*>/i)
+  if (!svgTagMatch) return svgString
+
+  const svgTag = svgTagMatch[0]
+  const box = parseSvgViewBoxValue(readSvgTagAttribute(svgTag, 'viewBox')) || parseSvgTagSize(svgTag)
+  if (!box) return svgString
+
+  const padding = Math.max(0, paddingPx)
+  let nextSvgTag = setSvgTagAttribute(svgTag, 'viewBox', formatViewBox({
+    x: box.x - padding,
+    y: box.y - padding,
+    width: box.width + padding * 2,
+    height: box.height + padding * 2,
+  }))
+  nextSvgTag = setSvgTagAttribute(nextSvgTag, 'preserveAspectRatio', 'xMidYMid meet')
+
+  return `${svgString.slice(0, svgTagMatch.index)}${nextSvgTag}${svgString.slice((svgTagMatch.index || 0) + svgTag.length)}`
+}
+
 function generatePlaceholderId(): string {
   const bytes = new Uint8Array(4)
   crypto.getRandomValues(bytes)
@@ -78,6 +150,7 @@ function grabNthSvgFromDom(containerClass: string, nth: number): string | null {
 async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promise<string> {
   const parser = new DOMParser()
   const svgDoc = parser.parseFromString(svgString, 'image/svg+xml')
+  if (svgDoc.querySelector('parsererror')) throw new Error('Invalid SVG')
   const svgEl = svgDoc.querySelector('svg')
   if (!svgEl) throw new Error('Invalid SVG')
 
@@ -124,17 +197,18 @@ async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promi
 }
 
 async function svgToPng(svgString: string, type: string, index: number): Promise<string | null> {
+  const paddedSvgString = addSvgSafePaddingForDocx(svgString)
   const hasForeignObject = svgString.includes('foreignObject')
 
   if (!hasForeignObject) {
     try {
-      const b64 = await svgToPngBase64(svgString)
+      const b64 = await svgToPngBase64(paddedSvgString)
       if (b64 && b64.length > 200) return b64
     } catch { /* canvas failed */ }
   }
 
   try {
-    const result = await window.api.renderSvgToPng(svgString, 1170)
+    const result = await window.api.renderSvgToPng(paddedSvgString, 1170)
     if (result.success && result.data && result.data.length > 200) return result.data
     console.warn(`[DocxChart] ${type} #${index}: BrowserWindow failed: ${result.error || 'small output'}`)
   } catch (e) {
