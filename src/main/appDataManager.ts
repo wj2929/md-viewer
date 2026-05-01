@@ -7,6 +7,7 @@
 import Store from 'electron-store'
 import * as path from 'path'
 import * as fs from 'fs/promises'
+import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../shared/docxStyles'
 
 // ============== 数据接口定义 ==============
 
@@ -78,7 +79,8 @@ export interface AppSettings {
     remoteEnabled: boolean
     serverUrl?: string
     apiKey?: string
-    style: 'standard' | 'official' | 'internal' | 'report'
+    style?: DocxStyle
+    styleTouched?: boolean
     timeoutMs: number
     embedFont: boolean
     localFallbackEnabled: boolean
@@ -104,6 +106,16 @@ const MAX_BOOKMARKS = 100
 const MAX_PINNED_TABS_PER_FOLDER = 15       // 每个文件夹最多固定标签数
 const MAX_FOLDERS_WITH_PINNED = 50          // 最多保留多少个文件夹的固定标签
 const VALIDATE_TIMEOUT = 1000 // 路径验证超时（毫秒）
+
+export const DEFAULT_DOCX_EXPORT_SETTINGS = {
+  remoteEnabled: false,
+  serverUrl: 'http://127.0.0.1:3179',
+  style: DEFAULT_DOCX_STYLE,
+  styleTouched: false,
+  timeoutMs: 180000,
+  embedFont: false,
+  localFallbackEnabled: false,
+}
 
 // ============== 数据管理器类 ==============
 

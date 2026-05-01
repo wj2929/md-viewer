@@ -2444,6 +2444,11 @@ body {
   margin-bottom: 2px;
 }
 
+.docx-test-result-warning {
+  margin-top: 6px;
+  color: #b45309;
+}
+
 .docx-test-result-error {
   margin: 4px 0 8px;
   padding: 6px 8px;

@@ -8,6 +8,7 @@ import { useTheme, Theme } from '../hooks/useTheme'
 import { useUIStore, FONT_SIZE } from '../stores/uiStore'
 import { DocxSetupGuide } from './DocxSetupGuide'
 import { DocxStyleCards } from './DocxStyleCards'
+import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../../../shared/docxStyles'
 
 // ============================================================================
 // 类型定义
@@ -105,11 +106,12 @@ function GeneralTab() {
 
   // DOCX 远程服务配置
   const [docxEnabled, setDocxEnabled] = useState(false)
-  const [docxServerUrl, setDocxServerUrl] = useState('')
+  const [docxServerUrl, setDocxServerUrl] = useState('http://127.0.0.1:3179')
   const [docxApiKey, setDocxApiKey] = useState('')
-  const [docxStyle, setDocxStyle] = useState<'standard' | 'official' | 'internal' | 'report'>('standard')
-  const [docxTimeoutMs, setDocxTimeoutMs] = useState(60000)
-  const [docxEmbedFont, setDocxEmbedFont] = useState(true)
+  const [docxStyle, setDocxStyle] = useState<DocxStyle>(DEFAULT_DOCX_STYLE)
+  const [docxStyleTouched, setDocxStyleTouched] = useState(false)
+  const [docxTimeoutMs, setDocxTimeoutMs] = useState(180000)
+  const [docxEmbedFont, setDocxEmbedFont] = useState(false)
   const [docxLocalFallback, setDocxLocalFallback] = useState(false)
   const [docxReferencePath, setDocxReferencePath] = useState('')
   const [docxTestStatus, setDocxTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
@@ -138,11 +140,12 @@ function GeneralTab() {
       const dx = appSettings.docxExport
       if (dx) {
         setDocxEnabled(dx.remoteEnabled)
-        setDocxServerUrl(dx.serverUrl || '')
+        setDocxServerUrl(dx.serverUrl || 'http://127.0.0.1:3179')
         setDocxApiKey(dx.apiKey || '')
-        setDocxStyle(dx.style || 'standard')
-        setDocxTimeoutMs(dx.timeoutMs || 60000)
-        setDocxEmbedFont(dx.embedFont !== false)
+        setDocxStyle(dx.style || DEFAULT_DOCX_STYLE)
+        setDocxStyleTouched(dx.styleTouched ?? Boolean(dx.style))
+        setDocxTimeoutMs(dx.timeoutMs || 180000)
+        setDocxEmbedFont(dx.embedFont === true)
         setDocxLocalFallback(dx.localFallbackEnabled || false)
         setDocxReferencePath(dx.referenceDocxPath || '')
       }
@@ -167,6 +170,7 @@ function GeneralTab() {
       serverUrl: docxServerUrl.trim().replace(/\/+$/, '') || undefined,
       apiKey: docxApiKey || undefined,
       style: docxStyle,
+      styleTouched: docxStyleTouched,
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
@@ -174,7 +178,7 @@ function GeneralTab() {
       ...overrides
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxEnabled, docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
+  }, [docxEnabled, docxServerUrl, docxApiKey, docxStyle, docxStyleTouched, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
 
   const handleDocxTest = useCallback(async () => {
     const url = docxServerUrl.trim().replace(/\/+$/, '')
@@ -213,13 +217,14 @@ function GeneralTab() {
       serverUrl,
       apiKey: docxApiKey || undefined,
       style: docxStyle,
+      styleTouched: docxStyleTouched,
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
       referenceDocxPath: docxReferencePath || undefined,
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
+  }, [docxApiKey, docxStyle, docxStyleTouched, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
 
   const handleDocxToggle = useCallback(async (enabled: boolean) => {
     if (enabled && !docxServerUrl) {
@@ -232,13 +237,14 @@ function GeneralTab() {
       serverUrl: docxServerUrl.trim().replace(/\/+$/, '') || undefined,
       apiKey: docxApiKey || undefined,
       style: docxStyle,
+      styleTouched: docxStyleTouched,
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
       referenceDocxPath: docxReferencePath || undefined,
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
+  }, [docxServerUrl, docxApiKey, docxStyle, docxStyleTouched, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
 
   const handleSelectReferenceDocx = useCallback(async () => {
     const selected = await window.api.selectReferenceDocx?.()
@@ -506,6 +512,11 @@ function GeneralTab() {
                     <div className="docx-test-result-row">字体嵌入：{docxTestInfo.embedFontSupported ? '服务端声明支持' : '服务端将按降级策略处理'}</div>
                   </div>
                 )}
+                {docxTestInfo.styles && !docxTestInfo.styles.includes('preview') && (
+                  <div className="docx-test-result-row docx-test-result-warning">
+                    当前服务不支持“预览一致”。未主动选择样式时会临时使用“通用 Word”，主动选择“预览一致”需升级服务。
+                  </div>
+                )}
               </div>
             )}
             {docxTestStatus === 'error' && docxTestInfo?.error && (
@@ -514,9 +525,11 @@ function GeneralTab() {
 
             <DocxStyleCards
               value={docxStyle}
+              disabledStyles={docxTestInfo?.styles && !docxTestInfo.styles.includes('preview') ? ['preview'] : []}
               onChange={v => {
                 setDocxStyle(v)
-                saveDocxSettings({ style: v })
+                setDocxStyleTouched(true)
+                saveDocxSettings({ style: v, styleTouched: true })
               }}
             />
 

@@ -322,6 +322,26 @@ export function getFileWatcherState() {
 }
 
 export function registerFileHandlers(ctx: IPCContext): void {
+  if (process.env.NODE_ENV === 'test') {
+    ipcMain.handle('test:openMarkdownFile', async (event, filePath: string) => {
+      const resolvedPath = path.resolve(filePath)
+      const folderPath = path.dirname(resolvedPath)
+      setAllowedBasePath(folderPath)
+      ctx.store.set('lastOpenedFolder', folderPath)
+      await ctx.folderHistoryManager.addFolder(folderPath)
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('restore-folder', folderPath)
+        setTimeout(() => {
+          if (!win.isDestroyed()) {
+            win.webContents.send('open-specific-file', resolvedPath)
+          }
+        }, 500)
+      }
+      return true
+    })
+  }
+
   // 打开文件夹对话框
   ipcMain.handle('dialog:openFolder', async () => {
     const result = await dialog.showOpenDialog({

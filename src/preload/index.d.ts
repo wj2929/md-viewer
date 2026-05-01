@@ -1,11 +1,13 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import { type DocxStyle } from '../shared/docxStyles'
 
 // v1.7.0：DOCX 导出设置
 interface DocxExportSettings {
   remoteEnabled: boolean
   serverUrl?: string
   apiKey?: string
-  style: 'standard' | 'official' | 'internal' | 'report'
+  style?: DocxStyle
+  styleTouched?: boolean
   timeoutMs: number
   embedFont: boolean
   localFallbackEnabled: boolean
@@ -37,6 +39,7 @@ declare global {
       readDir: (path: string) => Promise<FileInfo[]>
       readFile: (path: string) => Promise<string>
       readFilePreview: (path: string) => Promise<string>
+      testOpenMarkdownFile?: (path: string) => Promise<boolean>
       openEditableMarkdown: (filePath: string) => Promise<{
         canonicalPath: string
         displayPath: string

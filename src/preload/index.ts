@@ -11,6 +11,8 @@ const api = {
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
   readFilePreview: (path: string) => ipcRenderer.invoke('fs:readFilePreview', path) as Promise<string>,
+  testOpenMarkdownFile: (path: string) =>
+    ipcRenderer.invoke('test:openMarkdownFile', path) as Promise<boolean>,
   openEditableMarkdown: (filePath: string) =>
     ipcRenderer.invoke('fs:openEditableMarkdown', filePath) as Promise<{
       canonicalPath: string

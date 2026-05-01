@@ -17,9 +17,9 @@
 
 .docx-style-card {
   position: relative;
-  min-width: 45%;
-  max-width: 110px;
-  flex: 1 1 100px;
+  min-width: 120px;
+  max-width: 150px;
+  flex: 1 1 128px;
   padding: 8px;
   border: 2px solid var(--border-color);
   border-radius: 8px;
@@ -31,6 +31,15 @@
 
 .docx-style-card:hover {
   border-color: var(--text-muted);
+}
+
+.docx-style-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.docx-style-card.disabled:hover {
+  border-color: var(--border-color);
 }
 
 .docx-style-card.active {
@@ -55,6 +64,19 @@
   margin: 0 auto 6px;
 }
 
+.docx-style-card-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--accent-color);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .docx-style-card-label {
   font-size: 12px;
   font-weight: 600;
@@ -67,4 +89,11 @@
   color: var(--text-muted);
   line-height: 1.3;
   margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+  .docx-style-card {
+    max-width: none;
+    flex-basis: calc(50% - 4px);
+  }
 }

@@ -8,7 +8,8 @@ import { IPCContext } from './context'
 import { appDataManager } from '../appDataManager'
 import { exportToDocx, ChartImageData } from '../docxExporter'
 import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
-import { exportViaRemote, testConnection, RemoteImage, DocxExportError } from '../remoteDocxExporter'
+import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveRemoteDocxStyle } from '../remoteDocxExporter'
+import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
 
 let lastDocxExportPath: string | null = null
 
@@ -827,14 +828,36 @@ ipcMain.handle('render:svgToPng', async (_, svgString: string, width?: number) =
       show: false,
       width: renderWidth + 40,
       height: 800,
+      frame: false,
+      useContentSize: true,
       webPreferences: { nodeIntegration: false, contextIsolation: true }
     })
 
     const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
-<style>* { margin: 0; padding: 0; } html, body { background: white; width: fit-content; height: fit-content; }
-.svg-container { display: block; background: white; padding: 8px; width: ${renderWidth}px; }
-.svg-container svg { display: block; width: 100%; max-width: ${renderWidth}px; height: auto; }
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  background: white;
+  width: max-content;
+  height: max-content;
+  overflow: hidden !important;
+}
+::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+.svg-container {
+  display: inline-block;
+  background: white;
+  padding: 8px;
+  width: ${renderWidth}px;
+  overflow: visible !important;
+}
+.svg-container svg {
+  display: block;
+  width: 100% !important;
+  max-width: ${renderWidth}px !important;
+  height: auto !important;
+  overflow: visible !important;
+}
 </style></head>
 <body><div class="svg-container">${svgString}</div></body></html>`
 
@@ -849,22 +872,27 @@ ipcMain.handle('render:svgToPng', async (_, svgString: string, width?: number) =
         const c = document.querySelector('.svg-container');
         if (!c) return { width: 800, height: 400 };
         const r = c.getBoundingClientRect();
-        return { width: Math.ceil(r.width) + 4, height: Math.ceil(r.height) + 4 };
+        return {
+          width: Math.ceil(Math.max(r.width, c.scrollWidth)) + 4,
+          height: Math.ceil(Math.max(r.height, c.scrollHeight)) + 4
+        };
       })()
     `)
 
-    renderWindow.setSize(Math.min(bounds.width, 2400), Math.min(bounds.height, 4000))
+    const captureWidth = Math.min(bounds.width, 2400)
+    const captureHeight = Math.min(bounds.height, 4000)
+    renderWindow.setContentSize(captureWidth, captureHeight)
     await new Promise(resolve => setTimeout(resolve, 100))
 
     let image = await renderWindow.webContents.capturePage({
-      x: 0, y: 0, width: Math.min(bounds.width, 2400), height: Math.min(bounds.height, 4000)
+      x: 0, y: 0, width: captureWidth, height: captureHeight
     })
     let pngBuffer = image.toPNG()
 
     if (pngBuffer.length < 1000) {
       await new Promise(resolve => setTimeout(resolve, 500))
       image = await renderWindow.webContents.capturePage({
-        x: 0, y: 0, width: Math.min(bounds.width, 2400), height: Math.min(bounds.height, 4000)
+        x: 0, y: 0, width: captureWidth, height: captureHeight
       })
       pngBuffer = image.toPNG()
     }
@@ -891,23 +919,49 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
 
     const settings = appDataManager.getSettings()
     const docxConfig = settings.docxExport
+    const selectedRemoteStyle = normalizeDocxStyle(docxConfig?.style)
+    let effectiveRemoteStyle = selectedRemoteStyle
+    let styleCompatibilityWarnings: string[] = []
+
+    if (docxConfig?.remoteEnabled && docxConfig.serverUrl) {
+      try {
+        const compatibility = await resolveRemoteDocxStyle(docxConfig, selectedRemoteStyle)
+        effectiveRemoteStyle = compatibility.style
+        styleCompatibilityWarnings = compatibility.warnings
+      } catch (compatErr) {
+        const detail = compatErr instanceof DocxExportError
+          ? compatErr.detail
+          : {
+              errorType: 'unknown' as const,
+              message: compatErr instanceof Error ? compatErr.message : String(compatErr),
+              serverUrl: docxConfig.serverUrl || '',
+              timestamp: new Date().toISOString(),
+            }
+        return { error: detail }
+      }
+    }
 
     const styleLabel = docStyle === 'gongwen' ? '（公文格式）' :
-      (docxConfig?.style && docxConfig.style !== 'standard' ? `（${docxConfig.style}）` : '')
-    const result = await dialog.showSaveDialog(window, {
-      title: `导出 Word 文档${styleLabel}`,
-      defaultPath: fileName.replace(/\.md$/, '.docx'),
-      filters: [
-        { name: 'Word Documents', extensions: ['docx'] }
-      ]
-    })
+      (docxConfig?.style ? `（${DOCX_STYLE_LABELS[effectiveRemoteStyle]}）` : '')
+    const testSavePath = process.env.NODE_ENV === 'test'
+      ? resolveTestDocxSavePath(process.env.MD_VIEWER_TEST_SAVE_DOCX_PATH, fileName, effectiveRemoteStyle)
+      : undefined
+    const result = testSavePath
+      ? { canceled: false, filePath: testSavePath }
+      : await dialog.showSaveDialog(window, {
+          title: `导出 Word 文档${styleLabel}`,
+          defaultPath: fileName.replace(/\.md$/, '.docx'),
+          filters: [
+            { name: 'Word Documents', extensions: ['docx'] }
+          ]
+        })
 
     if (result.canceled || !result.filePath) {
       return null
     }
 
     let filePath: string
-    let warnings: string[] = []
+    let warnings: string[] = [...styleCompatibilityWarnings]
     let usedPandoc = false
     let usedRemote = false
     let imagesFailed = 0
@@ -921,14 +975,14 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
           markdown || htmlContent,
           result.filePath,
           {
-            style: docxConfig.style || 'standard',
+            style: effectiveRemoteStyle,
             title: undefined,
             images: remoteImages,
             embedFont: docxConfig.embedFont,
           }
         )
         filePath = remoteResult.filePath
-        warnings = remoteResult.warnings
+        warnings = [...styleCompatibilityWarnings, ...remoteResult.warnings]
         usedRemote = true
         imagesFailed = remoteResult.imagesFailed
       } catch (remoteErr) {
@@ -975,6 +1029,13 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     throw error
   }
 })
+
+function resolveTestDocxSavePath(template: string | undefined, fileName: string, style: string): string | undefined {
+  if (!template) return undefined
+  return template
+    .replace(/\{style\}/g, style)
+    .replace(/\{name\}/g, fileName.replace(/\.md$/i, ''))
+}
 
 // 本地 DOCX 导出（Pandoc → docx 库 fallback，保持原有逻辑）
 async function _exportLocalDocx(

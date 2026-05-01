@@ -9,6 +9,13 @@ import * as http from 'http'
 import * as https from 'https'
 import { app } from 'electron'
 import { appDataManager } from './appDataManager'
+import {
+  DEFAULT_DOCX_STYLE,
+  DOCX_STYLE_LABELS,
+  FALLBACK_DOCX_STYLE,
+  normalizeDocxStyle,
+  type DocxStyle,
+} from '../shared/docxStyles'
 
 export interface RemoteImage {
   id: string
@@ -22,6 +29,7 @@ export interface RemoteConvertResult {
   serviceVersion: string
   imagesFailed: number
   mode: string
+  style: DocxStyle
 }
 
 export type DocxErrorType = 'network' | 'timeout' | 'client_error' | 'server_error' | 'write_error' | 'unknown'
@@ -42,6 +50,52 @@ export class DocxExportError extends Error {
     super(detail.message)
     this.name = 'DocxExportError'
     this.detail = detail
+  }
+}
+
+export interface RemoteDocxStyleConfig {
+  serverUrl?: string
+  apiKey?: string
+  style?: string
+  styleTouched?: boolean
+}
+
+export async function resolveRemoteDocxStyle(
+  config: RemoteDocxStyleConfig,
+  requestedStyle?: string
+): Promise<{ style: DocxStyle; warnings: string[] }> {
+  const selectedStyle = normalizeDocxStyle(requestedStyle || config.style || DEFAULT_DOCX_STYLE)
+
+  if (selectedStyle !== 'preview' || !config.serverUrl) {
+    return { style: selectedStyle, warnings: [] }
+  }
+
+  const health = await testConnection(config.serverUrl, config.apiKey)
+  if (!health.ok) {
+    return { style: selectedStyle, warnings: [] }
+  }
+
+  const supportsPreview = Array.isArray(health.styles) && health.styles.includes('preview')
+  if (supportsPreview) {
+    return { style: selectedStyle, warnings: [] }
+  }
+
+  if (config.styleTouched) {
+    throw new DocxExportError({
+      errorType: 'client_error',
+      message: '当前 DOCX 服务不支持“预览一致”，请升级 md-viewer-docx-service。',
+      serverUrl: config.serverUrl,
+      serviceVersion: health.version,
+      timestamp: new Date().toISOString(),
+      raw: `styles=${(health.styles || []).join(',') || 'unknown'}`,
+    })
+  }
+
+  return {
+    style: FALLBACK_DOCX_STYLE,
+    warnings: [
+      `当前 DOCX 服务不支持“${DOCX_STYLE_LABELS.preview}”，已临时使用“${DOCX_STYLE_LABELS[FALLBACK_DOCX_STYLE]}”导出。建议升级 md-viewer-docx-service。`,
+    ],
   }
 }
 
@@ -70,10 +124,12 @@ export async function exportViaRemote(
 
   const url = `${docxConfig.serverUrl.replace(/\/+$/, '')}/convert`
   const timeoutMs = docxConfig.timeoutMs || 60000
+  const compatibility = await resolveRemoteDocxStyle(docxConfig, options.style)
+  const effectiveStyle = compatibility.style
 
   const body = JSON.stringify({
     markdown,
-    style: options.style || docxConfig.style || 'standard',
+    style: effectiveStyle,
     title: options.title || undefined,
     footerText: options.footerText || '由 MD Viewer 生成',
     images: (options.images || []).map(img => ({
@@ -148,7 +204,10 @@ export async function exportViaRemote(
 
         try {
           await fs.writeFile(outputPath, data)
-          const warnings = parseWarnings(headers['x-convert-warnings'] as string | undefined)
+          const warnings = [
+            ...compatibility.warnings,
+            ...parseWarnings(headers['x-convert-warnings'] as string | undefined),
+          ]
           const minVer = headers['x-min-client-version'] as string | undefined
           if (minVer && compareVersions(app.getVersion(), minVer) < 0) {
             warnings.push(`文件已正常生成。建议升级客户端至 ≥ v${minVer} 以保持兼容性`)
@@ -159,6 +218,7 @@ export async function exportViaRemote(
             serviceVersion: (headers['x-service-version'] as string) || 'unknown',
             imagesFailed: parseInt((headers['x-charts-failed'] as string) || '0', 10),
             mode: (headers['x-service-mode'] as string) || 'unknown',
+            style: effectiveStyle,
           })
         } catch (writeErr) {
           reject(new DocxExportError({
