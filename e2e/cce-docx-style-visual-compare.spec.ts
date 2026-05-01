@@ -63,6 +63,18 @@ type VisualMetrics = {
   darkRatio: number
   edgeInkRatio: number
   bbox: [number, number, number, number] | null
+  hardEdgeFlags: string[]
+}
+
+type PdfPageHealthSummary = {
+  pages: number
+  failureCount: number
+  failures: string[]
+  warnings: string[]
+  minContentRatio: number
+  maxContentRatio: number
+  maxEdgeInkRatio: number
+  hardEdgePages: number[]
 }
 
 test.describe('CCE DOCX 样式 E2E 与视觉比对', () => {
@@ -154,24 +166,30 @@ test.describe('CCE DOCX 样式 E2E 与视觉比对', () => {
     const docxMetrics: Record<DocxStyle, DocxMetrics> = {} as Record<DocxStyle, DocxMetrics>
     const pdfMetrics: Record<DocxStyle, PdfMetrics> = {} as Record<DocxStyle, PdfMetrics>
     const visualMetrics: Record<DocxStyle, VisualMetrics> = {} as Record<DocxStyle, VisualMetrics>
+    const allPageHealth: Record<DocxStyle, PdfPageHealthSummary> = {} as Record<DocxStyle, PdfPageHealthSummary>
 
     for (const style of STYLES) {
       const target = docxPathFor(style)
-      docxMetrics[style] = inspectDocx(target, style === 'preview')
+      docxMetrics[style] = inspectDocx(target, true)
       expect(docxMetrics[style].hasFallbackText, `${style} 不应保留 DrawIO fallback 文案`).toBe(false)
+      expect(docxMetrics[style].unsafeEdgeImageCount, `${style} 图表图片不应贴边：${docxMetrics[style].unsafeEdgeImages?.join('; ') || 'none'}`).toBe(0)
       if (style === 'preview') {
         expect(docxMetrics[style].imageCount, 'preview 应包含全部图表图片').toBe(25)
         expect(docxMetrics[style].realRenderedCount, 'preview 不应有源码 fallback 图').toBe(25)
-        expect(docxMetrics[style].unsafeEdgeImageCount, 'preview 图表图片不应贴边，避免 Word/PDF 裁切').toBe(0)
       } else {
-        expect(docxMetrics[style].imageCount, `${style} 应包含图表图片`).toBeGreaterThanOrEqual(23)
-        expect(docxMetrics[style].realRenderedCount, `${style} 不应主要是服务端源码降级图`).toBeGreaterThanOrEqual(20)
+        expect(docxMetrics[style].imageCount, `${style} 应包含全部图表图片`).toBe(25)
+        expect(docxMetrics[style].realRenderedCount, `${style} 不应主要是服务端源码降级图`).toBe(25)
       }
 
       const pdfPath = convertDocxToPdf(target)
       pdfMetrics[style] = inspectPdf(pdfPath)
       expect(pdfMetrics[style].pages, `${style} PDF 页数应大于 0`).toBeGreaterThan(0)
       expect(pdfMetrics[style].isA4, `${style} PDF 页面应为 A4`).toBe(true)
+      allPageHealth[style] = inspectAllPdfPages(pdfPath, style, pdfMetrics[style].pages)
+      expect(
+        allPageHealth[style].failureCount,
+        `${style} PDF 全页视觉健康检查失败：${allPageHealth[style].failures.slice(0, 8).join('; ')}`,
+      ).toBe(0)
 
       const firstPagePng = renderPdfPage(pdfPath, `${style}-page1`, 1)
       visualMetrics[style] = analyzePng(firstPagePng)
@@ -228,6 +246,7 @@ test.describe('CCE DOCX 样式 E2E 与视觉比对', () => {
       ],
       path.join(OUT_DIR, 'cce-docx-style-page2-contact-sheet.png'),
     )
+    const allPageSheet = createFullPageContactSheet(allPageHealth, path.join(OUT_DIR, 'cce-docx-style-full-page-contact-sheet.png'))
 
     const summaryPath = path.join(OUT_DIR, 'visual-summary.json')
     fs.writeFileSync(summaryPath, JSON.stringify({
@@ -238,14 +257,17 @@ test.describe('CCE DOCX 样式 E2E 与视觉比对', () => {
       baselineMetrics: baselineMetrics || null,
       visualMetrics,
       baselineVisual: baselineVisual || null,
+      allPageHealth,
       artifacts: {
         firstPageSheet,
         secondPageSheet,
+        allPageSheet,
       },
     }, null, 2))
 
     await testInfo.attach('docx-style-page1-contact-sheet', { path: firstPageSheet, contentType: 'image/png' })
     await testInfo.attach('docx-style-page2-contact-sheet', { path: secondPageSheet, contentType: 'image/png' })
+    await testInfo.attach('docx-style-full-page-contact-sheet', { path: allPageSheet, contentType: 'image/png' })
     await testInfo.attach('docx-style-visual-summary', { path: summaryPath, contentType: 'application/json' })
   })
 })
@@ -394,6 +416,60 @@ function renderPdfPage(pdfPath: string, name: string, page: number): string {
   return pngPath
 }
 
+function inspectAllPdfPages(pdfPath: string, style: DocxStyle, pages: number): PdfPageHealthSummary {
+  const pagePaths = renderAllPdfPages(pdfPath, style, pages)
+  const failures: string[] = []
+  const warnings: string[] = []
+  const metrics = pagePaths.map((pngPath, index) => {
+    const page = index + 1
+    const metric = analyzePng(pngPath)
+    if (metric.contentRatio < 0.006) {
+      failures.push(`p${page}: blank_or_near_blank=${metric.contentRatio.toFixed(4)}`)
+    }
+    if (metric.edgeInkRatio > 0.006) {
+      failures.push(`p${page}: edge_ink=${metric.edgeInkRatio.toFixed(5)}`)
+    }
+    if (metric.hardEdgeFlags.length > 0) {
+      failures.push(`p${page}: hard_edge=${metric.hardEdgeFlags.join(',')}`)
+    }
+    // 高密度页通常是宽表、代码块或大图表，不直接判失败；记录到 summary/contact sheet 供人工复核。
+    if (metric.contentRatio > 0.24) {
+      warnings.push(`p${page}: high_density=${metric.contentRatio.toFixed(4)}`)
+    }
+    return metric
+  })
+
+  return {
+    pages,
+    failureCount: failures.length,
+    failures,
+    warnings,
+    minContentRatio: Math.min(...metrics.map(metric => metric.contentRatio)),
+    maxContentRatio: Math.max(...metrics.map(metric => metric.contentRatio)),
+    maxEdgeInkRatio: Math.max(...metrics.map(metric => metric.edgeInkRatio)),
+    hardEdgePages: metrics
+      .map((metric, index) => metric.hardEdgeFlags.length > 0 ? index + 1 : 0)
+      .filter(page => page > 0),
+  }
+}
+
+function renderAllPdfPages(pdfPath: string, style: DocxStyle, pages: number): string[] {
+  const dir = path.join(OUT_DIR, 'all-pages', style)
+  fs.rmSync(dir, { recursive: true, force: true })
+  fs.mkdirSync(dir, { recursive: true })
+  const prefix = path.join(dir, 'page')
+  execFileSync(PDFTOPPM!, ['-r', '90', '-png', pdfPath, prefix], {
+    timeout: 180_000,
+    stdio: 'pipe',
+  })
+  return Array.from({ length: pages }, (_, index) => {
+    const page = index + 1
+    const padded = path.join(dir, `page-${String(page).padStart(2, '0')}.png`)
+    if (fs.existsSync(padded)) return padded
+    return path.join(dir, `page-${page}.png`)
+  })
+}
+
 function analyzePng(pngPath: string): VisualMetrics {
   const script = `
 import json
@@ -439,7 +515,21 @@ result = {
     "darkRatio": dark / (w * h),
     "edgeInkRatio": edge_ink / max(edge_total, 1),
     "bbox": None if non_white == 0 else [min_x / w, min_y / h, max_x / w, max_y / h],
+    "hardEdgeFlags": [],
 }
+if non_white != 0:
+    left = min_x / w
+    top = min_y / h
+    right = max_x / w
+    bottom = max_y / h
+    if left < 0.01:
+        result["hardEdgeFlags"].append("LEFT")
+    if right > 0.99:
+        result["hardEdgeFlags"].append("RIGHT")
+    if top < 0.01:
+        result["hardEdgeFlags"].append("TOP")
+    if bottom > 0.99:
+        result["hardEdgeFlags"].append("BOTTOM")
 print(json.dumps(result))
 `
   return JSON.parse(execFileSync(PYTHON!, ['-c', script, pngPath], { encoding: 'utf-8' }))
@@ -494,6 +584,84 @@ x = 0
 for tile in tiles:
     sheet.paste(tile, (x, 0))
     x += thumb_width + padding
+sheet.save(output)
+`
+  execFileSync(PYTHON!, ['-c', script, JSON.stringify(existingItems), outputPath], {
+    timeout: 60_000,
+    stdio: 'pipe',
+  })
+  return outputPath
+}
+
+function createFullPageContactSheet(allPageHealth: Record<DocxStyle, PdfPageHealthSummary>, outputPath: string): string {
+  const items: Array<{ label: string; path: string }> = []
+  for (const style of STYLES) {
+    const selectedPages = new Set<number>()
+    for (let page = 1; page <= Math.min(8, allPageHealth[style].pages); page += 1) {
+      selectedPages.add(page)
+    }
+    for (const entry of [...allPageHealth[style].failures, ...allPageHealth[style].warnings]) {
+      const match = entry.match(/^p(\d+):/)
+      if (match) selectedPages.add(Number(match[1]))
+    }
+    for (const page of [...selectedPages].sort((a, b) => a - b).slice(0, 12)) {
+      items.push({
+        label: `${style} p${page}`,
+        path: path.join(OUT_DIR, 'all-pages', style, `page-${String(page).padStart(2, '0')}.png`),
+      })
+    }
+  }
+
+  const existingItems = items.map(item => {
+    if (fs.existsSync(item.path)) return item
+    return { ...item, path: item.path.replace(/page-0?(\d+)\.png$/, 'page-$1.png') }
+  }).filter(item => fs.existsSync(item.path))
+
+  const script = `
+import json
+import math
+import sys
+from PIL import Image, ImageDraw, ImageFont
+
+items = json.loads(sys.argv[1])
+output = sys.argv[2]
+thumb_width = 170
+label_height = 24
+padding = 8
+columns = 5
+font = ImageFont.load_default()
+tiles = []
+
+for item in items:
+    img = Image.open(item["path"]).convert("RGB")
+    ratio = thumb_width / img.width
+    thumb_height = int(img.height * ratio)
+    img = img.resize((thumb_width, thumb_height))
+    tile = Image.new("RGB", (thumb_width, thumb_height + label_height), "white")
+    tile.paste(img, (0, label_height))
+    draw = ImageDraw.Draw(tile)
+    draw.text((4, 5), item["label"], fill="black", font=font)
+    tiles.append(tile)
+
+if not tiles:
+    raise SystemExit("no images")
+
+rows = math.ceil(len(tiles) / columns)
+row_heights = [
+    max(tile.height for tile in tiles[row * columns:min((row + 1) * columns, len(tiles))])
+    for row in range(rows)
+]
+sheet = Image.new("RGB", (
+    columns * thumb_width + (columns - 1) * padding,
+    sum(row_heights) + (rows - 1) * padding,
+), "white")
+y = 0
+for row, row_height in enumerate(row_heights):
+    x = 0
+    for tile in tiles[row * columns:min((row + 1) * columns, len(tiles))]:
+        sheet.paste(tile, (x, y))
+        x += thumb_width + padding
+    y += row_height + padding
 sheet.save(output)
 `
   execFileSync(PYTHON!, ['-c', script, JSON.stringify(existingItems), outputPath], {
