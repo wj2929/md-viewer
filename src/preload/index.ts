@@ -10,6 +10,8 @@ const api = {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
+  readExcalidrawFile: (payload: { markdownFilePath: string; refPath: string }) =>
+    ipcRenderer.invoke('fs:readExcalidrawFile', payload) as Promise<{ content: string; resolvedPath: string }>,
   readFilePreview: (path: string) => ipcRenderer.invoke('fs:readFilePreview', path) as Promise<string>,
   testOpenMarkdownFile: (path: string) =>
     ipcRenderer.invoke('test:openMarkdownFile', path) as Promise<boolean>,

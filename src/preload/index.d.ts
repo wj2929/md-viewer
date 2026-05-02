@@ -38,6 +38,10 @@ declare global {
       openFolder: () => Promise<string | null>
       readDir: (path: string) => Promise<FileInfo[]>
       readFile: (path: string) => Promise<string>
+      readExcalidrawFile: (payload: {
+        markdownFilePath: string
+        refPath: string
+      }) => Promise<{ content: string; resolvedPath: string }>
       readFilePreview: (path: string) => Promise<string>
       testOpenMarkdownFile?: (path: string) => Promise<boolean>
       openEditableMarkdown: (filePath: string) => Promise<{
