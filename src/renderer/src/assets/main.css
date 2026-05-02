@@ -3563,7 +3563,8 @@ pre:hover .copy-btn,
 .markmap-code-view:hover .copy-btn,
 .graphviz-code-view:hover .copy-btn,
 .drawio-code-view:hover .copy-btn,
-.plantuml-code-view:hover .copy-btn {
+.plantuml-code-view:hover .copy-btn,
+.excalidraw-code-view:hover .copy-btn {
   opacity: 1;
   pointer-events: auto;
 }
@@ -3597,7 +3598,8 @@ pre:hover .copy-btn,
 .markmap-back-btn,
 .graphviz-back-btn,
 .drawio-back-btn,
-.plantuml-back-btn {
+.plantuml-back-btn,
+.excalidraw-back-btn {
   position: absolute;
   top: 8px;
   right: 56px;
@@ -3621,7 +3623,8 @@ pre:hover .copy-btn,
 .markmap-code-view:hover .markmap-back-btn,
 .graphviz-code-view:hover .graphviz-back-btn,
 .drawio-code-view:hover .drawio-back-btn,
-.plantuml-code-view:hover .plantuml-back-btn {
+.plantuml-code-view:hover .plantuml-back-btn,
+.excalidraw-code-view:hover .excalidraw-back-btn {
   opacity: 1;
   pointer-events: auto;
 }
@@ -3632,7 +3635,8 @@ pre:hover .copy-btn,
 .markmap-back-btn:hover,
 .graphviz-back-btn:hover,
 .drawio-back-btn:hover,
-.plantuml-back-btn:hover {
+.plantuml-back-btn:hover,
+.excalidraw-back-btn:hover {
   background: var(--bg-primary);
   color: var(--text-primary);
   border-color: var(--accent-color);
@@ -4631,6 +4635,187 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 }
 
 /* ============================================
+   Excalidraw 图表样式
+   ============================================ */
+
+.excalidraw-wrapper {
+  position: relative;
+  width: 100%;
+  margin: 1.5em 0;
+  border-radius: 6px;
+  border: none;
+  overflow: visible;
+  background: var(--bg-primary);
+}
+
+.excalidraw-wrapper.zoomed-wrapper {
+  overflow: auto;
+}
+
+.excalidraw-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.excalidraw-action-btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.excalidraw-action-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.excalidraw-action-btn:active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.excalidraw-wrapper .excalidraw-container {
+  display: inline-flex;
+  min-width: 100%;
+  padding: 16px;
+  background: var(--bg-primary);
+  overflow: visible;
+  border-radius: 0;
+  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+}
+
+.excalidraw-wrapper .excalidraw-container.zoomed {
+  justify-content: center;
+}
+
+.excalidraw-container svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.excalidraw-warning {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #f6ad55;
+  border-radius: 4px;
+  color: #975a16;
+  background: #fffaf0;
+  font-size: 13px;
+}
+
+.excalidraw-error {
+  width: 100%;
+  color: #c53030;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.excalidraw-error .error-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.excalidraw-error .error-message {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.excalidraw-code-view {
+  width: 100%;
+  max-height: 600px;
+  overflow: auto;
+  position: relative;
+  background: var(--code-block-bg);
+}
+
+.excalidraw-code-view pre {
+  margin: 0;
+  padding: 48px 16px 16px;
+  background: var(--code-block-bg);
+  border-radius: 0;
+  border: none;
+}
+
+.excalidraw-code-view code {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.excalidraw-code-view .copy-btn {
+  /* 继承 .copy-btn 的样式 */
+}
+
+.excalidraw-wrapper:hover .excalidraw-toggle-bar,
+.excalidraw-wrapper:focus-within .excalidraw-toggle-bar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+:root[data-theme="dark"] .excalidraw-error {
+  color: #fc8181;
+  background: #2d1f1f;
+  border-color: #63171b;
+}
+
+:root[data-theme="dark"] .excalidraw-warning {
+  color: #fbd38d;
+  background: #2d2416;
+  border-color: #744210;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .excalidraw-error {
+    color: #fc8181;
+    background: #2d1f1f;
+    border-color: #63171b;
+  }
+
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .excalidraw-warning {
+    color: #fbd38d;
+    background: #2d2416;
+    border-color: #744210;
+  }
+}
+
+@media print {
+  .excalidraw-toggle-bar {
+    display: none !important;
+  }
+
+  .excalidraw-wrapper {
+    border: none;
+    background: transparent;
+  }
+
+  .excalidraw-code-view {
+    display: none !important;
+  }
+
+  .excalidraw-container {
+    display: block !important;
+  }
+}
+
+/* ============================================
    v1.5.5: 图表工具栏悬停显示
    ============================================ */
 
@@ -4643,7 +4828,8 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .markmap-toggle-bar,
 .graphviz-toggle-bar,
 .drawio-toggle-bar,
-.plantuml-toggle-bar {
+.plantuml-toggle-bar,
+.excalidraw-toggle-bar {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -4661,13 +4847,15 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .graphviz-wrapper:hover .graphviz-toggle-bar,
 .drawio-wrapper:hover .drawio-toggle-bar,
 .plantuml-wrapper:hover .plantuml-toggle-bar,
+.excalidraw-wrapper:hover .excalidraw-toggle-bar,
 .mermaid-wrapper:focus-within .mermaid-toggle-bar,
 .echarts-wrapper:focus-within .echarts-toggle-bar,
 .infographic-wrapper:focus-within .infographic-toggle-bar,
 .markmap-wrapper:focus-within .markmap-toggle-bar,
 .graphviz-wrapper:focus-within .graphviz-toggle-bar,
 .drawio-wrapper:focus-within .drawio-toggle-bar,
-.plantuml-wrapper:focus-within .plantuml-toggle-bar {
+.plantuml-wrapper:focus-within .plantuml-toggle-bar,
+.excalidraw-wrapper:focus-within .excalidraw-toggle-bar {
   opacity: 1;
   pointer-events: auto;
   transition: opacity 0.2s ease 0s, pointer-events 0s 0s;
@@ -4683,7 +4871,8 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .markmap-wrapper:fullscreen,
 .graphviz-wrapper:fullscreen,
 .drawio-wrapper:fullscreen,
-.plantuml-wrapper:fullscreen {
+.plantuml-wrapper:fullscreen,
+.excalidraw-wrapper:fullscreen {
   background: var(--bg-primary);
   padding: 0;
 }
@@ -4695,7 +4884,8 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .markmap-wrapper:fullscreen .markmap-toggle-bar,
 .graphviz-wrapper:fullscreen .graphviz-toggle-bar,
 .drawio-wrapper:fullscreen .drawio-toggle-bar,
-.plantuml-wrapper:fullscreen .plantuml-toggle-bar {
+.plantuml-wrapper:fullscreen .plantuml-toggle-bar,
+.excalidraw-wrapper:fullscreen .excalidraw-toggle-bar {
   position: fixed;
   top: 8px;
   right: 8px;
@@ -4706,7 +4896,8 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 
 .mermaid-wrapper:fullscreen .mermaid-container,
 .graphviz-wrapper:fullscreen .graphviz-container,
-.plantuml-wrapper:fullscreen .plantuml-container {
+.plantuml-wrapper:fullscreen .plantuml-container,
+.excalidraw-wrapper:fullscreen .excalidraw-container {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4720,14 +4911,16 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .infographic-wrapper:fullscreen .infographic-code-view,
 .markmap-wrapper:fullscreen .markmap-code-view,
 .graphviz-wrapper:fullscreen .graphviz-code-view,
-.plantuml-wrapper:fullscreen .plantuml-code-view {
+.plantuml-wrapper:fullscreen .plantuml-code-view,
+.excalidraw-wrapper:fullscreen .excalidraw-code-view {
   max-height: calc(100vh - 50px);
 }
 
 /* 全屏模式下 SVG 保持宽高比，不拉伸 */
 .mermaid-wrapper:fullscreen .mermaid-container svg,
 .graphviz-wrapper:fullscreen .graphviz-container svg,
-.plantuml-wrapper:fullscreen .plantuml-container svg {
+.plantuml-wrapper:fullscreen .plantuml-container svg,
+.excalidraw-wrapper:fullscreen .excalidraw-container svg {
   max-height: calc(100vh - 82px);
   width: auto;
   height: auto;

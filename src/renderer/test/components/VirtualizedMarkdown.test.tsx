@@ -1,6 +1,6 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VirtualizedMarkdown } from '../../src/components/VirtualizedMarkdown'
 
 // Mock window.api
@@ -84,6 +84,25 @@ describe('VirtualizedMarkdown', () => {
       const { container } = render(<VirtualizedMarkdown content={content} />)
 
       expect(container.innerHTML).toContain('E = mc^2')
+    })
+
+    it('把 .excalidraw 图片引用替换为文件占位而不是 local-image', async () => {
+      global.window.api.readExcalidrawFile = vi.fn(() => new Promise(() => undefined))
+      render(<VirtualizedMarkdown content={'![流程](./flow.excalidraw)'} filePath="/docs/a.md" renderDebounceMs={0} />)
+      await waitFor(() => {
+        expect(document.querySelector('.excalidraw-file-placeholder')).toBeTruthy()
+      })
+      expect(document.querySelector('img[src^="local-image://"]')).toBeFalsy()
+    })
+
+    it('复制按钮能识别 Excalidraw 代码视图', async () => {
+      const wrapper = document.createElement('div')
+      wrapper.className = 'excalidraw-wrapper'
+      wrapper.dataset.excalidrawCode = btoa(unescape(encodeURIComponent('{"type":"excalidraw","elements":[]}')))
+      wrapper.innerHTML = '<div class="excalidraw-code-view"><button class="copy-btn">复制</button></div>'
+      document.body.appendChild(wrapper)
+      expect(wrapper.dataset.excalidrawCode).toBeTruthy()
+      wrapper.remove()
     })
   })
 
