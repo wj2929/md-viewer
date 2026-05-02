@@ -12,6 +12,9 @@ const exportToSvgMock = vi.hoisted(() => vi.fn(async () => {
     '<rect width="100" height="50" onclick="alert(1)"></rect>',
     '<a href="javascript:alert(1)"><text>bad</text></a>',
     '<image href="https://example.com/image.png"></image>',
+    '<image xlink:href="http://example.com/image.png"></image>',
+    '<rect style="fill:url(javascript:alert(1));stroke:url(https://example.com/stroke.png)"></rect>',
+    '<rect fill="url(http://example.com/fill.png)"></rect>',
     '<foreignObject><div>bad</div></foreignObject>',
   ].join('')
   return svg
@@ -155,6 +158,7 @@ describe('excalidrawRenderer', () => {
       expect(result.svg).not.toContain('foreignObject')
       expect(result.svg).not.toContain('javascript:')
       expect(result.svg).not.toContain('https://example.com')
+      expect(result.svg).not.toContain('http://example.com')
       const svg = new DOMParser().parseFromString(result.svg, 'image/svg+xml').documentElement
       expect(svg.getAttribute('width')).toBeNull()
       expect(svg.getAttribute('height')).toBeNull()
@@ -188,5 +192,24 @@ describe('excalidrawRenderer', () => {
 
     expect(elementsValidation.ok).toBe(false)
     expect(filesValidation.ok).toBe(false)
+    if (!filesValidation.ok) {
+      expect(filesValidation.error).toMatch(/10MB|图片资源/)
+    }
+  })
+
+  it('files 超过 10MB 时优先返回图片资源限制错误', () => {
+    const tooManyFiles = {
+      a: { dataURL: `data:image/png;base64,${'a'.repeat(EXCALIDRAW_LIMITS.maxFilesBytes + 1)}` },
+    }
+
+    const validation = validateExcalidrawSource(excalidrawSource({
+      files: tooManyFiles,
+    }))
+
+    expect(validation.ok).toBe(false)
+    if (!validation.ok) {
+      expect(validation.error).toMatch(/10MB|图片资源/)
+      expect(validation.error).not.toContain('1MB')
+    }
   })
 })

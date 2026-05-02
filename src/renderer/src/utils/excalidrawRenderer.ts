@@ -101,6 +101,13 @@ function collectWarnings(elements: unknown[], files: Record<string, unknown>): s
   return warnings
 }
 
+function hasUnsafeUrlValue(value: string): boolean {
+  const trimmed = value.trim()
+  if (/^(javascript:|https?:\/\/)/i.test(trimmed)) return true
+
+  return /url\(\s*(['"])?\s*(javascript:|https?:\/\/)/i.test(trimmed)
+}
+
 function sanitizeExcalidrawSvg(svg: SVGSVGElement): string {
   const cloned = svg.cloneNode(true) as SVGSVGElement
   const nodes = [cloned, ...Array.from(cloned.querySelectorAll('*'))]
@@ -115,7 +122,7 @@ function sanitizeExcalidrawSvg(svg: SVGSVGElement): string {
         continue
       }
 
-      if (/^(javascript:|https?:\/\/)/i.test(value)) {
+      if (hasUnsafeUrlValue(value)) {
         node.removeAttribute(attr.name)
       }
     }
@@ -131,18 +138,20 @@ function sanitizeExcalidrawSvg(svg: SVGSVGElement): string {
 }
 
 export function validateExcalidrawSource(source: string): ExcalidrawValidationResult {
-  if (byteLength(source) > EXCALIDRAW_LIMITS.maxSourceBytes) {
-    return {
-      ok: false,
-      error: 'Excalidraw 内容超过 1MB，未渲染',
-      warnings: [],
-    }
-  }
+  const sourceBytes = byteLength(source)
 
   let data: unknown
   try {
     data = JSON.parse(source)
   } catch {
+    if (sourceBytes > EXCALIDRAW_LIMITS.maxSourceBytes) {
+      return {
+        ok: false,
+        error: 'Excalidraw 内容超过 1MB，未渲染',
+        warnings: [],
+      }
+    }
+
     return {
       ok: false,
       error: 'Excalidraw JSON 格式错误',
@@ -165,6 +174,26 @@ export function validateExcalidrawSource(source: string): ExcalidrawValidationRe
     files?: unknown
   }
 
+  const files = record.files && typeof record.files === 'object' && !Array.isArray(record.files)
+    ? (record.files as Record<string, unknown>)
+    : {}
+
+  if (estimateFilesBytes(files) > EXCALIDRAW_LIMITS.maxFilesBytes) {
+    return {
+      ok: false,
+      error: 'Excalidraw 图片资源超过 10MB，未渲染',
+      warnings: [],
+    }
+  }
+
+  if (sourceBytes > EXCALIDRAW_LIMITS.maxSourceBytes) {
+    return {
+      ok: false,
+      error: 'Excalidraw 内容超过 1MB，未渲染',
+      warnings: [],
+    }
+  }
+
   if (!Array.isArray(record.elements)) {
     return {
       ok: false,
@@ -177,18 +206,6 @@ export function validateExcalidrawSource(source: string): ExcalidrawValidationRe
     return {
       ok: false,
       error: `Excalidraw 元素超过 ${EXCALIDRAW_LIMITS.maxElements} 个，未渲染`,
-      warnings: [],
-    }
-  }
-
-  const files = record.files && typeof record.files === 'object' && !Array.isArray(record.files)
-    ? (record.files as Record<string, unknown>)
-    : {}
-
-  if (estimateFilesBytes(files) > EXCALIDRAW_LIMITS.maxFilesBytes) {
-    return {
-      ok: false,
-      error: 'Excalidraw 图片资源超过 10MB，未渲染',
       warnings: [],
     }
   }
