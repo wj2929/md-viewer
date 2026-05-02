@@ -436,21 +436,52 @@ DOCX 三条路径处理要求：
 
 ### E2E
 
-新增 fixture：
+新增 fixture 文件：
 
 ```text
 e2e/fixtures/test-excalidraw.md
+e2e/fixtures/excalidraw/basic-flow.excalidraw
+e2e/fixtures/excalidraw/embedded-image.excalidraw
+e2e/fixtures/excalidraw/empty.excalidraw
+e2e/fixtures/excalidraw/invalid-json.excalidraw
 ```
 
-覆盖内容：
+`test-excalidraw.md` 应仿照 `test-mermaid.md`、`test-graphviz.md`、`test-drawio.md` 的组织方式，作为人工预览、自动化截图和导出回归共用的综合测试文档。它不只放最小样例，还要覆盖正常、复杂、错误、边界和跨图表对比场景。
 
-- 基础矩形和文本。
-- 箭头和中文标签。
-- 多元素流程图。
-- 含 `files` 图片元素。
-- `.excalidraw` 文件引用。
-- 空画布。
-- 错误 JSON。
+建议渲染用例：
+
+| 编号 | 用例 | 输入方式 | 验收重点 |
+| --- | --- | --- | --- |
+| 1 | 基础矩形和文本 | `excalidraw` 代码块 | 能生成 SVG，中文文本可见 |
+| 2 | 箭头连接流程 | `excalidraw` 代码块 | 箭头、端点、标签位置正确 |
+| 3 | 多形状组合 | `excalidraw` 代码块 | 矩形、菱形、椭圆、线条正常 |
+| 4 | 手绘风格与样式 | `excalidraw` 代码块 | stroke、background、roughness、opacity 生效 |
+| 5 | 分组和层级 | `excalidraw` 代码块 | groupIds、z-index、遮挡关系正确 |
+| 6 | Frame 或容器类画布 | `excalidraw` 代码块 | 视口尺寸和留白合理 |
+| 7 | 中文长文本 | `excalidraw` 代码块 | 多行、长文本、标点不丢失 |
+| 8 | Unicode 字符 | `excalidraw` 代码块 | 数学符号、箭头符号、少量 emoji 不破坏渲染 |
+| 9 | 含 `files` 图片元素 | `excalidraw` 代码块 | 内嵌图片可显示 |
+| 10 | 缺失图片资源 | `excalidraw` 代码块 | 其余元素继续渲染，并显示 warning |
+| 11 | 本地 `.excalidraw` 引用 | Markdown 图片语法 | `![alt](./excalidraw/basic-flow.excalidraw)` 可渲染 |
+| 12 | 文件引用的 alt 文案 | Markdown 图片语法 | SVG `aria-label` 优先使用 alt |
+| 13 | 空画布 | 文件引用和代码块各一例 | 显示空状态，不报错 |
+| 14 | 错误 JSON | 代码块 | 显示错误块，可查看源码 |
+| 15 | 非 Excalidraw JSON | 代码块 | 明确提示缺少 `elements` 或类型错误 |
+| 16 | 文件不存在 | Markdown 图片语法 | 显示引用路径和读取失败原因 |
+| 17 | 扩展名不允许 | Markdown 图片语法 | `.json` 或远程 URL 不走 Excalidraw 读取 |
+| 18 | 同页多图 | 混合代码块和文件引用 | 多个图表独立渲染，互不污染工具栏状态 |
+| 19 | 与 Mermaid 对比 | 同一流程双格式 | Excalidraw 和 Mermaid 均正常渲染 |
+| 20 | 与 Graphviz 对比 | 同一有向图双格式 | Excalidraw 和 Graphviz 均正常渲染 |
+| 21 | 与 DrawIO 对比 | 同一流程双格式 | Excalidraw 和 DrawIO 均正常渲染 |
+| 22 | 大画布说明用例 | 小型模拟或说明段落 | 验证滚动、fit、导出尺寸限制 |
+
+独立 `.excalidraw` 文件要求：
+
+- `basic-flow.excalidraw`：真实有效 Excalidraw JSON，包含矩形、菱形、箭头、中文文本。
+- `embedded-image.excalidraw`：包含一个很小的 base64 图片，验证 `files` 图片链路。
+- `empty.excalidraw`：`elements: []`，验证空状态。
+- `invalid-json.excalidraw`：故意无效 JSON，验证文件内容错误。
+- 如需验证文件不存在和越界路径，不创建真实文件，只在 `test-excalidraw.md` 中引用不存在路径。
 
 验收点：
 
