@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { addSvgSafePaddingForDocx } from '../../src/utils/docxChartRenderer'
+import { addSvgSafePaddingForDocx, calculateDocxChartTrimRect } from '../../src/utils/docxChartRenderer'
+
+function makeWhiteImageData(width: number, height: number): ImageData {
+  const data = new Uint8ClampedArray(width * height * 4)
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255
+    data[i + 1] = 255
+    data[i + 2] = 255
+    data[i + 3] = 255
+  }
+  return { width, height, data } as ImageData
+}
+
+function paintRect(imageData: ImageData, x: number, y: number, width: number, height: number, color: [number, number, number]): void {
+  for (let row = y; row < y + height; row += 1) {
+    for (let col = x; col < x + width; col += 1) {
+      const offset = (row * imageData.width + col) * 4
+      imageData.data[offset] = color[0]
+      imageData.data[offset + 1] = color[1]
+      imageData.data[offset + 2] = color[2]
+      imageData.data[offset + 3] = 255
+    }
+  }
+}
 
 function readViewBox(svgString: string): number[] {
   const doc = new DOMParser().parseFromString(svgString, 'image/svg+xml')
@@ -46,5 +69,34 @@ describe('DOCX chart SVG safe padding', () => {
     expect(padded).toContain('viewBox="-12 -12 124 74"')
     expect(padded).toContain('<text>a & b</text>')
     expect(padded).not.toContain('parsererror')
+  })
+})
+
+describe('DOCX chart PNG whitespace trimming', () => {
+  it('trims excessive white canvas while preserving a safe padding around chart content', () => {
+    const imageData = makeWhiteImageData(400, 300)
+    paintRect(imageData, 160, 120, 80, 60, [24, 24, 24])
+
+    const rect = calculateDocxChartTrimRect(imageData, { paddingPx: 30, maxMarginRatio: 0.18 })
+
+    expect(rect).toEqual({ x: 130, y: 90, width: 140, height: 120 })
+  })
+
+  it('keeps images unchanged when margins are already within the allowed range', () => {
+    const imageData = makeWhiteImageData(400, 300)
+    paintRect(imageData, 36, 36, 328, 228, [24, 24, 24])
+
+    const rect = calculateDocxChartTrimRect(imageData, { paddingPx: 30, maxMarginRatio: 0.18 })
+
+    expect(rect).toBeNull()
+  })
+
+  it('keeps horizontal-only whitespace because tall charts use it to preserve page-friendly aspect ratio', () => {
+    const imageData = makeWhiteImageData(400, 300)
+    paintRect(imageData, 150, 20, 100, 260, [24, 24, 24])
+
+    const rect = calculateDocxChartTrimRect(imageData, { paddingPx: 30, maxMarginRatio: 0.18 })
+
+    expect(rect).toBeNull()
   })
 })

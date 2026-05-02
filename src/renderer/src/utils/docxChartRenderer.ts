@@ -41,6 +41,25 @@ const CONTAINER_CLASS_MAP: Record<string, string> = {
 }
 
 const DOCX_CHART_SAFE_PADDING_PX = 32
+const DOCX_CHART_TRIM_PADDING_PX = DOCX_CHART_SAFE_PADDING_PX * 2
+const DOCX_CHART_WHITE_THRESHOLD = 248
+const DOCX_CHART_ALPHA_THRESHOLD = 16
+const DOCX_CHART_MAX_MARGIN_RATIO = 0.18
+
+export interface DocxChartTrimRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface DocxChartTrimOptions {
+  paddingPx?: number
+  whiteThreshold?: number
+  alphaThreshold?: number
+  maxMarginRatio?: number
+  minContentSizePx?: number
+}
 
 interface SvgBox {
   x: number
@@ -110,6 +129,133 @@ export function addSvgSafePaddingForDocx(svgString: string, paddingPx = DOCX_CHA
   nextSvgTag = setSvgTagAttribute(nextSvgTag, 'preserveAspectRatio', 'xMidYMid meet')
 
   return `${svgString.slice(0, svgTagMatch.index)}${nextSvgTag}${svgString.slice((svgTagMatch.index || 0) + svgTag.length)}`
+}
+
+export function calculateDocxChartTrimRect(
+  imageData: ImageData,
+  options: DocxChartTrimOptions = {},
+): DocxChartTrimRect | null {
+  const width = imageData.width
+  const height = imageData.height
+  if (width <= 0 || height <= 0) return null
+
+  const data = imageData.data
+  const whiteThreshold = options.whiteThreshold ?? DOCX_CHART_WHITE_THRESHOLD
+  const alphaThreshold = options.alphaThreshold ?? DOCX_CHART_ALPHA_THRESHOLD
+  const maxMarginRatio = options.maxMarginRatio ?? DOCX_CHART_MAX_MARGIN_RATIO
+  const minContentSizePx = options.minContentSizePx ?? 8
+
+  let minX = width
+  let minY = height
+  let maxX = -1
+  let maxY = -1
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      const alpha = data[offset + 3]
+      if (alpha <= alphaThreshold) continue
+
+      const red = data[offset]
+      const green = data[offset + 1]
+      const blue = data[offset + 2]
+      const lum = 0.299 * red + 0.587 * green + 0.114 * blue
+      if (lum >= whiteThreshold) continue
+
+      minX = Math.min(minX, x)
+      minY = Math.min(minY, y)
+      maxX = Math.max(maxX, x)
+      maxY = Math.max(maxY, y)
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) return null
+
+  const contentWidth = maxX - minX + 1
+  const contentHeight = maxY - minY + 1
+  if (contentWidth < minContentSizePx || contentHeight < minContentSizePx) return null
+
+  const topMargin = minY / height
+  const bottomMargin = (height - 1 - maxY) / height
+  // 高窄图表（如雷达图、思维导图）常通过左右留白保持页面友好的纵横比，只裁上下同时过大的框式白边。
+  const hasExcessiveVerticalFrame = topMargin > maxMarginRatio && bottomMargin > maxMarginRatio
+  if (!hasExcessiveVerticalFrame) {
+    return null
+  }
+
+  const padding = Math.max(0, Math.round(options.paddingPx ?? DOCX_CHART_TRIM_PADDING_PX))
+  const cropX = Math.max(0, minX - padding)
+  const cropY = Math.max(0, minY - padding)
+  const cropRight = Math.min(width - 1, maxX + padding)
+  const cropBottom = Math.min(height - 1, maxY + padding)
+  const cropWidth = cropRight - cropX + 1
+  const cropHeight = cropBottom - cropY + 1
+
+  if (cropWidth >= width && cropHeight >= height) return null
+
+  return { x: cropX, y: cropY, width: cropWidth, height: cropHeight }
+}
+
+function canvasToPngBase64(canvas: HTMLCanvasElement): string {
+  return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '')
+}
+
+function canvasToTrimmedPngBase64(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvasToPngBase64(canvas)
+
+  let trimRect: DocxChartTrimRect | null = null
+  try {
+    trimRect = calculateDocxChartTrimRect(ctx.getImageData(0, 0, canvas.width, canvas.height))
+  } catch {
+    return canvasToPngBase64(canvas)
+  }
+
+  if (!trimRect) return canvasToPngBase64(canvas)
+
+  const trimmedCanvas = document.createElement('canvas')
+  trimmedCanvas.width = trimRect.width
+  trimmedCanvas.height = trimRect.height
+  const trimmedCtx = trimmedCanvas.getContext('2d')
+  if (!trimmedCtx) return canvasToPngBase64(canvas)
+
+  trimmedCtx.fillStyle = '#ffffff'
+  trimmedCtx.fillRect(0, 0, trimRect.width, trimRect.height)
+  trimmedCtx.drawImage(
+    canvas,
+    trimRect.x,
+    trimRect.y,
+    trimRect.width,
+    trimRect.height,
+    0,
+    0,
+    trimRect.width,
+    trimRect.height,
+  )
+  return canvasToPngBase64(trimmedCanvas)
+}
+
+export async function trimPngWhitespaceForDocx(pngBase64: string): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth || img.width
+      canvas.height = img.naturalHeight || img.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx || canvas.width <= 0 || canvas.height <= 0) {
+        resolve(pngBase64)
+        return
+      }
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvasToTrimmedPngBase64(canvas))
+    }
+    img.onerror = () => resolve(pngBase64)
+    img.src = `data:image/png;base64,${pngBase64}`
+  })
 }
 
 function generatePlaceholderId(): string {
@@ -188,8 +334,7 @@ async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promi
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvasW, canvasH)
       ctx.drawImage(img, 0, 0, canvasW, canvasH)
-      const dataUrl = canvas.toDataURL('image/png')
-      resolve(dataUrl.replace(/^data:image\/png;base64,/, ''))
+      resolve(canvasToTrimmedPngBase64(canvas))
     }
     img.onerror = () => reject(new Error('SVG to PNG conversion failed'))
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
@@ -209,7 +354,9 @@ async function svgToPng(svgString: string, type: string, index: number): Promise
 
   try {
     const result = await window.api.renderSvgToPng(paddedSvgString, 1170)
-    if (result.success && result.data && result.data.length > 200) return result.data
+    if (result.success && result.data && result.data.length > 200) {
+      return await trimPngWhitespaceForDocx(result.data)
+    }
     console.warn(`[DocxChart] ${type} #${index}: BrowserWindow failed: ${result.error || 'small output'}`)
   } catch (e) {
     console.warn(`[DocxChart] ${type} #${index}: BrowserWindow exception:`, e)

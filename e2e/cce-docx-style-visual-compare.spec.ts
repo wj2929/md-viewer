@@ -40,6 +40,7 @@ type DocxImageInfo = {
   height: number
   bytes: number
   edgeFlags?: string[]
+  whitespaceFlags?: string[]
 }
 
 type DocxMetrics = {
@@ -48,6 +49,8 @@ type DocxMetrics = {
   hasFallbackText: boolean
   unsafeEdgeImageCount?: number
   unsafeEdgeImages?: string[]
+  excessiveWhitespaceImageCount?: number
+  excessiveWhitespaceImages?: string[]
 }
 
 type PdfMetrics = {
@@ -173,6 +176,7 @@ test.describe('CCE DOCX 样式 E2E 与视觉比对', () => {
       docxMetrics[style] = inspectDocx(target, true)
       expect(docxMetrics[style].hasFallbackText, `${style} 不应保留 DrawIO fallback 文案`).toBe(false)
       expect(docxMetrics[style].unsafeEdgeImageCount, `${style} 图表图片不应贴边：${docxMetrics[style].unsafeEdgeImages?.join('; ') || 'none'}`).toBe(0)
+      expect(docxMetrics[style].excessiveWhitespaceImageCount, `${style} 图表图片不应有过量内部白边：${docxMetrics[style].excessiveWhitespaceImages?.join('; ') || 'none'}`).toBe(0)
       if (style === 'preview') {
         expect(docxMetrics[style].imageCount, 'preview 应包含全部图表图片').toBe(25)
         expect(docxMetrics[style].realRenderedCount, 'preview 不应有源码 fallback 图').toBe(25)
@@ -283,6 +287,9 @@ function inspectDocx(docxPath: string, analyzeImageEdges = false): DocxMetrics {
   const unsafeEdgeImages = images
     .filter(img => img.edgeFlags && img.edgeFlags.length > 0)
     .map(img => `${img.name}:${img.edgeFlags!.join(',')}`)
+  const excessiveWhitespaceImages = images
+    .filter(img => img.whitespaceFlags && img.whitespaceFlags.length > 0)
+    .map(img => `${img.name}:${img.whitespaceFlags!.join(',')}`)
   return {
     imageCount: images.length,
     realRenderedCount: images.filter(img => img.width !== 1400 && img.bytes > 2_000).length,
@@ -290,6 +297,8 @@ function inspectDocx(docxPath: string, analyzeImageEdges = false): DocxMetrics {
     ...(analyzeImageEdges ? {
       unsafeEdgeImageCount: unsafeEdgeImages.length,
       unsafeEdgeImages,
+      excessiveWhitespaceImageCount: excessiveWhitespaceImages.length,
+      excessiveWhitespaceImages,
     } : {}),
   }
 }
@@ -300,23 +309,30 @@ function inspectDocxImages(zip: AdmZip, analyzeEdges = false): DocxImageInfo[] {
     .map(entry => {
       const data = entry.getData()
       const png = readPngSize(data)
+      const flags = analyzeEdges ? inspectPngImageFlags(data, entry.entryName) : {}
       return {
         name: entry.entryName,
         width: png.width,
         height: png.height,
         bytes: data.length,
-        ...(analyzeEdges ? { edgeFlags: inspectPngEdgeFlags(data) } : {}),
+        ...flags,
       }
     })
 }
 
-function inspectPngEdgeFlags(data: Buffer): string[] {
+function inspectPngImageFlags(data: Buffer, imageName: string): Pick<DocxImageInfo, 'edgeFlags' | 'whitespaceFlags'> {
+  const tempDir = path.join(OUT_DIR, '.image-inspect')
+  fs.mkdirSync(tempDir, { recursive: true })
+  const safeName = imageName.replace(/[^a-z0-9_.-]/gi, '_')
+  const tempPath = path.join(tempDir, `${process.pid}-${Date.now()}-${safeName}`)
+  fs.writeFileSync(tempPath, data)
+
   const script = `
 import json
 import sys
 from PIL import Image
 
-im = Image.open(sys.stdin.buffer).convert("RGB")
+im = Image.open(sys.argv[1]).convert("RGB")
 w, h = im.size
 pixels = im.load()
 min_x = w
@@ -334,28 +350,40 @@ for y in range(h):
             max_x = max(max_x, x)
             max_y = max(max_y, y)
 
-flags = []
+edge_flags = []
+whitespace_flags = []
 if max_x >= 0:
     left = min_x / w
     top = min_y / h
     right = max_x / w
     bottom = max_y / h
     if left < 0.01:
-        flags.append("LEFT")
+        edge_flags.append("LEFT")
     if right > 0.99:
-        flags.append("RIGHT")
+        edge_flags.append("RIGHT")
     if top < 0.01:
-        flags.append("TOP")
+        edge_flags.append("TOP")
     if bottom > 0.99:
-        flags.append("BOTTOM")
+        edge_flags.append("BOTTOM")
 
-print(json.dumps(flags))
+    right_margin = (w - 1 - max_x) / w
+    bottom_margin = (h - 1 - max_y) / h
+    if top > 0.20 and bottom_margin > 0.20:
+        whitespace_flags.append(f"VERTICAL_MARGIN={top:.3f}/{bottom_margin:.3f}")
+    if left > 0.35 and right_margin > 0.35 and top > 0.12 and bottom_margin > 0.12:
+        whitespace_flags.append(f"HORIZONTAL_MARGIN={left:.3f}/{right_margin:.3f}")
+
+print(json.dumps({"edgeFlags": edge_flags, "whitespaceFlags": whitespace_flags}))
 `
-  return JSON.parse(execFileSync(PYTHON!, ['-c', script], {
-    input: data,
-    encoding: 'utf-8',
-    maxBuffer: 1024 * 1024,
-  }))
+  try {
+    return JSON.parse(execFileSync(PYTHON!, ['-c', script, tempPath], {
+      encoding: 'utf-8',
+      maxBuffer: 1024 * 1024,
+      timeout: 30_000,
+    }))
+  } finally {
+    fs.rmSync(tempPath, { force: true })
+  }
 }
 
 function readPngSize(data: Buffer): { width: number; height: number } {
