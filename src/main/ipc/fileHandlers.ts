@@ -412,7 +412,9 @@ export function registerFileHandlers(ctx: IPCContext): void {
     if (!markdownFilePath || !refPath) {
       throw new Error('缺少 Excalidraw 文件读取参数')
     }
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(refPath)) {
+    const hasUrlScheme = /^[a-z][a-z0-9+.-]*:/i.test(refPath)
+    const isWindowsAbsolutePath = /^[a-z]:[\\/]/i.test(refPath)
+    if (hasUrlScheme && !isWindowsAbsolutePath) {
       throw new Error('不支持 URL 形式的 .excalidraw 文件')
     }
 
@@ -428,6 +430,9 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
 
     const resolvedPath = await fs.realpath(candidatePath)
+    if (path.extname(resolvedPath).toLowerCase() !== '.excalidraw') {
+      throw new Error('只能读取 .excalidraw 文件')
+    }
     validateSecurePath(resolvedPath)
 
     const stats = await fs.stat(resolvedPath)

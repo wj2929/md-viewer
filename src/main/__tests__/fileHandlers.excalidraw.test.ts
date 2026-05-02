@@ -102,11 +102,32 @@ describe('Excalidraw file handlers', () => {
       refPath: string
     }) => Promise<any>>('fs:readExcalidrawFile')
 
-    await expect(readExcalidrawFile({}, {
-      markdownFilePath: '/docs/notes/page.md',
-      refPath: 'https://example.com/diagram.excalidraw',
-    })).rejects.toThrow('不支持 URL 形式的 .excalidraw 文件')
+    for (const refPath of [
+      'https://example.com/diagram.excalidraw',
+      'mailto:foo.excalidraw',
+      'data:text/plain,abc.excalidraw',
+    ]) {
+      await expect(readExcalidrawFile({}, {
+        markdownFilePath: '/docs/notes/page.md',
+        refPath,
+      })).rejects.toThrow('不支持 URL 形式的 .excalidraw 文件')
+    }
     expect(mockRealpath).not.toHaveBeenCalled()
+  })
+
+  it('rejects realpath targets with non-.excalidraw extensions', async () => {
+    mockRealpath.mockResolvedValue('/docs/secret.txt')
+
+    const readExcalidrawFile = handler<(event: any, payload: {
+      markdownFilePath: string
+      refPath: string
+    }) => Promise<any>>('fs:readExcalidrawFile')
+
+    await expect(readExcalidrawFile({}, {
+      markdownFilePath: '/docs/page.md',
+      refPath: './link.excalidraw',
+    })).rejects.toThrow('只能读取 .excalidraw 文件')
+    expect(mockStat).not.toHaveBeenCalled()
   })
 
   it('rejects symlinks that escape allowedBasePath after realpath', async () => {
