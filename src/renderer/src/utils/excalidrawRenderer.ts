@@ -102,10 +102,22 @@ function collectWarnings(elements: unknown[], files: Record<string, unknown>): s
 }
 
 function hasUnsafeUrlValue(value: string): boolean {
-  const trimmed = value.trim()
-  if (/^(javascript:|https?:\/\/)/i.test(trimmed)) return true
+  const isUnsafeUrl = (candidate: string): boolean => {
+    const trimmed = candidate.trim().replace(/^['"]|['"]$/g, '')
+    if (!trimmed || trimmed.startsWith('#')) return false
+    if (/^data:image\//i.test(trimmed)) return false
 
-  return /url\(\s*(['"])?\s*(javascript:|https?:\/\/)/i.test(trimmed)
+    return /^(javascript:|https?:\/\/|\/\/|data:)/i.test(trimmed)
+  }
+
+  const trimmed = value.trim()
+  if (isUnsafeUrl(trimmed)) return true
+
+  for (const match of trimmed.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)) {
+    if (isUnsafeUrl(match[2])) return true
+  }
+
+  return false
 }
 
 function sanitizeExcalidrawSvg(svg: SVGSVGElement): string {
@@ -140,18 +152,18 @@ function sanitizeExcalidrawSvg(svg: SVGSVGElement): string {
 export function validateExcalidrawSource(source: string): ExcalidrawValidationResult {
   const sourceBytes = byteLength(source)
 
+  if (sourceBytes > EXCALIDRAW_LIMITS.maxSourceBytes) {
+    return {
+      ok: false,
+      error: 'Excalidraw 内容超过 1MB，未渲染',
+      warnings: [],
+    }
+  }
+
   let data: unknown
   try {
     data = JSON.parse(source)
   } catch {
-    if (sourceBytes > EXCALIDRAW_LIMITS.maxSourceBytes) {
-      return {
-        ok: false,
-        error: 'Excalidraw 内容超过 1MB，未渲染',
-        warnings: [],
-      }
-    }
-
     return {
       ok: false,
       error: 'Excalidraw JSON 格式错误',
@@ -182,14 +194,6 @@ export function validateExcalidrawSource(source: string): ExcalidrawValidationRe
     return {
       ok: false,
       error: 'Excalidraw 图片资源超过 10MB，未渲染',
-      warnings: [],
-    }
-  }
-
-  if (sourceBytes > EXCALIDRAW_LIMITS.maxSourceBytes) {
-    return {
-      ok: false,
-      error: 'Excalidraw 内容超过 1MB，未渲染',
       warnings: [],
     }
   }

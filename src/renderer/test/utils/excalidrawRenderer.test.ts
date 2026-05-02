@@ -13,7 +13,11 @@ const exportToSvgMock = vi.hoisted(() => vi.fn(async () => {
     '<a href="javascript:alert(1)"><text>bad</text></a>',
     '<image href="https://example.com/image.png"></image>',
     '<image xlink:href="http://example.com/image.png"></image>',
+    '<image href="//example.com/x.svg"></image>',
+    '<image href="data:text/html,&lt;svg&gt;bad&lt;/svg&gt;"></image>',
+    '<image href="data:image/png;base64,AAAA"></image>',
     '<rect style="fill:url(javascript:alert(1));stroke:url(https://example.com/stroke.png)"></rect>',
+    '<rect style="fill:url(//example.com/x.svg#id)"></rect>',
     '<rect fill="url(http://example.com/fill.png)"></rect>',
     '<foreignObject><div>bad</div></foreignObject>',
   ].join('')
@@ -113,6 +117,23 @@ describe('excalidrawRenderer', () => {
     expect(exportToSvgMock).not.toHaveBeenCalled()
   })
 
+  it('超过 1MB 的合法 JSON 先按 source 大小拒绝', () => {
+    const oversized = excalidrawSource({
+      appState: {
+        note: 'x'.repeat(EXCALIDRAW_LIMITS.maxSourceBytes + 1),
+      },
+    })
+
+    const validation = validateExcalidrawSource(oversized)
+
+    expect(validation.ok).toBe(false)
+    if (!validation.ok) {
+      expect(validation.error).toContain('1MB')
+      expect(validation.error).not.toContain('10MB')
+      expect(validation.error).not.toContain('图片资源')
+    }
+  })
+
   it('缺失图片文件时返回 warning 但不整体失败', async () => {
     const result = await renderExcalidrawToSvg(excalidrawSource({
       elements: [
@@ -159,6 +180,9 @@ describe('excalidrawRenderer', () => {
       expect(result.svg).not.toContain('javascript:')
       expect(result.svg).not.toContain('https://example.com')
       expect(result.svg).not.toContain('http://example.com')
+      expect(result.svg).not.toContain('//example.com')
+      expect(result.svg).not.toContain('data:text/html')
+      expect(result.svg).toContain('data:image/png')
       const svg = new DOMParser().parseFromString(result.svg, 'image/svg+xml').documentElement
       expect(svg.getAttribute('width')).toBeNull()
       expect(svg.getAttribute('height')).toBeNull()
@@ -174,30 +198,20 @@ describe('excalidrawRenderer', () => {
     expect(validation.warnings.join('\n')).toContain('兼容模式')
   })
 
-  it('elements 和 files 超过限制时拒绝', () => {
+  it('elements 超过限制时拒绝', () => {
     const tooManyElements = Array.from({ length: EXCALIDRAW_LIMITS.maxElements + 1 }, (_, index) => ({
       id: String(index),
       type: 'rectangle',
     }))
-    const tooManyFiles = {
-      a: { dataURL: `data:image/png;base64,${'a'.repeat(EXCALIDRAW_LIMITS.maxFilesBytes + 1)}` },
-    }
 
     const elementsValidation = validateExcalidrawSource(excalidrawSource({
       elements: tooManyElements,
     }))
-    const filesValidation = validateExcalidrawSource(excalidrawSource({
-      files: tooManyFiles,
-    }))
 
     expect(elementsValidation.ok).toBe(false)
-    expect(filesValidation.ok).toBe(false)
-    if (!filesValidation.ok) {
-      expect(filesValidation.error).toMatch(/10MB|图片资源/)
-    }
   })
 
-  it('files 超过 10MB 时优先返回图片资源限制错误', () => {
+  it('files 构造导致 source 超过 1MB 时先返回 source 限制错误', () => {
     const tooManyFiles = {
       a: { dataURL: `data:image/png;base64,${'a'.repeat(EXCALIDRAW_LIMITS.maxFilesBytes + 1)}` },
     }
@@ -208,8 +222,9 @@ describe('excalidrawRenderer', () => {
 
     expect(validation.ok).toBe(false)
     if (!validation.ok) {
-      expect(validation.error).toMatch(/10MB|图片资源/)
-      expect(validation.error).not.toContain('1MB')
+      expect(validation.error).toContain('1MB')
+      expect(validation.error).not.toContain('10MB')
+      expect(validation.error).not.toContain('图片资源')
     }
   })
 })
