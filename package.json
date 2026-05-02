@@ -130,6 +130,7 @@
   },
   "dependencies": {
     "@antv/infographic": "^0.2.13",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@hpcc-js/wasm-graphviz": "^1.21.0",
     "@types/markdown-it": "^14.1.2",
     "@types/prismjs": "^1.26.5",
