@@ -94,6 +94,10 @@ function collectWarnings(elements: unknown[], files: Record<string, unknown>): s
   }).length
 
   const warnings: string[] = []
+  if (elements.length === 0) {
+    warnings.push('空画布，无可见元素')
+  }
+
   if (missingImageCount > 0) {
     warnings.push(`有 ${missingImageCount} 个图片资源缺失，已渲染其余元素`)
   }
@@ -122,6 +126,7 @@ function hasUnsafeUrlValue(value: string): boolean {
 
 function sanitizeExcalidrawSvg(svg: SVGSVGElement): string {
   const cloned = svg.cloneNode(true) as SVGSVGElement
+  const { width, height } = readSvgSize(svg)
   const nodes = [cloned, ...Array.from(cloned.querySelectorAll('*'))]
 
   for (const node of nodes) {
@@ -141,8 +146,8 @@ function sanitizeExcalidrawSvg(svg: SVGSVGElement): string {
   }
 
   cloned.querySelectorAll('foreignObject').forEach((element) => element.remove())
-  cloned.removeAttribute('width')
-  cloned.removeAttribute('height')
+  cloned.setAttribute('width', String(width))
+  cloned.setAttribute('height', String(height))
   cloned.setAttribute('preserveAspectRatio', 'xMidYMid meet')
   cloned.setAttribute('style', 'max-width: 100%; height: auto; display: block; margin: 0 auto;')
 

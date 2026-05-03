@@ -67,7 +67,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
-      const htmlContent = await buildExportHtmlContent(exportContent)
+      const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
       const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
       toast.close(loadingId)
@@ -93,7 +93,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
-      const htmlContent = await buildExportHtmlContent(exportContent)
+      const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
       const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)
       toast.close(loadingId)
@@ -252,9 +252,12 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
           store.startExport(exportTab.file.name)
           cancelledRef.current = false
 
-          const chartResult = await renderChartsForDocx(exportContent, (current, total, type) => {
-            if (cancelledRef.current) return
-            useExportTaskStore.getState().updateChartProgress(current, total, type)
+          const chartResult = await renderChartsForDocx(exportContent, {
+            markdownFilePath: exportTab.file.path,
+            onProgress: (current, total, type) => {
+              if (cancelledRef.current) return
+              useExportTaskStore.getState().updateChartProgress(current, total, type)
+            },
           })
           if (cancelledRef.current) {
             useExportTaskStore.getState().close()

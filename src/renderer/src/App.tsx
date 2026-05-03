@@ -183,6 +183,25 @@ function App(): React.JSX.Element {
     }
   }, [])
 
+  const refreshExistingTabContent = useCallback(async (tab: Tab, loadContent: () => Promise<string>, errorPrefix = '无法打开文件') => {
+    const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
+    setActiveTabId(tab.id)
+    if (dirtySession?.dirty) return
+
+    try {
+      clearFileCache(tab.file.path)
+      const content = await loadContent()
+      setTabs(prev => prev.map(item =>
+        item.id === tab.id
+          ? { ...item, content }
+          : item
+      ))
+    } catch (error) {
+      console.error('Failed to refresh existing tab:', error)
+      toast.error(`${errorPrefix}：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [setActiveTabId, setTabs, toast])
+
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -269,7 +288,7 @@ function App(): React.JSX.Element {
     } else {
       const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
       if (existingTab) {
-        setActiveTabId(existingTab.id)
+        await refreshExistingTabContent(existingTab, () => readFileWithCache(filePath))
         return
       }
       try {
@@ -286,7 +305,7 @@ function App(): React.JSX.Element {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
     }
-  }, [folderPath, toast])
+  }, [folderPath, refreshExistingTabContent, toast])
 
   // 加载文件列表
   useEffect(() => {
@@ -365,7 +384,7 @@ function App(): React.JSX.Element {
     setHighlightKeyword(keyword)
     const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
     if (existingTab) {
-      setActiveTabId(existingTab.id)
+      await refreshExistingTabContent(existingTab, () => readFileWithCache(file.path))
       return
     }
     try {
@@ -388,14 +407,14 @@ function App(): React.JSX.Element {
       console.error('Failed to read file:', error)
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [toast])
+  }, [refreshExistingTabContent, toast])
 
   // 打开外部文件（跨文件夹搜索结果）：直接打开到 tab，不切换文件夹
   const handleExternalFileOpen = useCallback(async (filePath: string) => {
     const fileName = filePath.split(/[/\\]/).pop() || filePath
     const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
     if (existingTab) {
-      setActiveTabId(existingTab.id)
+      await refreshExistingTabContent(existingTab, () => window.api.searchReadFile(filePath))
       return
     }
     try {
@@ -413,7 +432,7 @@ function App(): React.JSX.Element {
     } catch (error) {
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [toast])
+  }, [refreshExistingTabContent, toast])
 
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => { setActiveTabId(tabId) }, [])
@@ -669,10 +688,10 @@ function App(): React.JSX.Element {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
     } else {
-      setActiveTabId(existingTab.id)
+      await refreshExistingTabContent(existingTab, () => readFileWithCache(bookmark.filePath), '无法刷新文件')
       setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
     }
-  }, [toast, folderPath])
+  }, [folderPath, refreshExistingTabContent, toast])
 
   const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
     if (!previewRef.current) return

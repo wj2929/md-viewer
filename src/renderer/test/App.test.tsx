@@ -22,6 +22,7 @@ const mockApi = {
   saveEditableMarkdown: vi.fn(),
   exportHTML: vi.fn(),
   exportPDF: vi.fn(),
+  searchReadFile: vi.fn(),
   showContextMenu: vi.fn().mockResolvedValue({ success: true }),
   renameFile: vi.fn().mockResolvedValue('/new/path'),
   // v1.2 阶段 2：文件操作
@@ -358,6 +359,35 @@ describe('App 集成测试', () => {
 
       // 应该仍然显示欢迎页面
       expect(screen.getByText('欢迎使用 MD Viewer')).toBeInTheDocument()
+    })
+  })
+
+  describe('已打开文件刷新', () => {
+    it('再次选择已打开文件时应该重新读取磁盘最新内容', async () => {
+      const file = { name: 'test-excalidraw.md', path: '/test/folder/test-excalidraw.md', isDirectory: false }
+      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.readDir.mockResolvedValue([file])
+      mockApi.readFile
+        .mockResolvedValueOnce('# 旧内容')
+        .mockResolvedValueOnce('# 新内容')
+
+      render(<App />)
+
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+
+      const fileName = await screen.findByText('test-excalidraw.md')
+      fireEvent.click(fileName)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '旧内容' })).toBeInTheDocument()
+      })
+
+      fireEvent.click(fileName)
+
+      await waitFor(() => {
+        expect(mockApi.readFile).toHaveBeenCalledTimes(2)
+        expect(screen.getByRole('heading', { name: '新内容' })).toBeInTheDocument()
+      })
     })
   })
 

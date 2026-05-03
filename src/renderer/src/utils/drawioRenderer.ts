@@ -42,14 +42,12 @@ export async function loadDrawioViewer(): Promise<void> {
   if (viewerLoadPromise) return viewerLoadPromise
 
   viewerLoadPromise = new Promise<void>((resolve, reject) => {
-    // 预设路径为空字符串，阻止 viewer.min.js 使用远程 CDN（会触发 CORS 错误）
-    // viewer.min.js 第 1 行：window.STENCIL_PATH = window.STENCIL_PATH || "https://viewer.diagrams.net/stencils"
-    // 预设后 || 短路，不会覆盖为远程地址
+    // 使用 viewer.min.js 的官方资源地址，避免本地缺少 shapes/stencils 目录导致 404
     const w = window as unknown as Record<string, unknown>
-    if (!w.STENCIL_PATH) w.STENCIL_PATH = './stencils'
-    if (!w.SHAPES_PATH) w.SHAPES_PATH = './shapes'
-    if (!w.STYLE_PATH) w.STYLE_PATH = './styles'
-    if (!w.GRAPH_IMAGE_PATH) w.GRAPH_IMAGE_PATH = './img'
+    if (!w.STENCIL_PATH) w.STENCIL_PATH = 'https://viewer.diagrams.net/stencils'
+    if (!w.SHAPES_PATH) w.SHAPES_PATH = 'https://viewer.diagrams.net/shapes'
+    if (!w.STYLE_PATH) w.STYLE_PATH = 'https://viewer.diagrams.net/styles'
+    if (!w.GRAPH_IMAGE_PATH) w.GRAPH_IMAGE_PATH = 'https://viewer.diagrams.net/img'
 
     const script = document.createElement('script')
     script.src = './drawio-viewer.min.js'
@@ -125,6 +123,15 @@ export function validateDrawioCode(code: string): { valid: boolean; error?: stri
   // 基本格式校验：必须包含 mxGraphModel 或 mxfile
   if (!/<mxGraphModel|<mxfile/i.test(code)) {
     return { valid: false, error: '无效的 DrawIO 格式：缺少 mxGraphModel 或 mxfile 标签' }
+  }
+
+  if (typeof DOMParser !== 'undefined') {
+    const xml = new DOMParser().parseFromString(code, 'application/xml')
+    const parseError = xml.querySelector('parsererror')
+    if (parseError) {
+      const message = parseError.textContent?.trim().replace(/\s+/g, ' ') || 'XML 不完整或格式错误'
+      return { valid: false, error: `XML 格式错误：${message}` }
+    }
   }
 
   return { valid: true }

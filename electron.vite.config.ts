@@ -26,6 +26,10 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     publicDir: resolve(__dirname, 'src/renderer/public'),
+    server: {
+      port: 5897,
+      strictPort: true
+    },
     build: {
       rollupOptions: {
         input: {

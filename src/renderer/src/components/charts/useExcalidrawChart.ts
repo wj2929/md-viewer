@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 import { renderExcalidrawToSvg, type ExcalidrawRenderResult } from '../../utils/excalidrawRenderer'
 import { downloadSvgAsPng } from '../../utils/chartUtils'
 
-const MAX_EXCALIDRAW_BLOCKS = 20
+const MAX_EXCALIDRAW_BLOCKS = 80
 
 let renderQueue = Promise.resolve()
 
@@ -145,13 +145,72 @@ async function renderCodeBlock(block: Element): Promise<HTMLDivElement> {
   return createWrapper(result, code)
 }
 
+function stripUrlSuffix(refPath: string): string {
+  return refPath.split('#')[0].split('?')[0]
+}
+
+function normalizeLocalPath(input: string): string {
+  const normalized = input.replace(/\\/g, '/')
+  const driveMatch = normalized.match(/^([a-z]:)(\/.*)?$/i)
+  const prefix = driveMatch ? driveMatch[1] : normalized.startsWith('/') ? '/' : ''
+  const rest = driveMatch ? driveMatch[2] || '/' : prefix ? normalized.slice(1) : normalized
+  const segments: string[] = []
+
+  for (const part of rest.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      segments.pop()
+      continue
+    }
+    segments.push(part)
+  }
+
+  if (driveMatch) return `${prefix}/${segments.join('/')}`
+  if (prefix) return `/${segments.join('/')}`
+  return segments.join('/')
+}
+
+function resolveExcalidrawFallbackPath(markdownFilePath: string, refPath: string): string {
+  const cleanRefPath = stripUrlSuffix(refPath)
+  const hasUrlScheme = /^[a-z][a-z0-9+.-]*:/i.test(cleanRefPath)
+  const isWindowsAbsolutePath = /^[a-z]:[\\/]/i.test(cleanRefPath)
+  if (hasUrlScheme && !isWindowsAbsolutePath) {
+    throw new Error('不支持 URL 形式的 .excalidraw 文件')
+  }
+  if (!cleanRefPath.toLowerCase().endsWith('.excalidraw')) {
+    throw new Error('只能读取 .excalidraw 文件')
+  }
+
+  if (/^(?:[a-z]:[\\/]|[/\\])/i.test(cleanRefPath)) {
+    return normalizeLocalPath(cleanRefPath)
+  }
+
+  const markdownDir = markdownFilePath.replace(/[/\\][^/\\]*$/, '')
+  return normalizeLocalPath(`${markdownDir}/${cleanRefPath}`)
+}
+
+async function readExcalidrawFile(markdownFilePath: string, refPath: string): Promise<{ content: string; resolvedPath: string }> {
+  if (typeof window.api?.readExcalidrawFile === 'function') {
+    return window.api.readExcalidrawFile({ markdownFilePath, refPath })
+  }
+  if (typeof window.api?.readFile !== 'function') {
+    throw new Error('当前环境不支持读取 Excalidraw 文件')
+  }
+
+  const resolvedPath = resolveExcalidrawFallbackPath(markdownFilePath, refPath)
+  return {
+    content: await window.api.readFile(resolvedPath),
+    resolvedPath,
+  }
+}
+
 async function renderFilePlaceholder(
   placeholder: HTMLElement,
   markdownFilePath: string
 ): Promise<HTMLDivElement> {
   const refPath = placeholder.dataset.excalidrawSrc || ''
   const alt = placeholder.dataset.excalidrawAlt || ''
-  const file = await window.api.readExcalidrawFile({ markdownFilePath, refPath })
+  const file = await readExcalidrawFile(markdownFilePath, refPath)
   const result = await enqueueRender(() =>
     renderExcalidrawToSvg(file.content, {
       sourceKind: 'file-reference',
@@ -215,9 +274,6 @@ export function useExcalidrawChart(
           } else if (candidate.matches('.excalidraw-file-placeholder')) {
             if (!options.markdownFilePath) {
               throw new Error('缺少 Markdown 文件路径，无法读取 Excalidraw 文件引用')
-            }
-            if (typeof window.api?.readExcalidrawFile !== 'function') {
-              throw new Error('当前环境不支持读取 Excalidraw 文件')
             }
             wrapper = await renderFilePlaceholder(candidate as HTMLElement, options.markdownFilePath)
           }

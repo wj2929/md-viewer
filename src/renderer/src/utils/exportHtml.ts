@@ -20,6 +20,11 @@ import { processMarkmapInHtml } from './markmapRenderer'
 import { processGraphvizInHtml } from './graphvizRenderer'
 import { processDrawioInHtml } from './drawioRenderer'
 import { processPlantUMLInHtml } from './plantumlRenderer'
+import { renderExcalidrawToSvg } from './excalidrawRenderer'
+
+export interface ExportHtmlOptions {
+  markdownFilePath?: string
+}
 
 /**
  * 借预览 DOM 里已渲染的 DrawIO SVG 覆盖导出 HTML 里的占位。
@@ -132,11 +137,79 @@ function makeSvgsResponsiveInContainers(html: string, containerClasses: string[]
   return html
 }
 
+function cleanExcalidrawRefPath(refPath: string): string {
+  return refPath.split(/[?#]/, 1)[0] || refPath
+}
+
+function hasExcalidrawHtml(html: string): boolean {
+  return /\blanguage-excalidraw\b/i.test(html) || /\.excalidraw(?:[?#][^"'\s<>]*)?/i.test(html)
+}
+
+function serializeFragment(fragment: DocumentFragment): string {
+  const container = document.createElement('div')
+  container.appendChild(fragment.cloneNode(true))
+  return container.innerHTML
+}
+
+async function readExcalidrawForExport(markdownFilePath: string | undefined, refPath: string): Promise<string> {
+  if (!markdownFilePath) throw new Error('缺少 Markdown 文件路径，无法导出 Excalidraw 文件引用')
+  if (!window.api?.readExcalidrawFile) throw new Error('当前环境不支持读取 Excalidraw 文件')
+  const result = await window.api.readExcalidrawFile({
+    markdownFilePath,
+    refPath: cleanExcalidrawRefPath(refPath),
+  })
+  return result.content
+}
+
+function excalidrawErrorHtml(message: string, label: string): string {
+  const safeMessage = message.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c))
+  const safeLabel = label.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c))
+  return `<div class="excalidraw-error" role="alert"><div class="error-title">Excalidraw 渲染失败</div><div class="error-message">${safeLabel}: ${safeMessage}</div></div>`
+}
+
+export async function processExcalidrawInHtml(html: string, options: ExportHtmlOptions = {}): Promise<string> {
+  if (!hasExcalidrawHtml(html)) return html
+
+  const template = document.createElement('template')
+  template.innerHTML = html
+  const root = template.content
+
+  const blocks = Array.from(root.querySelectorAll('pre.language-excalidraw'))
+  for (const block of blocks) {
+    const code = block.textContent || ''
+    const result = await renderExcalidrawToSvg(code, { sourceKind: 'code-block' })
+    const holder = document.createElement('div')
+    holder.className = result.ok ? 'excalidraw-container' : 'excalidraw-error'
+    holder.setAttribute('style', 'width:100%; text-align:center; margin:1.5em 0;')
+    holder.innerHTML = result.ok ? result.svg : excalidrawErrorHtml(result.error, '代码块')
+    block.replaceWith(holder)
+  }
+
+  const imgs = Array.from(root.querySelectorAll('img')).filter(img => /\.excalidraw(?:[?#].*)?$/i.test(img.getAttribute('src') || ''))
+  for (const img of imgs) {
+    const src = img.getAttribute('src') || ''
+    const alt = img.getAttribute('alt') || src
+    const holder = document.createElement('div')
+    holder.className = 'excalidraw-container'
+    holder.setAttribute('style', 'width:100%; text-align:center; margin:1.5em 0;')
+    try {
+      const code = await readExcalidrawForExport(options.markdownFilePath, src)
+      const result = await renderExcalidrawToSvg(code, { sourceKind: 'file-reference', sourceLabel: alt })
+      holder.innerHTML = result.ok ? result.svg : excalidrawErrorHtml(result.error, src)
+    } catch (error) {
+      holder.innerHTML = excalidrawErrorHtml(error instanceof Error ? error.message : '读取失败', src)
+    }
+    img.replaceWith(holder)
+  }
+
+  return serializeFragment(root)
+}
+
 /**
  * 把 Markdown 文本构建成导出用的 HTML 内容（不含 HTML 模板外壳，只是 body 内容）。
  * 主进程 ipcMain.handle('export:html') 会再套上 <!DOCTYPE html>... 模板。
  */
-export async function buildExportHtmlContent(markdown: string): Promise<string> {
+export async function buildExportHtmlContent(markdown: string, options: ExportHtmlOptions = {}): Promise<string> {
   const md = createMarkdownRenderer()
   let html = md.render(markdown)
 
@@ -146,6 +219,7 @@ export async function buildExportHtmlContent(markdown: string): Promise<string> 
   html = await processInfographicInHtml(html)
   html = await processMarkmapInHtml(html)
   html = await processGraphvizInHtml(html)
+  html = await processExcalidrawInHtml(html, options)
   html = await processDrawioInHtml(html)
   html = await processPlantUMLInHtml(html)
 
@@ -157,6 +231,7 @@ export async function buildExportHtmlContent(markdown: string): Promise<string> 
     'graphviz-container',
     'plantuml-container',
     'infographic-container',
+    'excalidraw-container',
   ])
 
   return html

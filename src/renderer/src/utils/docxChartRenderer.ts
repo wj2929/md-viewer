@@ -22,13 +22,19 @@ export interface ChartRenderResult {
   warnings: string[]
 }
 
-type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio'
+type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio' | 'excalidraw'
+
+export interface DocxChartRenderOptions {
+  markdownFilePath?: string
+  onProgress?: (current: number, total: number, type: string) => void
+}
 
 const CHART_LANGS = new Set<string>([
-  'echarts', 'mermaid', 'dot', 'graphviz', 'markmap', 'plantuml', 'drawio',
+  'echarts', 'mermaid', 'dot', 'graphviz', 'markmap', 'plantuml', 'drawio', 'excalidraw', 'excalidraw-json',
 ])
 
-const CODE_BLOCK_RE = /```(\w+)\n([\s\S]*?)```/g
+const CODE_BLOCK_RE = /```([\w-]+)\n([\s\S]*?)```/g
+const FENCED_BLOCK_RE = /(```|~~~)[^\n]*\n[\s\S]*?\1/g
 
 const CONTAINER_CLASS_MAP: Record<string, string> = {
   mermaid: 'mermaid-container',
@@ -38,6 +44,7 @@ const CONTAINER_CLASS_MAP: Record<string, string> = {
   markmap: 'markmap-container',
   plantuml: 'plantuml-container',
   drawio: 'drawio-container',
+  excalidraw: 'excalidraw-container',
 }
 
 const DOCX_CHART_SAFE_PADDING_PX = 32
@@ -66,6 +73,40 @@ interface SvgBox {
   y: number
   width: number
   height: number
+}
+
+interface MarkdownRange {
+  start: number
+  end: number
+}
+
+interface ChartBlock {
+  fullMatch: string
+  lang: string
+  code: string
+  start: number
+  end: number
+}
+
+interface ExcalidrawImageRef {
+  fullMatch: string
+  alt: string
+  refPath: string
+  cleanRefPath: string
+  start: number
+  end: number
+}
+
+interface RenderChartCodeToPngOptions {
+  allowDomFallback?: boolean
+  excalidrawSourceKind?: 'code-block' | 'file-reference'
+  excalidrawSourceLabel?: string
+}
+
+interface MarkdownReplacement {
+  start: number
+  end: number
+  value: string
 }
 
 function parseSvgViewBoxValue(viewBox: string | null): SvgBox | null {
@@ -264,6 +305,64 @@ function generatePlaceholderId(): string {
   return `mdv__chart__${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')}__`
 }
 
+function normalizeChartType(lang: string): ChartType {
+  return lang === 'graphviz' ? 'dot' : lang === 'excalidraw-json' ? 'excalidraw' : lang as ChartType
+}
+
+function cleanExcalidrawRefPath(refPath: string): string {
+  return refPath.trim().replace(/^<|>$/g, '').split(/[?#]/, 1)[0] || refPath
+}
+
+function isExcalidrawRefPath(refPath: string): boolean {
+  return /\.excalidraw(?:[?#].*)?$/i.test(refPath.trim().replace(/^<|>$/g, ''))
+}
+
+function collectFencedBlockRanges(markdown: string): MarkdownRange[] {
+  const ranges: MarkdownRange[] = []
+  const re = new RegExp(FENCED_BLOCK_RE.source, FENCED_BLOCK_RE.flags)
+  let match: RegExpExecArray | null
+  while ((match = re.exec(markdown)) !== null) {
+    ranges.push({ start: match.index, end: match.index + match[0].length })
+  }
+  return ranges
+}
+
+function isInsideRanges(index: number, ranges: MarkdownRange[]): boolean {
+  return ranges.some(range => index >= range.start && index < range.end)
+}
+
+function collectExcalidrawImageRefs(markdown: string, fencedRanges: MarkdownRange[]): ExcalidrawImageRef[] {
+  const refs: ExcalidrawImageRef[] = []
+  const imageRefRe = /!\[([^\]]*)\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g
+  let imageMatch: RegExpExecArray | null
+
+  while ((imageMatch = imageRefRe.exec(markdown)) !== null) {
+    if (isInsideRanges(imageMatch.index, fencedRanges)) continue
+
+    const refPath = imageMatch[2] || imageMatch[3] || ''
+    if (!isExcalidrawRefPath(refPath)) continue
+
+    refs.push({
+      fullMatch: imageMatch[0],
+      alt: imageMatch[1],
+      refPath,
+      cleanRefPath: cleanExcalidrawRefPath(refPath),
+      start: imageMatch.index,
+      end: imageMatch.index + imageMatch[0].length,
+    })
+  }
+
+  return refs
+}
+
+function applyMarkdownReplacements(markdown: string, replacements: MarkdownReplacement[]): string {
+  return [...replacements]
+    .sort((a, b) => b.start - a.start)
+    .reduce((nextMarkdown, replacement) =>
+      `${nextMarkdown.slice(0, replacement.start)}${replacement.value}${nextMarkdown.slice(replacement.end)}`,
+    markdown)
+}
+
 function grabNthSvgFromDom(containerClass: string, nth: number): string | null {
   const svgs = document.querySelectorAll<SVGSVGElement>(
     `.split-leaf-panel.active .${containerClass} svg, .markdown-body .${containerClass} svg`
@@ -313,6 +412,10 @@ async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promi
   const aspectRatio = vbHeight / vbWidth
   const canvasW = width * scale
   const canvasH = Math.round(width * aspectRatio) * scale
+  const maxPixels = 8_000_000
+  if (canvasW * canvasH > maxPixels) {
+    throw new Error('DOCX 图表图片超过最大像素限制')
+  }
 
   svgEl.setAttribute('width', String(width))
   svgEl.setAttribute('height', String(Math.round(width * aspectRatio)))
@@ -370,6 +473,7 @@ async function renderChartCodeToPng(
   code: string,
   globalIndex: number,
   typeIndex: number,
+  options: RenderChartCodeToPngOptions = {},
 ): Promise<{ pngBase64: string } | null> {
   try {
     let svgString: string | null = null
@@ -403,6 +507,15 @@ async function renderChartCodeToPng(
           case 'plantuml':
             svgString = await renderPlantUMLToSvg(code)
             break
+          case 'excalidraw': {
+            const { renderExcalidrawToSvg } = await import('./excalidrawRenderer')
+            const result = await renderExcalidrawToSvg(code, {
+              sourceKind: options.excalidrawSourceKind || 'code-block',
+              sourceLabel: options.excalidrawSourceLabel,
+            })
+            svgString = result.ok ? result.svg : null
+            break
+          }
         }
       } catch (renderErr) {
         console.warn(`[DocxChart] ${type} #${globalIndex}: renderer threw:`, renderErr)
@@ -412,7 +525,7 @@ async function renderChartCodeToPng(
       // 渲染器失败或返回错误 HTML → DOM fallback
       const isError = !svgString || (svgString.includes('error') && svgString.includes('<div')) || !svgString.includes('<svg')
       if (isError) {
-        const containerClass = CONTAINER_CLASS_MAP[type]
+        const containerClass = options.allowDomFallback === false ? null : CONTAINER_CLASS_MAP[type]
         if (containerClass) {
           console.warn(`[DocxChart] ${type} #${globalIndex}: renderer failed, trying DOM (${containerClass}[${typeIndex}])`)
           svgString = grabNthSvgFromDom(containerClass, typeIndex)
@@ -438,41 +551,53 @@ async function renderChartCodeToPng(
 
 export async function renderChartsForDocx(
   markdown: string,
-  onProgress?: (current: number, total: number, type: string) => void
+  optionsOrProgress?: DocxChartRenderOptions | ((current: number, total: number, type: string) => void)
 ): Promise<ChartRenderResult> {
+  const options: DocxChartRenderOptions = typeof optionsOrProgress === 'function'
+    ? { onProgress: optionsOrProgress }
+    : optionsOrProgress || {}
   const images: ChartImage[] = []
   const warnings: string[] = []
 
-  const blocks: { fullMatch: string; lang: string; code: string }[] = []
+  const fencedRanges = collectFencedBlockRanges(markdown)
+  const blocks: ChartBlock[] = []
   let match: RegExpExecArray | null
   const re = new RegExp(CODE_BLOCK_RE.source, CODE_BLOCK_RE.flags)
   while ((match = re.exec(markdown)) !== null) {
     const lang = match[1].toLowerCase()
     if (CHART_LANGS.has(lang)) {
-      blocks.push({ fullMatch: match[0], lang, code: match[2] })
+      blocks.push({
+        fullMatch: match[0],
+        lang,
+        code: match[2],
+        start: match.index,
+        end: match.index + match[0].length,
+      })
     }
   }
 
-  if (blocks.length === 0) {
-    return { modifiedMarkdown: markdown, images, warnings }
-  }
+  const imageRefs = collectExcalidrawImageRefs(markdown, fencedRanges)
+  const totalCharts = blocks.length + imageRefs.length
+  let completedCharts = 0
 
   // 计算每个 block 在同类型中的序号（用于 DOM fallback 索引）
   const typeCounters: Record<string, number> = {}
   const typeIndices: number[] = []
   for (const block of blocks) {
-    const key = block.lang === 'graphviz' ? 'dot' : block.lang
+    const key = normalizeChartType(block.lang)
     typeCounters[key] = (typeCounters[key] || 0)
     typeIndices.push(typeCounters[key]++)
   }
 
-  let modifiedMarkdown = markdown
+  const replacements: MarkdownReplacement[] = []
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]
-    onProgress?.(i + 1, blocks.length, block.lang)
+    const type = normalizeChartType(block.lang)
+    completedCharts += 1
+    options.onProgress?.(completedCharts, totalCharts, type)
 
-    const result = await renderChartCodeToPng(block.lang as ChartType, block.code, i, typeIndices[i])
+    const result = await renderChartCodeToPng(type, block.code, i, typeIndices[i])
 
     if (result) {
       const placeholderId = generatePlaceholderId()
@@ -481,11 +606,49 @@ export async function renderChartsForDocx(
         pngBase64: result.pngBase64,
         widthCm: 15.5,
       })
-      modifiedMarkdown = modifiedMarkdown.replace(block.fullMatch, `![](${placeholderId})`)
+      replacements.push({
+        start: block.start,
+        end: block.end,
+        value: `![](${placeholderId})`,
+      })
     } else {
-      warnings.push(`chart_${i} (${block.lang}) render failed`)
+      warnings.push(`chart_${i} (${type}) render failed`)
     }
   }
 
-  return { modifiedMarkdown, images, warnings }
+  for (const imageRef of imageRefs) {
+    completedCharts += 1
+    options.onProgress?.(completedCharts, totalCharts, 'excalidraw')
+
+    if (!options.markdownFilePath) {
+      warnings.push(`excalidraw file reference ${imageRef.refPath} missing markdownFilePath`)
+      continue
+    }
+    try {
+      const file = await window.api.readExcalidrawFile({
+        markdownFilePath: options.markdownFilePath,
+        refPath: imageRef.cleanRefPath,
+      })
+      const png = await renderChartCodeToPng('excalidraw', file.content, completedCharts - 1, 0, {
+        allowDomFallback: false,
+        excalidrawSourceKind: 'file-reference',
+        excalidrawSourceLabel: imageRef.alt || imageRef.refPath,
+      })
+      if (!png) {
+        warnings.push(`excalidraw file reference ${imageRef.refPath} render failed`)
+        continue
+      }
+      const placeholderId = generatePlaceholderId()
+      images.push({ id: placeholderId, pngBase64: png.pngBase64, widthCm: 15.5 })
+      replacements.push({
+        start: imageRef.start,
+        end: imageRef.end,
+        value: `![${imageRef.alt}](${placeholderId})`,
+      })
+    } catch (error) {
+      warnings.push(`excalidraw file reference ${imageRef.refPath} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  return { modifiedMarkdown: applyMarkdownReplacements(markdown, replacements), images, warnings }
 }

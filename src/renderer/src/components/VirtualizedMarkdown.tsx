@@ -481,7 +481,7 @@ const MarkdownContent = memo(
         if (/\.excalidraw(?:[?#].*)?$/i.test(src)) {
           const placeholder = document.createElement('div')
           placeholder.className = 'excalidraw-file-placeholder'
-          placeholder.dataset.excalidrawSrc = src
+          placeholder.dataset.excalidrawSrc = src.split('#')[0].split('?')[0]
           placeholder.dataset.excalidrawAlt = img.getAttribute('alt') || ''
           img.replaceWith(placeholder)
           return

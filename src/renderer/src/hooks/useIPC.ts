@@ -76,7 +76,7 @@ export function useIPC(options: UseIPCOptions): void {
         try {
           const content = await window.api.readFile(data.path)
           const fileName = data.path.split(/[/\\]/).pop() || 'export'
-          const htmlContent = await buildExportHtmlContent(content)
+          const htmlContent = await buildExportHtmlContent(content, { markdownFilePath: data.path })
 
           if (data.type === 'html') {
             const result = await window.api.exportHTML(htmlContent, fileName)

@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { addSvgSafePaddingForDocx, calculateDocxChartTrimRect } from '../../src/utils/docxChartRenderer'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { addSvgSafePaddingForDocx, calculateDocxChartTrimRect, renderChartsForDocx } from '../../src/utils/docxChartRenderer'
+
+const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
+
+vi.mock('../../src/utils/excalidrawRenderer', () => ({
+  renderExcalidrawToSvg: mockRenderExcalidrawToSvg,
+}))
+
+let originalWindowApi: typeof window.api | undefined
 
 function makeWhiteImageData(width: number, height: number): ImageData {
   const data = new Uint8ClampedArray(width * height * 4)
@@ -98,5 +106,155 @@ describe('DOCX chart PNG whitespace trimming', () => {
     const rect = calculateDocxChartTrimRect(imageData, { paddingPx: 30, maxMarginRatio: 0.18 })
 
     expect(rect).toBeNull()
+  })
+})
+
+describe('DOCX Excalidraw chart rendering', () => {
+  beforeEach(() => {
+    originalWindowApi = global.window.api
+    vi.clearAllMocks()
+    mockRenderExcalidrawToSvg.mockResolvedValue({
+      ok: true,
+      svg: '<svg viewBox="0 0 100 60"><rect width="100" height="60"></rect></svg>',
+    })
+    global.window.api = {
+      ...global.window.api,
+      renderSvgToPng: vi.fn().mockResolvedValue({
+        success: true,
+        data: 'a'.repeat(240),
+      }),
+    } as typeof window.api
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '',
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => {
+        throw new Error('skip trim in test')
+      }),
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(`data:image/png;base64,${'a'.repeat(240)}`)
+    vi.stubGlobal('Image', class {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      width = 100
+      height = 60
+      naturalWidth = 100
+      naturalHeight = 60
+
+      set src(_value: string) {
+        this.onload?.()
+      }
+    })
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    global.window.api = originalWindowApi as typeof window.api
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('DOCX 图表管线识别 excalidraw 代码块并生成占位图片', async () => {
+    const result = await renderChartsForDocx('```excalidraw\n{"type":"excalidraw","elements":[]}\n```')
+    expect(result.modifiedMarkdown).toMatch(/!\[\]\(mdv__chart__/)
+    expect(result.images.length).toBe(1)
+  })
+
+  it('DOCX 文件引用缺少 markdownFilePath 时产生 warning', async () => {
+    const result = await renderChartsForDocx('![图](./a.excalidraw)')
+    expect(result.warnings.join('\n')).toContain('markdownFilePath')
+  })
+
+  it('DOCX 文件引用扫描跳过 fenced code block 内的示例', async () => {
+    const markdown = '```md\n![图](./a.excalidraw)\n```'
+    const result = await renderChartsForDocx(markdown)
+
+    expect(result.modifiedMarkdown).toBe(markdown)
+    expect(result.images.length).toBe(0)
+    expect(result.warnings.join('\n')).not.toContain('excalidraw file reference')
+  })
+
+  it('DOCX 文件引用替换不会改动 fenced code block 内的相同文本', async () => {
+    const rawCode = '{"type":"excalidraw","elements":[]}'
+    global.window.api = {
+      ...global.window.api,
+      readExcalidrawFile: vi.fn().mockResolvedValue({
+        content: rawCode,
+        resolvedPath: '/docs/a.excalidraw',
+      }),
+    } as typeof window.api
+    const markdown = [
+      '```md',
+      '![图](./a.excalidraw)',
+      '```',
+      '',
+      '![图](./a.excalidraw)',
+    ].join('\n')
+
+    const result = await renderChartsForDocx(markdown, {
+      markdownFilePath: '/docs/doc.md',
+    })
+
+    expect(result.images.length).toBe(1)
+    expect(result.modifiedMarkdown).toMatch(/^```md\n!\[图\]\(\.\/a\.excalidraw\)\n```/)
+    expect(result.modifiedMarkdown).toMatch(/\n\n!\[图\]\(mdv__chart__/)
+  })
+
+  it('DOCX 文件引用读取时支持 angle/title 并计入进度', async () => {
+    const rawCode = '{"type":"excalidraw","elements":[]}'
+    const readExcalidrawFile = vi.fn().mockResolvedValue({
+      content: rawCode,
+      resolvedPath: '/docs/a.excalidraw',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readExcalidrawFile,
+    } as typeof window.api
+    const onProgress = vi.fn()
+    const markdown = [
+      '```excalidraw',
+      '{"type":"excalidraw","elements":[]}',
+      '```',
+      '',
+      '![图](<./a.excalidraw?raw=1#v> "标题")',
+    ].join('\n')
+
+    const result = await renderChartsForDocx(markdown, {
+      markdownFilePath: '/docs/doc.md',
+      onProgress,
+    })
+
+    expect(readExcalidrawFile).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/doc.md',
+      refPath: './a.excalidraw',
+    })
+    expect(result.images.length).toBe(2)
+    expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2, 'excalidraw')
+    expect(onProgress).toHaveBeenNthCalledWith(2, 2, 2, 'excalidraw')
+  })
+
+  it('DOCX 文件引用渲染失败时不使用预览 DOM fallback', async () => {
+    document.body.innerHTML = '<div class="markdown-body"><div class="excalidraw-container"><svg viewBox="0 0 100 60"></svg></div></div>'
+    mockRenderExcalidrawToSvg.mockResolvedValue({
+      ok: false,
+      error: 'bad file',
+      warnings: [],
+      sourceKind: 'file-reference',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readExcalidrawFile: vi.fn().mockResolvedValue({
+        content: '{"bad":true}',
+        resolvedPath: '/docs/bad.excalidraw',
+      }),
+    } as typeof window.api
+
+    const result = await renderChartsForDocx('![图](./bad.excalidraw)', {
+      markdownFilePath: '/docs/doc.md',
+    })
+
+    expect(result.images.length).toBe(0)
+    expect(result.modifiedMarkdown).toBe('![图](./bad.excalidraw)')
+    expect(result.warnings.join('\n')).toContain('render failed')
   })
 })

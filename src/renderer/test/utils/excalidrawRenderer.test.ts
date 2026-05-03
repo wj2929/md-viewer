@@ -103,6 +103,9 @@ describe('excalidrawRenderer', () => {
     })
 
     expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.warnings.join('\n')).toContain('空画布')
+    }
     expect(exportToSvgMock).toHaveBeenCalledTimes(1)
   })
 
@@ -184,8 +187,8 @@ describe('excalidrawRenderer', () => {
       expect(result.svg).not.toContain('data:text/html')
       expect(result.svg).toContain('data:image/png')
       const svg = new DOMParser().parseFromString(result.svg, 'image/svg+xml').documentElement
-      expect(svg.getAttribute('width')).toBeNull()
-      expect(svg.getAttribute('height')).toBeNull()
+      expect(svg.getAttribute('width')).toBe('100')
+      expect(svg.getAttribute('height')).toBe('50')
       expect(result.svg).toContain('preserveAspectRatio="xMidYMid meet"')
       expect(result.svg).toContain('max-width: 100%')
     }
