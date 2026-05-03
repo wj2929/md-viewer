@@ -3,7 +3,7 @@ import AdmZip from 'adm-zip'
 import * as fs from 'fs'
 import * as path from 'path'
 
-const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3183'
+const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3184'
 const CCE_MD = process.env.MD_VIEWER_CCE_MD || '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/一网/cce/华为云/CCE集群外挂存储详情.md'
 const OUT_DIR = process.env.MD_VIEWER_CCE_DOCX_OUT || '/tmp/mdv-cce-mode-b-docx-quality'
 const SAVE_TEMPLATE = path.join(OUT_DIR, 'cce-{style}.docx')

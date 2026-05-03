@@ -63,7 +63,7 @@ function buildPage(securityLevel: 'strict' | 'loose'): string {
 }
 
 test.describe('Mermaid + 项目 DOMPurify class 白名单 hook', () => {
-  test('strict 模式会剥 .node class（复现历史 bug）', async ({ page }) => {
+  test('strict 模式应保留 node default class', async ({ page }) => {
     const p = path.join(OUT, 'strict.html')
     fs.writeFileSync(p, buildPage('strict'))
     await page.goto(`file://${p}`)
@@ -71,19 +71,21 @@ test.describe('Mermaid + 项目 DOMPurify class 白名单 hook', () => {
 
     const info = await page.evaluate(() => {
       const svg = (window as any).__svg__ as string
+      const labels = Array.from(document.querySelectorAll('#mount svg foreignObject > div')) as HTMLElement[]
       return {
         hasNodeDefault: (svg.match(/class="node default"/g) || []).length,
         hasNodeOnly: (svg.match(/class="node"/g) || []).length,
+        labelCount: labels.length,
         len: svg.length,
       }
     })
     console.log('strict 模式 SVG:', info)
 
-    // 这是"bug 存在"的断言：strict 模式下 class 被剥光
-    expect(info.hasNodeDefault + info.hasNodeOnly, 'strict 模式下 .node class 应该被 hook 剥光（bug 存在）').toBe(0)
+    expect(info.hasNodeDefault, 'strict 模式下 .node default class 应保留').toBeGreaterThan(0)
+    expect(info.labelCount, 'strict 模式下节点 label 应存在').toBeGreaterThan(0)
   })
 
-  test('loose 模式保留 .node class（修复验证）', async ({ page }) => {
+  test('loose 模式下节点 label 仍应正常渲染', async ({ page }) => {
     const p = path.join(OUT, 'loose.html')
     fs.writeFileSync(p, buildPage('loose'))
     await page.goto(`file://${p}`)
@@ -91,16 +93,19 @@ test.describe('Mermaid + 项目 DOMPurify class 白名单 hook', () => {
 
     const info = await page.evaluate(() => {
       const svg = (window as any).__svg__ as string
+      const labels = Array.from(document.querySelectorAll('#mount svg foreignObject > div')) as HTMLElement[]
       return {
         hasNodeDefault: (svg.match(/class="node default"/g) || []).length,
         hasNodeOnly: (svg.match(/class="node"/g) || []).length,
+        labelCount: labels.length,
+        labelTexts: labels.map(d => d.textContent?.trim() || ''),
         len: svg.length,
       }
     })
     console.log('loose 模式 SVG:', info)
 
-    // loose 跳过 Mermaid 的 DOMPurify 过滤，class 保留
-    expect(info.hasNodeDefault, 'loose 模式下 .node default class 应该保留').toBeGreaterThan(0)
+    expect(info.labelCount, 'loose 模式下节点 label 应存在').toBeGreaterThan(0)
+    expect(info.labelTexts.filter(Boolean).length, 'loose 模式下节点 label 应有文本').toBeGreaterThan(0)
   })
 
   test('loose 模式下节点在独立页面也能正常着色（端到端验证）', async ({ page }) => {

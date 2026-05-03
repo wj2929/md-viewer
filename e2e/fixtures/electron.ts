@@ -1,6 +1,6 @@
 import { test as base, _electron as electron, ElectronApplication, Page } from '@playwright/test'
-import { join } from 'path'
-import { mkdirSync, writeFileSync, rmSync } from 'fs'
+import { basename, join } from 'path'
+import { mkdirSync, writeFileSync, rmSync, readdirSync, statSync } from 'fs'
 import { tmpdir } from 'os'
 
 /**
@@ -84,18 +84,40 @@ export async function openFolderViaIPC(
   electronApp: ElectronApplication,
   folderPath: string
 ): Promise<void> {
-  await electronApp.evaluate(async ({ app }, folderPath) => {
-    const { BrowserWindow } = await import('electron')
-    const Store = (await import('electron-store')).default
-    const { setAllowedBasePath } = await import('./security')
-
-    const store = new Store()
-    store.set('lastOpenedFolder', folderPath)
-    setAllowedBasePath(folderPath)
-
-    const windows = BrowserWindow.getAllWindows()
-    if (windows.length > 0) {
-      windows[0].webContents.send('restore-folder', folderPath)
+  const findMarkdownFile = (dir: string, recursive = false): string | null => {
+    for (const name of readdirSync(dir)) {
+      const fullPath = join(dir, name)
+      const stat = statSync(fullPath)
+      if (!stat.isDirectory() && name.endsWith('.md')) {
+        return fullPath
+      }
     }
+
+    if (!recursive) {
+      return null
+    }
+
+    for (const name of readdirSync(dir)) {
+      const fullPath = join(dir, name)
+      const stat = statSync(fullPath)
+      if (stat.isDirectory()) {
+        const nested = findMarkdownFile(fullPath, true)
+        if (nested) return nested
+      }
+    }
+    return null
+  }
+
+  const markdownFile = findMarkdownFile(folderPath) ?? findMarkdownFile(folderPath, true)
+  if (markdownFile) {
+    const page = await electronApp.firstWindow()
+    await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), markdownFile)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+    await page.locator('.tab', { hasText: basename(markdownFile) }).waitFor({ state: 'visible', timeout: 10000 })
+    return
+  }
+
+  await electronApp.evaluate(({ BrowserWindow }, folderPath) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send('restore-folder', folderPath)
   }, folderPath)
 }

@@ -12,7 +12,7 @@ test.describe('应用启动测试', () => {
 
     // 验证欢迎页面元素
     await expect(page.locator('.welcome')).toBeVisible()
-    await expect(page.locator('.app-title')).toHaveText('MD Viewer')
+    await expect(page.locator('.nav-logo-text')).toHaveText('MD Viewer')
     await expect(page.locator('.welcome h2')).toHaveText('欢迎使用 MD Viewer')
 
     // 验证"打开文件夹"按钮存在

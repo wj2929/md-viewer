@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import path from 'path'
 
 const APP_MAIN = path.join(__dirname, '..', 'out/main/index.js')
-const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3182'
+const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3184'
 
 test.describe('DOCX 服务设置联调', () => {
   test('真实 Electron 进程可以连接本地 DOCX 服务并显示服务能力', async () => {

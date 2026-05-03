@@ -16,6 +16,8 @@ import * as path from 'path'
 const EXPORTED_HTML_PATH = process.env.ECHARTS_HTML_PATH || path.join(__dirname, '..', 'test-results', 'echarts-export.html')
 const SCREENSHOT_DIR = path.join(__dirname, '..', 'test-results', 'echarts-visual')
 
+test.skip(!fs.existsSync(EXPORTED_HTML_PATH), `缺少导出的 ECharts HTML：${EXPORTED_HTML_PATH}`)
+
 // 确保截图目录存在
 if (!fs.existsSync(SCREENSHOT_DIR)) {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true })

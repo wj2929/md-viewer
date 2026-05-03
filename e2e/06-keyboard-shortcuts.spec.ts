@@ -48,11 +48,11 @@ test.describe('键盘快捷键测试', () => {
     await page.waitForSelector('.file-tree-container', { timeout: 5000 })
 
     // 点击文件打开标签
-    await page.click('.file-item:has-text("test1.md")')
+    await page.click('.file-tree-row.file:has-text("test1.md")')
     await page.waitForSelector('.tab', { timeout: 5000 })
 
     // 验证标签存在
-    await expect(page.locator('.tab')).toBeVisible()
+    await expect(page.locator('.tab:has-text("test1.md")')).toBeVisible()
 
     // 按 Cmd+W 关闭标签
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -69,8 +69,8 @@ test.describe('键盘快捷键测试', () => {
     // 打开文件夹和文件
     await openFolderViaIPC(electronApp, testDir)
     await page.waitForSelector('.file-tree-container', { timeout: 5000 })
-    await page.click('.file-item:has-text("test1.md")')
-    await page.waitForSelector('.preview-toolbar', { timeout: 5000 })
+    await page.click('.file-tree-row.file:has-text("test1.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 5000 })
 
     // 按 Cmd+E 导出 HTML
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -90,8 +90,8 @@ test.describe('键盘快捷键测试', () => {
     // 打开文件夹和文件
     await openFolderViaIPC(electronApp, testDir)
     await page.waitForSelector('.file-tree-container', { timeout: 5000 })
-    await page.click('.file-item:has-text("test1.md")')
-    await page.waitForSelector('.preview-toolbar', { timeout: 5000 })
+    await page.click('.file-tree-row.file:has-text("test1.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 5000 })
 
     // 按 Cmd+Shift+E 导出 PDF
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -127,10 +127,10 @@ test.describe('键盘快捷键测试', () => {
     await page.waitForSelector('.file-tree-container', { timeout: 5000 })
 
     // 双击文件开始重命名
-    await page.dblclick('.file-item:has-text("test1.md")')
+    await page.dblclick('.file-tree-row.file:has-text("test1.md")')
 
     // 检查是否进入重命名模式
-    const renameInput = page.locator('.rename-input')
+    const renameInput = page.locator('.file-name-input')
     if (await renameInput.isVisible()) {
       // 按 Escape 取消
       await page.keyboard.press('Escape')
@@ -146,10 +146,10 @@ test.describe('键盘快捷键测试', () => {
     await page.waitForSelector('.file-tree-container', { timeout: 5000 })
 
     // 双击文件开始重命名
-    await page.dblclick('.file-item:has-text("test1.md")')
+    await page.dblclick('.file-tree-row.file:has-text("test1.md")')
 
     // 检查是否进入重命名模式
-    const renameInput = page.locator('.rename-input')
+    const renameInput = page.locator('.file-name-input')
     if (await renameInput.isVisible()) {
       // 清空并输入新名称
       await renameInput.fill('renamed.md')
@@ -161,7 +161,7 @@ test.describe('键盘快捷键测试', () => {
       await page.waitForTimeout(500)
 
       // 验证文件已重命名
-      await expect(page.locator('.file-item:has-text("renamed.md")')).toBeVisible()
+      await expect(page.locator('.file-tree-row.file:has-text("renamed.md")')).toBeVisible()
     }
   })
 })
