@@ -4,6 +4,77 @@ import { test, expect } from './fixtures/electron'
 import type { Page } from '@playwright/test'
 
 const EXCALIDRAW_VISUAL_DIR = join(__dirname, '..', 'test-results', 'excalidraw-visual')
+const DIRECT_EXCALIDRAW_SOURCE = `{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "md-viewer-direct-preview-test",
+  "elements": [
+    {
+      "id": "rect-1",
+      "type": "rectangle",
+      "x": 20,
+      "y": 20,
+      "width": 180,
+      "height": 90,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#d3f9d8",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": { "type": 3 },
+      "seed": 1,
+      "version": 1,
+      "versionNonce": 1,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "text-1",
+      "type": "text",
+      "x": 54,
+      "y": 50,
+      "width": 112,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 2,
+      "version": 1,
+      "versionNonce": 2,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Direct Preview",
+      "fontSize": 20,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "top",
+      "containerId": null,
+      "originalText": "Direct Preview",
+      "lineHeight": 1.25
+    }
+  ],
+  "appState": { "viewBackgroundColor": "#ffffff" },
+  "files": {}
+}`
 
 /**
  * E2E 测试 3: Markdown 渲染功能
@@ -71,15 +142,15 @@ test.describe('Markdown 渲染测试', () => {
     await expect(mermaidContainer.first()).toBeVisible()
   })
 
-  test('Excalidraw fixture 应覆盖代码块、文件引用、警告和错误渲染', async ({ page, electronApp, testDir }) => {
+  test('Excalidraw fixture 应覆盖代码块、文件引用和警告渲染', async ({ page, electronApp, testDir }) => {
     test.setTimeout(120000)
     const fixturePath = join(__dirname, 'fixtures/test-excalidraw.md')
     await openMarkdownFile(page, fixturePath)
     await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
-    await expect(page.locator('.excalidraw-wrapper')).toHaveCount(69, { timeout: 90000 })
+    await expect(page.locator('.excalidraw-wrapper')).toHaveCount(64, { timeout: 90000 })
     await expect(page.locator('.excalidraw-container svg')).toHaveCount(64, { timeout: 90000 })
-    await expect(page.locator('.excalidraw-error')).toHaveCount(5)
+    await expect(page.locator('.excalidraw-error')).toHaveCount(0)
     await expect(page.locator('.excalidraw-warning')).toHaveCount(3)
     await expect(page.locator('.excalidraw-wrapper[data-excalidraw-source-kind="code-block"] .excalidraw-container svg').first()).toBeVisible()
     await expect(page.locator('.excalidraw-wrapper[data-excalidraw-source-label="基础流程"] .excalidraw-container svg')).toBeVisible()
@@ -130,6 +201,45 @@ test.describe('Markdown 渲染测试', () => {
     await expect(page.locator('.excalidraw-action-btn[data-action="toggleCode"]').first()).toBeVisible()
     await expect(page.locator('.markdown-body')).not.toContainText('缺少 Markdown 文件路径')
     await expect(page.locator('.markdown-body')).not.toContainText('当前环境不支持读取 Excalidraw 文件')
+  })
+
+  test('Excalidraw 错误 fixture 应覆盖坏文件降级渲染', async ({ page }) => {
+    const fixturePath = join(__dirname, 'fixtures/test-excalidraw-errors.md')
+    await openMarkdownFile(page, fixturePath)
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
+
+    await expect(page.locator('.excalidraw-wrapper')).toHaveCount(5, { timeout: 30000 })
+    await expect(page.locator('.excalidraw-container svg')).toHaveCount(0)
+    await expect(page.locator('.excalidraw-error')).toHaveCount(5)
+    await expect(page.locator('.excalidraw-error')).toContainText([
+      'Excalidraw JSON 格式错误',
+      'Excalidraw JSON 缺少 elements 数组',
+      'Excalidraw 内容必须是 JSON 对象',
+      'Excalidraw 元素超过 2000 个，未渲染',
+      '文件不存在',
+    ])
+    await expect(page.locator('.markdown-body')).not.toContainText('Error invoking remote method')
+    await expect(page.locator('.markdown-body')).not.toContainText('ENOENT')
+  })
+
+  test('文件树应显示 .excalidraw 文件并可直接只读预览', async ({ page, electronApp, testDir }) => {
+    const directPath = join(testDir, 'direct-preview.excalidraw')
+    writeFileSync(directPath, DIRECT_EXCALIDRAW_SOURCE, 'utf8')
+
+    await openMarkdownFile(page, join(testDir, 'test1.md'))
+    await expect(page.locator('.tab', { hasText: 'test1.md' })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 1', { timeout: 10000 })
+    await page.waitForSelector('.file-tree', { timeout: 10000 })
+
+    const row = page.locator('.file-tree-row.file', { hasText: 'direct-preview.excalidraw' })
+    await expect(row).toBeVisible()
+    await row.click()
+
+    await expect(page.locator('.tab', { hasText: 'direct-preview.excalidraw' })).toBeVisible()
+    await expect(page.locator('.excalidraw-wrapper')).toHaveCount(1, { timeout: 15000 })
+    await expect(page.locator('.excalidraw-container svg')).toBeVisible()
+    await expect(page.locator('.excalidraw-action-btn[data-action="toggleCode"]')).toBeVisible()
+    await expect(page.locator('.floating-nav')).toHaveCount(0)
   })
 
   test('重复打开同一路径时应该从磁盘刷新 Markdown 内容', async ({ page, electronApp, testDir }) => {

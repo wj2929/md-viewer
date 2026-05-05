@@ -17,6 +17,12 @@ interface FileInfo {
   children?: FileInfo[]
 }
 
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
+
+function isMarkdownFilePath(filePath: string): boolean {
+  return MARKDOWN_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
 export function registerMenuHandlers(ctx: IPCContext): void {
 // ============== 右键菜单 Handlers ==============
 
@@ -248,12 +254,13 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     linkHref,
     basePath
   } = params
+  const isMarkdownPreview = isMarkdownFilePath(filePath)
 
   const menuTemplate: MenuItemConstructorOptions[] = []
 
   // v1.3.7: 书签功能
   // 如果右键点击的是标题，添加"添加标题书签"
-  if (headingId && headingText) {
+  if (isMarkdownPreview && headingId && headingText) {
     menuTemplate.push({
       label: '🔖 添加标题书签',
       click: () => {
@@ -266,47 +273,49 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     })
   }
 
-  // 添加"添加文件书签"
-  menuTemplate.push({
-    label: '📄 添加文件书签',
-    click: () => {
-      event.sender.send('add-bookmark-from-preview', {
-        filePath,
-        headingId: null,
-        headingText: null
-      })
+  if (isMarkdownPreview) {
+    // 添加"添加文件书签"
+    menuTemplate.push({
+      label: '📄 添加文件书签',
+      click: () => {
+        event.sender.send('add-bookmark-from-preview', {
+          filePath,
+          headingId: null,
+          headingText: null
+        })
+      }
+    })
+
+    menuTemplate.push({ type: 'separator' })
+
+    const quickEditMode = selectionText?.trim()
+      ? 'selection'
+      : typeof sourceLine === 'number'
+        ? 'source-line'
+        : typeof scrollRatio === 'number'
+          ? 'scroll-ratio'
+          : 'document'
+    const quickEditTarget = {
+      filePath,
+      ...(tabId ? { tabId } : {}),
+      ...(leafId ? { leafId } : {}),
+      ...(selectionText?.trim() ? { targetText: selectionText.trim() } : {}),
+      ...(typeof sourceLine === 'number' ? { targetLine: sourceLine, sourceLine } : {}),
+      ...(typeof scrollRatio === 'number' ? { scrollRatio } : {}),
+      mode: quickEditMode,
     }
-  })
 
-  menuTemplate.push({ type: 'separator' })
+    // 轻量编辑：弱入口，放在预览区右键菜单中，避免占用正文工具栏空间
+    menuTemplate.push({
+      label: quickEditMode === 'document' ? '✏️ 快速编辑' : '🎯 快速编辑此处',
+      click: () => event.sender.send('markdown:quick-edit', quickEditTarget)
+    })
 
-  const quickEditMode = selectionText?.trim()
-    ? 'selection'
-    : typeof sourceLine === 'number'
-      ? 'source-line'
-      : typeof scrollRatio === 'number'
-        ? 'scroll-ratio'
-        : 'document'
-  const quickEditTarget = {
-    filePath,
-    ...(tabId ? { tabId } : {}),
-    ...(leafId ? { leafId } : {}),
-    ...(selectionText?.trim() ? { targetText: selectionText.trim() } : {}),
-    ...(typeof sourceLine === 'number' ? { targetLine: sourceLine, sourceLine } : {}),
-    ...(typeof scrollRatio === 'number' ? { scrollRatio } : {}),
-    mode: quickEditMode,
+    menuTemplate.push({ type: 'separator' })
   }
 
-  // 轻量编辑：弱入口，放在预览区右键菜单中，避免占用正文工具栏空间
-  menuTemplate.push({
-    label: quickEditMode === 'document' ? '✏️ 快速编辑' : '🎯 快速编辑此处',
-    click: () => event.sender.send('markdown:quick-edit', quickEditTarget)
-  })
-
-  menuTemplate.push({ type: 'separator' })
-
   // v1.5.1+: 链接相关菜单项（仅在右键点击 .md 链接时显示）
-  if (linkHref) {
+  if (isMarkdownPreview && linkHref) {
     const dir = path.dirname(filePath)
     const targetPath = path.resolve(dir, linkHref)
     const linkFileName = path.basename(targetPath)
@@ -422,21 +431,23 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
 
   menuTemplate.push({ type: 'separator' })
 
-  // v1.3 原有功能：复制功能
-  menuTemplate.push({
-    label: '📋 复制为 Markdown',
-    click: () => event.sender.send('markdown:copy-source')
-  })
+  if (isMarkdownPreview) {
+    // v1.3 原有功能：复制功能
+    menuTemplate.push({
+      label: '📋 复制为 Markdown',
+      click: () => event.sender.send('markdown:copy-source')
+    })
 
-  menuTemplate.push({
-    label: '📝 复制为纯文本',
-    click: () => event.sender.send('markdown:copy-plain-text')
-  })
+    menuTemplate.push({
+      label: '📝 复制为纯文本',
+      click: () => event.sender.send('markdown:copy-plain-text')
+    })
 
-  menuTemplate.push({
-    label: '🌐 复制为 HTML',
-    click: () => event.sender.send('markdown:copy-html')
-  })
+    menuTemplate.push({
+      label: '🌐 复制为 HTML',
+      click: () => event.sender.send('markdown:copy-html')
+    })
+  }
 
   // 如果有选中内容，添加复制选中内容选项
   if (hasSelection) {
@@ -449,7 +460,7 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   }
 
   // v1.3.7: 如果有标题，添加"复制链接"
-  if (headingId) {
+  if (isMarkdownPreview && headingId) {
     menuTemplate.push({ type: 'separator' })
     menuTemplate.push({
       label: '🔗 复制链接',

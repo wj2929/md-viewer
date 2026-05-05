@@ -85,6 +85,8 @@ const api = {
       fontsAvailable?: string[]
       embedFontSupported?: boolean
       chartRenderersAvailable?: string[]
+      maxImagesPerRequest?: number
+      maxRequestSizeMb?: number
       error?: string
     }>,
 

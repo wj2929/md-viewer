@@ -7,6 +7,7 @@
 import { useEffect } from 'react'
 import { renderExcalidrawToSvg, type ExcalidrawRenderResult } from '../../utils/excalidrawRenderer'
 import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { cleanUserFacingError } from '../../utils/userFacingErrors'
 
 const MAX_EXCALIDRAW_BLOCKS = 80
 
@@ -224,7 +225,7 @@ async function renderFilePlaceholder(
 function createFileErrorWrapper(error: unknown, placeholder: HTMLElement): HTMLDivElement {
   const refPath = placeholder.dataset.excalidrawSrc || ''
   const alt = placeholder.dataset.excalidrawAlt || ''
-  const message = error instanceof Error ? error.message : '读取 Excalidraw 文件失败'
+  const message = cleanUserFacingError(error)
 
   const wrapper = document.createElement('div')
   wrapper.className = 'excalidraw-wrapper'

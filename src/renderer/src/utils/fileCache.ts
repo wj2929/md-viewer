@@ -1,3 +1,5 @@
+import { buildPreviewContentForFile } from './previewableFiles'
+
 // 简单的 LRU 缓存实现
 class LRUCache<K, V> {
   private cache: Map<K, V>
@@ -72,6 +74,11 @@ export async function readFileWithCache(filePath: string, forceReload = true): P
   fileContentCache.set(filePath, content)
 
   return content
+}
+
+export async function readPreviewContentWithCache(filePath: string, forceReload = true): Promise<string> {
+  const content = await readFileWithCache(filePath, forceReload)
+  return buildPreviewContentForFile(filePath, content)
 }
 
 // 清除缓存

@@ -40,7 +40,7 @@ describe('FileTree', () => {
     it('应该显示空状态提示', () => {
       render(<FileTree files={[]} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
-      expect(screen.getByText('没有找到 Markdown 文件')).toBeInTheDocument()
+      expect(screen.getByText('没有找到 Markdown 或 Excalidraw 文件')).toBeInTheDocument()
     })
 
     it('应该渲染单个文件', () => {

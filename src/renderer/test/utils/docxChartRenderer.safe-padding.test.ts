@@ -162,7 +162,7 @@ describe('DOCX Excalidraw chart rendering', () => {
 
   it('DOCX 文件引用缺少 markdownFilePath 时产生 warning', async () => {
     const result = await renderChartsForDocx('![图](./a.excalidraw)')
-    expect(result.warnings.join('\n')).toContain('markdownFilePath')
+    expect(result.warnings.join('\n')).toContain('缺少 Markdown 文件路径')
   })
 
   it('DOCX 文件引用扫描跳过 fenced code block 内的示例', async () => {
@@ -171,7 +171,7 @@ describe('DOCX Excalidraw chart rendering', () => {
 
     expect(result.modifiedMarkdown).toBe(markdown)
     expect(result.images.length).toBe(0)
-    expect(result.warnings.join('\n')).not.toContain('excalidraw file reference')
+    expect(result.warnings.join('\n')).not.toContain('Excalidraw 文件')
   })
 
   it('DOCX 文件引用替换不会改动 fenced code block 内的相同文本', async () => {
@@ -255,6 +255,39 @@ describe('DOCX Excalidraw chart rendering', () => {
 
     expect(result.images.length).toBe(0)
     expect(result.modifiedMarkdown).toBe('![图](./bad.excalidraw)')
-    expect(result.warnings.join('\n')).toContain('render failed')
+    expect(result.warnings.join('\n')).toContain('Excalidraw 文件“./bad.excalidraw”渲染失败')
+  })
+
+  it('DOCX 文件引用读取失败时隐藏底层 IPC 错误细节', async () => {
+    global.window.api = {
+      ...global.window.api,
+      readExcalidrawFile: vi.fn().mockRejectedValue(
+        new Error("Error invoking remote method 'fs:readExcalidrawFile': Error: ENOENT: no such file or directory, lstat '/docs/missing.excalidraw'")
+      ),
+    } as typeof window.api
+
+    const result = await renderChartsForDocx('![缺失文件](./missing.excalidraw)', {
+      markdownFilePath: '/docs/doc.md',
+    })
+
+    const warning = result.warnings.join('\n')
+    expect(warning).toContain('Excalidraw 文件“./missing.excalidraw”读取失败：文件不存在')
+    expect(warning).not.toContain('Error invoking remote method')
+    expect(warning).not.toContain('/docs/missing.excalidraw')
+  })
+
+  it('DOCX 图表管线会渲染全部 Excalidraw 图表而不是按数量跳过', async () => {
+    const markdown = Array.from({ length: 3 }, (_, index) => [
+      '```excalidraw',
+      `{"type":"excalidraw","elements":[{"id":"${index}","type":"rectangle","x":0,"y":0,"width":10,"height":10}]}`,
+      '```',
+    ].join('\n')).join('\n\n')
+
+    const result = await renderChartsForDocx(markdown)
+
+    expect(result.images.length).toBe(3)
+    expect(result.modifiedMarkdown.match(/mdv__chart__/g)?.length).toBe(3)
+    expect(result.modifiedMarkdown).not.toContain('```excalidraw')
+    expect(result.warnings.join('\n')).not.toContain('超过 DOCX 服务上限')
   })
 })

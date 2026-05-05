@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import AdmZip from 'adm-zip'
 
 /**
  * E2E 测试 5: 导出功能
@@ -10,6 +11,77 @@ import { tmpdir } from 'os'
  */
 
 let testDir: string
+const DIRECT_EXCALIDRAW_SOURCE = `{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "md-viewer-direct-export-test",
+  "elements": [
+    {
+      "id": "rect-1",
+      "type": "rectangle",
+      "x": 10,
+      "y": 10,
+      "width": 220,
+      "height": 100,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": { "type": 3 },
+      "seed": 10,
+      "version": 1,
+      "versionNonce": 10,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "text-1",
+      "type": "text",
+      "x": 52,
+      "y": 45,
+      "width": 136,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 11,
+      "version": 1,
+      "versionNonce": 11,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Export Diagram",
+      "fontSize": 20,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "top",
+      "containerId": null,
+      "originalText": "Export Diagram",
+      "lineHeight": 1.25
+    }
+  ],
+  "appState": { "viewBackgroundColor": "#ffffff" },
+  "files": {}
+}`
 
 async function openMarkdownFile(page: Page, filePath: string): Promise<void> {
   await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), filePath)
@@ -33,7 +105,7 @@ async function getSaveDialogCalls(electronApp: ElectronApplication): Promise<Arr
 
 async function triggerMarkdownExport(
   electronApp: ElectronApplication,
-  channel: 'markdown:export-html' | 'markdown:export-pdf'
+  channel: 'markdown:export-html' | 'markdown:export-pdf' | 'markdown:export-docx'
 ): Promise<void> {
   await electronApp.evaluate(({ BrowserWindow }, channel) => {
     const window = BrowserWindow.getAllWindows()[0]
@@ -164,5 +236,95 @@ test.describe('导出功能测试', () => {
     expect(calls.at(-1)?.defaultPath).toBe('特殊-文件名 (1).html')
     expect(htmlContent).toContain('Special Test')
     expect(htmlContent).toContain('<title>特殊-文件名 (1).md</title>')
+  })
+
+  test('直接打开 .excalidraw 后应可导出 HTML、PDF 和 DOCX 渲染图', async ({ page, electronApp }) => {
+    const excalidrawPath = join(testDir, 'direct-export.excalidraw')
+    writeFileSync(excalidrawPath, DIRECT_EXCALIDRAW_SOURCE, 'utf8')
+
+    await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), excalidrawPath)
+    await expect(page.locator('.excalidraw-container svg')).toBeVisible({ timeout: 15000 })
+
+    const htmlPath = join(testDir, 'direct-export.html')
+    await mockSaveDialog(electronApp, htmlPath)
+    await triggerMarkdownExport(electronApp, 'markdown:export-html')
+    await waitForFile(htmlPath)
+    expect((await getSaveDialogCalls(electronApp)).at(-1)?.defaultPath).toBe('direct-export.html')
+    const htmlContent = readFileSync(htmlPath, 'utf-8')
+    expect(htmlContent).toContain('excalidraw-container')
+    expect(htmlContent).toContain('<svg')
+    expect(htmlContent).not.toContain('"elements": [')
+
+    const pdfPath = join(testDir, 'direct-export.pdf')
+    await mockSaveDialog(electronApp, pdfPath)
+    await triggerMarkdownExport(electronApp, 'markdown:export-pdf')
+    await waitForFile(pdfPath, 20000)
+    expect((await getSaveDialogCalls(electronApp)).at(-1)?.defaultPath).toBe('direct-export.pdf')
+    const pdfBuffer = readFileSync(pdfPath)
+    expect(pdfBuffer.length).toBeGreaterThan(1000)
+    expect(pdfBuffer.toString('utf-8', 0, 4)).toBe('%PDF')
+
+    await page.evaluate(() => window.api.updateAppSettings({
+      docxExport: {
+        remoteEnabled: false,
+        serverUrl: 'http://127.0.0.1:3179',
+        style: 'preview',
+        styleTouched: true,
+        timeoutMs: 180000,
+        embedFont: false,
+        localFallbackEnabled: true,
+      },
+    }))
+
+    const docxPath = join(testDir, 'direct-export.docx')
+    await mockSaveDialog(electronApp, docxPath)
+    await triggerMarkdownExport(electronApp, 'markdown:export-docx')
+    await waitForFile(docxPath, 30000)
+    expect((await getSaveDialogCalls(electronApp)).at(-1)?.defaultPath).toBe('direct-export.docx')
+
+    const zip = new AdmZip(docxPath)
+    const entries = zip.getEntries().map(entry => entry.entryName)
+    const documentXml = zip.readAsText('word/document.xml')
+    expect(entries.some(name => name.startsWith('word/media/'))).toBe(true)
+    expect(documentXml).not.toContain('md-viewer-direct-export-test')
+    expect(documentXml).not.toContain('"elements"')
+  })
+
+  test('test-excalidraw.md 远程 DOCX 导出应保留全部可渲染 Excalidraw 图', async ({ page, electronApp }) => {
+    test.setTimeout(300000)
+    const fixturePath = join(__dirname, 'fixtures/test-excalidraw.md')
+    await openMarkdownFile(page, fixturePath)
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
+    await expect(page.locator('.excalidraw-container svg')).toHaveCount(64, { timeout: 120000 })
+
+    await page.evaluate(() => window.api.updateAppSettings({
+      docxExport: {
+        remoteEnabled: true,
+        serverUrl: 'http://127.0.0.1:3179',
+        style: 'preview',
+        styleTouched: true,
+        timeoutMs: 240000,
+        embedFont: false,
+        localFallbackEnabled: false,
+      },
+    }))
+
+    const docxPath = join(testDir, 'test-excalidraw.docx')
+    await mockSaveDialog(electronApp, docxPath)
+    await triggerMarkdownExport(electronApp, 'markdown:export-docx')
+    await waitForFile(docxPath, 240000)
+
+    const zip = new AdmZip(docxPath)
+    const pngCount = zip.getEntries()
+      .filter(entry => entry.entryName.startsWith('word/media/') && entry.entryName.toLowerCase().endsWith('.png'))
+      .length
+    const documentXml = zip.readAsText('word/document.xml')
+
+    expect(pngCount).toBe(65)
+    expect(documentXml).not.toContain('mdv__chart__')
+    const exportPanel = page.locator('.export-task-panel')
+    await expect(exportPanel).not.toContainText('Error invoking remote method')
+    await expect(exportPanel).not.toContainText('ENOENT')
+    await expect(exportPanel).not.toContainText('Excalidraw 文件')
   })
 })

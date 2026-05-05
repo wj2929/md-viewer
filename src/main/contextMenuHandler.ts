@@ -19,6 +19,17 @@ interface FileInfo {
   isDirectory: boolean
 }
 
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
+const PREVIEWABLE_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, '.excalidraw'])
+
+function isMarkdownFileName(fileName: string): boolean {
+  return MARKDOWN_EXTENSIONS.has(path.extname(fileName).toLowerCase())
+}
+
+function isPreviewableFileName(fileName: string): boolean {
+  return PREVIEWABLE_EXTENSIONS.has(path.extname(fileName).toLowerCase())
+}
+
 /**
  * 显示文件/文件夹的右键菜单
  * @param window - 主窗口实例
@@ -69,7 +80,7 @@ export function showContextMenu(
       }
     },
     // v1.3.7：添加到书签（仅 .md 文件）
-    ...(!file.isDirectory && file.name.endsWith('.md')
+    ...(!file.isDirectory && isMarkdownFileName(file.name)
       ? [
           {
             label: '🌟 添加到书签',
@@ -79,7 +90,11 @@ export function showContextMenu(
                 fileName: file.name
               })
             }
-          },
+          }
+        ]
+      : []),
+    ...(!file.isDirectory && isPreviewableFileName(file.name)
+      ? [
           // v1.5.1：在分屏中打开
           {
             label: '📐 在分屏中打开',

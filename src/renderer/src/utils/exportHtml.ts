@@ -21,6 +21,7 @@ import { processGraphvizInHtml } from './graphvizRenderer'
 import { processDrawioInHtml } from './drawioRenderer'
 import { processPlantUMLInHtml } from './plantumlRenderer'
 import { renderExcalidrawToSvg } from './excalidrawRenderer'
+import { cleanUserFacingError } from './userFacingErrors'
 
 export interface ExportHtmlOptions {
   markdownFilePath?: string
@@ -197,7 +198,7 @@ export async function processExcalidrawInHtml(html: string, options: ExportHtmlO
       const result = await renderExcalidrawToSvg(code, { sourceKind: 'file-reference', sourceLabel: alt })
       holder.innerHTML = result.ok ? result.svg : excalidrawErrorHtml(result.error, src)
     } catch (error) {
-      holder.innerHTML = excalidrawErrorHtml(error instanceof Error ? error.message : '读取失败', src)
+      holder.innerHTML = excalidrawErrorHtml(cleanUserFacingError(error), src)
     }
     img.replaceWith(holder)
   }

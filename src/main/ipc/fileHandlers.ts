@@ -20,6 +20,7 @@ let fileWatcher: ReturnType<typeof chokidar.watch> | null = null
 let watchedDir: string | null = null
 let _baseFolderPath: string | null = null
 const watchedFiles = new Set<string>()
+const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 
 let watchedWebContentsId: number | null = null
 
@@ -77,6 +78,10 @@ const WATCHER_CONFIG = {
   ],
 }
 
+function isPreviewableFilePath(filePath: string): boolean {
+  return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
 // 路径安全验证
 function isWatchPathSafe(targetPath: string): { safe: boolean; reason?: string } {
   const resolved = path.resolve(targetPath)
@@ -129,7 +134,7 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
       (filePath: string, stats?: fs.Stats) => {
         if (!stats) return false
         if (stats.isDirectory()) return false
-        return !filePath.endsWith('.md')
+        return !isPreviewableFilePath(filePath)
       }
     ],
     awaitWriteFinish: {
@@ -206,18 +211,19 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
   })
 }
 
-// 使用 glob 快速扫描 .md 文件
-async function scanMarkdownFiles(rootPath: string): Promise<FileInfo[]> {
+// 使用 glob 快速扫描可预览文件
+async function scanPreviewableFiles(rootPath: string): Promise<FileInfo[]> {
   const { glob } = await import('glob')
 
-  const mdFiles = await glob('**/*.md', {
+  const previewFiles = await glob('**/*.{md,markdown,mdown,mkd,mkdn,excalidraw}', {
     cwd: rootPath,
     ignore: ['**/node_modules/**', '**/.*/**', '**/venv/**', '**/.venv/**', '**/env/**'],
     nodir: true,
-    absolute: false
+    absolute: false,
+    nocase: true
   })
 
-  return buildFileTree(rootPath, mdFiles)
+  return buildFileTree(rootPath, previewFiles)
 }
 
 // 从 glob 结果构建文件树
@@ -366,7 +372,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       validatePath(dirPath)
 
       const startTime = Date.now()
-      const result = await scanMarkdownFiles(dirPath)
+      const result = await scanPreviewableFiles(dirPath)
       console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
       return result
     } catch (error) {
@@ -722,7 +728,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
   ipcMain.handle('search:readDir', async (_, dirPath: string) => {
     try {
       validateSearchPath(dirPath)
-      return await scanMarkdownFiles(dirPath)
+      return await scanPreviewableFiles(dirPath)
     } catch (error) {
       console.error('Failed to search readDir:', error)
       if (error instanceof Error && error.message.includes('安全错误')) throw error

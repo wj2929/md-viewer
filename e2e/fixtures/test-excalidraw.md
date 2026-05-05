@@ -1,6 +1,6 @@
 # Excalidraw 渲染测试
 
-本文档集中覆盖 Excalidraw 渲染器的正常路径、架构图样式、复杂布局、边界条件和错误降级。
+本文档集中覆盖 Excalidraw 渲染器的正常路径、架构图样式、复杂布局和可渲染边界条件。
 用例参考了 Excalidraw 官方 JSON 结构、Excalidraw Architect MCP 的图拓扑建议、mermaid-to-excalidraw 的转换覆盖，以及本项目已有 Mermaid / Graphviz / DrawIO fixture 的组织方式。
 
 ## 1. 基础代码块
@@ -372,27 +372,7 @@
 
 ![PlantUML 复杂导出序列](./excalidraw/plantuml-export-sequence.excalidraw)
 
-## 65. 错误文件：JSON 格式错误
-
-![错误 JSON](./excalidraw/invalid-json.excalidraw)
-
-## 66. 错误文件：缺少 elements
-
-![缺少 elements](./excalidraw/missing-elements.excalidraw)
-
-## 67. 错误文件：根节点是数组
-
-![根节点数组](./excalidraw/array-root.excalidraw)
-
-## 68. 错误文件：元素数量超限
-
-![元素数量超限](./excalidraw/too-many-elements.excalidraw)
-
-## 69. 错误文件：文件不存在
-
-![缺失文件](./excalidraw/missing.excalidraw)
-
-## 70. 与 Mermaid 对比
+## 65. 与 Mermaid 对比
 
 ```mermaid
 graph TD

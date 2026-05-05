@@ -314,7 +314,7 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
   if (files.length === 0) {
     return (
       <div className="file-tree-empty">
-        <p>没有找到 Markdown 文件</p>
+        <p>没有找到 Markdown 或 Excalidraw 文件</p>
       </div>
     )
   }

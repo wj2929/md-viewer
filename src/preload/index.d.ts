@@ -164,6 +164,8 @@ declare global {
         fontsAvailable?: string[]
         embedFontSupported?: boolean
         chartRenderersAvailable?: string[]
+        maxImagesPerRequest?: number
+        maxRequestSizeMb?: number
         error?: string
       }>
       selectReferenceDocx: () => Promise<string | null>

@@ -852,7 +852,7 @@ describe('App 边界条件测试', () => {
 
     // 应该显示空状态提示
     await waitFor(() => {
-      expect(screen.getByText('没有找到 Markdown 文件')).toBeInTheDocument()
+      expect(screen.getByText('没有找到 Markdown 或 Excalidraw 文件')).toBeInTheDocument()
     })
   })
 

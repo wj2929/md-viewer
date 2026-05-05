@@ -8,6 +8,12 @@ import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSy
 import * as contextMenuManager from '../contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from '../security/pathValidator'
 
+const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
+
+function isPreviewableFilePath(filePath: string): boolean {
+  return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
 export function registerDataHandlers(ctx: IPCContext): void {
   // ============== 剪贴板 ==============
 
@@ -330,7 +336,7 @@ ipcMain.handle('drop:openPaths', async (event, paths: string[]) => {
     if (!validation.valid) continue
     if (validation.type === 'directory') {
       folders.push(validation.normalizedPath)
-    } else if (validation.normalizedPath.toLowerCase().endsWith('.md')) {
+    } else if (isPreviewableFilePath(validation.normalizedPath)) {
       mdFiles.push(validation.normalizedPath)
     }
   }

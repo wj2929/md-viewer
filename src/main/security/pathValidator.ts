@@ -5,7 +5,8 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 
-const ALLOWED_MD_EXTENSIONS = ['.md', '.markdown', '.mdown', '.mkd', '.mkdn']
+const ALLOWED_MARKDOWN_EXTENSIONS = ['.md', '.markdown', '.mdown', '.mkd', '.mkdn']
+const ALLOWED_PREVIEW_EXTENSIONS = [...ALLOWED_MARKDOWN_EXTENSIONS, '.excalidraw']
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 
 export interface PathValidationResult {
@@ -50,12 +51,12 @@ export async function validateSecurePath(inputPath: string): Promise<PathValidat
     if (stats.isFile()) {
       const ext = path.extname(normalizedPath).toLowerCase()
 
-      if (!ALLOWED_MD_EXTENSIONS.includes(ext)) {
+      if (!ALLOWED_PREVIEW_EXTENSIONS.includes(ext)) {
         return {
           valid: false,
           type: 'invalid',
           normalizedPath: '',
-          error: `只支持 Markdown 文件，当前: ${ext}`
+          error: `只支持 Markdown 或 Excalidraw 文件，当前: ${ext}`
         }
       }
 
@@ -72,12 +73,12 @@ export async function validateSecurePath(inputPath: string): Promise<PathValidat
       const realPath = await fs.realpath(normalizedPath)
       const realExt = path.extname(realPath).toLowerCase()
 
-      if (!ALLOWED_MD_EXTENSIONS.includes(realExt)) {
+      if (!ALLOWED_PREVIEW_EXTENSIONS.includes(realExt)) {
         return {
           valid: false,
           type: 'invalid',
           normalizedPath: '',
-          error: '符号链接目标不是 Markdown 文件'
+          error: '符号链接目标不是 Markdown 或 Excalidraw 文件'
         }
       }
 

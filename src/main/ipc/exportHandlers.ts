@@ -6,15 +6,23 @@ import * as path from 'path'
 import * as os from 'os'
 import { IPCContext } from './context'
 import { appDataManager } from '../appDataManager'
-import { exportToDocx, ChartImageData } from '../docxExporter'
+import { exportToDocx, ChartImageData, EmbeddedDocxImage } from '../docxExporter'
 import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
 import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveRemoteDocxStyle } from '../remoteDocxExporter'
 import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
 
 let lastDocxExportPath: string | null = null
+const EXPORT_SOURCE_EXTENSION_RE = /\.(md|markdown|mdown|mkd|mkdn|excalidraw)$/i
 
 export function getLastDocxExportPath(): string | null {
   return lastDocxExportPath
+}
+
+function withExportExtension(fileName: string, extension: 'html' | 'pdf' | 'docx'): string {
+  if (EXPORT_SOURCE_EXTENSION_RE.test(fileName)) {
+    return fileName.replace(EXPORT_SOURCE_EXTENSION_RE, `.${extension}`)
+  }
+  return `${fileName}.${extension}`
 }
 
 // 获取导出用的完整 CSS（包含所有必需的变量和样式）
@@ -527,7 +535,7 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
   try {
     const result = await dialog.showSaveDialog({
       title: '导出 HTML',
-      defaultPath: fileName.replace(/\.md$/, '.html'),
+      defaultPath: withExportExtension(fileName, 'html'),
       filters: [
         { name: 'HTML Files', extensions: ['html'] }
       ]
@@ -560,7 +568,7 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
 
     const result = await dialog.showSaveDialog(window, {
       title: '导出 PDF',
-      defaultPath: fileName.replace(/\.md$/, '.pdf'),
+      defaultPath: withExportExtension(fileName, 'pdf'),
       filters: [
         { name: 'PDF Files', extensions: ['pdf'] }
       ]
@@ -950,7 +958,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
       ? { canceled: false, filePath: testSavePath }
       : await dialog.showSaveDialog(window, {
           title: `导出 Word 文档${styleLabel}`,
-          defaultPath: fileName.replace(/\.md$/, '.docx'),
+          defaultPath: withExportExtension(fileName, 'docx'),
           filters: [
             { name: 'Word Documents', extensions: ['docx'] }
           ]
@@ -991,7 +999,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
         if (docxConfig.localFallbackEnabled) {
           console.log('[DOCX Export] 降级到本地路径')
           warnings.push(`远程服务失败: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr)}`)
-          const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle)
+          const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle, remoteImages)
           filePath = localResult.filePath
           warnings.push(...localResult.warnings)
           usedPandoc = localResult.usedPandoc
@@ -1010,7 +1018,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     } else if (docxConfig?.localFallbackEnabled) {
       // 路径 2：本地路径（用户主动启用）
       console.log('[DOCX Export] 使用本地路径（用户启用离线模式）')
-      const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle)
+      const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle, remoteImages)
       filePath = localResult.filePath
       warnings = localResult.warnings
       usedPandoc = localResult.usedPandoc
@@ -1034,7 +1042,7 @@ function resolveTestDocxSavePath(template: string | undefined, fileName: string,
   if (!template) return undefined
   return template
     .replace(/\{style\}/g, style)
-    .replace(/\{name\}/g, fileName.replace(/\.md$/i, ''))
+    .replace(/\{name\}/g, fileName.replace(EXPORT_SOURCE_EXTENSION_RE, ''))
 }
 
 // 本地 DOCX 导出（Pandoc → docx 库 fallback，保持原有逻辑）
@@ -1044,7 +1052,8 @@ async function _exportLocalDocx(
   basePath: string,
   markdown?: string,
   chartImages?: ChartImageData[],
-  docStyle?: string
+  docStyle?: string,
+  embeddedImages?: EmbeddedDocxImage[]
 ): Promise<{ filePath: string; warnings: string[]; usedPandoc: boolean }> {
   const pandocAvailable = await isPandocAvailable()
 
@@ -1054,7 +1063,7 @@ async function _exportLocalDocx(
     return { filePath: pandocResult.filePath, warnings: pandocResult.warnings, usedPandoc: true }
   } else if (markdown) {
     console.log('[DOCX Export] Pandoc 不可用，使用 docx 库导出')
-    const docxResult = await exportToDocx(markdown, outputPath, basePath, chartImages || [])
+    const docxResult = await exportToDocx(markdown, outputPath, basePath, chartImages || [], embeddedImages || [])
     return { filePath: docxResult.filePath, warnings: docxResult.warnings, usedPandoc: false }
   } else {
     throw new Error('Pandoc 不可用，且未提供 Markdown 内容')

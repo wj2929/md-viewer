@@ -12,7 +12,9 @@ import { appDataManager } from './appDataManager'
 import {
   DEFAULT_DOCX_STYLE,
   DOCX_STYLE_LABELS,
+  DOCX_STYLE_ORDER,
   FALLBACK_DOCX_STYLE,
+  isDocxStyle,
   normalizeDocxStyle,
   type DocxStyle,
 } from '../shared/docxStyles'
@@ -60,6 +62,20 @@ export interface RemoteDocxStyleConfig {
   styleTouched?: boolean
 }
 
+function getSupportedStyles(styles: unknown): Set<DocxStyle> | null {
+  if (!Array.isArray(styles)) return null
+  const supported = new Set<DocxStyle>()
+  for (const style of styles) {
+    if (isDocxStyle(style)) supported.add(style)
+  }
+  return supported.size > 0 ? supported : null
+}
+
+function chooseFallbackStyle(supported: Set<DocxStyle>): DocxStyle {
+  if (supported.has(FALLBACK_DOCX_STYLE)) return FALLBACK_DOCX_STYLE
+  return DOCX_STYLE_ORDER.find(style => supported.has(style)) || FALLBACK_DOCX_STYLE
+}
+
 export async function resolveRemoteDocxStyle(
   config: RemoteDocxStyleConfig,
   requestedStyle?: string
@@ -75,26 +91,17 @@ export async function resolveRemoteDocxStyle(
     return { style: selectedStyle, warnings: [] }
   }
 
-  const supportsPreview = Array.isArray(health.styles) && health.styles.includes('preview')
-  if (supportsPreview) {
+  const supportedStyles = getSupportedStyles(health.styles)
+  if (!supportedStyles || supportedStyles.has(selectedStyle)) {
     return { style: selectedStyle, warnings: [] }
   }
 
-  if (config.styleTouched) {
-    throw new DocxExportError({
-      errorType: 'client_error',
-      message: '当前 DOCX 服务不支持“预览一致”，请升级 md-viewer-docx-service。',
-      serverUrl: config.serverUrl,
-      serviceVersion: health.version,
-      timestamp: new Date().toISOString(),
-      raw: `styles=${(health.styles || []).join(',') || 'unknown'}`,
-    })
-  }
+  const fallbackStyle = chooseFallbackStyle(supportedStyles)
 
   return {
-    style: FALLBACK_DOCX_STYLE,
+    style: fallbackStyle,
     warnings: [
-      `当前 DOCX 服务不支持“${DOCX_STYLE_LABELS.preview}”，已临时使用“${DOCX_STYLE_LABELS[FALLBACK_DOCX_STYLE]}”导出。建议升级 md-viewer-docx-service。`,
+      `当前 DOCX 服务不支持“${DOCX_STYLE_LABELS[selectedStyle]}”，已临时使用“${DOCX_STYLE_LABELS[fallbackStyle]}”导出。`,
     ],
   }
 }
@@ -183,7 +190,21 @@ export async function exportViaRemote(
           let errBody = `HTTP ${res.statusCode}`
           try {
             const json = JSON.parse(data.toString('utf-8'))
-            errBody = json.error || json.detail?.error || errBody
+            if (typeof json.error === 'string') {
+              errBody = json.error
+            } else if (typeof json.detail === 'string') {
+              errBody = json.detail
+            } else if (typeof json.detail?.error === 'string') {
+              errBody = json.detail.error
+            } else if (Array.isArray(json.detail) && json.detail.length > 0) {
+              const first = json.detail[0]
+              const loc = Array.isArray(first.loc) ? first.loc.join('.') : ''
+              if (loc.endsWith('style') && first.input) {
+                errBody = `样式“${first.input}”不受当前 DOCX 服务支持`
+              } else if (typeof first.msg === 'string') {
+                errBody = first.msg
+              }
+            }
           } catch { /* not JSON */ }
           const code = res.statusCode || 0
           const errorType: DocxErrorType = code >= 500 ? 'server_error' : 'client_error'
@@ -300,6 +321,8 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
   fontsAvailable?: string[]
   embedFontSupported?: boolean
   chartRenderersAvailable?: string[]
+  maxImagesPerRequest?: number
+  maxRequestSizeMb?: number
   error?: string
 }> {
   const url = `${serverUrl.replace(/\/+$/, '')}/healthz`
@@ -333,6 +356,8 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
             fontsAvailable: json.fontsAvailable,
             embedFontSupported: json.embedFontSupported,
             chartRenderersAvailable: json.chartRenderersAvailable,
+            maxImagesPerRequest: typeof json.maxImagesPerRequest === 'number' ? json.maxImagesPerRequest : undefined,
+            maxRequestSizeMb: typeof json.maxRequestSizeMb === 'number' ? json.maxRequestSizeMb : undefined,
           })
         } catch {
           resolve({ ok: false, error: '响应格式不正确，请确认是 md-viewer-docx-service' })

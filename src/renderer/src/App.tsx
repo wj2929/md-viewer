@@ -1,7 +1,8 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
-import { readFileWithCache, clearFileCache } from './utils/fileCache'
+import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
+import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
 import { useDragDrop } from './hooks/useDragDrop'
@@ -27,7 +28,7 @@ function normalizeConflictReason(reason: string | undefined): EditConflictReason
 
 function getDraftPreviewDebounceMs(content: string, hasEditSession: boolean): number | undefined {
   if (!hasEditSession) return undefined
-  return /```(?:mermaid|echarts|js|json|drawio|plantuml|dot|graphviz|markmap|infographic)\b/i.test(content)
+  return /```(?:mermaid|echarts|js|json|drawio|plantuml|dot|graphviz|markmap|infographic|excalidraw)\b/i.test(content)
     ? 900
     : 250
 }
@@ -132,7 +133,7 @@ function App(): React.JSX.Element {
           const newTabs: Tab[] = []
           for (const pinned of pinnedTabs) {
             try {
-              const content = await readFileWithCache(pinned.path)
+              const content = await readPreviewContentWithCache(pinned.path)
               const fileName = pinned.path.split(/[/\\]/).pop() || ''
               newTabs.push({
                 id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -162,7 +163,7 @@ function App(): React.JSX.Element {
       const newTabs: Tab[] = []
       for (const pinned of pinnedTabs) {
         try {
-          const content = await readFileWithCache(pinned.path)
+          const content = await readPreviewContentWithCache(pinned.path)
           const fileName = pinned.path.split(/[/\\]/).pop() || ''
           newTabs.push({
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -260,7 +261,7 @@ function App(): React.JSX.Element {
           for (const pinned of pinnedTabs) {
             if (pinned.path === filePath) continue
             try {
-              const content = await readFileWithCache(pinned.path)
+              const content = await readPreviewContentWithCache(pinned.path)
               const name = pinned.path.split(/[/\\]/).pop() || ''
               restoredTabs.push({
                 id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -270,7 +271,7 @@ function App(): React.JSX.Element {
               })
             } catch { /* 忽略无法读取的文件 */ }
           }
-          const content = await readFileWithCache(filePath)
+          const content = await readPreviewContentWithCache(filePath)
           const isPinned = pinnedTabs.some(t => t.path === filePath)
           const newTab: Tab = {
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -288,11 +289,11 @@ function App(): React.JSX.Element {
     } else {
       const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
       if (existingTab) {
-        await refreshExistingTabContent(existingTab, () => readFileWithCache(filePath))
+        await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(filePath))
         return
       }
       try {
-        const content = await readFileWithCache(filePath)
+        const content = await readPreviewContentWithCache(filePath)
         const newTab: Tab = {
           id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           file: { name: fileName, path: filePath, isDirectory: false },
@@ -384,11 +385,11 @@ function App(): React.JSX.Element {
     setHighlightKeyword(keyword)
     const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
     if (existingTab) {
-      await refreshExistingTabContent(existingTab, () => readFileWithCache(file.path))
+      await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(file.path))
       return
     }
     try {
-      const content = await readFileWithCache(file.path)
+      const content = await readPreviewContentWithCache(file.path)
       const isPinned = await window.api.isTabPinned(file.path)
       const newTab: Tab = {
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -414,11 +415,13 @@ function App(): React.JSX.Element {
     const fileName = filePath.split(/[/\\]/).pop() || filePath
     const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
     if (existingTab) {
-      await refreshExistingTabContent(existingTab, () => window.api.searchReadFile(filePath))
+      await refreshExistingTabContent(existingTab, async () =>
+        buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
+      )
       return
     }
     try {
-      const content = await window.api.searchReadFile(filePath)
+      const content = buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
       const newTab: Tab = {
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         file: { name: fileName, path: filePath, isDirectory: false },
@@ -466,6 +469,10 @@ function App(): React.JSX.Element {
   }, [setTabs])
 
   const handleOpenQuickEdit = useCallback(async (tab: Tab, target?: Partial<QuickEditTarget>) => {
+    if (!isMarkdownFile(tab.file.path)) {
+      toast.error('当前文件不是 Markdown，不能快速编辑')
+      return
+    }
     try {
       const result = await window.api.openEditableMarkdown(tab.file.path)
       openEditSession(result)
@@ -652,7 +659,7 @@ function App(): React.JSX.Element {
 
         setTimeout(async () => {
           try {
-            const content = await readFileWithCache(bookmark.filePath)
+            const content = await readPreviewContentWithCache(bookmark.filePath)
             const newTab: Tab = {
               id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
@@ -675,7 +682,7 @@ function App(): React.JSX.Element {
     const existingTab = tabsRef.current.find(tab => tab.file.path === bookmark.filePath)
     if (!existingTab) {
       try {
-        const content = await readFileWithCache(bookmark.filePath)
+        const content = await readPreviewContentWithCache(bookmark.filePath)
         const newTab: Tab = {
           id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
@@ -688,7 +695,7 @@ function App(): React.JSX.Element {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
     } else {
-      await refreshExistingTabContent(existingTab, () => readFileWithCache(bookmark.filePath), '无法刷新文件')
+      await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(bookmark.filePath), '无法刷新文件')
       setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
     }
   }, [folderPath, refreshExistingTabContent, toast])
@@ -1195,7 +1202,7 @@ function App(): React.JSX.Element {
                             <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                           )}
                         </div>
-                        {activeTab && (
+                        {activeTab && isMarkdownFile(activeTab.file.path) && (
                           <FloatingNav
                             containerRef={previewRef}
                             markdown={activePreviewContent}

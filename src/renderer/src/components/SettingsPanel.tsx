@@ -8,7 +8,14 @@ import { useTheme, Theme } from '../hooks/useTheme'
 import { useUIStore, FONT_SIZE } from '../stores/uiStore'
 import { DocxSetupGuide } from './DocxSetupGuide'
 import { DocxStyleCards } from './DocxStyleCards'
-import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../../../shared/docxStyles'
+import {
+  DEFAULT_DOCX_STYLE,
+  DOCX_STYLE_LABELS,
+  DOCX_STYLE_ORDER,
+  FALLBACK_DOCX_STYLE,
+  isDocxStyle,
+  type DocxStyle,
+} from '../../../shared/docxStyles'
 
 // ============================================================================
 // 类型定义
@@ -115,7 +122,7 @@ function GeneralTab() {
   const [docxLocalFallback, setDocxLocalFallback] = useState(false)
   const [docxReferencePath, setDocxReferencePath] = useState('')
   const [docxTestStatus, setDocxTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[]; styles?: string[]; mode?: string; embedFontSupported?: boolean; chartRenderers?: string[]; error?: string } | null>(null)
+  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[]; styles?: string[]; mode?: string; embedFontSupported?: boolean; chartRenderers?: string[]; maxImagesPerRequest?: number; maxRequestSizeMb?: number; error?: string } | null>(null)
   const [docxTestDetailOpen, setDocxTestDetailOpen] = useState(false)
   const [showDocxSetupGuide, setShowDocxSetupGuide] = useState(false)
   const [docxAdvancedOpen, setDocxAdvancedOpen] = useState(false)
@@ -196,6 +203,8 @@ function GeneralTab() {
           mode: result.mode,
           embedFontSupported: result.embedFontSupported,
           chartRenderers: result.chartRenderersAvailable,
+          maxImagesPerRequest: result.maxImagesPerRequest,
+          maxRequestSizeMb: result.maxRequestSizeMb,
         })
       } else {
         setDocxTestStatus('error')
@@ -330,6 +339,14 @@ function GeneralTab() {
     { value: 'dark', label: '深色' },
     { value: 'auto', label: '跟随系统' }
   ]
+  const supportedDocxStyles = docxTestInfo?.styles?.filter(isDocxStyle)
+  const disabledDocxStyles = supportedDocxStyles && supportedDocxStyles.length > 0
+    ? DOCX_STYLE_ORDER.filter(style => !supportedDocxStyles.includes(style))
+    : []
+  const isSelectedDocxStyleUnsupported = disabledDocxStyles.includes(docxStyle)
+  const fallbackDocxStyle = supportedDocxStyles?.includes(FALLBACK_DOCX_STYLE)
+    ? FALLBACK_DOCX_STYLE
+    : supportedDocxStyles?.[0] || FALLBACK_DOCX_STYLE
 
   return (
     <>
@@ -509,12 +526,20 @@ function GeneralTab() {
                     {docxTestInfo.chartRenderers && docxTestInfo.chartRenderers.length > 0 && (
                       <div className="docx-test-result-row">服务端渲染：{docxTestInfo.chartRenderers.join(' · ')}</div>
                     )}
+                    {typeof docxTestInfo.maxImagesPerRequest === 'number' && (
+                      <div className="docx-test-result-row">图片上限：每次最多 {docxTestInfo.maxImagesPerRequest} 张</div>
+                    )}
+                    {typeof docxTestInfo.maxRequestSizeMb === 'number' && (
+                      <div className="docx-test-result-row">请求上限：{docxTestInfo.maxRequestSizeMb} MB</div>
+                    )}
                     <div className="docx-test-result-row">字体嵌入：{docxTestInfo.embedFontSupported ? '服务端声明支持' : '服务端将按降级策略处理'}</div>
                   </div>
                 )}
-                {docxTestInfo.styles && !docxTestInfo.styles.includes('preview') && (
-                  <div className="docx-test-result-row docx-test-result-warning">
-                    当前服务不支持“预览一致”。未主动选择样式时会临时使用“通用 Word”，主动选择“预览一致”需升级服务。
+                {disabledDocxStyles.includes('preview') && (
+                  <div className={`docx-test-result-row ${isSelectedDocxStyleUnsupported ? 'docx-test-result-warning' : ''}`}>
+                    {isSelectedDocxStyleUnsupported
+                      ? `当前服务不支持“${DOCX_STYLE_LABELS[docxStyle]}”，导出时会临时使用“${DOCX_STYLE_LABELS[fallbackDocxStyle]}”。`
+                      : `当前服务未提供“预览一致”，该样式已禁用；当前选择“${DOCX_STYLE_LABELS[docxStyle]}”可导出。`}
                   </div>
                 )}
               </div>
@@ -525,7 +550,7 @@ function GeneralTab() {
 
             <DocxStyleCards
               value={docxStyle}
-              disabledStyles={docxTestInfo?.styles && !docxTestInfo.styles.includes('preview') ? ['preview'] : []}
+              disabledStyles={disabledDocxStyles}
               onChange={v => {
                 setDocxStyle(v)
                 setDocxStyleTouched(true)

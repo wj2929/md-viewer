@@ -9,6 +9,7 @@ import { renderEChartsToSvg } from './echartsRenderer'
 import { renderMermaidToSvg } from './mermaidRenderer'
 import { renderGraphvizToSvg } from './graphvizRenderer'
 import { renderPlantUMLToSvg } from './plantumlRenderer'
+import { cleanUserFacingError } from './userFacingErrors'
 
 export interface ChartImage {
   id: string
@@ -612,7 +613,7 @@ export async function renderChartsForDocx(
         value: `![](${placeholderId})`,
       })
     } else {
-      warnings.push(`chart_${i} (${type}) render failed`)
+      warnings.push(`第 ${i + 1} 个 ${type} 图表渲染失败，已保留源码。`)
     }
   }
 
@@ -621,7 +622,7 @@ export async function renderChartsForDocx(
     options.onProgress?.(completedCharts, totalCharts, 'excalidraw')
 
     if (!options.markdownFilePath) {
-      warnings.push(`excalidraw file reference ${imageRef.refPath} missing markdownFilePath`)
+      warnings.push(`Excalidraw 文件“${imageRef.refPath}”缺少 Markdown 文件路径，已保留原引用。`)
       continue
     }
     try {
@@ -635,7 +636,7 @@ export async function renderChartsForDocx(
         excalidrawSourceLabel: imageRef.alt || imageRef.refPath,
       })
       if (!png) {
-        warnings.push(`excalidraw file reference ${imageRef.refPath} render failed`)
+        warnings.push(`Excalidraw 文件“${imageRef.refPath}”渲染失败，已保留原引用。`)
         continue
       }
       const placeholderId = generatePlaceholderId()
@@ -646,7 +647,7 @@ export async function renderChartsForDocx(
         value: `![${imageRef.alt}](${placeholderId})`,
       })
     } catch (error) {
-      warnings.push(`excalidraw file reference ${imageRef.refPath} failed: ${error instanceof Error ? error.message : String(error)}`)
+      warnings.push(`Excalidraw 文件“${imageRef.refPath}”读取失败：${cleanUserFacingError(error)}。已保留原引用。`)
     }
   }
 

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { Tab } from '../components/TabBar'
 import { SplitState, findLeaf } from '../utils/splitTree'
-import { createMarkdownRenderer } from '../utils/markdownRenderer'
 import { buildExportHtmlContent } from '../utils/exportHtml'
 import { renderChartsForDocx } from '../utils/docxChartRenderer'
 import { useExportTaskStore } from '../stores/exportTaskStore'
@@ -232,8 +231,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
         if (codeBlockPromises.length > 0) await Promise.all(codeBlockPromises)
         htmlContent = clone.innerHTML
       } else {
-        const md = createMarkdownRenderer()
-        htmlContent = md.render(exportContent)
+        htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       }
 
       // 检查远程服务是否启用，如果是则先渲染图表为 PNG
@@ -242,22 +240,33 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       let chartWarnings: string[] = []
       const store = useExportTaskStore.getState()
       let useRemotePath = false
+      let shouldRenderCharts = false
 
       try {
         const settings = await window.api.getAppSettings()
+        shouldRenderCharts = Boolean(
+          settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl
+        ) || Boolean(settings.docxExport?.localFallbackEnabled)
+
         if (settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl) {
           useRemotePath = true
+        }
 
-          if (store.status !== 'idle') return
-          store.startExport(exportTab.file.name)
-          cancelledRef.current = false
+        if (shouldRenderCharts) {
+          if (useRemotePath) {
+            if (store.status !== 'idle') return
+            store.startExport(exportTab.file.name)
+            cancelledRef.current = false
+          }
 
           const chartResult = await renderChartsForDocx(exportContent, {
             markdownFilePath: exportTab.file.path,
-            onProgress: (current, total, type) => {
-              if (cancelledRef.current) return
-              useExportTaskStore.getState().updateChartProgress(current, total, type)
-            },
+            onProgress: useRemotePath
+              ? (current, total, type) => {
+                  if (cancelledRef.current) return
+                  useExportTaskStore.getState().updateChartProgress(current, total, type)
+                }
+              : undefined,
           })
           if (cancelledRef.current) {
             useExportTaskStore.getState().close()
