@@ -6,7 +6,7 @@ import * as path from 'path'
 
 const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3179'
 const SOURCE_MD = process.env.MD_VIEWER_ALL_CHARTS_MD || path.join(__dirname, 'fixtures/test-all-charts.md')
-const OUT_DIR = process.env.MD_VIEWER_ALL_CHARTS_DOCX_OUT || '/Users/mac/Documents/tmp/all-charts-docx-non-preview-check'
+const OUT_DIR = process.env.MD_VIEWER_ALL_CHARTS_DOCX_OUT || '/tmp/mdv-all-charts-docx-non-preview-check'
 const SAVE_TEMPLATE = path.join(OUT_DIR, 'test-all-charts-{style}.docx')
 const ALL_STYLES = ['standard', 'official', 'internal', 'report'] as const
 const STYLES = selectStyles(process.env.MD_VIEWER_ALL_CHARTS_DOCX_STYLES)

@@ -5,7 +5,7 @@ import * as path from 'path'
 
 const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3179'
 const SOURCE_MD = path.join(__dirname, 'fixtures/test-drawio.md')
-const DOCX_PATH = process.env.MD_VIEWER_DRAWIO_DOCX_OUT || '/Users/mac/Documents/tmp/test-drawio.docx'
+const DOCX_PATH = process.env.MD_VIEWER_DRAWIO_DOCX_OUT || '/tmp/mdv-test-drawio.docx'
 
 test.describe('DrawIO DOCX 导出', () => {
   test('长文档后部 DrawIO 图表不应因预览 DOM 缺失而降级为源码', async () => {

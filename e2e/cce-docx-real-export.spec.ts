@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3184'
-const CCE_MD = process.env.MD_VIEWER_CCE_MD || '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/一网/cce/华为云/CCE集群外挂存储详情.md'
+const CCE_MD = process.env.MD_VIEWER_CCE_MD || ''
 const OUT_DIR = process.env.MD_VIEWER_CCE_DOCX_OUT || '/tmp/mdv-cce-mode-b-docx-quality'
 const SAVE_TEMPLATE = path.join(OUT_DIR, 'cce-{style}.docx')
 
@@ -18,6 +18,7 @@ type DocxImageInfo = {
 const STYLES = ['preview', 'standard', 'official', 'internal', 'report'] as const
 
 test.describe('CCE 真实文档 DOCX 图表导出', () => {
+  test.skip(!CCE_MD, '未设置 MD_VIEWER_CCE_MD，跳过真实 CCE Markdown 导出检查')
   test.skip(!fs.existsSync(CCE_MD), `真实 CCE Markdown 不存在：${CCE_MD}`)
 
   test('Electron 真实导出路径应生成已渲染图表的五种 DOCX', async () => {

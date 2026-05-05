@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3184'
-const CCE_MD = process.env.MD_VIEWER_CCE_MD || '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/一网/cce/华为云/CCE集群外挂存储详情.md'
+const CCE_MD = process.env.MD_VIEWER_CCE_MD || ''
 const BASELINE_PDF = process.env.MD_VIEWER_CCE_BASELINE_PDF
 const OUT_DIR = process.env.MD_VIEWER_CCE_DOCX_VISUAL_OUT || '/tmp/mdv-cce-docx-style-visual-compare'
 const SAVE_TEMPLATE = path.join(OUT_DIR, 'cce-{style}.docx')
@@ -87,6 +87,7 @@ type PdfPageHealthSummary = {
 }
 
 test.describe('CCE DOCX 样式 E2E 与视觉比对', () => {
+  test.skip(!CCE_MD, '未设置 MD_VIEWER_CCE_MD，跳过真实 CCE Markdown 视觉比对')
   test.skip(!fs.existsSync(CCE_MD), `真实 CCE Markdown 不存在：${CCE_MD}`)
   test.skip(!SOFFICE, '缺少 soffice，无法将 DOCX 转 PDF')
   test.skip(!PDFINFO, '缺少 pdfinfo，无法读取 PDF 页面指标')

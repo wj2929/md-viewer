@@ -5,7 +5,7 @@ import * as path from 'path'
 import { execFileSync } from 'child_process'
 
 const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3184'
-const MD_ROOT = process.env.MD_VIEWER_HUAWEI_MD_ROOT || '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/一网/cce/华为云'
+const MD_ROOT = process.env.MD_VIEWER_HUAWEI_MD_ROOT || ''
 const OUT_DIR = process.env.MD_VIEWER_HUAWEI_DOCX_OUT || '/tmp/mdv-huawei-cloud-docx-batch'
 const SAVE_TEMPLATE = path.join(OUT_DIR, '{name}-{style}.docx')
 
@@ -25,6 +25,7 @@ const CASES = [
 ] as const
 
 test.describe('华为云 Markdown 批量 DOCX 导出', () => {
+  test.skip(!MD_ROOT, '未设置 MD_VIEWER_HUAWEI_MD_ROOT，跳过真实 Markdown 批量导出检查')
   test.skip(!fs.existsSync(MD_ROOT), `Markdown 目录不存在：${MD_ROOT}`)
   test.skip(!SOFFICE, '缺少 soffice，无法将 DOCX 转 PDF')
   test.skip(!PDFINFO, '缺少 pdfinfo，无法读取 PDF 页面指标')

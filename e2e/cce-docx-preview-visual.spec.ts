@@ -5,7 +5,7 @@ import * as path from 'path'
 import { execFileSync } from 'child_process'
 
 const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3184'
-const CCE_MD = process.env.MD_VIEWER_CCE_MD || '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/一网/cce/华为云/CCE集群外挂存储详情.md'
+const CCE_MD = process.env.MD_VIEWER_CCE_MD || ''
 const OUT_DIR = process.env.MD_VIEWER_CCE_DOCX_OUT || '/tmp/mdv-cce-preview-docx-quality'
 const DOCX_PATH = path.join(OUT_DIR, 'cce-preview.docx')
 const SAVE_TEMPLATE = path.join(OUT_DIR, 'cce-{style}.docx')
@@ -17,6 +17,7 @@ const SOFFICE = process.env.SOFFICE_BIN || findExecutable([
 const PDFINFO = process.env.PDFINFO_BIN || findExecutable(['pdfinfo'])
 
 test.describe('CCE preview DOCX 视觉指标', () => {
+  test.skip(!CCE_MD, '未设置 MD_VIEWER_CCE_MD，跳过真实 CCE Markdown 视觉检查')
   test.skip(!fs.existsSync(CCE_MD), `真实 CCE Markdown 不存在：${CCE_MD}`)
   test.skip(!SOFFICE, '缺少 soffice，无法将 DOCX 转 PDF')
   test.skip(!PDFINFO, '缺少 pdfinfo，无法读取 PDF 页面指标')
