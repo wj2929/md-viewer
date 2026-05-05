@@ -5,8 +5,10 @@
  * 接收二进制 DOCX 响应并写入指定路径。
  */
 import * as fs from 'fs-extra'
+import { constants as fsConstants } from 'node:fs'
 import * as http from 'http'
 import * as https from 'https'
+import * as path from 'path'
 import { app } from 'electron'
 import { appDataManager } from './appDataManager'
 import {
@@ -52,6 +54,29 @@ export class DocxExportError extends Error {
     super(detail.message)
     this.name = 'DocxExportError'
     this.detail = detail
+  }
+}
+
+function describeOutputWriteFailure(outputPath: string, err: unknown): string {
+  const detail = err instanceof Error ? err.message : String(err)
+  return `目标文件不可写：${outputPath}。请关闭正在打开该文件的程序，或删除旧文件/更换导出路径。${detail}`
+}
+
+export async function ensureDocxOutputPathWritable(outputPath: string, serverUrl: string): Promise<void> {
+  try {
+    if (await fs.pathExists(outputPath)) {
+      await fs.access(outputPath, fsConstants.W_OK)
+      return
+    }
+    await fs.access(path.dirname(outputPath), fsConstants.W_OK)
+  } catch (err) {
+    throw new DocxExportError({
+      errorType: 'write_error',
+      message: describeOutputWriteFailure(outputPath, err),
+      serverUrl,
+      timestamp: new Date().toISOString(),
+      raw: String(err),
+    })
   }
 }
 
@@ -128,6 +153,8 @@ export async function exportViaRemote(
       timestamp: new Date().toISOString(),
     })
   }
+
+  await ensureDocxOutputPathWritable(outputPath, docxConfig.serverUrl)
 
   const url = `${docxConfig.serverUrl.replace(/\/+$/, '')}/convert`
   const timeoutMs = docxConfig.timeoutMs || 60000

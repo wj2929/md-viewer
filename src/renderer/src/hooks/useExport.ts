@@ -35,6 +35,17 @@ function getExportContent(tab: Tab): string {
   return session?.draft ?? tab.content
 }
 
+export function waitForExportFeedbackPaint(): Promise<void> {
+  return new Promise(resolve => {
+    const scheduleAfterPaint = () => setTimeout(resolve, 0)
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => scheduleAfterPaint())
+    } else {
+      scheduleAfterPaint()
+    }
+  })
+}
+
 export function useExport({ splitState, tabs, activeTabId, folderPath, toast, saveBeforeExport }: UseExportParams): UseExportReturn {
   const cancelledRef = useRef(false)
   const exportGuard = useMemo(() => createExportGuard({ toast, saveBeforeExport }), [toast, saveBeforeExport])
@@ -66,8 +77,9 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
-      const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
+      await waitForExportFeedbackPaint()
+      const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
       toast.close(loadingId)
       if (filePath) {
@@ -92,8 +104,9 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
-      const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
+      await waitForExportFeedbackPaint()
+      const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)
       toast.close(loadingId)
       if (filePath) {
@@ -118,6 +131,35 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
+      let markdownForExport = exportContent
+      let remoteImages: Array<{ id: string; pngBase64: string; widthCm?: number }> | undefined
+      let chartWarnings: string[] = []
+      const store = useExportTaskStore.getState()
+      let useRemotePath = false
+      let shouldRenderCharts = false
+
+      try {
+        const settings = await window.api.getAppSettings()
+        shouldRenderCharts = Boolean(
+          settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl
+        ) || Boolean(settings.docxExport?.localFallbackEnabled)
+
+        if (settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl) {
+          useRemotePath = true
+        }
+      } catch (settingsErr) {
+        console.warn('[DOCX] Failed to read export settings, using offline export path:', settingsErr)
+      }
+
+      if (useRemotePath) {
+        if (store.status !== 'idle') return
+        store.startExport(exportTab.file.name)
+        cancelledRef.current = false
+      } else {
+        loadingId = toast.info('正在生成 Word 文档...', { duration: 120000 })
+      }
+      await waitForExportFeedbackPaint()
+
       let htmlContent: string
       const markdownBody = document.querySelector('.split-leaf-panel.active .markdown-body')
       if (markdownBody) {
@@ -234,31 +276,8 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
         htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
       }
 
-      // 检查远程服务是否启用，如果是则先渲染图表为 PNG
-      let markdownForExport = exportContent
-      let remoteImages: Array<{ id: string; pngBase64: string; widthCm?: number }> | undefined
-      let chartWarnings: string[] = []
-      const store = useExportTaskStore.getState()
-      let useRemotePath = false
-      let shouldRenderCharts = false
-
       try {
-        const settings = await window.api.getAppSettings()
-        shouldRenderCharts = Boolean(
-          settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl
-        ) || Boolean(settings.docxExport?.localFallbackEnabled)
-
-        if (settings.docxExport?.remoteEnabled && settings.docxExport?.serverUrl) {
-          useRemotePath = true
-        }
-
         if (shouldRenderCharts) {
-          if (useRemotePath) {
-            if (store.status !== 'idle') return
-            store.startExport(exportTab.file.name)
-            cancelledRef.current = false
-          }
-
           const chartResult = await renderChartsForDocx(exportContent, {
             markdownFilePath: exportTab.file.path,
             onProgress: useRemotePath
@@ -283,8 +302,6 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
 
       if (useRemotePath) {
         useExportTaskStore.getState().setGenerating()
-      } else {
-        loadingId = toast.info('正在生成 Word 文档...', { duration: 120000 })
       }
 
       const result = await window.api.exportDOCX(htmlContent, exportTab.file.name, folderPath || '', markdownForExport, docStyle, remoteImages) as any

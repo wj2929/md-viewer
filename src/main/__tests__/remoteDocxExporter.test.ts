@@ -1,10 +1,24 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
-import { resolveRemoteDocxStyle } from '../remoteDocxExporter'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import * as fsExtra from 'fs-extra'
+import { exportViaRemote, resolveRemoteDocxStyle } from '../remoteDocxExporter'
+import { appDataManager } from '../appDataManager'
 
 vi.mock('electron', () => ({
   app: { getVersion: vi.fn(() => '1.7.0') },
 }))
+
+vi.mock('fs-extra', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs-extra')>()
+  return {
+    ...actual,
+    default: actual,
+    access: vi.fn(actual.access),
+  }
+})
 
 vi.mock('../appDataManager', () => ({
   appDataManager: {
@@ -13,6 +27,7 @@ vi.mock('../appDataManager', () => ({
 }))
 
 let server: Server | null = null
+let tempDir: string | null = null
 
 function listen(server: Server): Promise<string> {
   return new Promise((resolve) => {
@@ -42,6 +57,10 @@ async function startDocxHealthServer(styles: string[]): Promise<string> {
   return listen(server)
 }
 
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
 afterEach(async () => {
   await new Promise<void>((resolve) => {
     if (!server) {
@@ -51,6 +70,10 @@ afterEach(async () => {
     server.close(() => resolve())
     server = null
   })
+  if (tempDir) {
+    await rm(tempDir, { recursive: true, force: true })
+    tempDir = null
+  }
 })
 
 describe('remoteDocxExporter style compatibility', () => {
@@ -79,5 +102,30 @@ describe('remoteDocxExporter style compatibility', () => {
     })
 
     expect(result).toEqual({ style: 'official', warnings: [] })
+  })
+})
+
+describe('remoteDocxExporter output path preflight', () => {
+  it('fails before calling the remote service when the target docx file is not writable', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'mdv-docx-permission-'))
+    const outputPath = path.join(tempDir, 'locked.docx')
+    await writeFile(outputPath, 'old')
+    await chmod(outputPath, 0o444)
+    const accessError = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    vi.mocked(fsExtra.access).mockRejectedValueOnce(accessError)
+    vi.mocked(appDataManager.getSettings).mockReturnValue({
+      docxExport: {
+        remoteEnabled: true,
+        serverUrl: 'http://127.0.0.1:9',
+        style: 'preview',
+      },
+    } as any)
+
+    await expect(exportViaRemote('# Report', outputPath)).rejects.toMatchObject({
+      detail: {
+        errorType: 'write_error',
+        message: expect.stringContaining('目标文件不可写'),
+      },
+    })
   })
 })

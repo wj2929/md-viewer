@@ -1,10 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { addSvgSafePaddingForDocx, calculateDocxChartTrimRect, renderChartsForDocx } from '../../src/utils/docxChartRenderer'
+import { addSvgSafePaddingForDocx, calculateDocxChartTrimRect, calculateDocxImageWidthCm, renderChartsForDocx } from '../../src/utils/docxChartRenderer'
 
 const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
+const mockRenderInfographicToSvg = vi.hoisted(() => vi.fn())
+const mockRenderDrawioInElement = vi.hoisted(() => vi.fn())
+const mockValidateDrawioCode = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/utils/excalidrawRenderer', () => ({
   renderExcalidrawToSvg: mockRenderExcalidrawToSvg,
+}))
+
+vi.mock('../../src/utils/infographicRenderer', () => ({
+  renderInfographicToSvg: mockRenderInfographicToSvg,
+}))
+
+vi.mock('../../src/utils/drawioRenderer', () => ({
+  renderDrawioInElement: mockRenderDrawioInElement,
+  validateDrawioCode: mockValidateDrawioCode,
 }))
 
 let originalWindowApi: typeof window.api | undefined
@@ -109,6 +121,22 @@ describe('DOCX chart PNG whitespace trimming', () => {
   })
 })
 
+describe('DOCX chart image sizing', () => {
+  it('keeps normal landscape charts within the maximum content width', () => {
+    expect(calculateDocxImageWidthCm(1600, 900)).toBe(15.5)
+  })
+
+  it('shrinks tall charts so their inserted height does not exceed the page budget', () => {
+    const widthCm = calculateDocxImageWidthCm(2348, 7790)
+    expect(widthCm).toBeCloseTo(7.23, 1)
+    expect(widthCm * (7790 / 2348)).toBeLessThanOrEqual(24.1)
+  })
+
+  it('does not enlarge tiny charts beyond the normal chart width', () => {
+    expect(calculateDocxImageWidthCm(400, 120)).toBe(15.5)
+  })
+})
+
 describe('DOCX Excalidraw chart rendering', () => {
   beforeEach(() => {
     originalWindowApi = global.window.api
@@ -116,6 +144,11 @@ describe('DOCX Excalidraw chart rendering', () => {
     mockRenderExcalidrawToSvg.mockResolvedValue({
       ok: true,
       svg: '<svg viewBox="0 0 100 60"><rect width="100" height="60"></rect></svg>',
+    })
+    mockRenderInfographicToSvg.mockResolvedValue('<svg viewBox="0 0 800 600"><rect width="800" height="600"></rect></svg>')
+    mockValidateDrawioCode.mockReturnValue({ valid: true })
+    mockRenderDrawioInElement.mockImplementation(async (_code: string, container: HTMLElement) => {
+      container.innerHTML = '<svg viewBox="0 0 320 140"><rect width="320" height="140"></rect></svg>'
     })
     global.window.api = {
       ...global.window.api,
@@ -158,6 +191,50 @@ describe('DOCX Excalidraw chart rendering', () => {
     const result = await renderChartsForDocx('```excalidraw\n{"type":"excalidraw","elements":[]}\n```')
     expect(result.modifiedMarkdown).toMatch(/!\[\]\(mdv__chart__/)
     expect(result.images.length).toBe(1)
+  })
+
+  it('DOCX 图表管线识别 infographic 代码块并替换为图片占位符', async () => {
+    const result = await renderChartsForDocx('```infographic\nlist-row-simple-horizontal-arrow\ndata\n  title 产品开发流程\n```')
+
+    expect(mockRenderInfographicToSvg).toHaveBeenCalled()
+    expect(result.images.length).toBe(1)
+    expect(result.modifiedMarkdown).toMatch(/!\[\]\(mdv__chart__/)
+    expect(result.modifiedMarkdown).not.toContain('```infographic')
+  })
+
+  it('DOCX 图表管线将 dio 别名归一为 drawio 并使用 DrawIO DOM fallback', async () => {
+    document.body.innerHTML = [
+      '<div class="markdown-body">',
+      '<div class="drawio-container"><svg viewBox="0 0 300 120"><rect width="300" height="120"></rect></svg></div>',
+      '</div>',
+    ].join('')
+
+    const result = await renderChartsForDocx('```dio\n<mxGraphModel><root></root></mxGraphModel>\n```')
+
+    expect(result.images.length).toBe(1)
+    expect(result.modifiedMarkdown).toMatch(/!\[\]\(mdv__chart__/)
+    expect(result.modifiedMarkdown).not.toContain('<mxGraphModel')
+  })
+
+  it('DOCX 图表管线在预览 DOM 缺失时主动离屏渲染 DrawIO', async () => {
+    document.body.innerHTML = ''
+    const markdown = [
+      '```drawio',
+      '<mxGraphModel><root><mxCell id="0"/></root></mxGraphModel>',
+      '```',
+      '',
+      '```drawio',
+      '<mxGraphModel><root><mxCell id="1"/></root></mxGraphModel>',
+      '```',
+    ].join('\n')
+
+    const result = await renderChartsForDocx(markdown)
+
+    expect(mockRenderDrawioInElement).toHaveBeenCalledTimes(2)
+    expect(result.images.length).toBe(2)
+    expect(result.modifiedMarkdown.match(/mdv__chart__/g)?.length).toBe(2)
+    expect(result.modifiedMarkdown).not.toContain('```drawio')
+    expect(result.warnings.join('\n')).not.toContain('drawio 图表渲染失败')
   })
 
   it('DOCX 文件引用缺少 markdownFilePath 时产生 warning', async () => {
