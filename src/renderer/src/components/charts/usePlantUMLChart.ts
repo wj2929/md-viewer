@@ -13,10 +13,14 @@ import { useEffect } from 'react'
 import { validatePlantUMLCode, renderPlantUMLToSvg } from '../../utils/plantumlRenderer'
 import { downloadSvgAsPng } from '../../utils/chartUtils'
 
-export function usePlantUMLChart(ref: React.RefObject<HTMLElement>, html: string): void {
+export function usePlantUMLChart(
+  ref: React.RefObject<HTMLElement | null>,
+  html: string,
+  enabled = true
+): void {
   // v1.6.0: PlantUML 图表渲染（异步 fetch 远程服务器）
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     const plantumlBlocks = ref.current.querySelectorAll('pre.language-plantuml')
     if (plantumlBlocks.length === 0) return
@@ -52,6 +56,7 @@ export function usePlantUMLChart(ref: React.RefObject<HTMLElement>, html: string
           // 创建包装容器
           const wrapper = document.createElement('div')
           wrapper.className = 'plantuml-wrapper'
+          wrapper.dataset.plantumlIndex = String(index)
 
           // 存储原始代码
           wrapper.dataset.plantumlCode = btoa(unescape(encodeURIComponent(code)))
@@ -125,6 +130,7 @@ export function usePlantUMLChart(ref: React.RefObject<HTMLElement>, html: string
           // 错误降级：显示错误提示 + 原始代码
           const errorWrapper = document.createElement('div')
           errorWrapper.className = 'plantuml-wrapper'
+          errorWrapper.dataset.plantumlIndex = String(index)
           errorWrapper.innerHTML = `
             <div class="plantuml-error">
               <div class="error-title">PlantUML 渲染失败</div>
@@ -142,7 +148,7 @@ export function usePlantUMLChart(ref: React.RefObject<HTMLElement>, html: string
     return () => {
       abortController.abort()
     }
-  }, [html])
+  }, [html, enabled])
 
   // v1.6.0: PlantUML 切换按钮 + 工具栏点击事件处理
   useEffect(() => {

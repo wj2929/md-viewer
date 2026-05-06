@@ -8,6 +8,7 @@ import { useEffect } from 'react'
 import { renderExcalidrawToSvg, type ExcalidrawRenderResult } from '../../utils/excalidrawRenderer'
 import { downloadSvgAsPng } from '../../utils/chartUtils'
 import { cleanUserFacingError } from '../../utils/userFacingErrors'
+import type { ResourceHost } from '../../render-core/hosts'
 
 const MAX_EXCALIDRAW_BLOCKS = 80
 
@@ -207,11 +208,17 @@ async function readExcalidrawFile(markdownFilePath: string, refPath: string): Pr
 
 async function renderFilePlaceholder(
   placeholder: HTMLElement,
-  markdownFilePath: string
+  markdownFilePath: string,
+  resourceHost?: ResourceHost
 ): Promise<HTMLDivElement> {
   const refPath = placeholder.dataset.excalidrawSrc || ''
   const alt = placeholder.dataset.excalidrawAlt || ''
-  const file = await readExcalidrawFile(markdownFilePath, refPath)
+  const file = resourceHost
+    ? {
+        resolvedPath: resourceHost.resolvePath(markdownFilePath, refPath),
+        content: await resourceHost.readText(resourceHost.resolvePath(markdownFilePath, refPath)),
+      }
+    : await readExcalidrawFile(markdownFilePath, refPath)
   const result = await enqueueRender(() =>
     renderExcalidrawToSvg(file.content, {
       sourceKind: 'file-reference',
@@ -247,9 +254,9 @@ function createFileErrorWrapper(error: unknown, placeholder: HTMLElement): HTMLD
 }
 
 export function useExcalidrawChart(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   html: string,
-  options: { markdownFilePath?: string } = {}
+  options: { markdownFilePath?: string, resourceHost?: ResourceHost } = {}
 ): void {
   useEffect(() => {
     if (!ref.current) return
@@ -276,7 +283,7 @@ export function useExcalidrawChart(
             if (!options.markdownFilePath) {
               throw new Error('缺少 Markdown 文件路径，无法读取 Excalidraw 文件引用')
             }
-            wrapper = await renderFilePlaceholder(candidate as HTMLElement, options.markdownFilePath)
+            wrapper = await renderFilePlaceholder(candidate as HTMLElement, options.markdownFilePath, options.resourceHost)
           }
 
           if (!signal.aborted && wrapper && candidate.parentNode) {

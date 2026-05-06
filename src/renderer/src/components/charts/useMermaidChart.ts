@@ -107,7 +107,7 @@ if (typeof window !== 'undefined') {
  * @param html - Markdown 渲染后的 HTML 字符串（作为依赖项）
  */
 export function useMermaidChart(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   html: string
 ): void {
   // Mermaid 图表渲染（串行化 + 可取消）
@@ -159,6 +159,7 @@ export function useMermaidChart(
           const wrapper = document.createElement('div')
           wrapper.className = 'mermaid-wrapper'
           wrapper.dataset.mermaidCode = btoa(unescape(encodeURIComponent(code)))
+          wrapper.dataset.mermaidIndex = String(index)
 
           // 创建切换按钮栏
           const toggleBar = document.createElement('div')
@@ -219,9 +220,14 @@ export function useMermaidChart(
           }
         } else {
           // 渲染失败时显示原始代码
-          const wrapper = document.createElement('pre')
-          wrapper.className = 'language-mermaid mermaid-error-fallback'
-          wrapper.textContent = code
+          const wrapper = document.createElement('div')
+          wrapper.className = 'mermaid-error mermaid-error-fallback'
+          wrapper.innerHTML = `
+            <div class="error-title">Mermaid 渲染失败</div>
+            <pre class="language-mermaid"><code class="language-mermaid"></code></pre>
+          `
+          const codeElement = wrapper.querySelector('code')
+          if (codeElement) codeElement.textContent = code
           if (block.parentNode) {
             block.replaceWith(wrapper)
           }
