@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
 import * as fs from 'fs-extra'
+import * as path from 'path'
 import { registerFileHandlers } from '../ipc/fileHandlers'
 import { resetSecurity, setAllowedBasePath } from '../security'
 
@@ -79,7 +80,7 @@ describe('Excalidraw file handlers', () => {
       content: '{"type":"excalidraw"}',
       resolvedPath: '/docs/notes/diagram.excalidraw',
     })
-    expect(mockRealpath).toHaveBeenCalledWith('/docs/notes/diagram.excalidraw')
+    expect(mockRealpath).toHaveBeenCalledWith(path.resolve('/docs/notes/diagram.excalidraw'))
     expect(mockReadFile).toHaveBeenCalledWith('/docs/notes/diagram.excalidraw', 'utf-8')
   })
 
@@ -194,6 +195,6 @@ describe('Excalidraw file handlers', () => {
       content: '{"elements":[]}',
       resolvedPath: '/docs/assets/diagram.excalidraw',
     })
-    expect(mockRealpath).toHaveBeenCalledWith('/docs/assets/diagram.excalidraw')
+    expect(mockRealpath).toHaveBeenCalledWith(path.resolve('/docs/assets/diagram.excalidraw'))
   })
 })

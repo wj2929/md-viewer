@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
 import * as fs from 'fs-extra'
+import * as path from 'path'
 import chokidar from 'chokidar'
 import { registerFileHandlers } from '../ipc/fileHandlers'
 import { resetSecurity, setAllowedBasePath } from '../security'
@@ -147,7 +148,7 @@ describe('Markdown editing file handlers', () => {
     const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
 
     await expect(openEditable(eventFor(1), '/docs/a.md')).resolves.toMatchObject({
-      canonicalPath: '/docs/a.md',
+      canonicalPath: path.resolve('/docs/a.md'),
       revisionToken: '1000:12',
     })
   })
