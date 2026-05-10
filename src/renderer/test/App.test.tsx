@@ -81,6 +81,9 @@ const mockApi = {
   removeFolderFromHistory: vi.fn().mockResolvedValue(undefined),
   clearFolderHistory: vi.fn().mockResolvedValue(undefined),
   setFolderPath: vi.fn().mockResolvedValue(true),
+  getFolderTreeState: vi.fn().mockResolvedValue({}),
+  saveFolderTreeState: vi.fn().mockResolvedValue({}),
+  clearFolderTreeState: vi.fn().mockResolvedValue(undefined),
   // v1.3.4：打开特定文件
   onOpenSpecificFile: vi.fn(() => vi.fn()),
   // v1.3.4：右键菜单安装
@@ -425,6 +428,40 @@ describe('App 集成测试', () => {
         expect(mockApi.onFileChanged).toHaveBeenCalled()
         expect(mockApi.onFileAdded).toHaveBeenCalled()
         expect(mockApi.onFileRemoved).toHaveBeenCalled()
+      })
+    })
+
+    it('已打开 Markdown 文件收到外部修改事件后应该自动读取磁盘最新内容', async () => {
+      let fileChangedHandler: ((path: string) => Promise<void>) | undefined
+      const file = { name: 'live.md', path: '/test/folder/live.md', isDirectory: false }
+      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.readDir.mockResolvedValue([file])
+      mockApi.watchFolder.mockResolvedValue({ success: true })
+      mockApi.onFileChanged.mockImplementation((handler) => {
+        fileChangedHandler = handler
+        return vi.fn()
+      })
+      mockApi.readFile
+        .mockResolvedValueOnce('# 旧内容')
+        .mockResolvedValueOnce('# 新内容')
+
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+
+      const fileName = await screen.findByText('live.md')
+      fireEvent.click(fileName)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '旧内容' })).toBeInTheDocument()
+      })
+
+      await act(async () => {
+        await fileChangedHandler?.('/test/folder/live.md')
+      })
+
+      await waitFor(() => {
+        expect(mockApi.readFile).toHaveBeenCalledTimes(2)
+        expect(screen.getByRole('heading', { name: '新内容' })).toBeInTheDocument()
       })
     })
 

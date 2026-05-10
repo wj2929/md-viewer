@@ -11,7 +11,9 @@ import { tmpdir } from 'os'
 let testDir: string
 
 test.beforeEach(() => {
-  testDir = join(tmpdir(), `md-viewer-test-${Date.now()}`)
+  // 主进程 watcher 会拒绝层级过浅的目录；这里使用更深的临时目录，
+  // 让 E2E 覆盖真实文件监听链路，而不是被安全策略提前拦截。
+  testDir = join(tmpdir(), 'md-viewer-e2e', 'file-watching', `case-${Date.now()}`)
   mkdirSync(testDir, { recursive: true })
   writeFileSync(join(testDir, 'watch-test.md'), '# Original Content\n\nInitial text')
 })
@@ -114,5 +116,23 @@ test.describe('文件监听功能测试 (v1.1)', () => {
     writeFileSync(join(testDir, 'subfolder', 'nested.md'), '# Modified Nested File')
 
     await expect(page.locator('.markdown-body h1')).toHaveText('Modified Nested File')
+  })
+
+  test('应该正确处理目录监听深度之外的已打开文件变化', async ({ page, electronApp }) => {
+    const deepDir = join(testDir, 'level1', 'level2', 'level3')
+    const deepFile = join(deepDir, 'deep.md')
+    mkdirSync(deepDir, { recursive: true })
+    writeFileSync(deepFile, '# Deep File')
+
+    await openFolderViaIPC(electronApp, testDir)
+    await electronApp.evaluate(({ BrowserWindow }, filePath) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send('open-specific-file', filePath)
+    }, deepFile)
+    await expect(page.locator('.tab', { hasText: 'deep.md' })).toBeVisible()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Deep File')
+
+    writeFileSync(deepFile, '# Modified Deep File')
+
+    await expect(page.locator('.markdown-body h1')).toHaveText('Modified Deep File')
   })
 })

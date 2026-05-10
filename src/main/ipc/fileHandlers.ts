@@ -44,6 +44,7 @@ const windowEditableFiles = new Map<number, Set<string>>()
 // 重命名检测
 let pendingUnlink: { path: string; timestamp: number } | null = null
 const RENAME_THRESHOLD_MS = 500
+const pendingFileUnlinkTimers = new Map<string, NodeJS.Timeout>()
 
 function buildRevisionToken(stats: fs.Stats): string {
   return `${stats.mtimeMs}:${stats.size}`
@@ -80,6 +81,15 @@ const WATCHER_CONFIG = {
 
 function isPreviewableFilePath(filePath: string): boolean {
   return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
+function isWithinDirectoryWatcherDepth(dirPath: string, filePath: string): boolean {
+  const relativePath = path.relative(dirPath, filePath)
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return false
+  }
+  const directoryDepth = relativePath.split(path.sep).length - 1
+  return directoryDepth <= WATCHER_CONFIG.MAX_DEPTH
 }
 
 // 路径安全验证
@@ -296,11 +306,89 @@ function unwatchDirectoryRef(dirPath: string): void {
   entry.refCount--
   if (entry.refCount <= 0) {
     console.log(`[WATCHER] Closing watcher for ${dirPath} (refCount: 0)`)
-    entry.watcher.close()
+    const closingWatcher = entry.watcher
+    closingWatcher.close()
     dirWatchers.delete(dirPath)
+    if (fileWatcher === closingWatcher) {
+      fileWatcher = null
+    }
+    if (watchedDir === dirPath) {
+      watchedDir = null
+    }
   } else {
     console.log(`[WATCHER] Decreased refCount for ${dirPath} (refCount: ${entry.refCount})`)
   }
+}
+
+function closeWindowFileWatcher(webContentsId: number): void {
+  const watcher = windowFileWatchers.get(webContentsId)
+  if (!watcher) return
+  console.log(`[WATCHER] Window ${webContentsId} closing, cleaning up file watcher`)
+  watcher.watcher.close()
+  windowFileWatchers.delete(webContentsId)
+}
+
+function watchOpenedFile(filePath: string, sender: Electron.WebContents): void {
+  const webContentsId = sender.id
+  const existing = windowFileWatchers.get(webContentsId)
+  if (existing) {
+    if (!existing.files.has(filePath)) {
+      existing.files.add(filePath)
+      existing.watcher.add(filePath)
+      console.log(`[WATCHER] Added opened file watcher: ${filePath}`)
+    }
+    return
+  }
+
+  console.log(`[WATCHER] Watching opened file: ${filePath}`)
+  const files = new Set([filePath])
+  const watcher = chokidar.watch(filePath, {
+    persistent: true,
+    ignoreInitial: true,
+    awaitWriteFinish: {
+      stabilityThreshold: 200,
+      pollInterval: 50
+    }
+  })
+  const state: WindowWatcherState = {
+    watcher,
+    dir: path.dirname(filePath),
+    files
+  }
+  windowFileWatchers.set(webContentsId, state)
+
+  watcher.on('error', (error: unknown) => {
+    console.error('[WATCHER] Opened file watcher error:', error)
+  })
+
+  watcher.on('change', (changedPath: string) => {
+    if (!state.files.has(changedPath)) return
+    console.log(`[WATCHER] Opened file changed: ${changedPath}`)
+    safeSendToRenderer('file:changed', changedPath)
+  })
+
+  watcher.on('add', (addedPath: string) => {
+    if (!state.files.has(addedPath)) return
+    const pendingTimer = pendingFileUnlinkTimers.get(addedPath)
+    if (pendingTimer) {
+      clearTimeout(pendingTimer)
+      pendingFileUnlinkTimers.delete(addedPath)
+    }
+    console.log(`[WATCHER] Opened file changed (add): ${addedPath}`)
+    safeSendToRenderer('file:changed', addedPath)
+  })
+
+  watcher.on('unlink', (removedPath: string) => {
+    if (!state.files.has(removedPath)) return
+    const previousTimer = pendingFileUnlinkTimers.get(removedPath)
+    if (previousTimer) clearTimeout(previousTimer)
+    const timer = setTimeout(() => {
+      pendingFileUnlinkTimers.delete(removedPath)
+      console.log(`[WATCHER] Opened file removed: ${removedPath}`)
+      safeSendToRenderer('file:removed', removedPath)
+    }, RENAME_THRESHOLD_MS + 50)
+    pendingFileUnlinkTimers.set(removedPath, timer)
+  })
 }
 
 // 导出文件监听器状态，供 index.ts 窗口关闭清理使用
@@ -311,12 +399,7 @@ export function getFileWatcherState() {
     watchedWebContentsId: () => watchedWebContentsId,
     cleanup: (webContentsId: number) => {
       // 清理窗口级 watcher
-      const watcher = windowFileWatchers.get(webContentsId)
-      if (watcher) {
-        console.log(`[WATCHER] Window ${webContentsId} closing, cleaning up file watcher`)
-        watcher.watcher.close()
-        windowFileWatchers.delete(webContentsId)
-      }
+      closeWindowFileWatcher(webContentsId)
       // 减少目录 watcher 引用计数
       const dir = windowWatchedDir.get(webContentsId)
       if (dir) {
@@ -561,8 +644,13 @@ export function registerFileHandlers(ctx: IPCContext): void {
       // 如果该窗口之前监听了另一个目录，先减引用计数
       const webContentsId = event.sender.id
       const prevDir = windowWatchedDir.get(webContentsId)
+      if (prevDir === folderPath && dirWatchers.has(folderPath)) {
+        console.log(`[WATCHER] Window ${webContentsId} already watching ${folderPath}`)
+        return { success: true }
+      }
       if (prevDir && prevDir !== folderPath) {
         unwatchDirectoryRef(prevDir)
+        closeWindowFileWatcher(webContentsId)
       }
       windowWatchedDir.set(webContentsId, folderPath)
 
@@ -586,15 +674,37 @@ export function registerFileHandlers(ctx: IPCContext): void {
       watchDirectory(_baseFolderPath, event.sender)
     }
 
+    const watchedDirectory = windowWatchedDir.get(event.sender.id)
+    if (!watchedDirectory || !isWithinDirectoryWatcherDepth(watchedDirectory, filePath)) {
+      watchOpenedFile(filePath, event.sender)
+    }
+
     console.log(`[MAIN] File opened: ${filePath}`)
     return { success: true }
   })
 
   // 停止监听
-  ipcMain.handle('fs:unwatchFolder', async () => {
+  ipcMain.handle('fs:unwatchFolder', async (event) => {
+    const webContentsId = event.sender.id
+    const watchedDirectory = windowWatchedDir.get(webContentsId)
+    if (watchedDirectory) {
+      unwatchDirectoryRef(watchedDirectory)
+      windowWatchedDir.delete(webContentsId)
+      closeWindowFileWatcher(webContentsId)
+      return { success: true }
+    }
+
+    // 兼容旧状态：没有窗口目录记录时，清理全局 watcher 和对应 map 项。
     if (fileWatcher) {
-      await fileWatcher.close()
+      const closingWatcher = fileWatcher
+      await closingWatcher.close()
+      for (const [dirPath, entry] of dirWatchers.entries()) {
+        if (entry.watcher === closingWatcher) {
+          dirWatchers.delete(dirPath)
+        }
+      }
       fileWatcher = null
+      watchedDir = null
     }
     return { success: true }
   })

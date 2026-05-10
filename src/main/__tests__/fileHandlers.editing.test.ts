@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
 import * as fs from 'fs-extra'
+import chokidar from 'chokidar'
 import { registerFileHandlers } from '../ipc/fileHandlers'
 import { resetSecurity, setAllowedBasePath } from '../security'
 
@@ -15,6 +16,7 @@ vi.mock('chokidar', () => ({
   default: {
     watch: vi.fn(() => ({
       on: vi.fn().mockReturnThis(),
+      add: vi.fn(),
       close: vi.fn(),
       getWatched: vi.fn(() => ({})),
     })),
@@ -148,5 +150,41 @@ describe('Markdown editing file handlers', () => {
       canonicalPath: '/docs/a.md',
       revisionToken: '1000:12',
     })
+  })
+
+  it('recreates a directory watcher after the same window unwatches and watches again', async () => {
+    setAllowedBasePath('/Users/test/docs')
+    const watchFolder = handler<(event: any, folderPath: string) => Promise<any>>('fs:watchFolder')
+    const unwatchFolder = handler<(event: any) => Promise<any>>('fs:unwatchFolder')
+    const watch = vi.mocked(chokidar.watch)
+
+    await expect(watchFolder(eventFor(1), '/Users/test/docs/project')).resolves.toEqual({ success: true })
+    expect(watch).toHaveBeenCalledTimes(1)
+    const firstWatcher = watch.mock.results[0].value
+
+    await expect(unwatchFolder(eventFor(1))).resolves.toEqual({ success: true })
+    expect(firstWatcher.close).toHaveBeenCalledTimes(1)
+
+    await expect(watchFolder(eventFor(1), '/Users/test/docs/project')).resolves.toEqual({ success: true })
+    expect(watch).toHaveBeenCalledTimes(2)
+    await expect(unwatchFolder(eventFor(1))).resolves.toEqual({ success: true })
+  })
+
+  it('creates an individual watcher when an opened Markdown file is deeper than the directory watcher depth', async () => {
+    setAllowedBasePath('/Users/test/docs')
+    const watchFolder = handler<(event: any, folderPath: string) => Promise<any>>('fs:watchFolder')
+    const unwatchFolder = handler<(event: any) => Promise<any>>('fs:unwatchFolder')
+    const watchFile = handler<(event: any, filePath: string) => Promise<any>>('fs:watchFile')
+    const watch = vi.mocked(chokidar.watch)
+
+    await expect(watchFolder(eventFor(1), '/Users/test/docs/project')).resolves.toEqual({ success: true })
+    await expect(watchFile(eventFor(1), '/Users/test/docs/project/a/b/c/deep.md')).resolves.toEqual({ success: true })
+
+    expect(watch).toHaveBeenCalledTimes(2)
+    expect(watch).toHaveBeenLastCalledWith('/Users/test/docs/project/a/b/c/deep.md', expect.objectContaining({
+      ignoreInitial: true,
+      persistent: true,
+    }))
+    await expect(unwatchFolder(eventFor(1))).resolves.toEqual({ success: true })
   })
 })
