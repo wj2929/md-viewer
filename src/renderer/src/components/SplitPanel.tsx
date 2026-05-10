@@ -7,10 +7,27 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { VirtualizedMarkdown } from './VirtualizedMarkdown'
 import FloatingNav from './FloatingNav'
+import { QuickEditDrawer } from './QuickEditDrawer'
 import { Tab } from './TabBar'
 import { PanelNode, LeafNode, SplitNode } from '../utils/splitTree'
 import { LightboxState } from './ImageLightbox'
+import { useEditSessionStore } from '../stores/editSessionStore'
+import type { EditSession } from '../stores/editSessionStore'
+import type { QuickEditTarget } from '../utils/quickEditTarget'
 import './SplitPanel.css'
+
+function findEditSessionForPath(sessions: Record<string, EditSession>, filePath: string): EditSession | undefined {
+  return Object.values(sessions).find(session =>
+    session.displayPath === filePath || session.canonicalPath === filePath
+  )
+}
+
+function getDraftPreviewDebounceMs(content: string, hasEditSession: boolean): number | undefined {
+  if (!hasEditSession) return undefined
+  return /```(?:mermaid|echarts|js|json|drawio|plantuml|dot|graphviz|markmap|infographic)\b/i.test(content)
+    ? 900
+    : 250
+}
 
 export interface SplitPanelProps {
   node: PanelNode
@@ -23,6 +40,12 @@ export interface SplitPanelProps {
   onImageClick: (data: LightboxState) => void
   onDropTab: (leafId: string, tabId: string, position: 'center' | 'left' | 'right' | 'top' | 'bottom') => void
   onSwapPanels?: (leafIdA: string, leafIdB: string) => void
+  getQuickEditCanonicalPath?: (tab: Tab) => string | null
+  getQuickEditTarget?: (tab: Tab, leafId: string) => QuickEditTarget | null
+  onSaveQuickEdit?: (canonicalPath: string, content: string, expectedRevisionToken: string, force: boolean) => Promise<void>
+  onCloseQuickEdit?: (placementKey: string, canonicalPath: string) => void
+  onReloadQuickEdit?: (canonicalPath: string) => Promise<void>
+  onCopyDraft?: (content: string) => void
   scrollToLine?: number
   onScrollToLineComplete?: () => void
 }
@@ -54,6 +77,12 @@ function LeafPanel({
   onImageClick,
   onDropTab,
   onSwapPanels,
+  getQuickEditCanonicalPath,
+  getQuickEditTarget,
+  onSaveQuickEdit,
+  onCloseQuickEdit,
+  onReloadQuickEdit,
+  onCopyDraft,
   scrollToLine,
   onScrollToLineComplete
 }: {
@@ -66,11 +95,18 @@ function LeafPanel({
   onImageClick: SplitPanelProps['onImageClick']
   onDropTab: SplitPanelProps['onDropTab']
   onSwapPanels?: SplitPanelProps['onSwapPanels']
+  getQuickEditCanonicalPath?: SplitPanelProps['getQuickEditCanonicalPath']
+  getQuickEditTarget?: SplitPanelProps['getQuickEditTarget']
+  onSaveQuickEdit?: SplitPanelProps['onSaveQuickEdit']
+  onCloseQuickEdit?: SplitPanelProps['onCloseQuickEdit']
+  onReloadQuickEdit?: SplitPanelProps['onReloadQuickEdit']
+  onCopyDraft?: SplitPanelProps['onCopyDraft']
   scrollToLine?: number
   onScrollToLineComplete?: () => void
 }) {
   const previewRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(null)
   const [dragPos, setDragPos] = useState<DragPosition>(null)
 
   const tab = tabs.find(t => t.id === node.tabId)
@@ -114,6 +150,15 @@ function LeafPanel({
   }, [node.id, dragPos, onDropTab, onSwapPanels])
 
   const dragClass = dragPos ? `drag-over drag-over-${dragPos}` : ''
+  const quickEditSession = useEditSessionStore(state => tab ? findEditSessionForPath(state.sessions, tab.file.path) : undefined)
+  const quickEditTarget = tab ? getQuickEditTarget?.(tab, node.id) : null
+  const quickEditCanonicalPath = quickEditTarget?.canonicalPath || (tab ? getQuickEditCanonicalPath?.(tab) : null)
+  const previewContent = tab ? quickEditSession?.draft ?? tab.content : ''
+  const isDraftPreview = Boolean(quickEditSession?.dirty)
+  const setPreviewNode = useCallback((element: HTMLDivElement | null) => {
+    previewRef.current = element
+    setPreviewElement(element)
+  }, [])
 
   return (
     <div
@@ -186,25 +231,45 @@ function LeafPanel({
       </div>
 
       {/* 预览内容 */}
-      <div className="split-panel-content">
-        <div className="preview" ref={previewRef}>
-          {tab ? (
-            <VirtualizedMarkdown
-              key={tab.file.path}
-              content={tab.content}
-              filePath={tab.file.path}
-              scrollToLine={isActive ? scrollToLine : undefined}
-              onScrollToLineComplete={isActive ? onScrollToLineComplete : undefined}
-              onImageClick={onImageClick}
+      <div className={`split-panel-content ${quickEditCanonicalPath ? 'with-quick-edit' : ''}`}>
+        <div className="split-preview-pane">
+          {isDraftPreview && (
+            <div className="quick-edit-preview-banner" role="status">草稿预览，未保存</div>
+          )}
+          <div className="preview" ref={setPreviewNode}>
+            {tab ? (
+              <VirtualizedMarkdown
+                key={tab.file.path}
+                content={previewContent}
+                filePath={tab.file.path}
+                tabId={tab.id}
+                leafId={node.id}
+                renderDebounceMs={getDraftPreviewDebounceMs(previewContent, Boolean(quickEditSession))}
+                scrollToLine={isActive ? scrollToLine : undefined}
+                onScrollToLineComplete={isActive ? onScrollToLineComplete : undefined}
+                onImageClick={onImageClick}
+              />
+            ) : (
+              <p className="placeholder">选择文件开始预览</p>
+            )}
+          </div>
+          {tab && (
+            <FloatingNav
+              containerRef={previewRef}
+              markdown={previewContent}
             />
-          ) : (
-            <p className="placeholder">选择文件开始预览</p>
           )}
         </div>
-        {tab && (
-          <FloatingNav
-            containerRef={previewRef}
-            markdown={tab.content}
+        {quickEditCanonicalPath && onSaveQuickEdit && onCloseQuickEdit && (
+          <QuickEditDrawer
+            canonicalPath={quickEditCanonicalPath}
+            placementKey={node.id}
+            previewElement={previewElement}
+            target={quickEditTarget}
+            onSave={onSaveQuickEdit}
+            onClose={() => onCloseQuickEdit(node.id, quickEditCanonicalPath)}
+            onReloadFromDisk={onReloadQuickEdit}
+            onCopyDraft={onCopyDraft}
           />
         )}
       </div>
@@ -287,6 +352,12 @@ export function SplitPanel(props: SplitPanelProps): JSX.Element {
         onImageClick={props.onImageClick}
         onDropTab={props.onDropTab}
         onSwapPanels={props.onSwapPanels}
+        getQuickEditCanonicalPath={props.getQuickEditCanonicalPath}
+        getQuickEditTarget={props.getQuickEditTarget}
+        onSaveQuickEdit={props.onSaveQuickEdit}
+        onCloseQuickEdit={props.onCloseQuickEdit}
+        onReloadQuickEdit={props.onReloadQuickEdit}
+        onCopyDraft={props.onCopyDraft}
         scrollToLine={props.scrollToLine}
         onScrollToLineComplete={props.onScrollToLineComplete}
       />

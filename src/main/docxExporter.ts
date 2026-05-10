@@ -42,6 +42,14 @@ export interface ChartImageData {
   height: number
 }
 
+export interface EmbeddedDocxImage {
+  id: string
+  pngBase64: string
+  widthCm?: number
+}
+
+type InlineDocxRun = TextRun | ExternalHyperlink | ImageRun
+
 // 标题级别映射
 const HEADING_LEVELS = [
   HeadingLevel.HEADING_1,
@@ -52,12 +60,44 @@ const HEADING_LEVELS = [
   HeadingLevel.HEADING_6,
 ]
 
+function readPngDimensions(buffer: Buffer): { width: number; height: number } | null {
+  const pngSignature = '89504e470d0a1a0a'
+  if (buffer.length < 24 || buffer.subarray(0, 8).toString('hex') !== pngSignature) {
+    return null
+  }
+
+  const width = buffer.readUInt32BE(16)
+  const height = buffer.readUInt32BE(20)
+  if (width <= 0 || height <= 0) return null
+  return { width, height }
+}
+
+function createEmbeddedImageRun(src: string, embeddedImages: EmbeddedDocxImage[]): ImageRun | null {
+  const image = embeddedImages.find(item => item.id === src)
+  if (!image) return null
+
+  const imageBuffer = Buffer.from(image.pngBase64, 'base64')
+  const dimensions = readPngDimensions(imageBuffer) || { width: 800, height: 600 }
+  const targetWidth = Math.max(80, Math.round((image.widthCm || 15.5) * 37.795))
+  const targetHeight = Math.max(20, Math.round(targetWidth * (dimensions.height / dimensions.width)))
+
+  return new ImageRun({
+    data: imageBuffer,
+    transformation: {
+      width: targetWidth,
+      height: targetHeight,
+    },
+    type: 'png',
+  })
+}
+
 // 解析行内格式（粗体、斜体、代码、链接）
 function parseInlineTokens(
   tokens: Token[],
-  basePath: string
-): (TextRun | ExternalHyperlink)[] {
-  const runs: (TextRun | ExternalHyperlink)[] = []
+  basePath: string,
+  embeddedImages: EmbeddedDocxImage[] = []
+): InlineDocxRun[] {
+  const runs: InlineDocxRun[] = []
   let bold = false
   let italic = false
   let linkHref = ''
@@ -85,6 +125,19 @@ function parseInlineTokens(
           })
         )
         break
+      case 'image': {
+        const src = token.attrGet('src') || ''
+        const imageRun = createEmbeddedImageRun(src, embeddedImages)
+        if (imageRun) {
+          runs.push(imageRun)
+        } else {
+          const fallbackText = token.content || src
+          if (fallbackText) {
+            runs.push(new TextRun({ text: fallbackText }))
+          }
+        }
+        break
+      }
       case 'link_open':
         linkHref = token.attrGet('href') || ''
         break
@@ -130,7 +183,8 @@ function parseInlineTokens(
 async function tokensToDocxElements(
   tokens: Token[],
   basePath: string,
-  chartImages: ChartImageData[]
+  chartImages: ChartImageData[],
+  embeddedImages: EmbeddedDocxImage[] = []
 ): Promise<(Paragraph | Table)[]> {
   const elements: (Paragraph | Table)[] = []
   let i = 0
@@ -146,7 +200,7 @@ async function tokensToDocxElements(
         const level = parseInt(token.tag.slice(1)) - 1
         const contentToken = tokens[i + 1]
         if (contentToken && contentToken.type === 'inline') {
-          const runs = parseInlineTokens(contentToken.children || [], basePath)
+          const runs = parseInlineTokens(contentToken.children || [], basePath, embeddedImages)
           elements.push(
             new Paragraph({
               children: runs,
@@ -162,8 +216,13 @@ async function tokensToDocxElements(
       case 'paragraph_open': {
         const contentToken = tokens[i + 1]
         if (contentToken && contentToken.type === 'inline') {
-          const runs = parseInlineTokens(contentToken.children || [], basePath)
-          elements.push(new Paragraph({ children: runs }))
+          const childTokens = contentToken.children || []
+          const runs = parseInlineTokens(childTokens, basePath, embeddedImages)
+          const onlyImage = childTokens.length > 0 && childTokens.every(child => child.type === 'image')
+          elements.push(new Paragraph({
+            children: runs,
+            ...(onlyImage ? { alignment: AlignmentType.CENTER } : {}),
+          }))
         }
         i += 3 // paragraph_open, inline, paragraph_close
         break
@@ -179,7 +238,7 @@ async function tokensToDocxElements(
               if (tokens[i].type === 'paragraph_open') {
                 const contentToken = tokens[i + 1]
                 if (contentToken && contentToken.type === 'inline') {
-                  const runs = parseInlineTokens(contentToken.children || [], basePath)
+                  const runs = parseInlineTokens(contentToken.children || [], basePath, embeddedImages)
                   elements.push(
                     new Paragraph({
                       children: runs,
@@ -209,7 +268,7 @@ async function tokensToDocxElements(
               if (tokens[i].type === 'paragraph_open') {
                 const contentToken = tokens[i + 1]
                 if (contentToken && contentToken.type === 'inline') {
-                  const runs = parseInlineTokens(contentToken.children || [], basePath)
+                  const runs = parseInlineTokens(contentToken.children || [], basePath, embeddedImages)
                   elements.push(
                     new Paragraph({
                       children: runs,
@@ -403,7 +462,7 @@ async function tokensToDocxElements(
           if (tokens[i].type === 'paragraph_open') {
             const contentToken = tokens[i + 1]
             if (contentToken && contentToken.type === 'inline') {
-              const runs = parseInlineTokens(contentToken.children || [], basePath)
+              const runs = parseInlineTokens(contentToken.children || [], basePath, embeddedImages)
               elements.push(
                 new Paragraph({
                   children: runs,
@@ -448,7 +507,7 @@ async function tokensToDocxElements(
                 i++
 
                 if (tokens[i].type === 'inline') {
-                  const runs = parseInlineTokens(tokens[i].children || [], basePath)
+                  const runs = parseInlineTokens(tokens[i].children || [], basePath, embeddedImages)
                   cells.push(
                     new TableCell({
                       children: [
@@ -532,7 +591,8 @@ export async function exportToDocx(
   markdown: string,
   outputPath: string,
   basePath: string,
-  chartImages: ChartImageData[] = []
+  chartImages: ChartImageData[] = [],
+  embeddedImages: EmbeddedDocxImage[] = []
 ): Promise<{ filePath: string; warnings: string[] }> {
   const warnings: string[] = []
 
@@ -541,7 +601,7 @@ export async function exportToDocx(
   const tokens = md.parse(markdown, {}) as Token[]
 
   // 转换为 docx 元素
-  const elements = await tokensToDocxElements(tokens, basePath, chartImages)
+  const elements = await tokensToDocxElements(tokens, basePath, chartImages, embeddedImages)
 
   // 创建文档
   const doc = new Document({

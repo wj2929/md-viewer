@@ -5,10 +5,21 @@
  * 接收二进制 DOCX 响应并写入指定路径。
  */
 import * as fs from 'fs-extra'
+import { constants as fsConstants } from 'node:fs'
 import * as http from 'http'
 import * as https from 'https'
+import * as path from 'path'
 import { app } from 'electron'
 import { appDataManager } from './appDataManager'
+import {
+  DEFAULT_DOCX_STYLE,
+  DOCX_STYLE_LABELS,
+  DOCX_STYLE_ORDER,
+  FALLBACK_DOCX_STYLE,
+  isDocxStyle,
+  normalizeDocxStyle,
+  type DocxStyle,
+} from '../shared/docxStyles'
 
 export interface RemoteImage {
   id: string
@@ -22,6 +33,7 @@ export interface RemoteConvertResult {
   serviceVersion: string
   imagesFailed: number
   mode: string
+  style: DocxStyle
 }
 
 export type DocxErrorType = 'network' | 'timeout' | 'client_error' | 'server_error' | 'write_error' | 'unknown'
@@ -45,13 +57,87 @@ export class DocxExportError extends Error {
   }
 }
 
+function describeOutputWriteFailure(outputPath: string, err: unknown): string {
+  const detail = err instanceof Error ? err.message : String(err)
+  return `目标文件不可写：${outputPath}。请关闭正在打开该文件的程序，或删除旧文件/更换导出路径。${detail}`
+}
+
+export async function ensureDocxOutputPathWritable(outputPath: string, serverUrl: string): Promise<void> {
+  try {
+    if (await fs.pathExists(outputPath)) {
+      await fs.access(outputPath, fsConstants.W_OK)
+      return
+    }
+    await fs.access(path.dirname(outputPath), fsConstants.W_OK)
+  } catch (err) {
+    throw new DocxExportError({
+      errorType: 'write_error',
+      message: describeOutputWriteFailure(outputPath, err),
+      serverUrl,
+      timestamp: new Date().toISOString(),
+      raw: String(err),
+    })
+  }
+}
+
+export interface RemoteDocxStyleConfig {
+  serverUrl?: string
+  apiKey?: string
+  style?: string
+  styleTouched?: boolean
+}
+
+function getSupportedStyles(styles: unknown): Set<DocxStyle> | null {
+  if (!Array.isArray(styles)) return null
+  const supported = new Set<DocxStyle>()
+  for (const style of styles) {
+    if (isDocxStyle(style)) supported.add(style)
+  }
+  return supported.size > 0 ? supported : null
+}
+
+function chooseFallbackStyle(supported: Set<DocxStyle>): DocxStyle {
+  if (supported.has(FALLBACK_DOCX_STYLE)) return FALLBACK_DOCX_STYLE
+  return DOCX_STYLE_ORDER.find(style => supported.has(style)) || FALLBACK_DOCX_STYLE
+}
+
+export async function resolveRemoteDocxStyle(
+  config: RemoteDocxStyleConfig,
+  requestedStyle?: string
+): Promise<{ style: DocxStyle; warnings: string[] }> {
+  const selectedStyle = normalizeDocxStyle(requestedStyle || config.style || DEFAULT_DOCX_STYLE)
+
+  if (selectedStyle !== 'preview' || !config.serverUrl) {
+    return { style: selectedStyle, warnings: [] }
+  }
+
+  const health = await testConnection(config.serverUrl, config.apiKey)
+  if (!health.ok) {
+    return { style: selectedStyle, warnings: [] }
+  }
+
+  const supportedStyles = getSupportedStyles(health.styles)
+  if (!supportedStyles || supportedStyles.has(selectedStyle)) {
+    return { style: selectedStyle, warnings: [] }
+  }
+
+  const fallbackStyle = chooseFallbackStyle(supportedStyles)
+
+  return {
+    style: fallbackStyle,
+    warnings: [
+      `当前 DOCX 服务不支持“${DOCX_STYLE_LABELS[selectedStyle]}”，已临时使用“${DOCX_STYLE_LABELS[fallbackStyle]}”导出。`,
+    ],
+  }
+}
+
 export async function exportViaRemote(
   markdown: string,
   outputPath: string,
   options: {
     style?: string
     title?: string
-    footerText?: string
+    footerText?: string | null
     images?: RemoteImage[]
     embedFont?: boolean
   } = {}
@@ -68,14 +154,21 @@ export async function exportViaRemote(
     })
   }
 
+  await ensureDocxOutputPathWritable(outputPath, docxConfig.serverUrl)
+
   const url = `${docxConfig.serverUrl.replace(/\/+$/, '')}/convert`
   const timeoutMs = docxConfig.timeoutMs || 60000
+  const compatibility = await resolveRemoteDocxStyle(docxConfig, options.style)
+  const effectiveStyle = compatibility.style
+  const footerText = Object.prototype.hasOwnProperty.call(options, 'footerText')
+    ? options.footerText
+    : '由 MD Viewer 生成'
 
   const body = JSON.stringify({
     markdown,
-    style: options.style || docxConfig.style || 'standard',
+    style: effectiveStyle,
     title: options.title || undefined,
-    footerText: options.footerText || '由 MD Viewer 生成',
+    footerText,
     images: (options.images || []).map(img => ({
       id: img.id,
       pngBase64: img.pngBase64,
@@ -84,6 +177,7 @@ export async function exportViaRemote(
     renderCharts: false,
     embedFont: options.embedFont ?? docxConfig.embedFont ?? false,
     clientVersion: app.getVersion(),
+    referenceDocxBase64: await readReferenceDocxBase64(docxConfig.referenceDocxPath),
   })
 
   const parsedUrl = new URL(url)
@@ -126,7 +220,21 @@ export async function exportViaRemote(
           let errBody = `HTTP ${res.statusCode}`
           try {
             const json = JSON.parse(data.toString('utf-8'))
-            errBody = json.error || json.detail?.error || errBody
+            if (typeof json.error === 'string') {
+              errBody = json.error
+            } else if (typeof json.detail === 'string') {
+              errBody = json.detail
+            } else if (typeof json.detail?.error === 'string') {
+              errBody = json.detail.error
+            } else if (Array.isArray(json.detail) && json.detail.length > 0) {
+              const first = json.detail[0]
+              const loc = Array.isArray(first.loc) ? first.loc.join('.') : ''
+              if (loc.endsWith('style') && first.input) {
+                errBody = `样式“${first.input}”不受当前 DOCX 服务支持`
+              } else if (typeof first.msg === 'string') {
+                errBody = first.msg
+              }
+            }
           } catch { /* not JSON */ }
           const code = res.statusCode || 0
           const errorType: DocxErrorType = code >= 500 ? 'server_error' : 'client_error'
@@ -147,7 +255,10 @@ export async function exportViaRemote(
 
         try {
           await fs.writeFile(outputPath, data)
-          const warnings = parseWarnings(headers['x-convert-warnings'] as string | undefined)
+          const warnings = [
+            ...compatibility.warnings,
+            ...parseWarnings(headers['x-convert-warnings'] as string | undefined),
+          ]
           const minVer = headers['x-min-client-version'] as string | undefined
           if (minVer && compareVersions(app.getVersion(), minVer) < 0) {
             warnings.push(`文件已正常生成。建议升级客户端至 ≥ v${minVer} 以保持兼容性`)
@@ -158,6 +269,7 @@ export async function exportViaRemote(
             serviceVersion: (headers['x-service-version'] as string) || 'unknown',
             imagesFailed: parseInt((headers['x-charts-failed'] as string) || '0', 10),
             mode: (headers['x-service-mode'] as string) || 'unknown',
+            style: effectiveStyle,
           })
         } catch (writeErr) {
           reject(new DocxExportError({
@@ -198,6 +310,18 @@ export async function exportViaRemote(
   })
 }
 
+async function readReferenceDocxBase64(referenceDocxPath?: string): Promise<string | undefined> {
+  if (!referenceDocxPath) return undefined
+  try {
+    const stat = await fs.stat(referenceDocxPath)
+    if (!stat.isFile() || stat.size > 15 * 1024 * 1024) return undefined
+    const data = await fs.readFile(referenceDocxPath)
+    return data.toString('base64')
+  } catch {
+    return undefined
+  }
+}
+
 function compareVersions(a: string, b: string): number {
   const clean = (v: string) => (v || '').split('+')[0].split('-')[0].split('.').map(Number)
   const pa = clean(a)
@@ -225,6 +349,10 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
   mode?: string
   styles?: string[]
   fontsAvailable?: string[]
+  embedFontSupported?: boolean
+  chartRenderersAvailable?: string[]
+  maxImagesPerRequest?: number
+  maxRequestSizeMb?: number
   error?: string
 }> {
   const url = `${serverUrl.replace(/\/+$/, '')}/healthz`
@@ -256,6 +384,10 @@ export async function testConnection(serverUrl: string, apiKey?: string): Promis
             mode: json.mode,
             styles: json.styles,
             fontsAvailable: json.fontsAvailable,
+            embedFontSupported: json.embedFontSupported,
+            chartRenderersAvailable: json.chartRenderersAvailable,
+            maxImagesPerRequest: typeof json.maxImagesPerRequest === 'number' ? json.maxImagesPerRequest : undefined,
+            maxRequestSizeMb: typeof json.maxRequestSizeMb === 'number' ? json.maxRequestSizeMb : undefined,
           })
         } catch {
           resolve({ ok: false, error: '响应格式不正确，请确认是 md-viewer-docx-service' })

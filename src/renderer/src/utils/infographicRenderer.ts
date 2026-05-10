@@ -146,4 +146,4 @@ async function processInfographicInHtml(html: string): Promise<string> {
   return result
 }
 
-export { Infographic, validateInfographicConfig, processInfographicInHtml }
+export { Infographic, validateInfographicConfig, renderInfographicToSvg, processInfographicInHtml }

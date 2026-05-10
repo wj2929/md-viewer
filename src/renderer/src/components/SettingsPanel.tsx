@@ -8,6 +8,14 @@ import { useTheme, Theme } from '../hooks/useTheme'
 import { useUIStore, FONT_SIZE } from '../stores/uiStore'
 import { DocxSetupGuide } from './DocxSetupGuide'
 import { DocxStyleCards } from './DocxStyleCards'
+import {
+  DEFAULT_DOCX_STYLE,
+  DOCX_STYLE_LABELS,
+  DOCX_STYLE_ORDER,
+  FALLBACK_DOCX_STYLE,
+  isDocxStyle,
+  type DocxStyle,
+} from '../../../shared/docxStyles'
 
 // ============================================================================
 // 类型定义
@@ -105,14 +113,16 @@ function GeneralTab() {
 
   // DOCX 远程服务配置
   const [docxEnabled, setDocxEnabled] = useState(false)
-  const [docxServerUrl, setDocxServerUrl] = useState('')
+  const [docxServerUrl, setDocxServerUrl] = useState('http://127.0.0.1:3179')
   const [docxApiKey, setDocxApiKey] = useState('')
-  const [docxStyle, setDocxStyle] = useState<'standard' | 'official' | 'internal' | 'report'>('standard')
-  const [docxTimeoutMs, setDocxTimeoutMs] = useState(60000)
-  const [docxEmbedFont, setDocxEmbedFont] = useState(true)
+  const [docxStyle, setDocxStyle] = useState<DocxStyle>(DEFAULT_DOCX_STYLE)
+  const [docxStyleTouched, setDocxStyleTouched] = useState(false)
+  const [docxTimeoutMs, setDocxTimeoutMs] = useState(180000)
+  const [docxEmbedFont, setDocxEmbedFont] = useState(false)
   const [docxLocalFallback, setDocxLocalFallback] = useState(false)
+  const [docxReferencePath, setDocxReferencePath] = useState('')
   const [docxTestStatus, setDocxTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[]; styles?: string[]; mode?: string; error?: string } | null>(null)
+  const [docxTestInfo, setDocxTestInfo] = useState<{ version?: string; fonts?: string[]; styles?: string[]; mode?: string; embedFontSupported?: boolean; chartRenderers?: string[]; maxImagesPerRequest?: number; maxRequestSizeMb?: number; error?: string } | null>(null)
   const [docxTestDetailOpen, setDocxTestDetailOpen] = useState(false)
   const [showDocxSetupGuide, setShowDocxSetupGuide] = useState(false)
   const [docxAdvancedOpen, setDocxAdvancedOpen] = useState(false)
@@ -137,12 +147,14 @@ function GeneralTab() {
       const dx = appSettings.docxExport
       if (dx) {
         setDocxEnabled(dx.remoteEnabled)
-        setDocxServerUrl(dx.serverUrl || '')
+        setDocxServerUrl(dx.serverUrl || 'http://127.0.0.1:3179')
         setDocxApiKey(dx.apiKey || '')
-        setDocxStyle(dx.style || 'standard')
-        setDocxTimeoutMs(dx.timeoutMs || 60000)
-        setDocxEmbedFont(dx.embedFont !== false)
+        setDocxStyle(dx.style || DEFAULT_DOCX_STYLE)
+        setDocxStyleTouched(dx.styleTouched ?? Boolean(dx.style))
+        setDocxTimeoutMs(dx.timeoutMs || 180000)
+        setDocxEmbedFont(dx.embedFont === true)
         setDocxLocalFallback(dx.localFallbackEnabled || false)
+        setDocxReferencePath(dx.referenceDocxPath || '')
       }
     } catch { /* 使用默认值 */ }
   }
@@ -165,13 +177,15 @@ function GeneralTab() {
       serverUrl: docxServerUrl.trim().replace(/\/+$/, '') || undefined,
       apiKey: docxApiKey || undefined,
       style: docxStyle,
+      styleTouched: docxStyleTouched,
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
+      referenceDocxPath: docxReferencePath || undefined,
       ...overrides
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxEnabled, docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+  }, [docxEnabled, docxServerUrl, docxApiKey, docxStyle, docxStyleTouched, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
 
   const handleDocxTest = useCallback(async () => {
     const url = docxServerUrl.trim().replace(/\/+$/, '')
@@ -182,7 +196,16 @@ function GeneralTab() {
       const result = await window.api.testDocxConnection(url, docxApiKey || undefined)
       if (result.ok) {
         setDocxTestStatus('success')
-        setDocxTestInfo({ version: result.version, fonts: result.fontsAvailable, styles: result.styles, mode: result.mode })
+        setDocxTestInfo({
+          version: result.version,
+          fonts: result.fontsAvailable,
+          styles: result.styles,
+          mode: result.mode,
+          embedFontSupported: result.embedFontSupported,
+          chartRenderers: result.chartRenderersAvailable,
+          maxImagesPerRequest: result.maxImagesPerRequest,
+          maxRequestSizeMb: result.maxRequestSizeMb,
+        })
       } else {
         setDocxTestStatus('error')
         setDocxTestInfo({ error: result.error || '连接失败' })
@@ -203,12 +226,14 @@ function GeneralTab() {
       serverUrl,
       apiKey: docxApiKey || undefined,
       style: docxStyle,
+      styleTouched: docxStyleTouched,
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
+      referenceDocxPath: docxReferencePath || undefined,
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+  }, [docxApiKey, docxStyle, docxStyleTouched, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
 
   const handleDocxToggle = useCallback(async (enabled: boolean) => {
     if (enabled && !docxServerUrl) {
@@ -221,12 +246,21 @@ function GeneralTab() {
       serverUrl: docxServerUrl.trim().replace(/\/+$/, '') || undefined,
       apiKey: docxApiKey || undefined,
       style: docxStyle,
+      styleTouched: docxStyleTouched,
       timeoutMs: docxTimeoutMs,
       embedFont: docxEmbedFont,
       localFallbackEnabled: docxLocalFallback,
+      referenceDocxPath: docxReferencePath || undefined,
     }
     await window.api.updateAppSettings({ docxExport })
-  }, [docxServerUrl, docxApiKey, docxStyle, docxTimeoutMs, docxEmbedFont, docxLocalFallback])
+  }, [docxServerUrl, docxApiKey, docxStyle, docxStyleTouched, docxTimeoutMs, docxEmbedFont, docxLocalFallback, docxReferencePath])
+
+  const handleSelectReferenceDocx = useCallback(async () => {
+    const selected = await window.api.selectReferenceDocx?.()
+    if (!selected) return
+    setDocxReferencePath(selected)
+    await saveDocxSettings({ referenceDocxPath: selected })
+  }, [saveDocxSettings])
 
   // ---- 右键菜单操作 ----
 
@@ -305,6 +339,14 @@ function GeneralTab() {
     { value: 'dark', label: '深色' },
     { value: 'auto', label: '跟随系统' }
   ]
+  const supportedDocxStyles = docxTestInfo?.styles?.filter(isDocxStyle)
+  const disabledDocxStyles = supportedDocxStyles && supportedDocxStyles.length > 0
+    ? DOCX_STYLE_ORDER.filter(style => !supportedDocxStyles.includes(style))
+    : []
+  const isSelectedDocxStyleUnsupported = disabledDocxStyles.includes(docxStyle)
+  const fallbackDocxStyle = supportedDocxStyles?.includes(FALLBACK_DOCX_STYLE)
+    ? FALLBACK_DOCX_STYLE
+    : supportedDocxStyles?.[0] || FALLBACK_DOCX_STYLE
 
   return (
     <>
@@ -400,7 +442,7 @@ function GeneralTab() {
             <span className="switch-slider"></span>
           </label>
         </div>
-        <p className="setting-section-hint">在导出的 HTML / PDF 末尾显示「由 MD Viewer 生成」</p>
+        <p className="setting-section-hint">在导出的 HTML / PDF / DOCX 末尾显示「由 MD Viewer 生成」</p>
       </section>
 
       {/* DOCX 导出服务 */}
@@ -481,6 +523,23 @@ function GeneralTab() {
                     {docxTestInfo.styles && docxTestInfo.styles.length > 0 && (
                       <div className="docx-test-result-row">样式：{docxTestInfo.styles.join(' · ')}</div>
                     )}
+                    {docxTestInfo.chartRenderers && docxTestInfo.chartRenderers.length > 0 && (
+                      <div className="docx-test-result-row">服务端渲染：{docxTestInfo.chartRenderers.join(' · ')}</div>
+                    )}
+                    {typeof docxTestInfo.maxImagesPerRequest === 'number' && (
+                      <div className="docx-test-result-row">图片上限：每次最多 {docxTestInfo.maxImagesPerRequest} 张</div>
+                    )}
+                    {typeof docxTestInfo.maxRequestSizeMb === 'number' && (
+                      <div className="docx-test-result-row">请求上限：{docxTestInfo.maxRequestSizeMb} MB</div>
+                    )}
+                    <div className="docx-test-result-row">字体嵌入：{docxTestInfo.embedFontSupported ? '服务端声明支持' : '服务端将按降级策略处理'}</div>
+                  </div>
+                )}
+                {disabledDocxStyles.includes('preview') && (
+                  <div className={`docx-test-result-row ${isSelectedDocxStyleUnsupported ? 'docx-test-result-warning' : ''}`}>
+                    {isSelectedDocxStyleUnsupported
+                      ? `当前服务不支持“${DOCX_STYLE_LABELS[docxStyle]}”，导出时会临时使用“${DOCX_STYLE_LABELS[fallbackDocxStyle]}”。`
+                      : `当前服务未提供“预览一致”，该样式已禁用；当前选择“${DOCX_STYLE_LABELS[docxStyle]}”可导出。`}
                   </div>
                 )}
               </div>
@@ -491,9 +550,11 @@ function GeneralTab() {
 
             <DocxStyleCards
               value={docxStyle}
+              disabledStyles={disabledDocxStyles}
               onChange={v => {
                 setDocxStyle(v)
-                saveDocxSettings({ style: v })
+                setDocxStyleTouched(true)
+                saveDocxSettings({ style: v, styleTouched: true })
               }}
             />
 
@@ -550,6 +611,33 @@ function GeneralTab() {
                   </label>
                 </div>
                 <p className="setting-section-hint">接收方电脑没安装字体时也能正确显示。文件增大约 5-10 MB。</p>
+                <div className="setting-item setting-row" style={{ marginTop: 8 }}>
+                  <label>自定义模板</label>
+                  <div className="docx-url-row">
+                    <input
+                      type="text"
+                      className="settings-input"
+                      value={docxReferencePath}
+                      placeholder="未选择 reference.docx"
+                      readOnly
+                    />
+                    <button className="btn-secondary btn-sm" onClick={handleSelectReferenceDocx}>
+                      选择
+                    </button>
+                    {docxReferencePath && (
+                      <button
+                        className="btn-secondary btn-sm"
+                        onClick={() => {
+                          setDocxReferencePath('')
+                          saveDocxSettings({ referenceDocxPath: undefined })
+                        }}
+                      >
+                        清除
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="setting-section-hint">导出时会把该 DOCX 作为参考模板发送给本地服务；模板异常时服务端回退内置样式。</p>
                 <div className="setting-item setting-row" style={{ marginTop: 8 }}>
                   <label>启用离线导出</label>
                   <label className="setting-switch">

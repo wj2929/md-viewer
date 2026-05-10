@@ -1,7 +1,8 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useClipboardStore, useWindowStore, useUIStore } from '../stores'
 import type { Tab } from '../components'
-import { readFileWithCache, clearFileCache } from '../utils/fileCache'
+import { readPreviewContentWithCache, clearFileCache } from '../utils/fileCache'
+import { buildPreviewContentForFile } from '../utils/previewableFiles'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
 import { buildExportHtmlContent } from '../utils/exportHtml'
 import { createLeaf, splitLeaf, getTreeDepth, MAX_SPLIT_DEPTH, findLeafByTabId, PanelNode } from '../utils/splitTree'
@@ -74,9 +75,9 @@ export function useIPC(options: UseIPCOptions): void {
     const unsubscribeExport = window.api.onFileExportRequest(
       async (data: { path: string; type: 'html' | 'pdf' }) => {
         try {
-          const content = await window.api.readFile(data.path)
+          const content = buildPreviewContentForFile(data.path, await window.api.readFile(data.path))
           const fileName = data.path.split(/[/\\]/).pop() || 'export'
-          const htmlContent = await buildExportHtmlContent(content)
+          const htmlContent = await buildExportHtmlContent(content, { markdownFilePath: data.path })
 
           if (data.type === 'html') {
             const result = await window.api.exportHTML(htmlContent, fileName)
@@ -424,7 +425,7 @@ export function useIPC(options: UseIPCOptions): void {
       let tab = tabsRef.current.find(t => t.file.path === filePath)
       if (!tab) {
         try {
-          const content = await readFileWithCache(filePath)
+          const content = await readPreviewContentWithCache(filePath)
           const fileName = filePath.split(/[/\\]/).pop() || filePath
           const isPinned = await window.api.isTabPinned(filePath)
           const newTab: Tab = {

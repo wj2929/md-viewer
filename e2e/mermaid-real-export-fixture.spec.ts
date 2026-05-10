@@ -7,11 +7,12 @@ import { test, expect } from '@playwright/test'
 import * as path from 'path'
 import * as fs from 'fs'
 
-const REAL_EXPORT = '/Users/mac/Documents/tmp/CCE集群外挂存储详情.html'
+const REAL_EXPORT = process.env.MD_VIEWER_MERMAID_REAL_EXPORT || ''
 const OUT_DIR = path.join(__dirname, '..', 'test-results', 'mermaid-real-fixture')
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true })
 
 test('真实 md-viewer 导出 HTML：5.2 节点不应全黑', async ({ page }) => {
+  test.skip(!REAL_EXPORT, '未设置 MD_VIEWER_MERMAID_REAL_EXPORT，跳过真实导出 HTML 回归检查')
   test.skip(!fs.existsSync(REAL_EXPORT), '跳过：真实导出 HTML 不存在')
 
   await page.goto(`file://${REAL_EXPORT}`)

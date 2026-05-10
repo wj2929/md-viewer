@@ -149,6 +149,20 @@ describe('markdownRenderer 工具函数测试', () => {
       expect(result).toContain('language-drawio')
     })
 
+    it('把 excalidraw 代码块输出为 language-excalidraw', () => {
+      const md = createMarkdownRenderer()
+      const html = md.render('```excalidraw\n{"type":"excalidraw","elements":[]}\n```')
+      expect(html).toContain('pre class="language-excalidraw"')
+      expect(html).toContain('code class="language-excalidraw"')
+    })
+
+    it('把 excalidraw-json 代码块归一为 language-excalidraw', () => {
+      const md = createMarkdownRenderer()
+      const html = md.render('```excalidraw-json\n{"type":"excalidraw","elements":[]}\n```')
+      expect(html).toContain('pre class="language-excalidraw"')
+      expect(html).not.toContain('language-excalidraw-json')
+    })
+
     it('应该将 plantuml 代码块标记为 language-plantuml', () => {
       const code = '```plantuml\n@startuml\nA -> B: hello\n@enduml\n```'
       const result = md.render(code)

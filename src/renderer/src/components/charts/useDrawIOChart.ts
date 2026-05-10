@@ -21,7 +21,7 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  * @param ref - 容器元素的 ref
  * @param html - Markdown 渲染后的 HTML 内容（用于触发重新渲染）
  */
-export function useDrawIOChart(ref: React.RefObject<HTMLElement>, html: string): void {
+export function useDrawIOChart(ref: React.RefObject<HTMLElement | null>, html: string): void {
   // v1.5.5: DrawIO 图表渲染（异步加载 viewer.min.js）
   useEffect(() => {
     if (!ref.current) return
@@ -60,6 +60,7 @@ export function useDrawIOChart(ref: React.RefObject<HTMLElement>, html: string):
 
           // 存储原始代码
           wrapper.dataset.drawioCode = btoa(unescape(encodeURIComponent(code)))
+          wrapper.dataset.drawioIndex = String(index)
 
           // 创建切换按钮栏
           const toggleBar = document.createElement('div')
@@ -230,4 +231,3 @@ export function useDrawIOChart(ref: React.RefObject<HTMLElement>, html: string):
     return () => ref.current?.removeEventListener('click', handleToggleClick)
   }, [html])
 }
-

@@ -186,7 +186,7 @@ function getHintsForErrorType(errorType: string): { user: string[]; advanced?: s
         advanced: ['docker logs md-docx 查看日志', 'docker restart md-docx 重启服务'],
       }
     case 'write_error':
-      return { user: ['磁盘空间是否充足', '目标文件夹是否有写入权限'] }
+      return { user: ['目标文件是否正在被 Word 或 LibreOffice 打开', '旧文件是否属于其它用户或不可写', '目标文件夹是否有写入权限'] }
     default:
       return { user: ['应用服务是否已启动', '设置中的服务地址是否正确'] }
   }

@@ -15,6 +15,7 @@ import {
   useGraphvizChart,
   useDrawIOChart,
   usePlantUMLChart,
+  useExcalidrawChart,
 } from './charts'
 
 // v1.4.0: 页面内搜索
@@ -31,6 +32,9 @@ interface VirtualizedMarkdownProps {
   content: string
   className?: string
   filePath?: string
+  tabId?: string
+  leafId?: string | null
+  renderDebounceMs?: number
   scrollToLine?: number
   onScrollToLineComplete?: () => void
   highlightKeyword?: string
@@ -41,21 +45,26 @@ interface VirtualizedMarkdownProps {
 /**
  * Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '', filePath, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick }: VirtualizedMarkdownProps): JSX.Element {
 
   // v1.3.7：右键菜单处理（添加书签 + 原有功能）
   const folderPath = useFileStore(state => state.folderPath)
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
+  const showPreviewContextMenu = useCallback((target: HTMLElement, currentTarget: HTMLElement) => {
     if (!filePath) return
 
-    // 判断右键点击的元素
-    const target = e.target as HTMLElement
     const heading = target.closest('h1, h2, h3, h4, h5, h6')
 
     // 检测是否有选中文本
     const selection = window.getSelection()
-    const hasSelection = selection !== null && selection.toString().trim().length > 0
+    const selectionText = selection?.toString().trim() || ''
+    const hasSelection = selectionText.length > 0
+    const sourceElement = target.closest('[data-source-line]') as HTMLElement | null
+    const sourceLineValue = sourceElement?.dataset.sourceLine
+    const sourceLine = sourceLineValue ? Number(sourceLineValue) : null
+    const scrollContainer = (currentTarget.closest('.preview') || currentTarget) as HTMLElement
+    const scrollRatio = scrollContainer.scrollHeight > scrollContainer.clientHeight
+      ? scrollContainer.scrollTop / Math.max(1, scrollContainer.scrollHeight - scrollContainer.clientHeight)
+      : 0
 
     // 检测右键目标是否为内部 .md 链接
     let linkHref: string | null = null
@@ -77,16 +86,32 @@ export function VirtualizedMarkdown({ content, className = '', filePath, scrollT
     // 调用新的预览区域右键菜单（v1.3.7：合并书签功能和原有功能）
     window.api.showPreviewContextMenu({
       filePath,
+      tabId,
+      leafId,
       headingId: heading?.id || null,
       headingText: heading?.textContent || null,
       headingLevel: heading?.tagName.toLowerCase() || null,
       hasSelection,
+      selectionText,
+      sourceLine: Number.isFinite(sourceLine) ? sourceLine : null,
+      scrollRatio,
       linkHref,
       basePath: folderPath || null
     }).catch(error => {
       console.error('[VirtualizedMarkdown] Failed to show context menu:', error)
     })
-  }, [filePath, folderPath])
+  }, [filePath, folderPath, leafId, tabId])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    showPreviewContextMenu(e.target as HTMLElement, e.currentTarget as HTMLElement)
+  }, [showPreviewContextMenu])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return
+    e.preventDefault()
+    showPreviewContextMenu(e.target as HTMLElement, e.currentTarget as HTMLElement)
+  }, [showPreviewContextMenu])
 
   // 统一的链接点击处理（覆盖虚拟滚动和非虚拟滚动路径）
   const handleLinkClick = useCallback((e: React.MouseEvent) => {
@@ -229,7 +254,9 @@ export function VirtualizedMarkdown({ content, className = '', filePath, scrollT
       md={md}
       className={className}
       filePath={filePath}
+      renderDebounceMs={renderDebounceMs}
       onContextMenu={handleContextMenu}
+      onPreviewKeyDown={handleKeyDown}
       onImageClick={onImageClick}
     />
   )
@@ -245,14 +272,18 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   md,
   className,
   filePath,
+  renderDebounceMs,
   onContextMenu,
+  onPreviewKeyDown,
   onImageClick
 }: {
   content: string
   md: MarkdownIt
   className: string
   filePath?: string
+  renderDebounceMs: number
   onContextMenu?: (e: React.MouseEvent) => void
+  onPreviewKeyDown?: (e: React.KeyboardEvent) => void
   onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -260,18 +291,18 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   // v1.4.3: 防抖状态 - 延迟渲染以提升性能
   const [debouncedContent, setDebouncedContent] = useState(content)
 
-  // v1.4.3: 防抖更新内容（300ms 延迟）
+  // v1.4.3: 防抖更新内容，快速编辑草稿预览可传入更短延迟
   useEffect(() => {
     const debouncedUpdate = debounce(() => {
       setDebouncedContent(content)
-    }, 300)
+    }, renderDebounceMs)
 
     debouncedUpdate()
 
     return () => {
       debouncedUpdate.cancel()
     }
-  }, [content])
+  }, [content, renderDebounceMs])
 
   // v1.4.0: 页面内搜索
   const search = useInPageSearch(containerRef, debouncedContent.length)
@@ -380,7 +411,9 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         html={html}
         className={className}
         filePath={filePath}
+        sourceContent={debouncedContent}
         onContextMenu={onContextMenu}
+        onKeyDown={onPreviewKeyDown}
         onImageClick={onImageClick}
       />
     </>
@@ -396,9 +429,11 @@ const MarkdownContent = memo(
     html: string
     className: string
     filePath?: string
+    sourceContent: string
     onContextMenu?: (e: React.MouseEvent) => void
+    onKeyDown?: (e: React.KeyboardEvent) => void
     onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
-  }>(function MarkdownContent({ html, className, filePath, onContextMenu, onImageClick }, ref) {
+  }>(function MarkdownContent({ html, className, filePath, sourceContent, onContextMenu, onKeyDown, onImageClick }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
 
@@ -406,8 +441,24 @@ const MarkdownContent = memo(
     useEffect(() => {
       if (combinedRef.current) {
         combinedRef.current.innerHTML = html
+        const sourceLines = sourceContent.split('\n')
+        const elements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,pre,blockquote,table')
+        let searchFrom = 0
+        elements.forEach((element) => {
+          const text = (element.textContent || '').trim()
+          if (!text) return
+          const firstLine = text.split('\n').find(line => line.trim().length > 0)?.trim()
+          if (!firstLine) return
+          const foundIndex = sourceLines.findIndex((line, index) =>
+            index >= searchFrom && line.includes(firstLine.slice(0, Math.min(40, firstLine.length)))
+          )
+          if (foundIndex >= 0) {
+            ;(element as HTMLElement).dataset.sourceLine = String(foundIndex + 1)
+            searchFrom = foundIndex
+          }
+        })
       }
-    }, [html])
+    }, [html, sourceContent])
 
     // 本地图片路径转换：将相对路径转为 local-image:// 协议
     useEffect(() => {
@@ -425,6 +476,14 @@ const MarkdownContent = memo(
           src.startsWith('data:') ||
           src.startsWith('blob:')
         ) {
+          return
+        }
+        if (/\.excalidraw(?:[?#].*)?$/i.test(src)) {
+          const placeholder = document.createElement('div')
+          placeholder.className = 'excalidraw-file-placeholder'
+          placeholder.dataset.excalidrawSrc = src.split('#')[0].split('?')[0]
+          placeholder.dataset.excalidrawAlt = img.getAttribute('alt') || ''
+          img.replaceWith(placeholder)
           return
         }
         // 基于当前 Markdown 文件所在目录解析相对路径
@@ -455,6 +514,7 @@ const MarkdownContent = memo(
     useGraphvizChart(combinedRef, html)
     useDrawIOChart(combinedRef, html)
     usePlantUMLChart(combinedRef, html)
+    useExcalidrawChart(combinedRef, html, { markdownFilePath: filePath })
 
     // 为标题添加 id 属性
     useEffect(() => {
@@ -584,13 +644,13 @@ const MarkdownContent = memo(
       if (!combinedRef.current) return
 
       // 查找所有 pre > code 代码块，排除 Mermaid 和 ECharts（它们有自己的复制按钮）
-      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio):not(.language-plantuml)')
+      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio):not(.language-plantuml):not(.language-excalidraw)')
 
       codeBlocks.forEach((pre) => {
         // 跳过已经有复制按钮的代码块
         if (pre.querySelector('.copy-btn')) return
         // 跳过 ECharts/Infographic/Markmap/Graphviz 代码视图中的代码块（已有复制按钮）
-        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view') || pre.closest('.plantuml-code-view')) return
+        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view') || pre.closest('.plantuml-code-view') || pre.closest('.excalidraw-code-view')) return
 
         const code = pre.querySelector('code')
         if (!code) return
@@ -683,6 +743,17 @@ const MarkdownContent = memo(
               textToCopy = ''
             }
           }
+        } else if (target.closest('.excalidraw-code-view')) {
+          // Excalidraw 代码视图：从 wrapper 的 data-excalidraw-code 获取
+          const wrapper = target.closest('.excalidraw-wrapper')
+          const base64Code = wrapper?.getAttribute('data-excalidraw-code')
+          if (base64Code) {
+            try {
+              textToCopy = decodeURIComponent(escape(atob(base64Code)))
+            } catch {
+              textToCopy = ''
+            }
+          }
         } else if (target.closest('.plantuml-code-view')) {
           // PlantUML 代码视图：从 wrapper 的 data-plantuml-code 获取
           const wrapper = target.closest('.plantuml-wrapper')
@@ -728,11 +799,17 @@ const MarkdownContent = memo(
         ref={combinedRef}
         className={`markdown-body ${className}`}
         onContextMenu={onContextMenu}
+        onKeyDown={onKeyDown}
+        tabIndex={onContextMenu ? 0 : undefined}
+        aria-label={onContextMenu ? 'Markdown 预览区' : undefined}
       />
     )
   }),
   // 自定义比较函数：只有 html 变化时才重渲染
-  (prevProps, nextProps) => prevProps.html === nextProps.html && prevProps.className === nextProps.className
+  (prevProps, nextProps) =>
+    prevProps.html === nextProps.html &&
+    prevProps.className === nextProps.className &&
+    prevProps.sourceContent === nextProps.sourceContent
 )
 
 export default memo(VirtualizedMarkdown)

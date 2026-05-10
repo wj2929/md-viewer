@@ -6,6 +6,7 @@ import { FilePreviewTooltip } from './FilePreviewTooltip'
 interface FileInfo {
   name: string
   path: string
+  treePath?: string
   isDirectory: boolean
   children?: FileInfo[]
 }
@@ -37,15 +38,20 @@ interface FileTreeItemProps {
   // 文件预览 tooltip
   onFileMouseEnter?: (filePath: string, event: React.MouseEvent) => void
   onFileMouseLeave?: () => void
+  collapsedFolders: Record<string, false>
+  treeStateLoaded: boolean
+  onFolderToggle: (folder: FileInfo, expanded: boolean) => void
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave }: FileTreeItemProps): JSX.Element {
-  const [isExpanded, setIsExpanded] = useState(true)
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle }: FileTreeItemProps): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
   const isSelected = selectedPath === item.path
+  const isExpanded = item.isDirectory
+    ? treeStateLoaded && item.treePath ? collapsedFolders[item.treePath] !== false : false
+    : false
   // v1.3 阶段 5：多选状态检查
   const isMultiSelected = selectedPaths?.has(item.path) ?? false
 
@@ -83,11 +89,12 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
       // 多选模式：不打开文件，只更新选择
       onMultiSelect(item.path, e)
     } else if (item.isDirectory) {
-      setIsExpanded(prev => !prev)
+      if (!treeStateLoaded) return
+      onFolderToggle(item, !isExpanded)
     } else {
       onFileSelect(item)
     }
-  }, [item, onFileSelect, onMultiSelect])
+  }, [item, onFileSelect, onMultiSelect, treeStateLoaded, onFolderToggle, isExpanded])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -206,6 +213,9 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               renamingPath={renamingPath}
               onFileMouseEnter={onFileMouseEnter}
               onFileMouseLeave={onFileMouseLeave}
+              collapsedFolders={collapsedFolders}
+              treeStateLoaded={treeStateLoaded}
+              onFolderToggle={onFolderToggle}
             />
           ))}
         </div>
@@ -242,6 +252,11 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
   // 文件预览 tooltip（父组件级别单一实例）
   const { tooltipProps, handleMouseEnter, handleMouseLeave } = useFilePreview()
 
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, false>>({})
+  const [treeStateLoaded, setTreeStateLoaded] = useState(false)
+  const [loadedBasePath, setLoadedBasePath] = useState<string | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // v1.5.3: 在父组件统一监听重命名事件（只注册一次，避免 MaxListeners 警告）
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   useEffect(() => {
@@ -253,6 +268,100 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
 
   // 最后一个选择的路径（用于 Shift 区间选择）
   const lastSelectedRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+
+    setTreeStateLoaded(false)
+    setCollapsedFolders({})
+    setLoadedBasePath(null)
+
+    if (!basePath) {
+      setLoadedBasePath(basePath)
+      setTreeStateLoaded(true)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    window.api.getFolderTreeState()
+      .then((state) => {
+        if (!cancelled) {
+          setCollapsedFolders(state || {})
+          setLoadedBasePath(basePath)
+          setTreeStateLoaded(true)
+        }
+      })
+      .catch((error) => {
+        console.error('[FileTree] Failed to load folder expansion state:', error)
+        if (!cancelled) {
+          setCollapsedFolders({})
+          setLoadedBasePath(basePath)
+          setTreeStateLoaded(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [basePath])
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+      }
+    }
+  }, [])
+
+  const scheduleSaveCollapsedFolders = useCallback((nextFolders: Record<string, false>) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      window.api.saveFolderTreeState(nextFolders).catch((error) => {
+        console.error('[FileTree] Failed to save folder expansion state:', error)
+      })
+    }, 300)
+  }, [])
+
+  const handleFolderToggle = useCallback((folder: FileInfo, expanded: boolean) => {
+    const treePath = folder.treePath
+    if (!treePath) return
+
+    setCollapsedFolders(prev => {
+      const next = { ...prev }
+      if (expanded) {
+        delete next[treePath]
+      } else {
+        next[treePath] = false
+      }
+      scheduleSaveCollapsedFolders(next)
+      return next
+    })
+  }, [scheduleSaveCollapsedFolders])
+
+  const handleResetFolderTreeState = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+
+    setCollapsedFolders({})
+
+    try {
+      await window.api.clearFolderTreeState()
+    } catch (error) {
+      console.error('[FileTree] Failed to clear folder expansion state:', error)
+    }
+  }, [])
 
   // 多选处理逻辑
   const handleMultiSelect = useCallback((path: string, event: React.MouseEvent) => {
@@ -311,39 +420,63 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
     }
   }, [flatFiles, onSelectionChange])
 
+  if (!treeStateLoaded || loadedBasePath !== basePath) {
+    return (
+      <div className="file-tree-loading" role="status" aria-live="polite">
+        正在恢复文件夹状态...
+      </div>
+    )
+  }
+
   if (files.length === 0) {
     return (
       <div className="file-tree-empty">
-        <p>没有找到 Markdown 文件</p>
+        <p>没有找到 Markdown 或 Excalidraw 文件</p>
       </div>
     )
   }
 
   return (
-    <div
-      className="file-tree"
-      role="tree"
-      aria-label="文件列表"
-      onKeyDown={handleKeyDown}
-      tabIndex={-1}
-    >
-      {files.map((file, index) => (
-        <FileTreeItem
-          key={file.path}
-          item={file}
-          depth={0}
-          onFileSelect={onFileSelect}
-          selectedPath={selectedPath}
-          basePath={basePath}
-          onFileRenamed={onFileRenamed}
-          selectedPaths={selectedPaths}
-          onMultiSelect={handleMultiSelect}
-          flatIndex={index}
-          renamingPath={renamingPath}
-          onFileMouseEnter={handleMouseEnter}
-          onFileMouseLeave={handleMouseLeave}
-        />
-      ))}
+    <div className="file-tree-shell">
+      <div className="file-tree-toolbar">
+        <button
+          type="button"
+          className="file-tree-reset-btn"
+          onClick={handleResetFolderTreeState}
+          title="重置当前文件夹展开状态"
+          aria-label="重置当前文件夹展开状态"
+        >
+          重置展开状态
+        </button>
+      </div>
+      <div
+        className="file-tree"
+        role="tree"
+        aria-label="文件列表"
+        onKeyDown={handleKeyDown}
+        tabIndex={-1}
+      >
+        {files.map((file, index) => (
+          <FileTreeItem
+            key={file.path}
+            item={file}
+            depth={0}
+            onFileSelect={onFileSelect}
+            selectedPath={selectedPath}
+            basePath={basePath}
+            onFileRenamed={onFileRenamed}
+            selectedPaths={selectedPaths}
+            onMultiSelect={handleMultiSelect}
+            flatIndex={index}
+            renamingPath={renamingPath}
+            onFileMouseEnter={handleMouseEnter}
+            onFileMouseLeave={handleMouseLeave}
+            collapsedFolders={collapsedFolders}
+            treeStateLoaded={treeStateLoaded}
+            onFolderToggle={handleFolderToggle}
+          />
+        ))}
+      </div>
       <FilePreviewTooltip {...tooltipProps} />
     </div>
   )

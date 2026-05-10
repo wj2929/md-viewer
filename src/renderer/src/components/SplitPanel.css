@@ -101,15 +101,34 @@
 
 /* 面板预览区域 */
 .split-leaf-panel .split-panel-content {
+  display: flex;
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
 }
 
-.split-leaf-panel .split-panel-content .preview {
+.split-leaf-panel .split-preview-pane {
+  display: flex;
+  flex: 1;
   height: 100%;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.split-leaf-panel .split-panel-content .preview {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
+}
+
+@media (max-width: 900px) {
+  .split-leaf-panel .split-panel-content.with-quick-edit {
+    flex-direction: column;
+  }
 }
 
 /* 分割拖拽条 */

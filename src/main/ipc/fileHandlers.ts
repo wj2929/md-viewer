@@ -10,6 +10,7 @@ import { setAllowedBasePath, validateSecurePath, validatePath, validateSearchPat
 interface FileInfo {
   name: string
   path: string
+  treePath: string
   isDirectory: boolean
   children?: FileInfo[]
 }
@@ -20,6 +21,7 @@ let fileWatcher: ReturnType<typeof chokidar.watch> | null = null
 let watchedDir: string | null = null
 let _baseFolderPath: string | null = null
 const watchedFiles = new Set<string>()
+const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 
 let watchedWebContentsId: number | null = null
 
@@ -36,9 +38,26 @@ interface WindowWatcherState {
 }
 const windowFileWatchers = new Map<number, WindowWatcherState>()
 
+// 每个窗口独立的可编辑文件授权集合。必须先通过 fs:openEditableMarkdown 授权，
+// 才允许后续 fs:saveEditableMarkdown 写入。
+const windowEditableFiles = new Map<number, Set<string>>()
+
 // 重命名检测
 let pendingUnlink: { path: string; timestamp: number } | null = null
 const RENAME_THRESHOLD_MS = 500
+const pendingFileUnlinkTimers = new Map<string, NodeJS.Timeout>()
+
+function buildRevisionToken(stats: fs.Stats): string {
+  return `${stats.mtimeMs}:${stats.size}`
+}
+
+async function getBestEffortCanonicalPath(filePath: string): Promise<string> {
+  try {
+    return await fs.realpath(filePath)
+  } catch {
+    return path.resolve(filePath)
+  }
+}
 
 // 配置常量
 const WATCHER_CONFIG = {
@@ -59,6 +78,19 @@ const WATCHER_CONFIG = {
     '**/*.tar.gz',
     '**/batch*/**',
   ],
+}
+
+function isPreviewableFilePath(filePath: string): boolean {
+  return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
+function isWithinDirectoryWatcherDepth(dirPath: string, filePath: string): boolean {
+  const relativePath = path.relative(dirPath, filePath)
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return false
+  }
+  const directoryDepth = relativePath.split(path.sep).length - 1
+  return directoryDepth <= WATCHER_CONFIG.MAX_DEPTH
 }
 
 // 路径安全验证
@@ -113,7 +145,7 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
       (filePath: string, stats?: fs.Stats) => {
         if (!stats) return false
         if (stats.isDirectory()) return false
-        return !filePath.endsWith('.md')
+        return !isPreviewableFilePath(filePath)
       }
     ],
     awaitWriteFinish: {
@@ -190,18 +222,19 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
   })
 }
 
-// 使用 glob 快速扫描 .md 文件
-async function scanMarkdownFiles(rootPath: string): Promise<FileInfo[]> {
+// 使用 glob 快速扫描可预览文件
+async function scanPreviewableFiles(rootPath: string): Promise<FileInfo[]> {
   const { glob } = await import('glob')
 
-  const mdFiles = await glob('**/*.md', {
+  const previewFiles = await glob('**/*.{md,markdown,mdown,mkd,mkdn,excalidraw}', {
     cwd: rootPath,
     ignore: ['**/node_modules/**', '**/.*/**', '**/venv/**', '**/.venv/**', '**/env/**'],
     nodir: true,
-    absolute: false
+    absolute: false,
+    nocase: true
   })
 
-  return buildFileTree(rootPath, mdFiles)
+  return buildFileTree(rootPath, previewFiles)
 }
 
 // 从 glob 结果构建文件树
@@ -213,11 +246,13 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
     const parts = relativePath.split(/[\\/]/)
     const fileName = parts.pop()!
     const fullPath = path.join(rootPath, relativePath)
+    const fileTreePath = relativePath.split(/[\\/]/).join('/')
 
     if (parts.length === 0) {
       tree.push({
         name: fileName,
         path: fullPath,
+        treePath: fileTreePath,
         isDirectory: false
       })
     } else {
@@ -234,6 +269,7 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
           dir = {
             name: part,
             path: dirFullPath,
+            treePath: currentPath,
             isDirectory: true,
             children: []
           }
@@ -246,6 +282,7 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
       parent.push({
         name: fileName,
         path: fullPath,
+        treePath: fileTreePath,
         isDirectory: false
       })
     }
@@ -274,11 +311,89 @@ function unwatchDirectoryRef(dirPath: string): void {
   entry.refCount--
   if (entry.refCount <= 0) {
     console.log(`[WATCHER] Closing watcher for ${dirPath} (refCount: 0)`)
-    entry.watcher.close()
+    const closingWatcher = entry.watcher
+    closingWatcher.close()
     dirWatchers.delete(dirPath)
+    if (fileWatcher === closingWatcher) {
+      fileWatcher = null
+    }
+    if (watchedDir === dirPath) {
+      watchedDir = null
+    }
   } else {
     console.log(`[WATCHER] Decreased refCount for ${dirPath} (refCount: ${entry.refCount})`)
   }
+}
+
+function closeWindowFileWatcher(webContentsId: number): void {
+  const watcher = windowFileWatchers.get(webContentsId)
+  if (!watcher) return
+  console.log(`[WATCHER] Window ${webContentsId} closing, cleaning up file watcher`)
+  watcher.watcher.close()
+  windowFileWatchers.delete(webContentsId)
+}
+
+function watchOpenedFile(filePath: string, sender: Electron.WebContents): void {
+  const webContentsId = sender.id
+  const existing = windowFileWatchers.get(webContentsId)
+  if (existing) {
+    if (!existing.files.has(filePath)) {
+      existing.files.add(filePath)
+      existing.watcher.add(filePath)
+      console.log(`[WATCHER] Added opened file watcher: ${filePath}`)
+    }
+    return
+  }
+
+  console.log(`[WATCHER] Watching opened file: ${filePath}`)
+  const files = new Set([filePath])
+  const watcher = chokidar.watch(filePath, {
+    persistent: true,
+    ignoreInitial: true,
+    awaitWriteFinish: {
+      stabilityThreshold: 200,
+      pollInterval: 50
+    }
+  })
+  const state: WindowWatcherState = {
+    watcher,
+    dir: path.dirname(filePath),
+    files
+  }
+  windowFileWatchers.set(webContentsId, state)
+
+  watcher.on('error', (error: unknown) => {
+    console.error('[WATCHER] Opened file watcher error:', error)
+  })
+
+  watcher.on('change', (changedPath: string) => {
+    if (!state.files.has(changedPath)) return
+    console.log(`[WATCHER] Opened file changed: ${changedPath}`)
+    safeSendToRenderer('file:changed', changedPath)
+  })
+
+  watcher.on('add', (addedPath: string) => {
+    if (!state.files.has(addedPath)) return
+    const pendingTimer = pendingFileUnlinkTimers.get(addedPath)
+    if (pendingTimer) {
+      clearTimeout(pendingTimer)
+      pendingFileUnlinkTimers.delete(addedPath)
+    }
+    console.log(`[WATCHER] Opened file changed (add): ${addedPath}`)
+    safeSendToRenderer('file:changed', addedPath)
+  })
+
+  watcher.on('unlink', (removedPath: string) => {
+    if (!state.files.has(removedPath)) return
+    const previousTimer = pendingFileUnlinkTimers.get(removedPath)
+    if (previousTimer) clearTimeout(previousTimer)
+    const timer = setTimeout(() => {
+      pendingFileUnlinkTimers.delete(removedPath)
+      console.log(`[WATCHER] Opened file removed: ${removedPath}`)
+      safeSendToRenderer('file:removed', removedPath)
+    }, RENAME_THRESHOLD_MS + 50)
+    pendingFileUnlinkTimers.set(removedPath, timer)
+  })
 }
 
 // 导出文件监听器状态，供 index.ts 窗口关闭清理使用
@@ -289,12 +404,7 @@ export function getFileWatcherState() {
     watchedWebContentsId: () => watchedWebContentsId,
     cleanup: (webContentsId: number) => {
       // 清理窗口级 watcher
-      const watcher = windowFileWatchers.get(webContentsId)
-      if (watcher) {
-        console.log(`[WATCHER] Window ${webContentsId} closing, cleaning up file watcher`)
-        watcher.watcher.close()
-        windowFileWatchers.delete(webContentsId)
-      }
+      closeWindowFileWatcher(webContentsId)
       // 减少目录 watcher 引用计数
       const dir = windowWatchedDir.get(webContentsId)
       if (dir) {
@@ -306,8 +416,29 @@ export function getFileWatcherState() {
 }
 
 export function registerFileHandlers(ctx: IPCContext): void {
+  if (process.env.NODE_ENV === 'test') {
+    ipcMain.handle('test:openMarkdownFile', async (event, filePath: string) => {
+      const resolvedPath = path.resolve(filePath)
+      const folderPath = path.dirname(resolvedPath)
+      setAllowedBasePath(folderPath)
+      ctx.store.set('lastOpenedFolder', folderPath)
+      await ctx.folderHistoryManager.addFolder(folderPath)
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        ctx.windowManager.setWindowFolderPath(win.id, folderPath)
+        win.webContents.send('restore-folder', folderPath)
+        setTimeout(() => {
+          if (!win.isDestroyed()) {
+            win.webContents.send('open-specific-file', resolvedPath)
+          }
+        }, 500)
+      }
+      return true
+    })
+  }
+
   // 打开文件夹对话框
-  ipcMain.handle('dialog:openFolder', async () => {
+  ipcMain.handle('dialog:openFolder', async (event) => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory']
     })
@@ -319,6 +450,10 @@ export function registerFileHandlers(ctx: IPCContext): void {
     ctx.store.set('lastOpenedFolder', folderPath)
     await ctx.folderHistoryManager.addFolder(folderPath)
     setAllowedBasePath(folderPath)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) {
+      ctx.windowManager.setWindowFolderPath(win.id, folderPath)
+    }
     console.log(`[SECURITY] Set allowed base path: ${folderPath}`)
 
     return folderPath
@@ -330,7 +465,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       validatePath(dirPath)
 
       const startTime = Date.now()
-      const result = await scanMarkdownFiles(dirPath)
+      const result = await scanPreviewableFiles(dirPath)
       console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
       return result
     } catch (error) {
@@ -366,6 +501,142 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
+  ipcMain.handle('fs:readExcalidrawFile', async (_, payload: {
+    markdownFilePath: string
+    refPath: string
+  }) => {
+    const markdownFilePath = payload?.markdownFilePath
+    const refPath = payload?.refPath
+
+    if (!markdownFilePath || !refPath) {
+      throw new Error('缺少 Excalidraw 文件读取参数')
+    }
+    const hasUrlScheme = /^[a-z][a-z0-9+.-]*:/i.test(refPath)
+    const isWindowsAbsolutePath = /^[a-z]:[\\/]/i.test(refPath)
+    if (hasUrlScheme && !isWindowsAbsolutePath) {
+      throw new Error('不支持 URL 形式的 .excalidraw 文件')
+    }
+
+    validateSecurePath(markdownFilePath)
+
+    const markdownDir = path.dirname(markdownFilePath)
+    const candidatePath = path.isAbsolute(refPath)
+      ? path.resolve(refPath)
+      : path.resolve(markdownDir, refPath)
+
+    if (path.extname(candidatePath).toLowerCase() !== '.excalidraw') {
+      throw new Error('只能读取 .excalidraw 文件')
+    }
+
+    const resolvedPath = await fs.realpath(candidatePath)
+    if (path.extname(resolvedPath).toLowerCase() !== '.excalidraw') {
+      throw new Error('只能读取 .excalidraw 文件')
+    }
+    validateSecurePath(resolvedPath)
+
+    const stats = await fs.stat(resolvedPath)
+    if (!stats.isFile()) {
+      throw new Error('目标不是普通文件')
+    }
+    if (stats.size > 1024 * 1024) {
+      throw new Error('Excalidraw 文件超过 1MB，未读取')
+    }
+
+    return {
+      content: await fs.readFile(resolvedPath, 'utf-8'),
+      resolvedPath,
+    }
+  })
+
+  // 打开可编辑 Markdown：读取内容，返回规范路径和文件版本信息，并授权当前窗口保存
+  ipcMain.handle('fs:openEditableMarkdown', async (event, filePath: string) => {
+    validateSecurePath(filePath)
+
+    const canonicalPath = await getBestEffortCanonicalPath(filePath)
+    if (!canonicalPath.toLowerCase().endsWith('.md')) {
+      throw new Error('只能编辑 Markdown 文件')
+    }
+
+    const stats = await fs.stat(canonicalPath)
+    const MAX_SIZE = 5 * 1024 * 1024
+    if (!stats.isFile()) {
+      throw new Error('目标不是文件')
+    }
+    if (stats.size > MAX_SIZE) {
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2)
+      throw new Error(`文件过大 (${sizeMB}MB)，请选择小于 5MB 的文件`)
+    }
+
+    const content = await fs.readFile(canonicalPath, 'utf-8')
+    const senderId = event.sender.id
+    const editableFiles = windowEditableFiles.get(senderId) || new Set<string>()
+    editableFiles.add(canonicalPath)
+    windowEditableFiles.set(senderId, editableFiles)
+
+    return {
+      canonicalPath,
+      displayPath: filePath,
+      fileName: path.basename(canonicalPath),
+      content,
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      revisionToken: buildRevisionToken(stats),
+    }
+  })
+
+  // 保存可编辑 Markdown：仅允许当前窗口已授权文件，保存前校验版本标识，避免静默覆盖外部修改
+  ipcMain.handle('fs:saveEditableMarkdown', async (event, payload: {
+    canonicalPath: string
+    content: string
+    expectedRevisionToken: string
+    force?: boolean
+  }) => {
+    const { canonicalPath, content, expectedRevisionToken, force = false } = payload
+    validateSecurePath(canonicalPath)
+
+    if (!canonicalPath.toLowerCase().endsWith('.md')) {
+      throw new Error('只能保存 Markdown 文件')
+    }
+    if (typeof content !== 'string') {
+      throw new Error('保存内容必须是字符串')
+    }
+    const contentBytes = Buffer.byteLength(content, 'utf-8')
+    const MAX_SIZE = 5 * 1024 * 1024
+    if (contentBytes > MAX_SIZE) {
+      throw new Error('文件内容超过 5MB，无法保存')
+    }
+
+    const senderId = event.sender.id
+    const editableFiles = windowEditableFiles.get(senderId)
+    if (!editableFiles?.has(canonicalPath)) {
+      throw new Error('未授权编辑此文件')
+    }
+
+    const stats = await fs.stat(canonicalPath)
+    if (!stats.isFile()) {
+      throw new Error('目标不是文件')
+    }
+    const diskRevisionToken = buildRevisionToken(stats)
+    if (!force && diskRevisionToken !== expectedRevisionToken) {
+      return {
+        success: false,
+        conflict: {
+          reason: 'revision_changed',
+          diskRevisionToken,
+        },
+      }
+    }
+
+    await fs.writeFile(canonicalPath, content, 'utf-8')
+    const nextStats = await fs.stat(canonicalPath)
+    return {
+      success: true,
+      mtimeMs: nextStats.mtimeMs,
+      size: nextStats.size,
+      revisionToken: buildRevisionToken(nextStats),
+    }
+  })
+
   // 监听文件夹
   ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
     try {
@@ -383,8 +654,13 @@ export function registerFileHandlers(ctx: IPCContext): void {
       // 如果该窗口之前监听了另一个目录，先减引用计数
       const webContentsId = event.sender.id
       const prevDir = windowWatchedDir.get(webContentsId)
+      if (prevDir === folderPath && dirWatchers.has(folderPath)) {
+        console.log(`[WATCHER] Window ${webContentsId} already watching ${folderPath}`)
+        return { success: true }
+      }
       if (prevDir && prevDir !== folderPath) {
         unwatchDirectoryRef(prevDir)
+        closeWindowFileWatcher(webContentsId)
       }
       windowWatchedDir.set(webContentsId, folderPath)
 
@@ -408,15 +684,37 @@ export function registerFileHandlers(ctx: IPCContext): void {
       watchDirectory(_baseFolderPath, event.sender)
     }
 
+    const watchedDirectory = windowWatchedDir.get(event.sender.id)
+    if (!watchedDirectory || !isWithinDirectoryWatcherDepth(watchedDirectory, filePath)) {
+      watchOpenedFile(filePath, event.sender)
+    }
+
     console.log(`[MAIN] File opened: ${filePath}`)
     return { success: true }
   })
 
   // 停止监听
-  ipcMain.handle('fs:unwatchFolder', async () => {
+  ipcMain.handle('fs:unwatchFolder', async (event) => {
+    const webContentsId = event.sender.id
+    const watchedDirectory = windowWatchedDir.get(webContentsId)
+    if (watchedDirectory) {
+      unwatchDirectoryRef(watchedDirectory)
+      windowWatchedDir.delete(webContentsId)
+      closeWindowFileWatcher(webContentsId)
+      return { success: true }
+    }
+
+    // 兼容旧状态：没有窗口目录记录时，清理全局 watcher 和对应 map 项。
     if (fileWatcher) {
-      await fileWatcher.close()
+      const closingWatcher = fileWatcher
+      await closingWatcher.close()
+      for (const [dirPath, entry] of dirWatchers.entries()) {
+        if (entry.watcher === closingWatcher) {
+          dirWatchers.delete(dirPath)
+        }
+      }
       fileWatcher = null
+      watchedDir = null
     }
     return { success: true }
   })
@@ -550,7 +848,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
   ipcMain.handle('search:readDir', async (_, dirPath: string) => {
     try {
       validateSearchPath(dirPath)
-      return await scanMarkdownFiles(dirPath)
+      return await scanPreviewableFiles(dirPath)
     } catch (error) {
       console.error('Failed to search readDir:', error)
       if (error instanceof Error && error.message.includes('安全错误')) throw error

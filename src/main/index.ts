@@ -60,6 +60,7 @@ function createWindow(): void {
       const lastFolder = store.get('lastOpenedFolder')
       if (lastFolder) {
         setAllowedBasePath(lastFolder)
+        windowManager.setWindowFolderPath(win.id, lastFolder)
         win.webContents.send('restore-folder', lastFolder)
       }
     })
@@ -106,12 +107,14 @@ function openPathInWindow(targetPath: string, type: 'md-file' | 'directory', tar
     setAllowedBasePath(targetPath)
     store.set('lastOpenedFolder', targetPath)
     folderHistoryManager.addFolder(targetPath)
+    windowManager.setWindowFolderPath(win.id, targetPath)
     win.webContents.send('restore-folder', targetPath)
   } else {
     const folderPath = path.dirname(targetPath)
     setAllowedBasePath(folderPath)
     store.set('lastOpenedFolder', folderPath)
     folderHistoryManager.addFolder(folderPath)
+    windowManager.setWindowFolderPath(win.id, folderPath)
     win.webContents.send('restore-folder', folderPath)
     setTimeout(() => {
       if (!win.isDestroyed()) {

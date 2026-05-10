@@ -6,14 +6,23 @@ import * as path from 'path'
 import * as os from 'os'
 import { IPCContext } from './context'
 import { appDataManager } from '../appDataManager'
-import { exportToDocx, ChartImageData } from '../docxExporter'
+import { exportToDocx, ChartImageData, EmbeddedDocxImage } from '../docxExporter'
 import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
-import { exportViaRemote, testConnection, RemoteImage, DocxExportError } from '../remoteDocxExporter'
+import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveRemoteDocxStyle } from '../remoteDocxExporter'
+import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
 
 let lastDocxExportPath: string | null = null
+const EXPORT_SOURCE_EXTENSION_RE = /\.(md|markdown|mdown|mkd|mkdn|excalidraw)$/i
 
 export function getLastDocxExportPath(): string | null {
   return lastDocxExportPath
+}
+
+function withExportExtension(fileName: string, extension: 'html' | 'pdf' | 'docx'): string {
+  if (EXPORT_SOURCE_EXTENSION_RE.test(fileName)) {
+    return fileName.replace(EXPORT_SOURCE_EXTENSION_RE, `.${extension}`)
+  }
+  return `${fileName}.${extension}`
 }
 
 // 获取导出用的完整 CSS（包含所有必需的变量和样式）
@@ -526,7 +535,7 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
   try {
     const result = await dialog.showSaveDialog({
       title: '导出 HTML',
-      defaultPath: fileName.replace(/\.md$/, '.html'),
+      defaultPath: withExportExtension(fileName, 'html'),
       filters: [
         { name: 'HTML Files', extensions: ['html'] }
       ]
@@ -559,7 +568,7 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
 
     const result = await dialog.showSaveDialog(window, {
       title: '导出 PDF',
-      defaultPath: fileName.replace(/\.md$/, '.pdf'),
+      defaultPath: withExportExtension(fileName, 'pdf'),
       filters: [
         { name: 'PDF Files', extensions: ['pdf'] }
       ]
@@ -827,14 +836,36 @@ ipcMain.handle('render:svgToPng', async (_, svgString: string, width?: number) =
       show: false,
       width: renderWidth + 40,
       height: 800,
+      frame: false,
+      useContentSize: true,
       webPreferences: { nodeIntegration: false, contextIsolation: true }
     })
 
     const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
-<style>* { margin: 0; padding: 0; } html, body { background: white; width: fit-content; height: fit-content; }
-.svg-container { display: block; background: white; padding: 8px; width: ${renderWidth}px; }
-.svg-container svg { display: block; width: 100%; max-width: ${renderWidth}px; height: auto; }
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  background: white;
+  width: max-content;
+  height: max-content;
+  overflow: hidden !important;
+}
+::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+.svg-container {
+  display: inline-block;
+  background: white;
+  padding: 8px;
+  width: ${renderWidth}px;
+  overflow: visible !important;
+}
+.svg-container svg {
+  display: block;
+  width: 100% !important;
+  max-width: ${renderWidth}px !important;
+  height: auto !important;
+  overflow: visible !important;
+}
 </style></head>
 <body><div class="svg-container">${svgString}</div></body></html>`
 
@@ -849,22 +880,27 @@ ipcMain.handle('render:svgToPng', async (_, svgString: string, width?: number) =
         const c = document.querySelector('.svg-container');
         if (!c) return { width: 800, height: 400 };
         const r = c.getBoundingClientRect();
-        return { width: Math.ceil(r.width) + 4, height: Math.ceil(r.height) + 4 };
+        return {
+          width: Math.ceil(Math.max(r.width, c.scrollWidth)) + 4,
+          height: Math.ceil(Math.max(r.height, c.scrollHeight)) + 4
+        };
       })()
     `)
 
-    renderWindow.setSize(Math.min(bounds.width, 2400), Math.min(bounds.height, 4000))
+    const captureWidth = Math.min(bounds.width, 2400)
+    const captureHeight = Math.min(bounds.height, 4000)
+    renderWindow.setContentSize(captureWidth, captureHeight)
     await new Promise(resolve => setTimeout(resolve, 100))
 
     let image = await renderWindow.webContents.capturePage({
-      x: 0, y: 0, width: Math.min(bounds.width, 2400), height: Math.min(bounds.height, 4000)
+      x: 0, y: 0, width: captureWidth, height: captureHeight
     })
     let pngBuffer = image.toPNG()
 
     if (pngBuffer.length < 1000) {
       await new Promise(resolve => setTimeout(resolve, 500))
       image = await renderWindow.webContents.capturePage({
-        x: 0, y: 0, width: Math.min(bounds.width, 2400), height: Math.min(bounds.height, 4000)
+        x: 0, y: 0, width: captureWidth, height: captureHeight
       })
       pngBuffer = image.toPNG()
     }
@@ -890,24 +926,51 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     }
 
     const settings = appDataManager.getSettings()
+    const showBranding = settings.showExportBranding !== false
     const docxConfig = settings.docxExport
+    const selectedRemoteStyle = normalizeDocxStyle(docxConfig?.style)
+    let effectiveRemoteStyle = selectedRemoteStyle
+    let styleCompatibilityWarnings: string[] = []
+
+    if (docxConfig?.remoteEnabled && docxConfig.serverUrl) {
+      try {
+        const compatibility = await resolveRemoteDocxStyle(docxConfig, selectedRemoteStyle)
+        effectiveRemoteStyle = compatibility.style
+        styleCompatibilityWarnings = compatibility.warnings
+      } catch (compatErr) {
+        const detail = compatErr instanceof DocxExportError
+          ? compatErr.detail
+          : {
+              errorType: 'unknown' as const,
+              message: compatErr instanceof Error ? compatErr.message : String(compatErr),
+              serverUrl: docxConfig.serverUrl || '',
+              timestamp: new Date().toISOString(),
+            }
+        return { error: detail }
+      }
+    }
 
     const styleLabel = docStyle === 'gongwen' ? '（公文格式）' :
-      (docxConfig?.style && docxConfig.style !== 'standard' ? `（${docxConfig.style}）` : '')
-    const result = await dialog.showSaveDialog(window, {
-      title: `导出 Word 文档${styleLabel}`,
-      defaultPath: fileName.replace(/\.md$/, '.docx'),
-      filters: [
-        { name: 'Word Documents', extensions: ['docx'] }
-      ]
-    })
+      (docxConfig?.style ? `（${DOCX_STYLE_LABELS[effectiveRemoteStyle]}）` : '')
+    const testSavePath = process.env.NODE_ENV === 'test'
+      ? resolveTestDocxSavePath(process.env.MD_VIEWER_TEST_SAVE_DOCX_PATH, fileName, effectiveRemoteStyle)
+      : undefined
+    const result = testSavePath
+      ? { canceled: false, filePath: testSavePath }
+      : await dialog.showSaveDialog(window, {
+          title: `导出 Word 文档${styleLabel}`,
+          defaultPath: withExportExtension(fileName, 'docx'),
+          filters: [
+            { name: 'Word Documents', extensions: ['docx'] }
+          ]
+        })
 
     if (result.canceled || !result.filePath) {
       return null
     }
 
     let filePath: string
-    let warnings: string[] = []
+    let warnings: string[] = [...styleCompatibilityWarnings]
     let usedPandoc = false
     let usedRemote = false
     let imagesFailed = 0
@@ -921,14 +984,15 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
           markdown || htmlContent,
           result.filePath,
           {
-            style: docxConfig.style || 'standard',
+            style: effectiveRemoteStyle,
             title: undefined,
+            footerText: showBranding ? '由 MD Viewer 生成' : null,
             images: remoteImages,
             embedFont: docxConfig.embedFont,
           }
         )
         filePath = remoteResult.filePath
-        warnings = remoteResult.warnings
+        warnings = [...styleCompatibilityWarnings, ...remoteResult.warnings]
         usedRemote = true
         imagesFailed = remoteResult.imagesFailed
       } catch (remoteErr) {
@@ -937,7 +1001,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
         if (docxConfig.localFallbackEnabled) {
           console.log('[DOCX Export] 降级到本地路径')
           warnings.push(`远程服务失败: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr)}`)
-          const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle)
+          const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle, remoteImages)
           filePath = localResult.filePath
           warnings.push(...localResult.warnings)
           usedPandoc = localResult.usedPandoc
@@ -956,7 +1020,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     } else if (docxConfig?.localFallbackEnabled) {
       // 路径 2：本地路径（用户主动启用）
       console.log('[DOCX Export] 使用本地路径（用户启用离线模式）')
-      const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle)
+      const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle, remoteImages)
       filePath = localResult.filePath
       warnings = localResult.warnings
       usedPandoc = localResult.usedPandoc
@@ -976,6 +1040,13 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
   }
 })
 
+function resolveTestDocxSavePath(template: string | undefined, fileName: string, style: string): string | undefined {
+  if (!template) return undefined
+  return template
+    .replace(/\{style\}/g, style)
+    .replace(/\{name\}/g, fileName.replace(EXPORT_SOURCE_EXTENSION_RE, ''))
+}
+
 // 本地 DOCX 导出（Pandoc → docx 库 fallback，保持原有逻辑）
 async function _exportLocalDocx(
   htmlContent: string,
@@ -983,7 +1054,8 @@ async function _exportLocalDocx(
   basePath: string,
   markdown?: string,
   chartImages?: ChartImageData[],
-  docStyle?: string
+  docStyle?: string,
+  embeddedImages?: EmbeddedDocxImage[]
 ): Promise<{ filePath: string; warnings: string[]; usedPandoc: boolean }> {
   const pandocAvailable = await isPandocAvailable()
 
@@ -993,7 +1065,7 @@ async function _exportLocalDocx(
     return { filePath: pandocResult.filePath, warnings: pandocResult.warnings, usedPandoc: true }
   } else if (markdown) {
     console.log('[DOCX Export] Pandoc 不可用，使用 docx 库导出')
-    const docxResult = await exportToDocx(markdown, outputPath, basePath, chartImages || [])
+    const docxResult = await exportToDocx(markdown, outputPath, basePath, chartImages || [], embeddedImages || [])
     return { filePath: docxResult.filePath, warnings: docxResult.warnings, usedPandoc: false }
   } else {
     throw new Error('Pandoc 不可用，且未提供 Markdown 内容')
@@ -1003,6 +1075,20 @@ async function _exportLocalDocx(
 // 测试 DOCX 服务连接
 ipcMain.handle('docx:testConnection', async (_, serverUrl: string, apiKey?: string) => {
   return testConnection(serverUrl, apiKey)
+})
+
+ipcMain.handle('docx:selectReferenceDocx', async (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  const options = {
+    title: '选择 reference.docx 模板',
+    properties: ['openFile'],
+    filters: [{ name: 'Word 模板', extensions: ['docx'] }],
+  } as Electron.OpenDialogOptions
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options)
+  if (result.canceled || !result.filePaths[0]) return null
+  return result.filePaths[0]
 })
 
 ipcMain.handle('docx:getLastExportedFile', () => lastDocxExportPath)

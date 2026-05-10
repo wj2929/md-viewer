@@ -49,4 +49,12 @@ describe('导出路径统一化', () => {
       `exportHtml.ts 应至少处理 6 种图表类型，实际：${[...names].join(', ')}`
     ).toBeGreaterThanOrEqual(6)
   })
+
+  it('HTML/PDF 导出调用 buildExportHtmlContent 时传入 markdownFilePath', () => {
+    const useExportSrc = readFile('src/hooks/useExport.ts')
+    const useIPCSrc = readFile('src/hooks/useIPC.ts')
+
+    expect(useExportSrc).toContain('buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })')
+    expect(useIPCSrc).toContain('buildExportHtmlContent(content, { markdownFilePath: data.path })')
+  })
 })

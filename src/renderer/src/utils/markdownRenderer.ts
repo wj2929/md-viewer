@@ -116,6 +116,11 @@ export function createMarkdownRenderer(): MarkdownIt {
         return `<pre class="language-drawio"><code class="language-drawio">${md.utils.escapeHtml(str)}</code></pre>`
       }
 
+      // Excalidraw 图表：支持 excalidraw 和 excalidraw-json 两种语言标识
+      if (lang === 'excalidraw' || lang === 'excalidraw-json') {
+        return `<pre class="language-excalidraw"><code class="language-excalidraw">${md.utils.escapeHtml(str)}</code></pre>`
+      }
+
       // PlantUML 图表：支持 plantuml 和 puml 两种语言标识
       if (lang === 'plantuml' || lang === 'puml') {
         return `<pre class="language-plantuml"><code class="language-plantuml">${md.utils.escapeHtml(str)}</code></pre>`
@@ -347,6 +352,13 @@ export const DOMPURIFY_CONFIG: Record<string, unknown> = {
     // DrawIO 属性
     'data-drawio-code',
 
+    // Excalidraw 属性
+    'data-excalidraw-code',
+    'data-excalidraw-src',
+    'data-excalidraw-alt',
+    'data-excalidraw-source-kind',
+    'data-excalidraw-source-label',
+
     // PlantUML 属性
     'data-plantuml-code',
 
@@ -491,6 +503,20 @@ export function setupDOMPurifyHooks(): void {
 
     // DrawIO 相关
     'drawio-container', 'drawio-error', 'language-drawio',
+
+    // Excalidraw 相关
+    'language-excalidraw',
+    'excalidraw-wrapper',
+    'excalidraw-toggle-bar',
+    'excalidraw-action-btn',
+    'excalidraw-container',
+    'excalidraw-code-view',
+    'excalidraw-back-btn',
+    'excalidraw-error',
+    'excalidraw-warning',
+    'excalidraw-loading',
+    'excalidraw-empty',
+    'excalidraw-file-placeholder',
 
     // PlantUML 相关
     'plantuml-container', 'plantuml-error', 'language-plantuml', 'language-puml',
@@ -641,4 +667,3 @@ export function sanitizeHtml(html: string): string {
 
   return sanitized
 }
-

@@ -10,7 +10,37 @@ const api = {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
+  readExcalidrawFile: (payload: { markdownFilePath: string; refPath: string }) =>
+    ipcRenderer.invoke('fs:readExcalidrawFile', payload) as Promise<{ content: string; resolvedPath: string }>,
   readFilePreview: (path: string) => ipcRenderer.invoke('fs:readFilePreview', path) as Promise<string>,
+  testOpenMarkdownFile: (path: string) =>
+    ipcRenderer.invoke('test:openMarkdownFile', path) as Promise<boolean>,
+  openEditableMarkdown: (filePath: string) =>
+    ipcRenderer.invoke('fs:openEditableMarkdown', filePath) as Promise<{
+      canonicalPath: string
+      displayPath: string
+      fileName: string
+      content: string
+      mtimeMs: number
+      size: number
+      revisionToken: string
+    }>,
+  saveEditableMarkdown: (payload: {
+    canonicalPath: string
+    content: string
+    expectedRevisionToken: string
+    force?: boolean
+  }) =>
+    ipcRenderer.invoke('fs:saveEditableMarkdown', payload) as Promise<{
+      success: boolean
+      mtimeMs?: number
+      size?: number
+      revisionToken?: string
+      conflict?: {
+        reason: string
+        diskRevisionToken: string
+      }
+    }>,
 
   // 搜索专用：跨文件夹访问（仅检查 PROTECTED_PATTERNS）
   searchReadDir: (path: string) => ipcRenderer.invoke('search:readDir', path),
@@ -53,8 +83,15 @@ const api = {
       mode?: string
       styles?: string[]
       fontsAvailable?: string[]
+      embedFontSupported?: boolean
+      chartRenderersAvailable?: string[]
+      maxImagesPerRequest?: number
+      maxRequestSizeMb?: number
       error?: string
     }>,
+
+  selectReferenceDocx: () =>
+    ipcRenderer.invoke('docx:selectReferenceDocx') as Promise<string | null>,
 
   getLastDocxExportPath: () =>
     ipcRenderer.invoke('docx:getLastExportedFile') as Promise<string | null>,
@@ -94,10 +131,15 @@ const api = {
   // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
   showPreviewContextMenu: (params: {
     filePath: string
+    tabId?: string
+    leafId?: string | null
     headingId: string | null
     headingText: string | null
     headingLevel: string | null
     hasSelection: boolean
+    selectionText?: string
+    sourceLine?: number | null
+    scrollRatio?: number | null
     linkHref: string | null
     basePath: string | null
   }) => ipcRenderer.invoke('preview:show-context-menu', params),
@@ -131,6 +173,12 @@ const api = {
     ipcRenderer.invoke('folder-history:clear'),
   setFolderPath: (folderPath: string) =>
     ipcRenderer.invoke('folder:setPath', folderPath) as Promise<boolean>,
+  getFolderTreeState: () =>
+    ipcRenderer.invoke('folder-tree-state:get') as Promise<Record<string, false>>,
+  saveFolderTreeState: (folders: Record<string, false>) =>
+    ipcRenderer.invoke('folder-tree-state:save', folders) as Promise<Record<string, false>>,
+  clearFolderTreeState: () =>
+    ipcRenderer.invoke('folder-tree-state:clear') as Promise<void>,
 
   // 最近文件右键菜单
   showRecentFileContextMenu: (file: {
@@ -552,6 +600,32 @@ const api = {
     }) => callback(params)
     ipcRenderer.on('add-bookmark-from-preview', handler)
     return () => ipcRenderer.removeListener('add-bookmark-from-preview', handler)
+  },
+
+  onQuickEditFromPreview: (callback: (params: {
+    filePath: string
+    tabId?: string
+    leafId?: string | null
+    canonicalPath?: string
+    targetText?: string
+    targetLine?: number
+    sourceLine?: number
+    scrollRatio?: number
+    mode: 'document' | 'selection' | 'source-line' | 'scroll-ratio'
+  }) => void) => {
+    const handler = (_event: unknown, params: {
+      filePath: string
+      tabId?: string
+      leafId?: string | null
+      canonicalPath?: string
+      targetText?: string
+      targetLine?: number
+      sourceLine?: number
+      scrollRatio?: number
+      mode: 'document' | 'selection' | 'source-line' | 'scroll-ratio'
+    }) => callback(params)
+    ipcRenderer.on('markdown:quick-edit', handler)
+    return () => ipcRenderer.removeListener('markdown:quick-edit', handler)
   },
 
   // v1.3.7：文件树右键菜单事件

@@ -19,7 +19,7 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  * @param html - Markdown 渲染后的 HTML 内容（用于触发重新渲染）
  */
 export function useGraphvizChart(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   html: string
 ): void {
   // v1.5.4: Graphviz DOT 图渲染（异步 WASM 加载）
@@ -62,6 +62,7 @@ export function useGraphvizChart(
 
           // 存储原始代码
           wrapper.dataset.graphvizCode = btoa(unescape(encodeURIComponent(code)))
+          wrapper.dataset.graphvizIndex = String(index)
 
           // 创建切换按钮栏
           const toggleBar = document.createElement('div')

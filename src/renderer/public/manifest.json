@@ -1,0 +1,9 @@
+{
+  "name": "@md-viewer/server-renderer",
+  "version": "1.7.0",
+  "schemaVersion": "1.0",
+  "entryHtml": "server-render.html",
+  "assetsDir": "assets",
+  "supportedCharts": ["mermaid", "katex", "excalidraw", "drawio", "echarts", "markmap", "graphviz", "infographic"],
+  "minDocxServiceVersion": "0.1.0"
+}

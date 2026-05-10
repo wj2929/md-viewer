@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/electron'
+import { test, expect, openFolderViaIPC } from './fixtures/electron'
 import { mkdirSync, writeFileSync, rmSync, appendFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -11,7 +11,9 @@ import { tmpdir } from 'os'
 let testDir: string
 
 test.beforeEach(() => {
-  testDir = join(tmpdir(), `md-viewer-test-${Date.now()}`)
+  // 主进程 watcher 会拒绝层级过浅的目录；这里使用更深的临时目录，
+  // 让 E2E 覆盖真实文件监听链路，而不是被安全策略提前拦截。
+  testDir = join(tmpdir(), 'md-viewer-e2e', 'file-watching', `case-${Date.now()}`)
   mkdirSync(testDir, { recursive: true })
   writeFileSync(join(testDir, 'watch-test.md'), '# Original Content\n\nInitial text')
 })
@@ -23,9 +25,9 @@ test.afterEach(() => {
 })
 
 test.describe('文件监听功能测试 (v1.1)', () => {
-  test('应该在文件修改时自动刷新标签页内容', async ({ page }) => {
-    // 打开文件夹并选择文件
-    // （需要先实现打开逻辑）
+  test('应该在文件修改时自动刷新标签页内容', async ({ page, electronApp }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
     // 验证初始内容
     await expect(page.locator('.markdown-body h1')).toHaveText('Original Content')
@@ -41,12 +43,12 @@ test.describe('文件监听功能测试 (v1.1)', () => {
     await expect(page.locator('.markdown-body p')).toHaveText('Modified text')
   })
 
-  test('应该在文件添加时刷新文件树', async ({ page }) => {
-    // 打开文件夹
-    // （需要先实现打开逻辑）
+  test('应该在文件添加时刷新文件树', async ({ page, electronApp }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
     // 记录初始文件数量
-    const initialCount = await page.locator('.file-item').count()
+    const initialCount = await page.locator('.file-tree-row.file').count()
 
     // 添加新文件
     writeFileSync(join(testDir, 'new-file.md'), '# New File\n\nNew content')
@@ -55,16 +57,16 @@ test.describe('文件监听功能测试 (v1.1)', () => {
     await page.waitForTimeout(3000)
 
     // 验证文件树增加了新文件
-    const newCount = await page.locator('.file-item').count()
+    const newCount = await page.locator('.file-tree-row.file').count()
     expect(newCount).toBe(initialCount + 1)
 
     // 验证新文件可见
-    await expect(page.locator('.file-item', { hasText: 'new-file.md' })).toBeVisible()
+    await expect(page.locator('.file-tree-row.file', { hasText: 'new-file.md' })).toBeVisible()
   })
 
-  test('应该在文件删除时关闭标签并刷新文件树', async ({ page }) => {
-    // 打开文件夹并选择文件
-    // （需要先实现打开逻辑）
+  test('应该在文件删除时关闭标签并刷新文件树', async ({ page, electronApp }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
     // 验证标签页打开
     await expect(page.locator('.tab', { hasText: 'watch-test.md' })).toBeVisible()
@@ -79,12 +81,12 @@ test.describe('文件监听功能测试 (v1.1)', () => {
     await expect(page.locator('.tab', { hasText: 'watch-test.md' })).not.toBeVisible()
 
     // 验证文件树中不再显示该文件
-    await expect(page.locator('.file-item', { hasText: 'watch-test.md' })).not.toBeVisible()
+    await expect(page.locator('.file-tree-row.file', { hasText: 'watch-test.md' })).not.toBeVisible()
   })
 
-  test('应该在快速连续修改时正确处理', async ({ page }) => {
-    // 打开文件
-    // （需要先实现打开逻辑）
+  test('应该在快速连续修改时正确处理', async ({ page, electronApp }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
     // 快速连续修改 5 次
     for (let i = 1; i <= 5; i++) {
@@ -100,21 +102,37 @@ test.describe('文件监听功能测试 (v1.1)', () => {
     await expect(page.locator('.markdown-body p')).toHaveText('Content 5')
   })
 
-  test('应该正确处理子目录中的文件变化', async ({ page }) => {
+  test('应该正确处理子目录中的文件变化', async ({ page, electronApp }) => {
     // 创建子目录和文件
     mkdirSync(join(testDir, 'subfolder'))
     writeFileSync(join(testDir, 'subfolder', 'nested.md'), '# Nested File')
 
-    // 打开文件夹
-    // （需要先实现打开逻辑）
+    await openFolderViaIPC(electronApp, testDir)
+    await expect(page.locator('.file-tree-row.directory:has-text("subfolder")')).toBeVisible()
+    await page.click('.file-tree-row.file:has-text("nested.md")')
+    await expect(page.locator('.markdown-body h1')).toHaveText('Nested File')
 
     // 修改子目录中的文件
     writeFileSync(join(testDir, 'subfolder', 'nested.md'), '# Modified Nested File')
 
-    // 如果该文件已打开，验证自动刷新
-    // （需要先打开该文件）
+    await expect(page.locator('.markdown-body h1')).toHaveText('Modified Nested File')
+  })
 
-    await page.waitForTimeout(3000)
-    // 验证内容更新
+  test('应该正确处理目录监听深度之外的已打开文件变化', async ({ page, electronApp }) => {
+    const deepDir = join(testDir, 'level1', 'level2', 'level3')
+    const deepFile = join(deepDir, 'deep.md')
+    mkdirSync(deepDir, { recursive: true })
+    writeFileSync(deepFile, '# Deep File')
+
+    await openFolderViaIPC(electronApp, testDir)
+    await electronApp.evaluate(({ BrowserWindow }, filePath) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send('open-specific-file', filePath)
+    }, deepFile)
+    await expect(page.locator('.tab', { hasText: 'deep.md' })).toBeVisible()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Deep File')
+
+    writeFileSync(deepFile, '# Modified Deep File')
+
+    await expect(page.locator('.markdown-body h1')).toHaveText('Modified Deep File')
   })
 })

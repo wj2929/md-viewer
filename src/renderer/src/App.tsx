@@ -1,15 +1,37 @@
-import React, { useEffect, useCallback, useMemo, useRef } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView } from './components'
+import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
-import { readFileWithCache, clearFileCache } from './utils/fileCache'
+import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
+import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
 import { useDragDrop } from './hooks/useDragDrop'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIPC } from './hooks/useIPC'
 import { useExport } from './hooks/useExport'
-import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore } from './stores'
+import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore } from './stores'
+import type { EditConflictReason, EditSession } from './stores'
 import { useExportTaskStore } from './stores/exportTaskStore'
+import type { QuickEditTarget } from './utils/quickEditTarget'
+
+function findEditSessionForPath(sessions: Record<string, EditSession>, filePath: string): EditSession | undefined {
+  return Object.values(sessions).find(session =>
+    session.displayPath === filePath || session.canonicalPath === filePath
+  )
+}
+
+function normalizeConflictReason(reason: string | undefined): EditConflictReason {
+  return reason === 'missing' || reason === 'renamed' || reason === 'external_changed' || reason === 'revision_changed'
+    ? reason
+    : 'revision_changed'
+}
+
+function getDraftPreviewDebounceMs(content: string, hasEditSession: boolean): number | undefined {
+  if (!hasEditSession) return undefined
+  return /```(?:mermaid|echarts|js|json|drawio|plantuml|dot|graphviz|markmap|infographic|excalidraw)\b/i.test(content)
+    ? 900
+    : 250
+}
 
 function App(): React.JSX.Element {
   // v1.6.0: Zustand stores
@@ -17,6 +39,14 @@ function App(): React.JSX.Element {
   const { tabs, setTabs, activeTabId, setActiveTabId, splitState, setSplitState, scrollToLine, setScrollToLine, highlightKeyword, setHighlightKeyword } = useTabStore()
   const { bookmarks, bookmarksLoading, bookmarkPanelCollapsed, setBookmarkPanelCollapsed, bookmarkPanelWidth, setBookmarkPanelWidth, bookmarkBarCollapsed, setBookmarkBarCollapsed, loadBookmarks, loadSettings: loadBookmarkSettings } = useBookmarkStore()
   const { sidebarWidth, setSidebarWidth, isResizing, setIsResizing, showSettings, setShowSettings, showShortcutsHelp, setShowShortcutsHelp, isFullscreen, isDragOver, lightbox, setLightbox } = useLayoutStore()
+  const editSessions = useEditSessionStore(state => state.sessions)
+  const openEditSession = useEditSessionStore(state => state.openSession)
+  const markEditSessionSaved = useEditSessionStore(state => state.markSaved)
+  const markEditSessionConflict = useEditSessionStore(state => state.markConflict)
+  const replaceEditSessionFromDisk = useEditSessionStore(state => state.replaceFromDisk)
+  const quickEditPlacements = useQuickEditPlacementStore(state => state.placements)
+  const openQuickEditPlacement = useQuickEditPlacementStore(state => state.openPlacement)
+  const closeQuickEditPlacement = useQuickEditPlacementStore(state => state.closePlacement)
 
   const { lastExportedFilePath, lastExportedTime } = useExportTaskStore()
 
@@ -39,11 +69,15 @@ function App(): React.JSX.Element {
   splitStateRef.current = splitState
   const searchBarRef = useRef<SearchBarHandle>(null)
   const previewRef = useRef<HTMLDivElement>(null)
+  const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(null)
+  const setPreviewNode = useCallback((element: HTMLDivElement | null) => {
+    previewRef.current = element
+    setPreviewElement(element)
+  }, [])
 
   // v1.6.0: 提取的 hooks
   useDragDrop()
   useKeyboardShortcuts()
-  const { handleExportHTML, handleExportPDF, handleExportDOCX } = useExport({ splitState, tabs, activeTabId, folderPath, toast })
 
   // v1.3.6：加载书签设置
   useEffect(() => { loadBookmarkSettings() }, [])
@@ -99,7 +133,7 @@ function App(): React.JSX.Element {
           const newTabs: Tab[] = []
           for (const pinned of pinnedTabs) {
             try {
-              const content = await readFileWithCache(pinned.path)
+              const content = await readPreviewContentWithCache(pinned.path)
               const fileName = pinned.path.split(/[/\\]/).pop() || ''
               newTabs.push({
                 id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -129,7 +163,7 @@ function App(): React.JSX.Element {
       const newTabs: Tab[] = []
       for (const pinned of pinnedTabs) {
         try {
-          const content = await readFileWithCache(pinned.path)
+          const content = await readPreviewContentWithCache(pinned.path)
           const fileName = pinned.path.split(/[/\\]/).pop() || ''
           newTabs.push({
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -149,6 +183,25 @@ function App(): React.JSX.Element {
       console.error('[App] Failed to restore pinned tabs:', error)
     }
   }, [])
+
+  const refreshExistingTabContent = useCallback(async (tab: Tab, loadContent: () => Promise<string>, errorPrefix = '无法打开文件') => {
+    const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
+    setActiveTabId(tab.id)
+    if (dirtySession?.dirty) return
+
+    try {
+      clearFileCache(tab.file.path)
+      const content = await loadContent()
+      setTabs(prev => prev.map(item =>
+        item.id === tab.id
+          ? { ...item, content }
+          : item
+      ))
+    } catch (error) {
+      console.error('Failed to refresh existing tab:', error)
+      toast.error(`${errorPrefix}：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [setActiveTabId, setTabs, toast])
 
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
@@ -208,7 +261,7 @@ function App(): React.JSX.Element {
           for (const pinned of pinnedTabs) {
             if (pinned.path === filePath) continue
             try {
-              const content = await readFileWithCache(pinned.path)
+              const content = await readPreviewContentWithCache(pinned.path)
               const name = pinned.path.split(/[/\\]/).pop() || ''
               restoredTabs.push({
                 id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -218,7 +271,7 @@ function App(): React.JSX.Element {
               })
             } catch { /* 忽略无法读取的文件 */ }
           }
-          const content = await readFileWithCache(filePath)
+          const content = await readPreviewContentWithCache(filePath)
           const isPinned = pinnedTabs.some(t => t.path === filePath)
           const newTab: Tab = {
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -236,11 +289,11 @@ function App(): React.JSX.Element {
     } else {
       const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
       if (existingTab) {
-        setActiveTabId(existingTab.id)
+        await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(filePath))
         return
       }
       try {
-        const content = await readFileWithCache(filePath)
+        const content = await readPreviewContentWithCache(filePath)
         const newTab: Tab = {
           id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           file: { name: fileName, path: filePath, isDirectory: false },
@@ -253,7 +306,7 @@ function App(): React.JSX.Element {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
     }
-  }, [folderPath, toast])
+  }, [folderPath, refreshExistingTabContent, toast])
 
   // 加载文件列表
   useEffect(() => {
@@ -332,11 +385,11 @@ function App(): React.JSX.Element {
     setHighlightKeyword(keyword)
     const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
     if (existingTab) {
-      setActiveTabId(existingTab.id)
+      await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(file.path))
       return
     }
     try {
-      const content = await readFileWithCache(file.path)
+      const content = await readPreviewContentWithCache(file.path)
       const isPinned = await window.api.isTabPinned(file.path)
       const newTab: Tab = {
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -355,18 +408,20 @@ function App(): React.JSX.Element {
       console.error('Failed to read file:', error)
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [toast])
+  }, [refreshExistingTabContent, toast])
 
   // 打开外部文件（跨文件夹搜索结果）：直接打开到 tab，不切换文件夹
   const handleExternalFileOpen = useCallback(async (filePath: string) => {
     const fileName = filePath.split(/[/\\]/).pop() || filePath
     const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
     if (existingTab) {
-      setActiveTabId(existingTab.id)
+      await refreshExistingTabContent(existingTab, async () =>
+        buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
+      )
       return
     }
     try {
-      const content = await window.api.searchReadFile(filePath)
+      const content = buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
       const newTab: Tab = {
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         file: { name: fileName, path: filePath, isDirectory: false },
@@ -380,13 +435,152 @@ function App(): React.JSX.Element {
     } catch (error) {
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [toast])
+  }, [refreshExistingTabContent, toast])
 
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => { setActiveTabId(tabId) }, [])
 
   // 获取当前活动标签
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId), [tabs, activeTabId])
+  const editSessionList = useMemo(() => Object.values(editSessions), [editSessions])
+  const getQuickEditCanonicalPath = useCallback((tab: Tab): string | null => {
+    const session = editSessionList.find(item =>
+      item.displayPath === tab.file.path || item.canonicalPath === tab.file.path
+    )
+    return session?.canonicalPath || null
+  }, [editSessionList])
+  const getQuickEditTarget = useCallback((tab: Tab, leafId: string): QuickEditTarget | null => {
+    const target = quickEditPlacements[leafId]
+    if (!target || target.tabId !== tab.id) return null
+    return target
+  }, [quickEditPlacements])
+  const activeQuickEditSession = activeTab ? findEditSessionForPath(editSessions, activeTab.file.path) : undefined
+  const activeQuickEditTarget = quickEditPlacements.single || null
+  const activeQuickEditCanonicalPath = activeQuickEditTarget?.canonicalPath || null
+  const activePreviewContent = activeTab ? activeQuickEditSession?.draft ?? activeTab.content : ''
+  const isActiveDraftPreview = Boolean(activeQuickEditSession?.dirty)
+
+  const updateTabsForEditSession = useCallback((session: EditSession, content: string) => {
+    setTabs(prev => prev.map(tab =>
+      tab.file.path === session.displayPath || tab.file.path === session.canonicalPath
+        ? { ...tab, content }
+        : tab
+    ))
+  }, [setTabs])
+
+  const handleOpenQuickEdit = useCallback(async (tab: Tab, target?: Partial<QuickEditTarget>) => {
+    if (!isMarkdownFile(tab.file.path)) {
+      toast.error('当前文件不是 Markdown，不能快速编辑')
+      return
+    }
+    try {
+      const result = await window.api.openEditableMarkdown(tab.file.path)
+      openEditSession(result)
+      openQuickEditPlacement({
+        filePath: tab.file.path,
+        tabId: tab.id,
+        mode: 'document',
+        ...target,
+        canonicalPath: result.canonicalPath,
+      })
+    } catch (error) {
+      toast.error(`无法打开快速编辑：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [openEditSession, openQuickEditPlacement, toast])
+
+  const handleSaveQuickEdit = useCallback(async (
+    canonicalPath: string,
+    content: string,
+    expectedRevisionToken: string,
+    force: boolean
+  ) => {
+    const result = await window.api.saveEditableMarkdown({
+      canonicalPath,
+      content,
+      expectedRevisionToken,
+      force
+    })
+
+    if (!result.success) {
+      markEditSessionConflict(
+        canonicalPath,
+        normalizeConflictReason(result.conflict?.reason),
+        result.conflict?.diskRevisionToken
+      )
+      return
+    }
+
+    const session = useEditSessionStore.getState().sessions[canonicalPath]
+    markEditSessionSaved(canonicalPath, content, result.revisionToken ?? expectedRevisionToken)
+    if (session) {
+      clearFileCache(session.displayPath)
+      clearFileCache(session.canonicalPath)
+      updateTabsForEditSession(session, content)
+    }
+  }, [markEditSessionConflict, markEditSessionSaved, updateTabsForEditSession])
+
+  const handleSaveQuickEditBeforeExport = useCallback(async (canonicalPath: string) => {
+    const session = useEditSessionStore.getState().sessions[canonicalPath]
+    if (!session) return false
+
+    await handleSaveQuickEdit(canonicalPath, session.draft, session.baseRevisionToken, false)
+    const nextSession = useEditSessionStore.getState().sessions[canonicalPath]
+    if (nextSession?.dirty || nextSession?.conflictReason) {
+      toast.error('保存快速编辑草稿失败，已取消导出')
+      return false
+    }
+    return true
+  }, [handleSaveQuickEdit, toast])
+
+  const { handleExportHTML, handleExportPDF, handleExportDOCX } = useExport({
+    splitState,
+    tabs,
+    activeTabId,
+    folderPath,
+    toast,
+    saveBeforeExport: handleSaveQuickEditBeforeExport,
+  })
+
+  const handleReloadQuickEdit = useCallback(async (canonicalPath: string) => {
+    const session = useEditSessionStore.getState().sessions[canonicalPath]
+    if (!session) return
+    if (!window.confirm('重新载入磁盘版本会丢弃当前草稿，是否继续？')) return
+
+    try {
+      const result = await window.api.openEditableMarkdown(session.displayPath)
+      replaceEditSessionFromDisk(canonicalPath, result.content, result.revisionToken)
+      updateTabsForEditSession(session, result.content)
+      clearFileCache(session.displayPath)
+      clearFileCache(session.canonicalPath)
+    } catch (error) {
+      toast.error(`重新载入失败：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [replaceEditSessionFromDisk, toast, updateTabsForEditSession])
+
+  const handleCopyQuickEditDraft = useCallback((content: string) => {
+    navigator.clipboard?.writeText(content)
+      .then(() => toast.success('已复制草稿'))
+      .catch(() => toast.error('复制草稿失败'))
+  }, [toast])
+
+  const handleCloseQuickEditPlacement = useCallback((placementKey: string) => {
+    closeQuickEditPlacement(placementKey)
+  }, [closeQuickEditPlacement])
+
+  useEffect(() => {
+    if (!window.api.onQuickEditFromPreview) return
+
+    return window.api.onQuickEditFromPreview((target) => {
+      const tab = target.tabId
+        ? tabsRef.current.find(item => item.id === target.tabId)
+        : tabsRef.current.find(item => item.file.path === target.filePath)
+      if (!tab) {
+        toast.error('无法打开快速编辑：未找到当前文件标签')
+        return
+      }
+      handleOpenQuickEdit(tab, target)
+    })
+  }, [handleOpenQuickEdit, toast])
 
   // 切换文件时重置滚动位置
   useEffect(() => {
@@ -465,7 +659,7 @@ function App(): React.JSX.Element {
 
         setTimeout(async () => {
           try {
-            const content = await readFileWithCache(bookmark.filePath)
+            const content = await readPreviewContentWithCache(bookmark.filePath)
             const newTab: Tab = {
               id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
@@ -488,7 +682,7 @@ function App(): React.JSX.Element {
     const existingTab = tabsRef.current.find(tab => tab.file.path === bookmark.filePath)
     if (!existingTab) {
       try {
-        const content = await readFileWithCache(bookmark.filePath)
+        const content = await readPreviewContentWithCache(bookmark.filePath)
         const newTab: Tab = {
           id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
@@ -501,10 +695,10 @@ function App(): React.JSX.Element {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
     } else {
-      setActiveTabId(existingTab.id)
+      await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(bookmark.filePath), '无法刷新文件')
       setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
     }
-  }, [toast, folderPath])
+  }, [folderPath, refreshExistingTabContent, toast])
 
   const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
     if (!previewRef.current) return
@@ -556,6 +750,11 @@ function App(): React.JSX.Element {
 
     const unsubscribeChanged = window.api.onFileChanged(async (changedPath: string) => {
       clearFileCache(changedPath)
+      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, changedPath)
+      if (dirtySession?.dirty) {
+        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'external_changed')
+        return
+      }
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === changedPath)
       if (affectedTab) {
@@ -573,9 +772,13 @@ function App(): React.JSX.Element {
     const unsubscribeAdded = window.api.onFileAdded(async (addedPath: string) => {
       // 如果新增文件匹配已打开的 tab，重新读取内容（覆盖原子写入超时场景）
       clearFileCache(addedPath)
+      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, addedPath)
+      if (dirtySession?.dirty) {
+        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'external_changed')
+      }
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === addedPath)
-      if (affectedTab) {
+      if (affectedTab && !dirtySession?.dirty) {
         try {
           const newContent = await window.api.readFile(addedPath)
           setTabs(prev => prev.map(tab =>
@@ -594,7 +797,12 @@ function App(): React.JSX.Element {
     })
 
     const unsubscribeRemoved = window.api.onFileRemoved(async (removedPath: string) => {
-      setTabs(prev => prev.filter(tab => tab.file.path !== removedPath))
+      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, removedPath)
+      if (dirtySession?.dirty) {
+        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'missing')
+      } else {
+        setTabs(prev => prev.filter(tab => tab.file.path !== removedPath))
+      }
       try {
         const fileList = await window.api.readDir(folderPath)
         setFiles(fileList)
@@ -624,9 +832,13 @@ function App(): React.JSX.Element {
 
     const unsubscribeRenamed = window.api.onFileRenamed(async ({ oldPath, newPath }) => {
       clearFileCache(newPath)
+      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, oldPath)
+      if (dirtySession?.dirty) {
+        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'renamed')
+      }
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === oldPath)
-      if (affectedTab) {
+      if (affectedTab && !dirtySession?.dirty) {
         try {
           const newContent = await window.api.readFile(newPath)
           setTabs(prev => prev.map(tab => {
@@ -956,33 +1168,60 @@ function App(): React.JSX.Element {
                     onImageClick={setLightbox}
                     onDropTab={handleDropTab}
                     onSwapPanels={handleSwapPanels}
+                    getQuickEditCanonicalPath={getQuickEditCanonicalPath}
+                    getQuickEditTarget={getQuickEditTarget}
+                    onSaveQuickEdit={handleSaveQuickEdit}
+                    onCloseQuickEdit={handleCloseQuickEditPlacement}
+                    onReloadQuickEdit={handleReloadQuickEdit}
+                    onCopyDraft={handleCopyQuickEditDraft}
                     scrollToLine={scrollToLine}
                     onScrollToLineComplete={() => setScrollToLine(undefined)}
                   />
                 ) : (
-                  <div className="preview-container">
-                    <div className="preview" ref={previewRef}>
-                      {activeTab ? (
-                        <VirtualizedMarkdown
-                          key={activeTab.file.path}
-                          content={activeTab.content}
-                          filePath={activeTab.file.path}
-                          scrollToLine={scrollToLine}
-                          onScrollToLineComplete={() => setScrollToLine(undefined)}
-                          highlightKeyword={highlightKeyword}
-                          onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
-                          onImageClick={setLightbox}
+                  <div className={`preview-container ${activeQuickEditCanonicalPath ? 'with-quick-edit' : ''}`}>
+                    <div className="preview-body">
+                      <div className="preview-pane">
+                        {isActiveDraftPreview && (
+                          <div className="quick-edit-preview-banner" role="status">草稿预览，未保存</div>
+                        )}
+                        <div className="preview" ref={setPreviewNode}>
+                          {activeTab ? (
+                            <VirtualizedMarkdown
+                              key={activeTab.file.path}
+                              content={activePreviewContent}
+                              filePath={activeTab.file.path}
+                              tabId={activeTab.id}
+                              renderDebounceMs={getDraftPreviewDebounceMs(activePreviewContent, Boolean(activeQuickEditSession))}
+                              scrollToLine={scrollToLine}
+                              onScrollToLineComplete={() => setScrollToLine(undefined)}
+                              highlightKeyword={highlightKeyword}
+                              onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
+                              onImageClick={setLightbox}
+                            />
+                          ) : (
+                            <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                          )}
+                        </div>
+                        {activeTab && isMarkdownFile(activeTab.file.path) && (
+                          <FloatingNav
+                            containerRef={previewRef}
+                            markdown={activePreviewContent}
+                          />
+                        )}
+                      </div>
+                      {activeQuickEditCanonicalPath && (
+                        <QuickEditDrawer
+                          canonicalPath={activeQuickEditCanonicalPath}
+                          placementKey="single"
+                          previewElement={previewElement}
+                          target={activeQuickEditTarget}
+                          onSave={handleSaveQuickEdit}
+                          onClose={() => closeQuickEditPlacement('single')}
+                          onReloadFromDisk={handleReloadQuickEdit}
+                          onCopyDraft={handleCopyQuickEditDraft}
                         />
-                      ) : (
-                        <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                       )}
                     </div>
-                    {activeTab && (
-                      <FloatingNav
-                        containerRef={previewRef}
-                        markdown={activeTab.content}
-                      />
-                    )}
                   </div>
                 )}
               </section>

@@ -11,10 +11,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { buildExportHtmlContent } from '../../src/utils/exportHtml'
 
+const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
+
 // Mock 所有 process* 渲染器，只测 responsive 后处理
 vi.mock('../../src/utils/markdownRenderer', () => ({
   createMarkdownRenderer: () => ({
-    render: (md: string) => md,
+    render: (md: string) => {
+      const excalidrawBlock = md.match(/^```excalidraw\n([\s\S]*)\n```$/)
+      if (excalidrawBlock) {
+        return `<pre class="language-excalidraw"><code class="language-excalidraw">${excalidrawBlock[1]}</code></pre>`
+      }
+      const excalidrawImage = md.match(/^!\[([^\]]*)\]\(([^)]+\.excalidraw(?:[?#][^)]*)?)\)$/)
+      if (excalidrawImage) {
+        return `<p><img src="${excalidrawImage[2]}" alt="${excalidrawImage[1]}"></p>`
+      }
+      return md
+    },
   }),
 }))
 vi.mock('../../src/utils/mermaidRenderer', () => ({
@@ -38,10 +50,20 @@ vi.mock('../../src/utils/plantumlRenderer', () => ({
 vi.mock('../../src/utils/graphvizRenderer', () => ({
   processGraphvizInHtml: (h: string) => Promise.resolve(h),
 }))
+vi.mock('../../src/utils/excalidrawRenderer', () => ({
+  renderExcalidrawToSvg: mockRenderExcalidrawToSvg,
+}))
 
 describe('buildExportHtmlContent - SVG 自适应', () => {
   beforeEach(() => {
-    // jsdom 下已经有 document，此处不做处理
+    vi.clearAllMocks()
+    mockRenderExcalidrawToSvg.mockResolvedValue({
+      ok: true,
+      svg: '<svg viewBox="0 0 100 100"><rect width="100" height="100"></rect></svg>',
+    })
+    global.window.api = {
+      ...global.window.api,
+    }
   })
 
   it('graphviz-container 里的 SVG 剥掉 width/height 并加 max-width:100%', async () => {
@@ -99,5 +121,50 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
       '</div>'
     const out = await buildExportHtmlContent(input)
     expect(out).toMatch(/preserveAspectRatio="xMidYMid meet"/)
+  })
+
+  it('HTML 导出渲染 excalidraw 代码块为容器 SVG', async () => {
+    const out = await buildExportHtmlContent('```excalidraw\n{"type":"excalidraw","elements":[]}\n```')
+    expect(out).toContain('excalidraw-container')
+    expect(out).toContain('<svg')
+  })
+
+  it('缺少 markdownFilePath 时 .excalidraw 文件引用导出为可见错误', async () => {
+    const out = await buildExportHtmlContent('![图](./a.excalidraw)')
+    expect(out).toContain('Excalidraw 渲染失败')
+    expect(out).toContain('./a.excalidraw')
+  })
+
+  it('不含 Excalidraw 时保留原始 HTML 片段', async () => {
+    const input = '</div><p>保留原始片段</p>'
+    const out = await buildExportHtmlContent(input)
+    expect(out).toBe(input)
+  })
+
+  it('导出 .excalidraw 文件引用时清理 query 和 fragment 后读取文件', async () => {
+    const rawCode = '{"type":"excalidraw","elements":[]}'
+    const readExcalidrawFile = vi.fn().mockResolvedValue({
+      content: rawCode,
+      resolvedPath: '/docs/a.excalidraw',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readExcalidrawFile,
+    }
+
+    const out = await buildExportHtmlContent('![图](./a.excalidraw?raw=1#v)', {
+      markdownFilePath: '/docs/doc.md',
+    })
+
+    expect(readExcalidrawFile).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/doc.md',
+      refPath: './a.excalidraw',
+    })
+    expect(mockRenderExcalidrawToSvg).toHaveBeenCalledWith(rawCode, {
+      sourceKind: 'file-reference',
+      sourceLabel: '图',
+    })
+    expect(out).toContain('excalidraw-container')
+    expect(out).toContain('<svg')
   })
 })

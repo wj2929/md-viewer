@@ -10,7 +10,7 @@ import * as path from 'path'
 // Mock electron-store
 vi.mock('electron-store', () => {
   return {
-    default: vi.fn().mockImplementation(() => {
+    default: vi.fn().mockImplementation(function () {
       const data: Record<string, unknown> = {
         recentFiles: [],
         bookmarks: [],
@@ -189,6 +189,71 @@ describe('AppDataManager', () => {
       appDataManager.updateSettings({ imageDir: 'images' })
       // 不应该抛出错误
       expect(true).toBe(true)
+    })
+  })
+
+  describe('文件树折叠状态', () => {
+    it('默认应该返回空状态', () => {
+      expect(appDataManager.getFolderTreeState('/workspace/default-empty')).toEqual({})
+    })
+
+    it('应该只保存 false 状态', () => {
+      appDataManager.saveFolderTreeState('/workspace/only-false', {
+        'docs/archive': false,
+        'docs/current': true as unknown as false
+      })
+
+      expect(appDataManager.getFolderTreeState('/workspace/only-false')).toEqual({
+        'docs/archive': false
+      })
+    })
+
+    it('应该清理不安全 treePath', () => {
+      appDataManager.saveFolderTreeState('/workspace/sanitize', {
+        'docs/archive': false,
+        '../outside': false,
+        '/absolute': false,
+        '': false
+      })
+
+      expect(appDataManager.getFolderTreeState('/workspace/sanitize')).toEqual({
+        'docs/archive': false
+      })
+    })
+
+    it('不同根目录的状态应该互相隔离', () => {
+      appDataManager.saveFolderTreeState('/workspace/root-a', { docs: false })
+      appDataManager.saveFolderTreeState('/workspace/root-b', { old: false })
+
+      expect(appDataManager.getFolderTreeState('/workspace/root-a')).toEqual({ docs: false })
+      expect(appDataManager.getFolderTreeState('/workspace/root-b')).toEqual({ old: false })
+    })
+
+    it('应该可以清空单个根目录状态', () => {
+      appDataManager.saveFolderTreeState('/workspace/clear', { docs: false })
+      appDataManager.clearFolderTreeState('/workspace/clear')
+
+      expect(appDataManager.getFolderTreeState('/workspace/clear')).toEqual({})
+    })
+
+    it('不应该误杀合法的 ..foo 目录名', () => {
+      appDataManager.saveFolderTreeState('/workspace/dot-prefix', {
+        '..foo': false
+      })
+
+      expect(appDataManager.getFolderTreeState('/workspace/dot-prefix')).toEqual({
+        '..foo': false
+      })
+    })
+
+    it('应该把反斜杠 treePath 规范为正斜杠', () => {
+      appDataManager.saveFolderTreeState('/workspace/backslash', {
+        'docs\\archive': false
+      })
+
+      expect(appDataManager.getFolderTreeState('/workspace/backslash')).toEqual({
+        'docs/archive': false
+      })
     })
   })
 })

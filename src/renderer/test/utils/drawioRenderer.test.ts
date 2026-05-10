@@ -43,6 +43,12 @@ describe('drawioRenderer', () => {
       expect(validateDrawioCode('<root><item>test</item></root>').valid).toBe(false)
     })
 
+    it('应该拒绝包含 DrawIO 标签但 XML 不完整的内容', () => {
+      const result = validateDrawioCode('<mxGraphModel><root><mxCell id="0"></mxGraphModel>')
+      expect(result.valid).toBe(false)
+      expect(result.error).toContain('XML 格式错误')
+    })
+
     it('应该接受包含 mxGraphModel 的 XML', () => {
       const code = '<mxGraphModel><root><mxCell id="0"/></root></mxGraphModel>'
       expect(validateDrawioCode(code)).toEqual({ valid: true })
@@ -160,6 +166,24 @@ describe('drawioRenderer', () => {
     beforeEach(() => {
       // 清理 DOM 中可能残留的 script 标签
       document.querySelectorAll('script[src*="drawio-viewer"]').forEach(el => el.remove())
+      vi.resetModules()
+      delete (window as any).STENCIL_PATH
+      delete (window as any).SHAPES_PATH
+      delete (window as any).STYLE_PATH
+      delete (window as any).GRAPH_IMAGE_PATH
+    })
+
+    it('应该使用官方资源路径，避免请求不存在的本地 shapes 目录', async () => {
+      const { loadDrawioViewer } = await import('../../src/utils/drawioRenderer')
+
+      loadDrawioViewer().catch(() => {
+        // 预期在测试环境中会失败
+      })
+
+      expect((window as any).STENCIL_PATH).toBe('https://viewer.diagrams.net/stencils')
+      expect((window as any).SHAPES_PATH).toBe('https://viewer.diagrams.net/shapes')
+      expect((window as any).STYLE_PATH).toBe('https://viewer.diagrams.net/styles')
+      expect((window as any).GRAPH_IMAGE_PATH).toBe('https://viewer.diagrams.net/img')
     })
 
     it('应该创建 script 标签加载 viewer', async () => {

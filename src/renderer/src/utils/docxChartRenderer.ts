@@ -9,6 +9,7 @@ import { renderEChartsToSvg } from './echartsRenderer'
 import { renderMermaidToSvg } from './mermaidRenderer'
 import { renderGraphvizToSvg } from './graphvizRenderer'
 import { renderPlantUMLToSvg } from './plantumlRenderer'
+import { cleanUserFacingError } from './userFacingErrors'
 
 export interface ChartImage {
   id: string
@@ -22,13 +23,19 @@ export interface ChartRenderResult {
   warnings: string[]
 }
 
-type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio'
+type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio' | 'excalidraw' | 'infographic'
+
+export interface DocxChartRenderOptions {
+  markdownFilePath?: string
+  onProgress?: (current: number, total: number, type: string) => void
+}
 
 const CHART_LANGS = new Set<string>([
-  'echarts', 'mermaid', 'dot', 'graphviz', 'markmap', 'plantuml', 'drawio',
+  'echarts', 'mermaid', 'dot', 'graphviz', 'markmap', 'plantuml', 'drawio', 'dio', 'excalidraw', 'excalidraw-json', 'infographic',
 ])
 
-const CODE_BLOCK_RE = /```(\w+)\n([\s\S]*?)```/g
+const CODE_BLOCK_RE = /```([\w-]+)\n([\s\S]*?)```/g
+const FENCED_BLOCK_RE = /(```|~~~)[^\n]*\n[\s\S]*?\1/g
 
 const CONTAINER_CLASS_MAP: Record<string, string> = {
   mermaid: 'mermaid-container',
@@ -38,12 +45,340 @@ const CONTAINER_CLASS_MAP: Record<string, string> = {
   markmap: 'markmap-container',
   plantuml: 'plantuml-container',
   drawio: 'drawio-container',
+  excalidraw: 'excalidraw-container',
+  infographic: 'infographic-container',
+}
+
+const DOCX_CHART_SAFE_PADDING_PX = 32
+const DOCX_CHART_TRIM_PADDING_PX = DOCX_CHART_SAFE_PADDING_PX * 2
+const DOCX_CHART_WHITE_THRESHOLD = 248
+const DOCX_CHART_ALPHA_THRESHOLD = 16
+const DOCX_CHART_MAX_MARGIN_RATIO = 0.18
+const DOCX_CHART_MAX_WIDTH_CM = 15.5
+const DOCX_CHART_MAX_HEIGHT_CM = 24
+
+export interface DocxChartTrimRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface DocxChartTrimOptions {
+  paddingPx?: number
+  whiteThreshold?: number
+  alphaThreshold?: number
+  maxMarginRatio?: number
+  minContentSizePx?: number
+}
+
+interface SvgBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface MarkdownRange {
+  start: number
+  end: number
+}
+
+interface ChartBlock {
+  fullMatch: string
+  lang: string
+  code: string
+  start: number
+  end: number
+}
+
+interface ExcalidrawImageRef {
+  fullMatch: string
+  alt: string
+  refPath: string
+  cleanRefPath: string
+  start: number
+  end: number
+}
+
+interface RenderChartCodeToPngOptions {
+  allowDomFallback?: boolean
+  excalidrawSourceKind?: 'code-block' | 'file-reference'
+  excalidrawSourceLabel?: string
+}
+
+interface MarkdownReplacement {
+  start: number
+  end: number
+  value: string
+}
+
+function parseSvgViewBoxValue(viewBox: string | null): SvgBox | null {
+  if (!viewBox) return null
+  const parts = viewBox.trim().split(/[\s,]+/).map(Number)
+  if (parts.length !== 4 || parts.some(part => !Number.isFinite(part)) || parts[2] <= 0 || parts[3] <= 0) {
+    return null
+  }
+  return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] }
+}
+
+function parseSvgLength(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function readSvgTagAttribute(svgTag: string, attrName: string): string | null {
+  const match = svgTag.match(new RegExp(`\\s${attrName}\\s*=\\s*(['"])(.*?)\\1`, 'i'))
+  return match?.[2] ?? null
+}
+
+function parseSvgTagSize(svgTag: string): SvgBox | null {
+  const width = parseSvgLength(readSvgTagAttribute(svgTag, 'width'))
+  const height = parseSvgLength(readSvgTagAttribute(svgTag, 'height'))
+  if (!width || !height) return null
+  return { x: 0, y: 0, width, height }
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(3)))
+}
+
+function formatViewBox(box: SvgBox): string {
+  return [box.x, box.y, box.width, box.height].map(formatNumber).join(' ')
+}
+
+function setSvgTagAttribute(svgTag: string, attrName: string, attrValue: string): string {
+  const attrPattern = new RegExp(`(\\s${attrName}\\s*=\\s*)(['"])(.*?)\\2`, 'i')
+  if (attrPattern.test(svgTag)) {
+    return svgTag.replace(attrPattern, (_match, prefix) => `${prefix}"${attrValue}"`)
+  }
+  return svgTag.replace(/\s*\/?>$/, end => ` ${attrName}="${attrValue}"${end}`)
+}
+
+export function addSvgSafePaddingForDocx(svgString: string, paddingPx = DOCX_CHART_SAFE_PADDING_PX): string {
+  const svgTagMatch = svgString.match(/<svg\b[^>]*>/i)
+  if (!svgTagMatch) return svgString
+
+  const svgTag = svgTagMatch[0]
+  const box = parseSvgViewBoxValue(readSvgTagAttribute(svgTag, 'viewBox')) || parseSvgTagSize(svgTag)
+  if (!box) return svgString
+
+  const padding = Math.max(0, paddingPx)
+  let nextSvgTag = setSvgTagAttribute(svgTag, 'viewBox', formatViewBox({
+    x: box.x - padding,
+    y: box.y - padding,
+    width: box.width + padding * 2,
+    height: box.height + padding * 2,
+  }))
+  nextSvgTag = setSvgTagAttribute(nextSvgTag, 'preserveAspectRatio', 'xMidYMid meet')
+
+  return `${svgString.slice(0, svgTagMatch.index)}${nextSvgTag}${svgString.slice((svgTagMatch.index || 0) + svgTag.length)}`
+}
+
+export function calculateDocxChartTrimRect(
+  imageData: ImageData,
+  options: DocxChartTrimOptions = {},
+): DocxChartTrimRect | null {
+  const width = imageData.width
+  const height = imageData.height
+  if (width <= 0 || height <= 0) return null
+
+  const data = imageData.data
+  const whiteThreshold = options.whiteThreshold ?? DOCX_CHART_WHITE_THRESHOLD
+  const alphaThreshold = options.alphaThreshold ?? DOCX_CHART_ALPHA_THRESHOLD
+  const maxMarginRatio = options.maxMarginRatio ?? DOCX_CHART_MAX_MARGIN_RATIO
+  const minContentSizePx = options.minContentSizePx ?? 8
+
+  let minX = width
+  let minY = height
+  let maxX = -1
+  let maxY = -1
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      const alpha = data[offset + 3]
+      if (alpha <= alphaThreshold) continue
+
+      const red = data[offset]
+      const green = data[offset + 1]
+      const blue = data[offset + 2]
+      const lum = 0.299 * red + 0.587 * green + 0.114 * blue
+      if (lum >= whiteThreshold) continue
+
+      minX = Math.min(minX, x)
+      minY = Math.min(minY, y)
+      maxX = Math.max(maxX, x)
+      maxY = Math.max(maxY, y)
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) return null
+
+  const contentWidth = maxX - minX + 1
+  const contentHeight = maxY - minY + 1
+  if (contentWidth < minContentSizePx || contentHeight < minContentSizePx) return null
+
+  const topMargin = minY / height
+  const bottomMargin = (height - 1 - maxY) / height
+  // 高窄图表（如雷达图、思维导图）常通过左右留白保持页面友好的纵横比，只裁上下同时过大的框式白边。
+  const hasExcessiveVerticalFrame = topMargin > maxMarginRatio && bottomMargin > maxMarginRatio
+  if (!hasExcessiveVerticalFrame) {
+    return null
+  }
+
+  const padding = Math.max(0, Math.round(options.paddingPx ?? DOCX_CHART_TRIM_PADDING_PX))
+  const cropX = Math.max(0, minX - padding)
+  const cropY = Math.max(0, minY - padding)
+  const cropRight = Math.min(width - 1, maxX + padding)
+  const cropBottom = Math.min(height - 1, maxY + padding)
+  const cropWidth = cropRight - cropX + 1
+  const cropHeight = cropBottom - cropY + 1
+
+  if (cropWidth >= width && cropHeight >= height) return null
+
+  return { x: cropX, y: cropY, width: cropWidth, height: cropHeight }
+}
+
+export function calculateDocxImageWidthCm(pixelWidth: number, pixelHeight: number): number {
+  if (!Number.isFinite(pixelWidth) || !Number.isFinite(pixelHeight) || pixelWidth <= 0 || pixelHeight <= 0) {
+    return DOCX_CHART_MAX_WIDTH_CM
+  }
+
+  const heightToWidthRatio = pixelHeight / pixelWidth
+  const widthByHeightBudget = DOCX_CHART_MAX_HEIGHT_CM / heightToWidthRatio
+  const widthCm = Math.min(DOCX_CHART_MAX_WIDTH_CM, widthByHeightBudget)
+  return Math.max(4, Number(widthCm.toFixed(2)))
+}
+
+function canvasToPngBase64(canvas: HTMLCanvasElement): string {
+  return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '')
+}
+
+function canvasToTrimmedPngBase64(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvasToPngBase64(canvas)
+
+  let trimRect: DocxChartTrimRect | null = null
+  try {
+    trimRect = calculateDocxChartTrimRect(ctx.getImageData(0, 0, canvas.width, canvas.height))
+  } catch {
+    return canvasToPngBase64(canvas)
+  }
+
+  if (!trimRect) return canvasToPngBase64(canvas)
+
+  const trimmedCanvas = document.createElement('canvas')
+  trimmedCanvas.width = trimRect.width
+  trimmedCanvas.height = trimRect.height
+  const trimmedCtx = trimmedCanvas.getContext('2d')
+  if (!trimmedCtx) return canvasToPngBase64(canvas)
+
+  trimmedCtx.fillStyle = '#ffffff'
+  trimmedCtx.fillRect(0, 0, trimRect.width, trimRect.height)
+  trimmedCtx.drawImage(
+    canvas,
+    trimRect.x,
+    trimRect.y,
+    trimRect.width,
+    trimRect.height,
+    0,
+    0,
+    trimRect.width,
+    trimRect.height,
+  )
+  return canvasToPngBase64(trimmedCanvas)
+}
+
+export async function trimPngWhitespaceForDocx(pngBase64: string): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth || img.width
+      canvas.height = img.naturalHeight || img.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx || canvas.width <= 0 || canvas.height <= 0) {
+        resolve(pngBase64)
+        return
+      }
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvasToTrimmedPngBase64(canvas))
+    }
+    img.onerror = () => resolve(pngBase64)
+    img.src = `data:image/png;base64,${pngBase64}`
+  })
 }
 
 function generatePlaceholderId(): string {
   const bytes = new Uint8Array(4)
   crypto.getRandomValues(bytes)
   return `mdv__chart__${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')}__`
+}
+
+function normalizeChartType(lang: string): ChartType {
+  if (lang === 'graphviz') return 'dot'
+  if (lang === 'excalidraw-json') return 'excalidraw'
+  if (lang === 'dio') return 'drawio'
+  return lang as ChartType
+}
+
+function cleanExcalidrawRefPath(refPath: string): string {
+  return refPath.trim().replace(/^<|>$/g, '').split(/[?#]/, 1)[0] || refPath
+}
+
+function isExcalidrawRefPath(refPath: string): boolean {
+  return /\.excalidraw(?:[?#].*)?$/i.test(refPath.trim().replace(/^<|>$/g, ''))
+}
+
+function collectFencedBlockRanges(markdown: string): MarkdownRange[] {
+  const ranges: MarkdownRange[] = []
+  const re = new RegExp(FENCED_BLOCK_RE.source, FENCED_BLOCK_RE.flags)
+  let match: RegExpExecArray | null
+  while ((match = re.exec(markdown)) !== null) {
+    ranges.push({ start: match.index, end: match.index + match[0].length })
+  }
+  return ranges
+}
+
+function isInsideRanges(index: number, ranges: MarkdownRange[]): boolean {
+  return ranges.some(range => index >= range.start && index < range.end)
+}
+
+function collectExcalidrawImageRefs(markdown: string, fencedRanges: MarkdownRange[]): ExcalidrawImageRef[] {
+  const refs: ExcalidrawImageRef[] = []
+  const imageRefRe = /!\[([^\]]*)\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g
+  let imageMatch: RegExpExecArray | null
+
+  while ((imageMatch = imageRefRe.exec(markdown)) !== null) {
+    if (isInsideRanges(imageMatch.index, fencedRanges)) continue
+
+    const refPath = imageMatch[2] || imageMatch[3] || ''
+    if (!isExcalidrawRefPath(refPath)) continue
+
+    refs.push({
+      fullMatch: imageMatch[0],
+      alt: imageMatch[1],
+      refPath,
+      cleanRefPath: cleanExcalidrawRefPath(refPath),
+      start: imageMatch.index,
+      end: imageMatch.index + imageMatch[0].length,
+    })
+  }
+
+  return refs
+}
+
+function applyMarkdownReplacements(markdown: string, replacements: MarkdownReplacement[]): string {
+  return [...replacements]
+    .sort((a, b) => b.start - a.start)
+    .reduce((nextMarkdown, replacement) =>
+      `${nextMarkdown.slice(0, replacement.start)}${replacement.value}${nextMarkdown.slice(replacement.end)}`,
+    markdown)
 }
 
 function grabNthSvgFromDom(containerClass: string, nth: number): string | null {
@@ -53,6 +388,10 @@ function grabNthSvgFromDom(containerClass: string, nth: number): string | null {
   const svg = svgs[nth]
   if (!svg) return null
 
+  return normalizeSvgElementForDocx(svg)
+}
+
+function normalizeSvgElementForDocx(svg: SVGSVGElement): string {
   const cloned = svg.cloneNode(true) as SVGSVGElement
   if (!cloned.getAttribute('viewBox')) {
     try {
@@ -75,9 +414,72 @@ function grabNthSvgFromDom(containerClass: string, nth: number): string | null {
   return cloned.outerHTML
 }
 
+function waitForDrawioSvg(container: HTMLElement, timeoutMs = 8000): Promise<SVGSVGElement | null> {
+  const existing = container.querySelector<SVGSVGElement>('svg')
+  if (existing) return Promise.resolve(existing)
+
+  return new Promise(resolve => {
+    let settled = false
+    const finish = (svg: SVGSVGElement | null) => {
+      if (settled) return
+      settled = true
+      observer.disconnect()
+      clearTimeout(timeout)
+      resolve(svg)
+    }
+
+    const observer = new MutationObserver(() => {
+      const svg = container.querySelector<SVGSVGElement>('svg')
+      if (svg) finish(svg)
+    })
+    const timeout = window.setTimeout(() => {
+      finish(container.querySelector<SVGSVGElement>('svg'))
+    }, timeoutMs)
+
+    observer.observe(container, { childList: true, subtree: true })
+  })
+}
+
+async function renderDrawioToSvgForDocx(code: string, globalIndex: number): Promise<string | null> {
+  const { validateDrawioCode, renderDrawioInElement } = await import('./drawioRenderer')
+  const validation = validateDrawioCode(code)
+  if (!validation.valid) {
+    console.warn(`[DocxChart] drawio #${globalIndex}: invalid DrawIO code: ${validation.error}`)
+    return null
+  }
+
+  const container = document.createElement('div')
+  container.className = 'drawio-container docx-drawio-render-host'
+  container.style.position = 'fixed'
+  container.style.left = '-10000px'
+  container.style.top = '0'
+  container.style.width = '1170px'
+  container.style.minHeight = '200px'
+  container.style.background = '#ffffff'
+  container.style.pointerEvents = 'none'
+  container.style.opacity = '0.01'
+  document.body.appendChild(container)
+
+  try {
+    await renderDrawioInElement(code, container)
+    const svg = await waitForDrawioSvg(container)
+    if (!svg) {
+      console.warn(`[DocxChart] drawio #${globalIndex}: offscreen SVG not generated`)
+      return null
+    }
+    return normalizeSvgElementForDocx(svg)
+  } catch (error) {
+    console.warn(`[DocxChart] drawio #${globalIndex}: offscreen render failed:`, error)
+    return null
+  } finally {
+    container.remove()
+  }
+}
+
 async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promise<string> {
   const parser = new DOMParser()
   const svgDoc = parser.parseFromString(svgString, 'image/svg+xml')
+  if (svgDoc.querySelector('parsererror')) throw new Error('Invalid SVG')
   const svgEl = svgDoc.querySelector('svg')
   if (!svgEl) throw new Error('Invalid SVG')
 
@@ -94,6 +496,10 @@ async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promi
   const aspectRatio = vbHeight / vbWidth
   const canvasW = width * scale
   const canvasH = Math.round(width * aspectRatio) * scale
+  const maxPixels = 8_000_000
+  if (canvasW * canvasH > maxPixels) {
+    throw new Error('DOCX 图表图片超过最大像素限制')
+  }
 
   svgEl.setAttribute('width', String(width))
   svgEl.setAttribute('height', String(Math.round(width * aspectRatio)))
@@ -115,8 +521,7 @@ async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promi
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvasW, canvasH)
       ctx.drawImage(img, 0, 0, canvasW, canvasH)
-      const dataUrl = canvas.toDataURL('image/png')
-      resolve(dataUrl.replace(/^data:image\/png;base64,/, ''))
+      resolve(canvasToTrimmedPngBase64(canvas))
     }
     img.onerror = () => reject(new Error('SVG to PNG conversion failed'))
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
@@ -124,18 +529,21 @@ async function svgToPngBase64(svgString: string, width = 1170, scale = 2): Promi
 }
 
 async function svgToPng(svgString: string, type: string, index: number): Promise<string | null> {
+  const paddedSvgString = addSvgSafePaddingForDocx(svgString)
   const hasForeignObject = svgString.includes('foreignObject')
 
   if (!hasForeignObject) {
     try {
-      const b64 = await svgToPngBase64(svgString)
+      const b64 = await svgToPngBase64(paddedSvgString)
       if (b64 && b64.length > 200) return b64
     } catch { /* canvas failed */ }
   }
 
   try {
-    const result = await window.api.renderSvgToPng(svgString, 1170)
-    if (result.success && result.data && result.data.length > 200) return result.data
+    const result = await window.api.renderSvgToPng(paddedSvgString, 1170)
+    if (result.success && result.data && result.data.length > 200) {
+      return await trimPngWhitespaceForDocx(result.data)
+    }
     console.warn(`[DocxChart] ${type} #${index}: BrowserWindow failed: ${result.error || 'small output'}`)
   } catch (e) {
     console.warn(`[DocxChart] ${type} #${index}: BrowserWindow exception:`, e)
@@ -144,21 +552,35 @@ async function svgToPng(svgString: string, type: string, index: number): Promise
   return null
 }
 
+async function getPngNaturalSize(pngBase64: string): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve({
+      width: img.naturalWidth || img.width,
+      height: img.naturalHeight || img.height,
+    })
+    img.onerror = () => resolve(null)
+    img.src = `data:image/png;base64,${pngBase64}`
+  })
+}
+
 async function renderChartCodeToPng(
   type: ChartType,
   code: string,
   globalIndex: number,
   typeIndex: number,
-): Promise<{ pngBase64: string } | null> {
+  options: RenderChartCodeToPngOptions = {},
+): Promise<{ pngBase64: string; widthCm: number } | null> {
   try {
     let svgString: string | null = null
 
-    // DrawIO 直接从 DOM 抓（无法离线重新渲染）
+    // DrawIO 优先复用预览 DOM；长文档/虚拟列表未挂载时，改用离屏容器主动渲染。
     if (type === 'drawio') {
       svgString = grabNthSvgFromDom('drawio-container', typeIndex)
       if (!svgString) {
-        console.warn(`[DocxChart] drawio #${globalIndex}: DOM SVG not found (index=${typeIndex})`)
-        return null
+        console.warn(`[DocxChart] drawio #${globalIndex}: DOM SVG not found (index=${typeIndex}), trying offscreen render`)
+        svgString = await renderDrawioToSvgForDocx(code, globalIndex)
+        if (!svgString) return null
       }
     } else {
       // 其他类型：先尝试渲染器
@@ -182,6 +604,20 @@ async function renderChartCodeToPng(
           case 'plantuml':
             svgString = await renderPlantUMLToSvg(code)
             break
+          case 'excalidraw': {
+            const { renderExcalidrawToSvg } = await import('./excalidrawRenderer')
+            const result = await renderExcalidrawToSvg(code, {
+              sourceKind: options.excalidrawSourceKind || 'code-block',
+              sourceLabel: options.excalidrawSourceLabel,
+            })
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'infographic': {
+            const { renderInfographicToSvg } = await import('./infographicRenderer')
+            svgString = await renderInfographicToSvg(code, `docx-export-${globalIndex}`)
+            break
+          }
         }
       } catch (renderErr) {
         console.warn(`[DocxChart] ${type} #${globalIndex}: renderer threw:`, renderErr)
@@ -191,7 +627,7 @@ async function renderChartCodeToPng(
       // 渲染器失败或返回错误 HTML → DOM fallback
       const isError = !svgString || (svgString.includes('error') && svgString.includes('<div')) || !svgString.includes('<svg')
       if (isError) {
-        const containerClass = CONTAINER_CLASS_MAP[type]
+        const containerClass = options.allowDomFallback === false ? null : CONTAINER_CLASS_MAP[type]
         if (containerClass) {
           console.warn(`[DocxChart] ${type} #${globalIndex}: renderer failed, trying DOM (${containerClass}[${typeIndex}])`)
           svgString = grabNthSvgFromDom(containerClass, typeIndex)
@@ -206,7 +642,13 @@ async function renderChartCodeToPng(
     console.log(`[DocxChart] ${type} #${globalIndex}: SVG ${svgString!.length} chars`)
 
     const pngBase64 = await svgToPng(svgString!, type, globalIndex)
-    if (pngBase64) return { pngBase64 }
+    if (pngBase64) {
+      const size = await getPngNaturalSize(pngBase64)
+      return {
+        pngBase64,
+        widthCm: size ? calculateDocxImageWidthCm(size.width, size.height) : DOCX_CHART_MAX_WIDTH_CM,
+      }
+    }
 
     return null
   } catch (err) {
@@ -217,54 +659,104 @@ async function renderChartCodeToPng(
 
 export async function renderChartsForDocx(
   markdown: string,
-  onProgress?: (current: number, total: number, type: string) => void
+  optionsOrProgress?: DocxChartRenderOptions | ((current: number, total: number, type: string) => void)
 ): Promise<ChartRenderResult> {
+  const options: DocxChartRenderOptions = typeof optionsOrProgress === 'function'
+    ? { onProgress: optionsOrProgress }
+    : optionsOrProgress || {}
   const images: ChartImage[] = []
   const warnings: string[] = []
 
-  const blocks: { fullMatch: string; lang: string; code: string }[] = []
+  const fencedRanges = collectFencedBlockRanges(markdown)
+  const blocks: ChartBlock[] = []
   let match: RegExpExecArray | null
   const re = new RegExp(CODE_BLOCK_RE.source, CODE_BLOCK_RE.flags)
   while ((match = re.exec(markdown)) !== null) {
     const lang = match[1].toLowerCase()
     if (CHART_LANGS.has(lang)) {
-      blocks.push({ fullMatch: match[0], lang, code: match[2] })
+      blocks.push({
+        fullMatch: match[0],
+        lang,
+        code: match[2],
+        start: match.index,
+        end: match.index + match[0].length,
+      })
     }
   }
 
-  if (blocks.length === 0) {
-    return { modifiedMarkdown: markdown, images, warnings }
-  }
+  const imageRefs = collectExcalidrawImageRefs(markdown, fencedRanges)
+  const totalCharts = blocks.length + imageRefs.length
+  let completedCharts = 0
 
   // 计算每个 block 在同类型中的序号（用于 DOM fallback 索引）
   const typeCounters: Record<string, number> = {}
   const typeIndices: number[] = []
   for (const block of blocks) {
-    const key = block.lang === 'graphviz' ? 'dot' : block.lang
+    const key = normalizeChartType(block.lang)
     typeCounters[key] = (typeCounters[key] || 0)
     typeIndices.push(typeCounters[key]++)
   }
 
-  let modifiedMarkdown = markdown
+  const replacements: MarkdownReplacement[] = []
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]
-    onProgress?.(i + 1, blocks.length, block.lang)
+    const type = normalizeChartType(block.lang)
+    completedCharts += 1
+    options.onProgress?.(completedCharts, totalCharts, type)
 
-    const result = await renderChartCodeToPng(block.lang as ChartType, block.code, i, typeIndices[i])
+    const result = await renderChartCodeToPng(type, block.code, i, typeIndices[i])
 
     if (result) {
       const placeholderId = generatePlaceholderId()
       images.push({
         id: placeholderId,
         pngBase64: result.pngBase64,
-        widthCm: 15.5,
+        widthCm: result.widthCm,
       })
-      modifiedMarkdown = modifiedMarkdown.replace(block.fullMatch, `![](${placeholderId})`)
+      replacements.push({
+        start: block.start,
+        end: block.end,
+        value: `![](${placeholderId})`,
+      })
     } else {
-      warnings.push(`chart_${i} (${block.lang}) render failed`)
+      warnings.push(`第 ${i + 1} 个 ${type} 图表渲染失败，已保留源码。`)
     }
   }
 
-  return { modifiedMarkdown, images, warnings }
+  for (const imageRef of imageRefs) {
+    completedCharts += 1
+    options.onProgress?.(completedCharts, totalCharts, 'excalidraw')
+
+    if (!options.markdownFilePath) {
+      warnings.push(`Excalidraw 文件“${imageRef.refPath}”缺少 Markdown 文件路径，已保留原引用。`)
+      continue
+    }
+    try {
+      const file = await window.api.readExcalidrawFile({
+        markdownFilePath: options.markdownFilePath,
+        refPath: imageRef.cleanRefPath,
+      })
+      const png = await renderChartCodeToPng('excalidraw', file.content, completedCharts - 1, 0, {
+        allowDomFallback: false,
+        excalidrawSourceKind: 'file-reference',
+        excalidrawSourceLabel: imageRef.alt || imageRef.refPath,
+      })
+      if (!png) {
+        warnings.push(`Excalidraw 文件“${imageRef.refPath}”渲染失败，已保留原引用。`)
+        continue
+      }
+      const placeholderId = generatePlaceholderId()
+      images.push({ id: placeholderId, pngBase64: png.pngBase64, widthCm: png.widthCm })
+      replacements.push({
+        start: imageRef.start,
+        end: imageRef.end,
+        value: `![${imageRef.alt}](${placeholderId})`,
+      })
+    } catch (error) {
+      warnings.push(`Excalidraw 文件“${imageRef.refPath}”读取失败：${cleanUserFacingError(error)}。已保留原引用。`)
+    }
+  }
+
+  return { modifiedMarkdown: applyMarkdownReplacements(markdown, replacements), images, warnings }
 }

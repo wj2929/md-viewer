@@ -8,7 +8,16 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/renderer/test/setup.ts'],
-    include: ['src/renderer/**/*.{test,spec}.{ts,tsx}'],
+    include: [
+      'src/renderer/**/*.{test,spec}.{ts,tsx}',
+      'src/main/__tests__/appDataManager.test.ts',
+      'src/main/__tests__/fileHandlers.editing.test.ts',
+      'src/main/__tests__/fileHandlers.excalidraw.test.ts',
+      'src/main/__tests__/previewContextMenu.editing.test.ts',
+      'src/main/__tests__/docxExporter.embeddedImages.test.ts',
+      'src/main/__tests__/pathValidator.previewable.test.ts',
+      'src/main/__tests__/remoteDocxExporter.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

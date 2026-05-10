@@ -1,14 +1,17 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import { type DocxStyle } from '../shared/docxStyles'
 
 // v1.7.0：DOCX 导出设置
 interface DocxExportSettings {
   remoteEnabled: boolean
   serverUrl?: string
   apiKey?: string
-  style: 'standard' | 'official' | 'internal' | 'report'
+  style?: DocxStyle
+  styleTouched?: boolean
   timeoutMs: number
   embedFont: boolean
   localFallbackEnabled: boolean
+  referenceDocxPath?: string
 }
 
 // v1.3.6：书签接口
@@ -35,7 +38,36 @@ declare global {
       openFolder: () => Promise<string | null>
       readDir: (path: string) => Promise<FileInfo[]>
       readFile: (path: string) => Promise<string>
+      readExcalidrawFile: (payload: {
+        markdownFilePath: string
+        refPath: string
+      }) => Promise<{ content: string; resolvedPath: string }>
       readFilePreview: (path: string) => Promise<string>
+      testOpenMarkdownFile?: (path: string) => Promise<boolean>
+      openEditableMarkdown: (filePath: string) => Promise<{
+        canonicalPath: string
+        displayPath: string
+        fileName: string
+        content: string
+        mtimeMs: number
+        size: number
+        revisionToken: string
+      }>
+      saveEditableMarkdown: (payload: {
+        canonicalPath: string
+        content: string
+        expectedRevisionToken: string
+        force?: boolean
+      }) => Promise<{
+        success: boolean
+        mtimeMs?: number
+        size?: number
+        revisionToken?: string
+        conflict?: {
+          reason: string
+          diskRevisionToken: string
+        }
+      }>
 
       // 搜索专用：跨文件夹访问
       searchReadDir: (path: string) => Promise<FileInfo[]>
@@ -101,6 +133,9 @@ declare global {
       removeFolderFromHistory: (folderPath: string) => Promise<void>
       clearFolderHistory: () => Promise<void>
       setFolderPath: (folderPath: string) => Promise<boolean>
+      getFolderTreeState: () => Promise<Record<string, false>>
+      saveFolderTreeState: (folders: Record<string, false>) => Promise<Record<string, false>>
+      clearFolderTreeState: () => Promise<void>
 
       // v1.3.6：最近文件
       getRecentFiles: () => Promise<Array<{ path: string; name: string; folderPath: string; lastOpened: number }>>
@@ -130,8 +165,13 @@ declare global {
         mode?: string
         styles?: string[]
         fontsAvailable?: string[]
+        embedFontSupported?: boolean
+        chartRenderersAvailable?: string[]
+        maxImagesPerRequest?: number
+        maxRequestSizeMb?: number
         error?: string
       }>
+      selectReferenceDocx: () => Promise<string | null>
 
       getLastDocxExportPath: () => Promise<string | null>
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
@@ -245,10 +285,15 @@ declare global {
       // v1.3.7：预览区域右键菜单
       showPreviewContextMenu: (params: {
         filePath: string
+        tabId?: string
+        leafId?: string | null
         headingId: string | null
         headingText: string | null
         headingLevel: string | null
         hasSelection: boolean
+        selectionText?: string
+        sourceLine?: number | null
+        scrollRatio?: number | null
         linkHref: string | null
         basePath: string | null
       }) => Promise<void>
@@ -256,6 +301,17 @@ declare global {
         filePath: string
         headingId: string | null
         headingText: string | null
+      }) => void) => () => void
+      onQuickEditFromPreview: (callback: (params: {
+        filePath: string
+        tabId?: string
+        leafId?: string | null
+        canonicalPath?: string
+        targetText?: string
+        targetLine?: number
+        sourceLine?: number
+        scrollRatio?: number
+        mode: 'document' | 'selection' | 'source-line' | 'scroll-ratio'
       }) => void) => () => void
 
       // v1.3.7：文件树右键添加书签
@@ -339,6 +395,7 @@ declare global {
   interface FileInfo {
     name: string
     path: string
+    treePath?: string
     isDirectory: boolean
     children?: FileInfo[]
   }

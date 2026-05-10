@@ -20,7 +20,7 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  * @param html - Markdown 渲染后的 HTML 字符串（用于触发重新渲染）
  */
 export function useInfographicChart(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   html: string
 ): void {
   // v1.6.0: Infographic 信息图渲染
@@ -30,31 +30,37 @@ export function useInfographicChart(
     const infographicBlocks = ref.current.querySelectorAll('pre.language-infographic')
     if (infographicBlocks.length === 0) return
 
+    const abortController = new AbortController()
     const instances: Infographic[] = []
     const cleanups: (() => void)[] = []
 
-    infographicBlocks.forEach((block, index) => {
-      const config = block.textContent || ''
+    ;(async () => {
+      const blocks = Array.from(infographicBlocks)
+      for (let index = 0; index < blocks.length; index++) {
+        if (abortController.signal.aborted) break
 
-      const validation = validateInfographicConfig(config)
-      if (!validation.valid) {
-        const errorDiv = document.createElement('div')
-        errorDiv.className = 'infographic-error'
-        errorDiv.innerHTML = `
+        const block = blocks[index]
+        const config = block.textContent || ''
+
+        const validation = validateInfographicConfig(config)
+        if (!validation.valid) {
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'infographic-error'
+          errorDiv.innerHTML = `
             <div class="error-title">Infographic 配置错误</div>
             <div class="error-message">${validation.error}</div>
           `
-        block.replaceWith(errorDiv)
-        return
-      }
+          block.replaceWith(errorDiv)
+          continue
+        }
 
-      try {
+        try {
         // 创建包装容器
-        const wrapper = document.createElement('div')
-        wrapper.className = 'infographic-wrapper'
+          const wrapper = document.createElement('div')
+          wrapper.className = 'infographic-wrapper'
 
         // 存储原始配置（Base64 编码避免 HTML 转义问题）
-        wrapper.dataset.infographicConfig = btoa(unescape(encodeURIComponent(config)))
+          wrapper.dataset.infographicConfig = btoa(unescape(encodeURIComponent(config)))
 
         // 创建切换按钮栏
         const toggleBar = document.createElement('div')
@@ -181,23 +187,27 @@ export function useInfographicChart(
         const onFullscreenChange = () => requestAnimationFrame(fitSvg)
         wrapper.addEventListener('fullscreenchange', onFullscreenChange)
 
-        instances.push(infographic)
-        cleanups.push(() => wrapper.removeEventListener('fullscreenchange', onFullscreenChange))
-      } catch (error) {
-        console.error('[Infographic] 渲染失败:', error)
-        const errorDiv = document.createElement('div')
-        errorDiv.className = 'infographic-error'
-        errorDiv.innerHTML = `
+          instances.push(infographic)
+          cleanups.push(() => wrapper.removeEventListener('fullscreenchange', onFullscreenChange))
+        } catch (error) {
+          console.error('[Infographic] 渲染失败:', error)
+          const errorDiv = document.createElement('div')
+          errorDiv.className = 'infographic-error'
+          errorDiv.innerHTML = `
             <div class="error-title">Infographic 渲染失败</div>
             <div class="error-message">${(error as Error).message}</div>
           `
-        if (block.parentNode) {
-          block.replaceWith(errorDiv)
+          if (block.parentNode) {
+            block.replaceWith(errorDiv)
+          }
         }
+
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       }
-    })
+    })()
 
     return () => {
+      abortController.abort()
       cleanups.forEach((fn) => fn())
       instances.forEach((inst) => {
         try {

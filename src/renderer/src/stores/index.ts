@@ -17,6 +17,11 @@ export { useUIStore, FONT_SIZE } from './uiStore'
 // 搜索历史 Store
 export { useSearchHistoryStore } from './searchHistoryStore'
 
+// 轻量 Markdown 编辑 Store
+export { useEditSessionStore } from './editSessionStore'
+export type { EditSession, EditConflictReason, OpenEditSessionInput } from './editSessionStore'
+export { useQuickEditPlacementStore } from './quickEditPlacementStore'
+
 // v1.6.0: 新增 Stores
 export { useFileStore } from './fileStore'
 export { useTabStore } from './tabStore'

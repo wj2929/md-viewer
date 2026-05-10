@@ -21,7 +21,7 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  * @param html - Markdown 渲染后的 HTML 内容
  */
 export function useEChartsChart(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   html: string
 ): void {
   // v1.5.1: ECharts 图表渲染（支持图表/代码切换）

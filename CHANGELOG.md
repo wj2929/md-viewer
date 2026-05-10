@@ -7,9 +7,72 @@
 
 ---
 
+## [2.0.0] - 2026-05-10
+
+> **状态**: ✅ **已完成** | **类型**: 架构升级（服务端渲染构建产物）+ 外部导出服务截图链路支撑 + 图表渲染/导出稳定性改进
+
+### ✨ 新功能
+
+#### 1. Browser-only 服务端渲染构建产物 ⭐⭐⭐
+- 新增独立的 `server-render.html` 入口，构建后产出可被 `md-viewer-docx-service` 消费的 renderer artifact。
+- 新增 `manifest.json`，声明 renderer 版本、schema、入口 HTML、assets 目录、支持的图表类型和最低 DOCX 服务版本。
+- `electron.vite.config.ts` 新增 `serverRender` 构建入口，桌面预览入口与服务端渲染入口分离。
+- 新增 `ServerRenderApp`，在无 Electron IPC 的浏览器环境中渲染 Markdown，并输出结构化截图任务结果。
+
+#### 2. render-core 浏览器渲染基础层 ⭐⭐
+- 新增 `RenderPreview`，复用现有 Markdown 渲染器、DOMPurify hooks 和预览样式。
+- 新增 `ResourceHost` / `NavigationHost` 抽象，隔离 Electron 运行时和服务端浏览器运行时。
+- 新增 `createBrowserResourceHost`，支持从 bundle 资源读取文本/二进制文件，并解析相对路径。
+- 支持 bundle 内 `.excalidraw` 文件引用，供 DOCX 服务端渲染链路使用。
+
+#### 3. 外部导出服务截图链路支撑 ⭐⭐⭐
+- 服务端渲染页面可识别并截图 Mermaid、KaTeX、Excalidraw、DrawIO、ECharts、Markmap、Graphviz、Infographic 等图表/公式块。
+- 输出 `BrowserPageRenderResult`，包含 `status`、`images`、`stats`、`warnings` 等字段，便于 DOCX 服务注入图片并展示 warning。
+- 新增 Playwright smoke test：验证构建产物中的 Mermaid、KaTeX、Excalidraw 渲染结果可被服务端页面识别。
+
+#### 4. 文件树状态持久化 ⭐⭐
+- 按根目录保存文件树折叠状态，用户手动收起的干扰目录在重新打开同一文件夹时保持收起。
+- 新增文件树状态 IPC、主进程持久化和清空入口。
+- 文件树节点新增稳定 `treePath`，避免以绝对路径保存 UI 状态带来跨窗口和跨根目录混淆。
+
+### 🔧 改进
+- Mermaid hook 支持记录 `data-mermaid-index`，便于服务端按源块顺序替换图表。
+- Mermaid 渲染失败时改为结构化错误块，避免失败代码块被重复识别为待渲染图表。
+- Excalidraw hook 支持通过 `ResourceHost` 读取 `.excalidraw` 文件引用，兼容桌面本地文件和服务端 bundle 资源两种路径。
+- Infographic 渲染改为异步串行 + abort 清理，降低服务端截图阶段的竞态风险。
+- DrawIO、ECharts、Graphviz、Markmap、PlantUML 等 chart hooks 的 ref 类型放宽到 `HTMLElement | null`，兼容 React server-render 页面初始化时机。
+- 服务端渲染截图目标改为图表容器级别，DrawIO、ECharts、Graphviz 等图表在 DOCX 中的尺寸更接近预览/PDF。
+- DOCX 远程导出支持传递 `footerText: null`，导出署名开关关闭时不再生成页脚署名。
+- DOCX 导出任务面板在上一次成功结果未关闭时，也可以启动新的导出任务。
+- 文件监听补充深层已打开 Markdown 的单文件 watcher，解决大目录下超过目录监听深度的文档外部修改后不刷新的问题。
+- 清理仓库内私有规划文档，新增 `NOTICE.md` / `SECURITY.md`，补充开源发布所需说明。
+- `package-lock.json` 切换为公开 npm registry，避免开源用户安装依赖时依赖私有 registry。
+- 重写 README，面向开源用户说明安装、功能、DOCX 服务边界、开发命令和贡献方式。
+
+### 🧪 测试
+- 新增 render-core 单元测试：
+  - `RenderPreview.test.tsx`
+  - `browserResourceHost.test.ts`
+  - `markdownRendererBrowserOnly.test.ts`
+- 新增 `e2e/server-render-mermaid-smoke.spec.ts`，覆盖服务端渲染构建产物的基本截图链路。
+- 新增文件树状态持久化测试和深层 Markdown 外部修改自动刷新回归测试。
+- 新增远程 DOCX 导出署名开关、导出任务面板复用、服务端渲染截图目标 smoke test。
+- 提交前验证：
+  - `npm run typecheck` 通过
+  - `npm test -- --run src/renderer/test/render-core`：3 个文件、7 个测试通过
+
+### ⚠️ 兼容性说明
+- `md-viewer` 仍是桌面 Markdown 预览应用，不在运行时提供 HTTP 服务。
+- `md-viewer-docx-service` 负责 Docker、FastAPI、DOCX 生成和服务端调用；本版本只提供可复用的 browser-only renderer artifact。
+- DOCX 导出不是浏览器页面像素级复制：图表/公式走截图注入，正文仍由 DOCX 服务映射为 Word 样式。
+
+---
+
 ## [1.7.0] - 2026-04-25
 
-> **状态**: 🚧 **开发中** | **类型**: 新功能（DOCX 服务化导出）+ 改进 + Bug 修复
+> **状态**: ✅ **已完成** | **类型**: 新功能（DOCX 服务化导出 + Excalidraw 静态预览）+ 改进 + Bug 修复
+
+v1.7.0 是 DOCX 服务化导出能力落地版本，引入远程 DOCX 服务配置、导出任务进度面板、模板选择卡片和导出结果快速访问；同时补充 Excalidraw 静态画板预览与导出链路，为后续 v2.0 的 browser-only renderer artifact 打基础。
 
 ### ✨ 新功能
 
@@ -41,6 +104,13 @@
 #### 6. 版本协商逻辑
 - 客户端/服务端版本兼容性自动检测
 - 不兼容时 warning 提示升级（文件仍正常生成）
+
+#### 7. Excalidraw 静态画板预览与导出 ⭐⭐
+- 支持 `excalidraw` / `excalidraw-json` 代码块渲染为静态画板预览
+- 支持 Markdown 中引用 `.excalidraw` 文件并直接预览
+- 文件树支持 `.excalidraw` 文件识别和点击预览
+- HTML / PDF / DOCX 导出链路支持 Excalidraw 画板截图
+- 增加 Excalidraw 正常、异常和路径安全相关测试覆盖
 
 ### 🔧 改进
 - 结构化错误分类（5 种 DocxErrorType + DocxExportError）

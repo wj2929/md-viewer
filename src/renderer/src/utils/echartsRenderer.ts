@@ -86,8 +86,10 @@ echarts.use([
 const ECHARTS_CONFIG = {
   MAX_CONFIG_SIZE: 50 * 1024, // 50KB
   MAX_CHARTS_PER_PAGE: 20,
-  DEFAULT_WIDTH: 600,
-  DEFAULT_HEIGHT: 400,
+  // 导出时先用较宽画布完成 ECharts 布局，再等比缩放到 HTML/PDF/DOCX。
+  // 不能先用 600px 小画布布局再拉伸，否则饼图外侧标签和左侧图例会先发生碰撞。
+  DEFAULT_WIDTH: 960,
+  DEFAULT_HEIGHT: 600,
 }
 
 // 验证结果类型

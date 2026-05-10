@@ -1,7 +1,13 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VirtualizedMarkdown } from '../../src/components/VirtualizedMarkdown'
+
+const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
+
+vi.mock('../../src/utils/excalidrawRenderer', () => ({
+  renderExcalidrawToSvg: mockRenderExcalidrawToSvg,
+}))
 
 // Mock window.api
 const mockShowMarkdownContextMenu = vi.fn().mockResolvedValue({ success: true })
@@ -12,9 +18,21 @@ beforeEach(() => {
   vi.restoreAllMocks()
   global.window.api = {
     ...global.window.api,
+    readFile: vi.fn(),
+    readExcalidrawFile: undefined,
     showMarkdownContextMenu: mockShowMarkdownContextMenu,
     showPreviewContextMenu: mockShowPreviewContextMenu
   } as typeof window.api
+  mockRenderExcalidrawToSvg.mockResolvedValue({
+    ok: true,
+    svg: '<svg viewBox="0 0 100 50"><rect width="100" height="50"></rect></svg>',
+    width: 100,
+    height: 50,
+    warnings: [],
+    sourceKind: 'file-reference',
+    sourceLabel: '流程',
+    rawCode: '{"type":"excalidraw","elements":[]}',
+  })
   // 默认没有选中文本
   vi.spyOn(window, 'getSelection').mockReturnValue(null)
 })
@@ -85,6 +103,79 @@ describe('VirtualizedMarkdown', () => {
 
       expect(container.innerHTML).toContain('E = mc^2')
     })
+
+    it('把 .excalidraw 图片引用替换为文件占位而不是 local-image', async () => {
+      global.window.api.readExcalidrawFile = vi.fn(() => new Promise(() => undefined))
+      render(<VirtualizedMarkdown content={'![流程](./flow.excalidraw?raw=1#v)'} filePath="/docs/a.md" renderDebounceMs={0} />)
+      await waitFor(() => {
+        expect(document.querySelector('.excalidraw-file-placeholder')).toBeTruthy()
+      })
+      expect(global.window.api.readExcalidrawFile).toHaveBeenCalledWith({
+        markdownFilePath: '/docs/a.md',
+        refPath: './flow.excalidraw'
+      })
+      expect(document.querySelector('img[src^="local-image://"]')).toBeFalsy()
+    })
+
+    it('渲染 Excalidraw 文件引用并复制源码视图内容', async () => {
+      const rawCode = '{"type":"excalidraw","elements":[]}'
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true
+      })
+      global.window.api.readExcalidrawFile = vi.fn().mockResolvedValue({
+        content: rawCode,
+        resolvedPath: '/docs/flow.excalidraw'
+      })
+
+      render(<VirtualizedMarkdown content={'![流程](./flow.excalidraw)'} filePath="/docs/a.md" renderDebounceMs={0} />)
+
+      await waitFor(() => {
+        expect(document.querySelector('.excalidraw-wrapper')).toBeTruthy()
+      })
+      expect(document.querySelector('.excalidraw-container svg')?.getAttribute('role')).toBe('img')
+      expect(document.querySelector('.excalidraw-container svg')?.getAttribute('aria-label')).toContain('流程')
+
+      fireEvent.click(document.querySelector('.excalidraw-action-btn[data-action="toggleCode"]')!)
+      fireEvent.click(document.querySelector('.excalidraw-code-view .copy-btn')!)
+
+      await waitFor(() => {
+        expect(writeText).toHaveBeenCalledWith(rawCode)
+      })
+    })
+
+    it('旧 preload 缺少 readExcalidrawFile 时应该回退到 readFile 读取相对引用', async () => {
+      const rawCode = '{"type":"excalidraw","elements":[]}'
+      global.window.api.readExcalidrawFile = undefined as any
+      global.window.api.readFile = vi.fn().mockResolvedValue(rawCode)
+
+      render(<VirtualizedMarkdown content={'![流程](./flow.excalidraw)'} filePath="/docs/a.md" renderDebounceMs={0} />)
+
+      await waitFor(() => {
+        expect(document.querySelector('.excalidraw-wrapper')).toBeTruthy()
+      })
+      expect(global.window.api.readFile).toHaveBeenCalledWith('/docs/flow.excalidraw')
+      expect(document.querySelector('.excalidraw-container svg')?.getAttribute('aria-label')).toContain('流程')
+    })
+
+    it('同一 Markdown 中应该渲染超过 20 个 Excalidraw 文件引用', async () => {
+      const rawCode = '{"type":"excalidraw","elements":[]}'
+      global.window.api.readExcalidrawFile = vi.fn().mockResolvedValue({
+        content: rawCode,
+        resolvedPath: '/docs/flow.excalidraw'
+      })
+      const content = Array.from({ length: 24 }, (_, index) =>
+        `![图 ${index + 1}](./flow-${index + 1}.excalidraw)`
+      ).join('\n\n')
+
+      render(<VirtualizedMarkdown content={content} filePath="/docs/a.md" renderDebounceMs={0} />)
+
+      await waitFor(() => {
+        expect(document.querySelectorAll('.excalidraw-wrapper')).toHaveLength(24)
+      })
+      expect(global.window.api.readExcalidrawFile).toHaveBeenCalledTimes(24)
+    })
   })
 
   describe('右键菜单 (v1.3.7)', () => {
@@ -103,6 +194,11 @@ describe('VirtualizedMarkdown', () => {
         headingText: null,
         headingLevel: null,
         hasSelection: false,
+        selectionText: '',
+        sourceLine: null,
+        scrollRatio: 0,
+        tabId: undefined,
+        leafId: null,
         linkHref: null,
         basePath: null
       })
@@ -116,6 +212,36 @@ describe('VirtualizedMarkdown', () => {
       fireEvent.contextMenu(markdownBody!)
 
       expect(mockShowPreviewContextMenu).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['Shift+F10', { key: 'F10', shiftKey: true }],
+      ['菜单键', { key: 'ContextMenu' }],
+    ])('应该支持通过 %s 打开同一个预览区上下文菜单', async (_label, keyEvent) => {
+      const content = '# 测试'
+      const { container } = render(
+        <VirtualizedMarkdown content={content} filePath="/test/file.md" tabId="tab-a" leafId="leaf-a" />
+      )
+
+      const markdownBody = container.querySelector('.markdown-body') as HTMLElement
+      expect(markdownBody.tabIndex).toBe(0)
+
+      fireEvent.keyDown(markdownBody, keyEvent)
+
+      expect(mockShowPreviewContextMenu).toHaveBeenCalledWith({
+        filePath: '/test/file.md',
+        headingId: null,
+        headingText: null,
+        headingLevel: null,
+        hasSelection: false,
+        selectionText: '',
+        sourceLine: null,
+        scrollRatio: 0,
+        tabId: 'tab-a',
+        leafId: 'leaf-a',
+        linkHref: null,
+        basePath: null
+      })
     })
 
     it('应该检测标题元素', () => {
@@ -137,6 +263,11 @@ describe('VirtualizedMarkdown', () => {
           headingText: '测试标题',
           headingLevel: 'h1',
           hasSelection: false,
+          selectionText: '',
+          sourceLine: 1,
+          scrollRatio: 0,
+          tabId: undefined,
+          leafId: null,
           linkHref: null,
           basePath: null
         })
@@ -164,6 +295,11 @@ describe('VirtualizedMarkdown', () => {
         headingText: null,
         headingLevel: null,
         hasSelection: true,
+        selectionText: '选中的文本',
+        sourceLine: null,
+        scrollRatio: 0,
+        tabId: undefined,
+        leafId: null,
         linkHref: null,
         basePath: null
       })

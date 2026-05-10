@@ -1,6 +1,6 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FileTree, FileInfo } from '../../src/components/FileTree'
 
@@ -8,24 +8,36 @@ describe('FileTree', () => {
   const mockOnFileSelect = vi.fn()
   const mockShowContextMenu = vi.fn()
   const basePath = '/base/path'
+  const createImmediateFolderTreeState = (state: Record<string, false>) => ({
+    then: (resolve: (value: Record<string, false>) => void) => {
+      resolve(state)
+      return Promise.resolve(state)
+    },
+    catch: () => Promise.resolve(state)
+  })
 
   // Mock window.api
   beforeAll(() => {
     window.api = {
       showContextMenu: mockShowContextMenu,
-      onFileStartRename: vi.fn(() => vi.fn())  // v1.2: 重命名事件监听
+      onFileStartRename: vi.fn(() => vi.fn()),  // v1.2: 重命名事件监听
+      getFolderTreeState: vi.fn(() => createImmediateFolderTreeState({})),
+      saveFolderTreeState: vi.fn().mockResolvedValue({}),
+      clearFolderTreeState: vi.fn().mockResolvedValue(undefined)
     } as any
   })
 
-  const createMockFile = (name: string, path: string): FileInfo => ({
+  const createMockFile = (name: string, path: string, treePath = name): FileInfo => ({
     name,
     path,
+    treePath,
     isDirectory: false
   })
 
-  const createMockDirectory = (name: string, path: string, children: FileInfo[] = []): FileInfo => ({
+  const createMockDirectory = (name: string, path: string, children: FileInfo[] = [], treePath = name): FileInfo => ({
     name,
     path,
+    treePath,
     isDirectory: true,
     children
   })
@@ -34,13 +46,20 @@ describe('FileTree', () => {
     mockOnFileSelect.mockClear()
     mockShowContextMenu.mockClear()
     mockShowContextMenu.mockResolvedValue({ success: true })
+    window.api.getFolderTreeState.mockImplementation(() => createImmediateFolderTreeState({}))
+    window.api.saveFolderTreeState.mockResolvedValue({})
+    window.api.clearFolderTreeState.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('基础渲染', () => {
     it('应该显示空状态提示', () => {
       render(<FileTree files={[]} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
-      expect(screen.getByText('没有找到 Markdown 文件')).toBeInTheDocument()
+      expect(screen.getByText('没有找到 Markdown 或 Excalidraw 文件')).toBeInTheDocument()
     })
 
     it('应该渲染单个文件', () => {
@@ -136,6 +155,108 @@ describe('FileTree', () => {
   })
 
   describe('文件夹展开/折叠', () => {
+    it('文件树展开状态加载完成前不应先渲染子目录造成闪烁', async () => {
+      let resolveState: (value: Record<string, false>) => void = () => {}
+      window.api.getFolderTreeState = vi.fn(() => new Promise(resolve => {
+        resolveState = resolve
+      }))
+
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('readme.md', '/docs/readme.md', 'docs/readme.md')
+        ], 'docs')
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      expect(screen.queryByText('readme.md')).not.toBeInTheDocument()
+
+      await act(async () => {
+        resolveState({ docs: false })
+      })
+
+      expect(screen.queryByText('readme.md')).not.toBeInTheDocument()
+    })
+
+    it('切换根目录时不应继续渲染旧目录树', () => {
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('readme.md', '/docs/readme.md', 'docs/readme.md')
+        ], 'docs')
+      ]
+
+      const { rerender } = render(
+        <FileTree files={files} onFileSelect={mockOnFileSelect} basePath="/base/path-a" />
+      )
+      expect(screen.getByText('readme.md')).toBeInTheDocument()
+
+      window.api.getFolderTreeState = vi.fn(() => new Promise(() => {}))
+
+      rerender(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath="/base/path-b" />)
+
+      expect(screen.queryByText('readme.md')).not.toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent('正在恢复文件夹状态...')
+    })
+
+    it('重新打开文件夹时应该恢复已保存的折叠状态', async () => {
+      window.api.getFolderTreeState = vi.fn(() => createImmediateFolderTreeState({ docs: false }))
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('readme.md', '/docs/readme.md', 'docs/readme.md')
+        ], 'docs')
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      expect(screen.getByText('docs')).toBeInTheDocument()
+      expect(screen.queryByText('readme.md')).not.toBeInTheDocument()
+      expect(screen.getByText('docs').closest('.file-tree-row')).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('折叠目录后应该防抖保存 false 状态', async () => {
+      vi.useFakeTimers()
+      const save = vi.fn().mockResolvedValue({ docs: false })
+      window.api.saveFolderTreeState = save
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('readme.md', '/docs/readme.md', 'docs/readme.md')
+        ], 'docs')
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      expect(screen.getByText('readme.md')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('docs'))
+
+      await act(async () => {
+        vi.advanceTimersByTime(350)
+      })
+
+      expect(save).toHaveBeenCalledWith({ docs: false })
+      vi.useRealTimers()
+    })
+
+    it('应该可以重置当前文件夹展开状态', async () => {
+      window.api.getFolderTreeState = vi.fn(() => createImmediateFolderTreeState({ docs: false }))
+      const clear = vi.fn().mockResolvedValue(undefined)
+      window.api.clearFolderTreeState = clear
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('readme.md', '/docs/readme.md', 'docs/readme.md')
+        ], 'docs')
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      expect(screen.getByText('docs')).toBeInTheDocument()
+      expect(screen.queryByText('readme.md')).not.toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: '重置当前文件夹展开状态' }))
+
+      expect(clear).toHaveBeenCalled()
+      expect(screen.getByText('readme.md')).toBeInTheDocument()
+    })
+
     it('文件夹默认应该展开', () => {
       const files = [
         createMockDirectory('docs', '/docs', [

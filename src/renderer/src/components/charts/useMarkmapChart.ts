@@ -19,7 +19,7 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  * @param ref - 容器元素引用
  * @param html - Markdown 渲染后的 HTML 内容
  */
-export function useMarkmapChart(ref: React.RefObject<HTMLElement>, html: string): void {
+export function useMarkmapChart(ref: React.RefObject<HTMLElement | null>, html: string): void {
   // v1.5.4: Markmap 思维导图渲染
   useEffect(() => {
     if (!ref.current) return
@@ -254,4 +254,3 @@ export function useMarkmapChart(ref: React.RefObject<HTMLElement>, html: string)
     }
   }, [html])
 }
-
