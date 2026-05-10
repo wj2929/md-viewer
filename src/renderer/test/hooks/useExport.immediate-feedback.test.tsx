@@ -144,6 +144,20 @@ describe('useExport immediate feedback', () => {
     expect(mocks.buildExportHtmlContent).toHaveBeenCalled()
   })
 
+  it('上一次远程 DOCX 成功面板未关闭时，仍应允许启动新的导出', async () => {
+    useExportTaskStore.getState().setDone('/tmp/old-report.docx', 0, [])
+    const { result } = renderExportHook()
+
+    await act(async () => {
+      void result.current.handleExportDOCX('preview')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(useExportTaskStore.getState().status).toBe('rendering')
+    expect(useExportTaskStore.getState().fileName).toBe('report.md')
+  })
+
   it('waitForExportFeedbackPaint 在没有 requestAnimationFrame 时退回到 setTimeout', async () => {
     vi.stubGlobal('requestAnimationFrame', undefined)
     const promise = waitForExportFeedbackPaint()

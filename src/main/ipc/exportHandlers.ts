@@ -926,6 +926,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     }
 
     const settings = appDataManager.getSettings()
+    const showBranding = settings.showExportBranding !== false
     const docxConfig = settings.docxExport
     const selectedRemoteStyle = normalizeDocxStyle(docxConfig?.style)
     let effectiveRemoteStyle = selectedRemoteStyle
@@ -985,6 +986,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
           {
             style: effectiveRemoteStyle,
             title: undefined,
+            footerText: showBranding ? '由 MD Viewer 生成' : null,
             images: remoteImages,
             embedFont: docxConfig.embedFont,
           }

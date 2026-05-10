@@ -137,7 +137,7 @@ export async function exportViaRemote(
   options: {
     style?: string
     title?: string
-    footerText?: string
+    footerText?: string | null
     images?: RemoteImage[]
     embedFont?: boolean
   } = {}
@@ -160,12 +160,15 @@ export async function exportViaRemote(
   const timeoutMs = docxConfig.timeoutMs || 60000
   const compatibility = await resolveRemoteDocxStyle(docxConfig, options.style)
   const effectiveStyle = compatibility.style
+  const footerText = Object.prototype.hasOwnProperty.call(options, 'footerText')
+    ? options.footerText
+    : '由 MD Viewer 生成'
 
   const body = JSON.stringify({
     markdown,
     style: effectiveStyle,
     title: options.title || undefined,
-    footerText: options.footerText || '由 MD Viewer 生成',
+    footerText,
     images: (options.images || []).map(img => ({
       id: img.id,
       pngBase64: img.pngBase64,

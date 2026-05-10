@@ -442,7 +442,7 @@ function GeneralTab() {
             <span className="switch-slider"></span>
           </label>
         </div>
-        <p className="setting-section-hint">在导出的 HTML / PDF 末尾显示「由 MD Viewer 生成」</p>
+        <p className="setting-section-hint">在导出的 HTML / PDF / DOCX 末尾显示「由 MD Viewer 生成」</p>
       </section>
 
       {/* DOCX 导出服务 */}

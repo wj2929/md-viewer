@@ -46,6 +46,11 @@ export function waitForExportFeedbackPaint(): Promise<void> {
   })
 }
 
+function isDocxExportRunning(): boolean {
+  const status = useExportTaskStore.getState().status
+  return status === 'rendering' || status === 'generating'
+}
+
 export function useExport({ splitState, tabs, activeTabId, folderPath, toast, saveBeforeExport }: UseExportParams): UseExportReturn {
   const cancelledRef = useRef(false)
   const exportGuard = useMemo(() => createExportGuard({ toast, saveBeforeExport }), [toast, saveBeforeExport])
@@ -134,7 +139,6 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       let markdownForExport = exportContent
       let remoteImages: Array<{ id: string; pngBase64: string; widthCm?: number }> | undefined
       let chartWarnings: string[] = []
-      const store = useExportTaskStore.getState()
       let useRemotePath = false
       let shouldRenderCharts = false
 
@@ -152,8 +156,11 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       }
 
       if (useRemotePath) {
-        if (store.status !== 'idle') return
-        store.startExport(exportTab.file.name)
+        if (isDocxExportRunning()) return
+        if (useExportTaskStore.getState().status !== 'idle') {
+          useExportTaskStore.getState().close()
+        }
+        useExportTaskStore.getState().startExport(exportTab.file.name)
         cancelledRef.current = false
       } else {
         loadingId = toast.info('正在生成 Word 文档...', { duration: 120000 })

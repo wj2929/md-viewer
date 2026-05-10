@@ -17,6 +17,7 @@ vi.mock('fs-extra', async (importOriginal) => {
     ...actual,
     default: actual,
     access: vi.fn(actual.access),
+    writeFile: vi.fn(actual.writeFile),
   }
 })
 
@@ -53,6 +54,30 @@ async function startDocxHealthServer(styles: string[]): Promise<string> {
       mode: 'full',
       styles,
     }))
+  })
+  return listen(server)
+}
+
+async function startDocxConvertServer(onRequestBody: (body: any) => void): Promise<string> {
+  server = createServer((req, res) => {
+    if (req.url !== '/convert' || req.method !== 'POST') {
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ detail: 'Not Found' }))
+      return
+    }
+
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => {
+      onRequestBody(JSON.parse(Buffer.concat(chunks).toString('utf-8')))
+      res.writeHead(200, {
+        'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'x-service-version': '0.1.0',
+        'x-service-mode': 'clientRendered',
+        'x-charts-failed': '0',
+      })
+      res.end(Buffer.from('fake-docx'))
+    })
   })
   return listen(server)
 }
@@ -127,5 +152,47 @@ describe('remoteDocxExporter output path preflight', () => {
         message: expect.stringContaining('目标文件不可写'),
       },
     })
+  })
+})
+
+describe('remoteDocxExporter footer branding', () => {
+  it('keeps the default footer when footerText is omitted', async () => {
+    let capturedBody: any
+    const serverUrl = await startDocxConvertServer(body => {
+      capturedBody = body
+    })
+    tempDir = await mkdtemp(path.join(tmpdir(), 'mdv-docx-footer-'))
+    const outputPath = path.join(tempDir, 'out.docx')
+    vi.mocked(appDataManager.getSettings).mockReturnValue({
+      docxExport: {
+        remoteEnabled: true,
+        serverUrl,
+        style: 'standard',
+      },
+    } as any)
+
+    await exportViaRemote('# Report', outputPath, { style: 'standard' })
+
+    expect(capturedBody.footerText).toBe('由 MD Viewer 生成')
+  })
+
+  it('sends null footerText to disable remote DOCX branding', async () => {
+    let capturedBody: any
+    const serverUrl = await startDocxConvertServer(body => {
+      capturedBody = body
+    })
+    tempDir = await mkdtemp(path.join(tmpdir(), 'mdv-docx-footer-'))
+    const outputPath = path.join(tempDir, 'out.docx')
+    vi.mocked(appDataManager.getSettings).mockReturnValue({
+      docxExport: {
+        remoteEnabled: true,
+        serverUrl,
+        style: 'standard',
+      },
+    } as any)
+
+    await exportViaRemote('# Report', outputPath, { style: 'standard', footerText: null })
+
+    expect(capturedBody.footerText).toBeNull()
   })
 })

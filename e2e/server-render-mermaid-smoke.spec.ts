@@ -198,6 +198,17 @@ test('server render page produces DrawIO result', async ({ page }) => {
     const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
     expect(result?.status).toMatch(/success|partial/)
     expect(result?.images.some((image: { type: string }) => image.type === 'drawio')).toBe(true)
+    const drawioTarget = await page.evaluate((selector) => {
+      const element = document.querySelector(selector)
+      return {
+        tagName: element?.tagName.toLowerCase(),
+        className: element?.getAttribute('class') || '',
+      }
+    }, result?.images.find((image: { type: string }) => image.type === 'drawio')?.selector)
+    expect(drawioTarget).toMatchObject({
+      tagName: 'div',
+      className: expect.stringContaining('drawio-container'),
+    })
   } finally {
     await server.close()
   }
@@ -232,6 +243,17 @@ test('server render page produces ECharts result', async ({ page }) => {
     const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
     expect(result?.status).toMatch(/success|partial/)
     expect(result?.images.some((image: { type: string }) => image.type === 'echarts')).toBe(true)
+    const echartsTarget = await page.evaluate((selector) => {
+      const element = document.querySelector(selector)
+      return {
+        tagName: element?.tagName.toLowerCase(),
+        className: element?.getAttribute('class') || '',
+      }
+    }, result?.images.find((image: { type: string }) => image.type === 'echarts')?.selector)
+    expect(echartsTarget).toMatchObject({
+      tagName: 'div',
+      className: expect.stringContaining('echarts-container'),
+    })
   } finally {
     await server.close()
   }
@@ -333,6 +355,17 @@ test('server render page produces Graphviz result', async ({ page }) => {
     const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
     expect(result?.status).toMatch(/success|partial/)
     expect(result?.images.some((image: { type: string }) => image.type === 'graphviz')).toBe(true)
+    const graphvizTarget = await page.evaluate((selector) => {
+      const element = document.querySelector(selector)
+      return {
+        tagName: element?.tagName.toLowerCase(),
+        className: element?.getAttribute('class') || '',
+      }
+    }, result?.images.find((image: { type: string }) => image.type === 'graphviz')?.selector)
+    expect(graphvizTarget).toMatchObject({
+      tagName: 'div',
+      className: expect.stringContaining('graphviz-container'),
+    })
   } finally {
     await server.close()
   }

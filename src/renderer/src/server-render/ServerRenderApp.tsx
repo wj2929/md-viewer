@@ -38,15 +38,15 @@ function countSelector(root: HTMLElement | null, selector: string): number {
 
 function countRenderableBlocks(root: HTMLElement | null): Record<string, number> {
   return {
-    mermaid: countSelector(root, 'pre.language-mermaid'),
+    mermaid: countSelector(root, 'pre.language-mermaid') + countSelector(root, '.mermaid-wrapper') + countSelector(root, '.mermaid-error'),
     katex: countSelector(root, '.katex'),
-    excalidraw: countSelector(root, 'pre.language-excalidraw') + countSelector(root, '.excalidraw-file-placeholder'),
-    drawio: countSelector(root, 'pre.language-drawio'),
-    echarts: countSelector(root, 'pre.language-echarts'),
-    markmap: countSelector(root, 'pre.language-markmap'),
-    graphviz: countSelector(root, 'pre.language-graphviz'),
-    infographic: countSelector(root, 'pre.language-infographic'),
-    plantuml: countSelector(root, 'pre.language-plantuml'),
+    excalidraw: countSelector(root, 'pre.language-excalidraw') + countSelector(root, '.excalidraw-file-placeholder') + countSelector(root, '.excalidraw-wrapper') + countSelector(root, '.excalidraw-error'),
+    drawio: countSelector(root, 'pre.language-drawio') + countSelector(root, '.drawio-wrapper') + countSelector(root, '.drawio-error'),
+    echarts: countSelector(root, 'pre.language-echarts') + countSelector(root, '.echarts-wrapper') + countSelector(root, '.echarts-error'),
+    markmap: countSelector(root, 'pre.language-markmap') + countSelector(root, '.markmap-wrapper') + countSelector(root, '.markmap-error'),
+    graphviz: countSelector(root, 'pre.language-graphviz') + countSelector(root, '.graphviz-wrapper') + countSelector(root, '.graphviz-error'),
+    infographic: countSelector(root, 'pre.language-infographic') + countSelector(root, '.infographic-wrapper') + countSelector(root, '.infographic-error'),
+    plantuml: countSelector(root, 'pre.language-plantuml') + countSelector(root, '.plantuml-wrapper') + countSelector(root, '.plantuml-error'),
   }
 }
 
@@ -55,6 +55,13 @@ function readNumberAttribute(element: Element | null, attribute: string): number
   if (raw == null || raw === '') return undefined
   const value = Number(raw)
   return Number.isFinite(value) ? value : undefined
+}
+
+function resolveRenderedWidthCm(rectWidth: number, rootWidth: number): number {
+  const maxWidthCm = 15.5
+  if (!Number.isFinite(rectWidth) || rectWidth <= 0) return maxWidthCm
+  if (!Number.isFinite(rootWidth) || rootWidth <= 0) return maxWidthCm
+  return Math.max(2.8, Math.min(maxWidthCm, Math.round((rectWidth / rootWidth) * maxWidthCm * 100) / 100))
 }
 
 function replaceExcalidrawImageReferences(root: HTMLElement): void {
@@ -114,6 +121,7 @@ export function ServerRenderApp(): React.JSX.Element {
   useEffect(() => {
     let attempts = 0
     const startedAt = Date.now()
+    if (input.markdown.trim() && !html) return
     const expected = countRenderableBlocks(rootRef.current)
     if (input.enabledRenderers?.includes('plantuml') !== true) {
       expected.plantuml = 0
@@ -159,6 +167,8 @@ export function ServerRenderApp(): React.JSX.Element {
       if (finished || elapsed >= timeoutMs) {
         window.clearInterval(timer)
 
+        const rootRect = root?.getBoundingClientRect()
+        const rootWidth = rootRect?.width || 0
         const result: BrowserPageRenderResult = {
           schemaVersion: '1.0',
           ok: finished && failedBlocks === 0,
@@ -174,6 +184,7 @@ export function ServerRenderApp(): React.JSX.Element {
             const isInfographic = element.classList.contains('infographic-wrapper')
             const isPlantuml = element.classList.contains('plantuml-wrapper')
             const echartsContainer = element.querySelector('.echarts-container')
+            const drawioContainer = element.querySelector('.drawio-container')
             const markmapContainer = element.querySelector('.markmap-container')
             const graphvizContainer = element.querySelector('.graphviz-container')
             const infographicContainer = element.querySelector('.infographic-container')
@@ -184,13 +195,13 @@ export function ServerRenderApp(): React.JSX.Element {
                 : isExcalidraw
                   ? element.querySelector('.excalidraw-container svg')
                   : isDrawio
-                    ? element.querySelector('.drawio-container svg')
+                    ? drawioContainer
                     : isECharts
-                      ? echartsContainer?.querySelector('svg')
+                      ? echartsContainer
                       : isMarkmap
                         ? markmapContainer?.querySelector('svg')
                         : isGraphviz
-                          ? graphvizContainer?.querySelector('svg')
+                          ? graphvizContainer
                           : isInfographic
                           ? infographicContainer?.querySelector('svg')
                           : isPlantuml
@@ -217,15 +228,25 @@ export function ServerRenderApp(): React.JSX.Element {
               target.style.display = 'inline-block'
               target.style.width = 'max-content'
             }
+            if ((isDrawio || isGraphviz) && target instanceof HTMLElement) {
+              const svg = target.querySelector('svg')
+              if (svg) {
+                svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+                svg.style.width = '100%'
+                svg.style.height = 'auto'
+                svg.style.display = 'block'
+              }
+            }
             target?.setAttribute('data-mdv-render-id', id)
             const rect = target?.getBoundingClientRect()
+            const renderedWidthCm = resolveRenderedWidthCm(rect?.width || 0, rootWidth)
             return {
               id,
               type: isMermaid ? 'mermaid' : isExcalidraw ? 'excalidraw' : isDrawio ? 'drawio' : isECharts ? 'echarts' : isMarkmap ? 'markmap' : isGraphviz ? 'graphviz' : isInfographic ? 'infographic' : isPlantuml ? 'plantuml' : 'katex',
               selector: `[data-mdv-render-id="${id}"]`,
               widthPx: Math.max(1, Math.round(rect?.width || 800)),
               heightPx: Math.max(1, Math.round(rect?.height || 400)),
-              widthCm: isMermaid || isExcalidraw || isDrawio || isECharts || isMarkmap || isGraphviz || isInfographic || isPlantuml ? 15.5 : 12,
+              widthCm: isMermaid || isExcalidraw || isDrawio || isECharts || isMarkmap || isGraphviz || isInfographic || isPlantuml ? renderedWidthCm : 12,
               durationMs: elapsed,
               sourceIndex,
             }
