@@ -10,6 +10,7 @@ import { setAllowedBasePath, validateSecurePath, validatePath, validateSearchPat
 interface FileInfo {
   name: string
   path: string
+  treePath: string
   isDirectory: boolean
   children?: FileInfo[]
 }
@@ -245,11 +246,13 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
     const parts = relativePath.split(/[\\/]/)
     const fileName = parts.pop()!
     const fullPath = path.join(rootPath, relativePath)
+    const fileTreePath = relativePath.split(/[\\/]/).join('/')
 
     if (parts.length === 0) {
       tree.push({
         name: fileName,
         path: fullPath,
+        treePath: fileTreePath,
         isDirectory: false
       })
     } else {
@@ -266,6 +269,7 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
           dir = {
             name: part,
             path: dirFullPath,
+            treePath: currentPath,
             isDirectory: true,
             children: []
           }
@@ -278,6 +282,7 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
       parent.push({
         name: fileName,
         path: fullPath,
+        treePath: fileTreePath,
         isDirectory: false
       })
     }
@@ -420,6 +425,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       await ctx.folderHistoryManager.addFolder(folderPath)
       const win = BrowserWindow.fromWebContents(event.sender)
       if (win && !win.isDestroyed()) {
+        ctx.windowManager.setWindowFolderPath(win.id, folderPath)
         win.webContents.send('restore-folder', folderPath)
         setTimeout(() => {
           if (!win.isDestroyed()) {
@@ -432,7 +438,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
   }
 
   // 打开文件夹对话框
-  ipcMain.handle('dialog:openFolder', async () => {
+  ipcMain.handle('dialog:openFolder', async (event) => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory']
     })
@@ -444,6 +450,10 @@ export function registerFileHandlers(ctx: IPCContext): void {
     ctx.store.set('lastOpenedFolder', folderPath)
     await ctx.folderHistoryManager.addFolder(folderPath)
     setAllowedBasePath(folderPath)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) {
+      ctx.windowManager.setWindowFolderPath(win.id, folderPath)
+    }
     console.log(`[SECURITY] Set allowed base path: ${folderPath}`)
 
     return folderPath

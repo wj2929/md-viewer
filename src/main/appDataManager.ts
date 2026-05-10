@@ -53,6 +53,21 @@ export interface PinnedTabsByFolder {
 }
 
 /**
+ * 文件树展开状态
+ */
+export interface FolderTreeState {
+  folders: Record<string, false>
+  updatedAt: number
+}
+
+/**
+ * 按根目录分组的文件树展开状态
+ */
+export interface FolderTreeStatesByRoot {
+  [rootFolderPath: string]: FolderTreeState
+}
+
+/**
  * 旧版固定标签（兼容迁移）
  * @deprecated 使用 PinnedTabsByFolder 替代
  */
@@ -96,6 +111,7 @@ interface AppDataStore {
   bookmarks: Bookmark[]
   pinnedTabs: PinnedTab[]                    // 旧版，保留用于迁移
   pinnedTabsByFolder: PinnedTabsByFolder     // v1.3.6 新版
+  folderTreeStates: FolderTreeStatesByRoot
   settings: AppSettings
 }
 
@@ -105,6 +121,8 @@ const MAX_RECENT_FILES = 20
 const MAX_BOOKMARKS = 100
 const MAX_PINNED_TABS_PER_FOLDER = 15       // 每个文件夹最多固定标签数
 const MAX_FOLDERS_WITH_PINNED = 50          // 最多保留多少个文件夹的固定标签
+const MAX_FOLDERS_WITH_TREE_STATE = 50
+const MAX_COLLAPSED_FOLDERS_PER_ROOT = 1000
 const VALIDATE_TIMEOUT = 1000 // 路径验证超时（毫秒）
 
 export const DEFAULT_DOCX_EXPORT_SETTINGS = {
@@ -130,6 +148,7 @@ class AppDataManager {
         bookmarks: [],
         pinnedTabs: [],              // 旧版，保留用于迁移
         pinnedTabsByFolder: {},      // v1.3.6 新版
+        folderTreeStates: {},
         settings: {
           imageDir: 'assets',
           autoSave: true,
@@ -336,6 +355,117 @@ class AppDataManager {
    */
   clearBookmarks(): void {
     this.store.set('bookmarks', [])
+  }
+
+  // ============== 文件树展开状态管理 ==============
+
+  /**
+   * 规范化展开状态根目录
+   */
+  private normalizeFolderTreeRoot(rootFolderPath: string): string {
+    return path.resolve(rootFolderPath)
+  }
+
+  /**
+   * 规范化 treePath，统一使用正斜杠并过滤越界段
+   */
+  private normalizeTreePath(treePath: string): string | null {
+    if (typeof treePath !== 'string') return null
+
+    const slashNormalized = treePath.replace(/\\/g, '/')
+    if (slashNormalized.startsWith('/') || /^[a-zA-Z]:\//.test(slashNormalized)) {
+      return null
+    }
+
+    const normalized = slashNormalized.replace(/\/+$/g, '')
+    if (!normalized) return null
+
+    const parts = normalized.split('/')
+    if (parts.some(part => part === '' || part === '.' || part === '..')) {
+      return null
+    }
+
+    return parts.join('/')
+  }
+
+  /**
+   * 清理并截断单个根目录下的折叠状态
+   */
+  private sanitizeFolderTreeFolders(folders: Record<string, unknown>): Record<string, false> {
+    const next: Record<string, false> = {}
+
+    for (const [rawTreePath, value] of Object.entries(folders)) {
+      if (value !== false) continue
+
+      const treePath = this.normalizeTreePath(rawTreePath)
+      if (!treePath) continue
+
+      next[treePath] = false
+
+      if (Object.keys(next).length >= MAX_COLLAPSED_FOLDERS_PER_ROOT) {
+        break
+      }
+    }
+
+    return next
+  }
+
+  /**
+   * 截断根目录状态数量
+   */
+  private pruneFolderTreeStates(states: FolderTreeStatesByRoot): FolderTreeStatesByRoot {
+    const entries = Object.entries(states)
+    if (entries.length <= MAX_FOLDERS_WITH_TREE_STATE) return states
+
+    return Object.fromEntries(
+      entries
+        .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+        .slice(0, MAX_FOLDERS_WITH_TREE_STATE)
+    )
+  }
+
+  /**
+   * 获取指定根目录的文件树折叠状态
+   */
+  getFolderTreeState(rootFolderPath: string): Record<string, false> {
+    const root = this.normalizeFolderTreeRoot(rootFolderPath)
+    const states = this.store.get('folderTreeStates', {})
+    const folderTreeState = states[root]
+    if (!folderTreeState) return {}
+
+    return this.sanitizeFolderTreeFolders(folderTreeState.folders || {})
+  }
+
+  /**
+   * 保存指定根目录的文件树折叠状态
+   */
+  saveFolderTreeState(rootFolderPath: string, folders: Record<string, unknown>): Record<string, false> {
+    const root = this.normalizeFolderTreeRoot(rootFolderPath)
+    const sanitizedFolders = this.sanitizeFolderTreeFolders(folders)
+    const states = this.store.get('folderTreeStates', {})
+    const nextStates = this.pruneFolderTreeStates({
+      ...states,
+      [root]: {
+        folders: sanitizedFolders,
+        updatedAt: Date.now()
+      }
+    })
+
+    this.store.set('folderTreeStates', nextStates)
+    return sanitizedFolders
+  }
+
+  /**
+   * 清空单个根目录的展开状态
+   */
+  clearFolderTreeState(rootFolderPath: string): void {
+    const root = this.normalizeFolderTreeRoot(rootFolderPath)
+    const states = this.store.get('folderTreeStates', {})
+    if (!states[root]) return
+
+    const nextStates = { ...states }
+    delete nextStates[root]
+    this.store.set('folderTreeStates', nextStates)
   }
 
   // ============== 固定标签管理（v1.3.6 增强版：按文件夹分组） ==============

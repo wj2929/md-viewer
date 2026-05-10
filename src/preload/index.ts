@@ -173,6 +173,12 @@ const api = {
     ipcRenderer.invoke('folder-history:clear'),
   setFolderPath: (folderPath: string) =>
     ipcRenderer.invoke('folder:setPath', folderPath) as Promise<boolean>,
+  getFolderTreeState: () =>
+    ipcRenderer.invoke('folder-tree-state:get') as Promise<Record<string, false>>,
+  saveFolderTreeState: (folders: Record<string, false>) =>
+    ipcRenderer.invoke('folder-tree-state:save', folders) as Promise<Record<string, false>>,
+  clearFolderTreeState: () =>
+    ipcRenderer.invoke('folder-tree-state:clear') as Promise<void>,
 
   // 最近文件右键菜单
   showRecentFileContextMenu: (file: {

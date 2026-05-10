@@ -30,6 +30,7 @@ export function registerWindowHandlers(ctx: IPCContext): void {
     ctx.windowManager.addPendingAction(win.id, () => {
       setAllowedBasePath(folderPath)
       ctx.store.set('lastOpenedFolder', folderPath)
+      ctx.windowManager.setWindowFolderPath(win.id, folderPath)
       ctx.folderHistoryManager.addFolder(folderPath)
       win.webContents.send('restore-folder', folderPath)
     })

@@ -14,6 +14,20 @@ function isPreviewableFilePath(filePath: string): boolean {
   return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
+function getSenderFolderRoot(ctx: IPCContext, event: Electron.IpcMainInvokeEvent): string {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) {
+    throw new Error('无法识别当前窗口')
+  }
+
+  const root = ctx.windowManager.getWindowFolderPath(win.id)
+  if (!root) {
+    throw new Error('当前窗口未绑定文件夹')
+  }
+
+  return root
+}
+
 export function registerDataHandlers(ctx: IPCContext): void {
   // ============== 剪贴板 ==============
 
@@ -98,10 +112,16 @@ ipcMain.handle('folder-history:clear', async () => {
 })
 
 // v1.3.4：设置当前文件夹（从历史选择时调用）
-ipcMain.handle('folder:setPath', async (_, folderPath: string) => {
+ipcMain.handle('folder:setPath', async (event, folderPath: string) => {
   setAllowedBasePath(folderPath)
   ctx.store.set('lastOpenedFolder', folderPath)
   await ctx.folderHistoryManager.addFolder(folderPath)
+
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win) {
+    ctx.windowManager.setWindowFolderPath(win.id, folderPath)
+  }
+
   return true
 })
 
@@ -222,6 +242,25 @@ ipcMain.handle('settings:get', async () => {
 
 ipcMain.handle('settings:update', async (_, updates: Record<string, unknown>) => {
   ctx.appDataManager.updateSettings(updates)
+})
+
+ipcMain.handle('folder-tree-state:get', async (event) => {
+  const root = getSenderFolderRoot(ctx, event)
+  return ctx.appDataManager.getFolderTreeState(root)
+})
+
+ipcMain.handle('folder-tree-state:save', async (event, folders: Record<string, unknown>) => {
+  if (!folders || typeof folders !== 'object' || Array.isArray(folders)) {
+    throw new Error('无效的文件树状态')
+  }
+
+  const root = getSenderFolderRoot(ctx, event)
+  return ctx.appDataManager.saveFolderTreeState(root, folders)
+})
+
+ipcMain.handle('folder-tree-state:clear', async (event) => {
+  const root = getSenderFolderRoot(ctx, event)
+  ctx.appDataManager.clearFolderTreeState(root)
 })
 
   // ============== 搜索历史管理（原子操作） ==============

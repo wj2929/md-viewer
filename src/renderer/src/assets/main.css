@@ -839,6 +839,40 @@ body {
   overflow-y: auto;
 }
 
+.file-tree-shell {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tree-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px 2px;
+}
+
+.file-tree-reset-btn {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.file-tree-reset-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.file-tree-loading {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* 占位符 */
 .placeholder {
   color: var(--text-muted);

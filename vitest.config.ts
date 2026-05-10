@@ -10,6 +10,7 @@ export default defineConfig({
     setupFiles: ['./src/renderer/test/setup.ts'],
     include: [
       'src/renderer/**/*.{test,spec}.{ts,tsx}',
+      'src/main/__tests__/appDataManager.test.ts',
       'src/main/__tests__/fileHandlers.editing.test.ts',
       'src/main/__tests__/fileHandlers.excalidraw.test.ts',
       'src/main/__tests__/previewContextMenu.editing.test.ts',

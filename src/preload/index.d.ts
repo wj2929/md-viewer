@@ -133,6 +133,9 @@ declare global {
       removeFolderFromHistory: (folderPath: string) => Promise<void>
       clearFolderHistory: () => Promise<void>
       setFolderPath: (folderPath: string) => Promise<boolean>
+      getFolderTreeState: () => Promise<Record<string, false>>
+      saveFolderTreeState: (folders: Record<string, false>) => Promise<Record<string, false>>
+      clearFolderTreeState: () => Promise<void>
 
       // v1.3.6：最近文件
       getRecentFiles: () => Promise<Array<{ path: string; name: string; folderPath: string; lastOpened: number }>>
@@ -392,6 +395,7 @@ declare global {
   interface FileInfo {
     name: string
     path: string
+    treePath?: string
     isDirectory: boolean
     children?: FileInfo[]
   }
