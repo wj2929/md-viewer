@@ -70,4 +70,40 @@ describe('editSessionStore', () => {
     expect(session.draft).toBe('# B')
     expect(session.dirty).toBe(true)
   })
+
+  it('allows only one writer per canonical path', () => {
+    useEditSessionStore.getState().openSession(baseSession)
+
+    expect(useEditSessionStore.getState().claimWriter('/real/docs/a.md', 'leaf-a:tab-a')).toBe(true)
+    expect(useEditSessionStore.getState().claimWriter('/real/docs/a.md', 'leaf-b:tab-a')).toBe(false)
+
+    useEditSessionStore.getState().releaseWriter('/real/docs/a.md', 'leaf-a:tab-a')
+    expect(useEditSessionStore.getState().claimWriter('/real/docs/a.md', 'leaf-b:tab-a')).toBe(true)
+  })
+
+  it('increments draftVersion on draft updates', () => {
+    useEditSessionStore.getState().openSession(baseSession)
+    const before = useEditSessionStore.getState().sessions['/real/docs/a.md'].draftVersion
+
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# B', { writerId: null })
+
+    const session = useEditSessionStore.getState().sessions['/real/docs/a.md']
+    expect(session.draftVersion).toBe(before + 1)
+    expect(session.status).toBe('dirty')
+  })
+
+  it('does not mark clean when saved version is older than current draftVersion', () => {
+    useEditSessionStore.getState().openSession(baseSession)
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# B', { writerId: null })
+    const snapshot = useEditSessionStore.getState().createSaveSnapshot('/real/docs/a.md', '# B')
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# C', { writerId: null })
+
+    useEditSessionStore.getState().markSaved('/real/docs/a.md', snapshot.content, '2000:3', snapshot.draftVersion)
+
+    const session = useEditSessionStore.getState().sessions['/real/docs/a.md']
+    expect(session.original).toBe('# B')
+    expect(session.draft).toBe('# C')
+    expect(session.dirty).toBe(true)
+    expect(session.status).toBe('dirty')
+  })
 })

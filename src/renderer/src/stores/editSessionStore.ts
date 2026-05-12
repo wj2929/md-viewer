@@ -1,6 +1,18 @@
 import { create } from 'zustand'
 
 export type EditConflictReason = 'revision_changed' | 'mtime_changed' | 'external_changed' | 'missing' | 'renamed'
+export type EditSessionStatus = 'ready' | 'dirty' | 'saving' | 'conflict' | 'error' | 'missing'
+
+export interface SaveSnapshot {
+  canonicalPath: string
+  content: string
+  draftVersion: number
+  expectedRevisionToken: string
+}
+
+export interface UpdateDraftOptions {
+  writerId?: string | null
+}
 
 export interface OpenEditSessionInput {
   canonicalPath: string
@@ -16,8 +28,11 @@ export interface EditSession {
   canonicalPath: string
   displayPath: string
   fileName: string
+  status: EditSessionStatus
   original: string
   draft: string
+  draftVersion: number
+  writerId: string | null
   dirty: boolean
   saving: boolean
   error: string | null
@@ -30,10 +45,13 @@ interface EditSessionState {
   sessions: Record<string, EditSession>
   openSession: (input: OpenEditSessionInput) => void
   closeSession: (canonicalPath: string) => void
-  updateDraft: (canonicalPath: string, draft: string) => void
+  updateDraft: (canonicalPath: string, draft: string, options?: UpdateDraftOptions) => void
+  claimWriter: (canonicalPath: string, writerId: string) => boolean
+  releaseWriter: (canonicalPath: string, writerId: string) => void
+  createSaveSnapshot: (canonicalPath: string, content?: string) => SaveSnapshot
   setSaving: (canonicalPath: string, saving: boolean) => void
   setError: (canonicalPath: string, error: string | null) => void
-  markSaved: (canonicalPath: string, content: string, revisionToken: string) => void
+  markSaved: (canonicalPath: string, content: string, revisionToken: string, savedDraftVersion?: number) => void
   markConflict: (canonicalPath: string, reason: EditConflictReason, diskRevisionToken?: string) => void
   replaceFromDisk: (canonicalPath: string, content: string, revisionToken: string) => void
   reset: () => void
@@ -53,8 +71,11 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
           canonicalPath: input.canonicalPath,
           displayPath: input.displayPath,
           fileName: input.fileName,
+          status: 'ready',
           original: input.content,
           draft: input.content,
+          draftVersion: 0,
+          writerId: null,
           dirty: false,
           saving: false,
           error: null,
@@ -74,10 +95,13 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
     })
   },
 
-  updateDraft: (canonicalPath, draft) => {
+  updateDraft: (canonicalPath, draft, options = {}) => {
     set(state => {
       const session = state.sessions[canonicalPath]
       if (!session) return state
+      if (options.writerId && session.writerId && session.writerId !== options.writerId) return state
+
+      const dirty = draft !== session.original
 
       return {
         sessions: {
@@ -85,12 +109,57 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
           [canonicalPath]: {
             ...session,
             draft,
-            dirty: draft !== session.original,
+            draftVersion: session.draftVersion + 1,
+            dirty,
+            status: dirty ? 'dirty' : 'ready',
             error: null,
           },
         },
       }
     })
+  },
+
+  claimWriter: (canonicalPath, writerId) => {
+    const session = get().sessions[canonicalPath]
+    if (!session) return false
+    if (session.writerId && session.writerId !== writerId) return false
+
+    set(state => {
+      const current = state.sessions[canonicalPath]
+      if (!current) return state
+      return {
+        sessions: {
+          ...state.sessions,
+          [canonicalPath]: { ...current, writerId },
+        },
+      }
+    })
+    return true
+  },
+
+  releaseWriter: (canonicalPath, writerId) => {
+    set(state => {
+      const session = state.sessions[canonicalPath]
+      if (!session || session.writerId !== writerId) return state
+
+      return {
+        sessions: {
+          ...state.sessions,
+          [canonicalPath]: { ...session, writerId: null },
+        },
+      }
+    })
+  },
+
+  createSaveSnapshot: (canonicalPath, content) => {
+    const session = get().sessions[canonicalPath]
+    if (!session) throw new Error('编辑会话不存在')
+    return {
+      canonicalPath,
+      content: content ?? session.draft,
+      draftVersion: session.draftVersion,
+      expectedRevisionToken: session.baseRevisionToken,
+    }
   },
 
   setSaving: (canonicalPath, saving) => {
@@ -101,7 +170,11 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
       return {
         sessions: {
           ...state.sessions,
-          [canonicalPath]: { ...session, saving },
+          [canonicalPath]: {
+            ...session,
+            saving,
+            status: saving ? 'saving' : session.dirty ? 'dirty' : 'ready',
+          },
         },
       }
     })
@@ -115,18 +188,23 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
       return {
         sessions: {
           ...state.sessions,
-          [canonicalPath]: { ...session, error },
+          [canonicalPath]: {
+            ...session,
+            error,
+            status: error ? 'error' : session.dirty ? 'dirty' : 'ready',
+          },
         },
       }
     })
   },
 
-  markSaved: (canonicalPath, content, revisionToken) => {
+  markSaved: (canonicalPath, content, revisionToken, savedDraftVersion) => {
     set(state => {
       const session = state.sessions[canonicalPath]
       if (!session) return state
       const currentDraft = session.draft
-      const draftChangedAfterSnapshot = currentDraft !== content
+      const savedVersionMatches = savedDraftVersion === undefined || session.draftVersion === savedDraftVersion
+      const draftChangedAfterSnapshot = !savedVersionMatches || currentDraft !== content
 
       return {
         sessions: {
@@ -136,6 +214,7 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
             original: content,
             draft: draftChangedAfterSnapshot ? currentDraft : content,
             dirty: draftChangedAfterSnapshot,
+            status: draftChangedAfterSnapshot ? 'dirty' : 'ready',
             saving: false,
             error: null,
             baseRevisionToken: revisionToken,
@@ -158,6 +237,7 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
           [canonicalPath]: {
             ...session,
             saving: false,
+            status: reason === 'missing' || reason === 'renamed' ? 'missing' : 'conflict',
             conflictReason: reason,
             lastKnownDiskRevisionToken: diskRevisionToken ?? session.lastKnownDiskRevisionToken,
           },
@@ -178,7 +258,9 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
             ...session,
             original: content,
             draft: content,
+            draftVersion: session.draftVersion + 1,
             dirty: false,
+            status: 'ready',
             error: null,
             baseRevisionToken: revisionToken,
             lastKnownDiskRevisionToken: revisionToken,
