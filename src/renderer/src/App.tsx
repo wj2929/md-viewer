@@ -362,8 +362,17 @@ function App(): React.JSX.Element {
     }
   }, [handleRefreshFiles, toast])
 
+  const confirmCloseDirtyTab = useCallback((tab: Tab): boolean => {
+    const session = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
+    if (!session?.dirty) return true
+    return window.confirm(`"${tab.file.name}" 有未保存编辑草稿，关闭会保留内存草稿但不会写入磁盘。是否继续关闭标签？`)
+  }, [])
+
   // 关闭标签
   const handleTabClose = useCallback((tabId: string) => {
+    const closingTab = tabsRef.current.find(tab => tab.id === tabId)
+    if (closingTab && !confirmCloseDirtyTab(closingTab)) return
+
     setTabs(prev => {
       const closingTab = prev.find(tab => tab.id === tabId)
       if (closingTab) clearFileCache(closingTab.file.path)
@@ -380,7 +389,7 @@ function App(): React.JSX.Element {
       }
       return newTabs
     })
-  }, [])
+  }, [confirmCloseDirtyTab])
 
   // 选择文件
   const handleFileSelect = useCallback(async (file: FileInfo, lineNumber?: number, keyword?: string) => {
@@ -537,10 +546,11 @@ function App(): React.JSX.Element {
     const session = useEditSessionStore.getState().sessions[canonicalPath]
     if (!session) return false
 
-    await handleSaveQuickEdit(canonicalPath, session.draft, session.baseRevisionToken, false)
+    const snapshot = useEditSessionStore.getState().createSaveSnapshot(canonicalPath)
+    await handleSaveQuickEdit(canonicalPath, snapshot.content, snapshot.expectedRevisionToken, false, snapshot.draftVersion)
     const nextSession = useEditSessionStore.getState().sessions[canonicalPath]
     if (nextSession?.dirty || nextSession?.conflictReason) {
-      toast.error('保存快速编辑草稿失败，已取消导出')
+      toast.error('保存编辑草稿失败，已取消导出')
       return false
     }
     return true
@@ -764,9 +774,23 @@ function App(): React.JSX.Element {
 
     const unsubscribeChanged = window.api.onFileChanged(async (changedPath: string) => {
       clearFileCache(changedPath)
-      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, changedPath)
-      if (dirtySession?.dirty) {
-        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'external_changed')
+      const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, changedPath)
+      if (editSession?.dirty) {
+        useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'external_changed')
+        return
+      }
+      if (editSession) {
+        try {
+          const result = await window.api.openEditableMarkdown(editSession.displayPath)
+          replaceEditSessionFromDisk(editSession.canonicalPath, result.content, result.revisionToken)
+          setTabs(prev => prev.map(tab =>
+            tab.file.path === editSession.displayPath || tab.file.path === editSession.canonicalPath
+              ? { ...tab, content: result.content }
+              : tab
+          ))
+        } catch (error) {
+          console.error('Failed to reload clean edit session:', error)
+        }
         return
       }
       const currentTabs = tabsRef.current
@@ -786,13 +810,25 @@ function App(): React.JSX.Element {
     const unsubscribeAdded = window.api.onFileAdded(async (addedPath: string) => {
       // 如果新增文件匹配已打开的 tab，重新读取内容（覆盖原子写入超时场景）
       clearFileCache(addedPath)
-      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, addedPath)
-      if (dirtySession?.dirty) {
-        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'external_changed')
+      const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, addedPath)
+      if (editSession?.dirty) {
+        useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'external_changed')
       }
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === addedPath)
-      if (affectedTab && !dirtySession?.dirty) {
+      if (editSession && !editSession.dirty) {
+        try {
+          const result = await window.api.openEditableMarkdown(editSession.displayPath)
+          replaceEditSessionFromDisk(editSession.canonicalPath, result.content, result.revisionToken)
+          setTabs(prev => prev.map(tab =>
+            tab.file.path === editSession.displayPath || tab.file.path === editSession.canonicalPath
+              ? { ...tab, content: result.content }
+              : tab
+          ))
+        } catch (error) {
+          console.error('Failed to reload clean edit session after add:', error)
+        }
+      } else if (affectedTab && !editSession?.dirty) {
         try {
           const newContent = await window.api.readFile(addedPath)
           setTabs(prev => prev.map(tab =>
@@ -939,6 +975,10 @@ function App(): React.JSX.Element {
   }, [])
 
   const handleClosePanel = useCallback((leafId: string) => {
+    const leaf = splitStateRef.current.root ? findLeaf(splitStateRef.current.root, leafId) : null
+    const tab = leaf?.tabId ? tabsRef.current.find(item => item.id === leaf.tabId) : null
+    if (tab && !confirmCloseDirtyTab(tab)) return
+
     setSplitState(prev => {
       if (!prev.root) return prev
       const newRoot = closeLeaf(prev.root, leafId)
@@ -949,7 +989,7 @@ function App(): React.JSX.Element {
       }
       return { ...prev, root: newRoot }
     })
-  }, [])
+  }, [confirmCloseDirtyTab])
 
   const handleResizePanel = useCallback((splitId: string, ratio: number) => {
     setSplitState(prev => {

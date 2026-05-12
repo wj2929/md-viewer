@@ -30,7 +30,7 @@ describe('exportGuard', () => {
     const guard = createExportGuard({ toast })
 
     await expect(guard('/docs/a.md')).resolves.toBe(false)
-    expect(toast.error).toHaveBeenCalledWith('请先保存快速编辑草稿后再导出')
+    expect(toast.error).toHaveBeenCalledWith('请先保存编辑草稿后再导出')
   })
 
   it('saves first and then allows export when saveBeforeExport is provided', async () => {
@@ -71,7 +71,7 @@ describe('exportGuard', () => {
     const guard = createExportGuard({ toast, saveBeforeExport })
 
     await expect(guard('/docs/a.md')).resolves.toBe(true)
-    expect(window.confirm).toHaveBeenCalledWith('存在未保存的快速编辑草稿。是否先保存并继续导出？')
+    expect(window.confirm).toHaveBeenCalledWith('存在未保存的编辑草稿。是否先保存并继续导出？')
     expect(saveBeforeExport).toHaveBeenCalledWith('/real/docs/a.md')
   })
 

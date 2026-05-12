@@ -873,7 +873,7 @@ describe('App 集成测试', () => {
         await exportHtmlCallback()
       })
 
-      expect(await screen.findByText('请先保存快速编辑草稿后再导出')).toBeInTheDocument()
+      expect(await screen.findByText('请先保存编辑草稿后再导出')).toBeInTheDocument()
       expect(mockApi.exportHTML).not.toHaveBeenCalled()
     })
 
