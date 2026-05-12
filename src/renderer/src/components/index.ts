@@ -40,3 +40,4 @@ export { ExportTaskView } from './ExportTaskView'
 
 // 轻量 Markdown 编辑
 export { QuickEditDrawer } from './QuickEditDrawer'
+export * from './editor'
