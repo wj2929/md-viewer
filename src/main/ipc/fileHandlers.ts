@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain, dialog } from 'electron'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import * as os from 'os'
+import { createHash } from 'crypto'
 import chokidar from 'chokidar'
 import { IPCContext } from './context'
 import { setAllowedBasePath, validateSecurePath, validatePath, validateSearchPath } from '../security'
@@ -47,8 +48,27 @@ let pendingUnlink: { path: string; timestamp: number } | null = null
 const RENAME_THRESHOLD_MS = 500
 const pendingFileUnlinkTimers = new Map<string, NodeJS.Timeout>()
 
-function buildRevisionToken(stats: fs.Stats): string {
-  return `${stats.mtimeMs}:${stats.size}`
+function hashContent(content: string): string {
+  return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16)
+}
+
+function buildRevisionToken(stats: fs.Stats, content?: string): string {
+  const baseToken = `${stats.mtimeMs}:${stats.size}`
+  return content === undefined ? baseToken : `${baseToken}:${hashContent(content)}`
+}
+
+function parseRevisionToken(token: string): { mtimeMs: string; size: string; hash?: string } {
+  const [mtimeMs = '', size = '', hash] = token.split(':')
+  return { mtimeMs, size, hash }
+}
+
+function revisionTokenMatches(expectedRevisionToken: string, diskRevisionToken: string): boolean {
+  if (expectedRevisionToken === diskRevisionToken) return true
+
+  const expected = parseRevisionToken(expectedRevisionToken)
+  const disk = parseRevisionToken(diskRevisionToken)
+  if (!expected.hash && expected.mtimeMs === disk.mtimeMs && expected.size === disk.size) return true
+  return Boolean(expected.hash && disk.hash && expected.hash === disk.hash)
 }
 
 async function getBestEffortCanonicalPath(filePath: string): Promise<string> {
@@ -580,7 +600,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       content,
       mtimeMs: stats.mtimeMs,
       size: stats.size,
-      revisionToken: buildRevisionToken(stats),
+      revisionToken: buildRevisionToken(stats, content),
     }
   })
 
@@ -616,8 +636,9 @@ export function registerFileHandlers(ctx: IPCContext): void {
     if (!stats.isFile()) {
       throw new Error('目标不是文件')
     }
-    const diskRevisionToken = buildRevisionToken(stats)
-    if (!force && diskRevisionToken !== expectedRevisionToken) {
+    const diskContent = !force && stats.size <= MAX_SIZE ? await fs.readFile(canonicalPath, 'utf-8') : undefined
+    const diskRevisionToken = buildRevisionToken(stats, diskContent)
+    if (!force && !revisionTokenMatches(expectedRevisionToken, diskRevisionToken)) {
       return {
         success: false,
         conflict: {
@@ -633,7 +654,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       success: true,
       mtimeMs: nextStats.mtimeMs,
       size: nextStats.size,
-      revisionToken: buildRevisionToken(nextStats),
+      revisionToken: buildRevisionToken(nextStats, content),
     }
   })
 

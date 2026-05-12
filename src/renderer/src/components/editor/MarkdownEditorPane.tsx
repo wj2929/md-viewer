@@ -1,11 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, type ViewUpdate, keymap } from '@codemirror/view'
-import { markdown } from '@codemirror/lang-markdown'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { searchKeymap } from '@codemirror/search'
-import { basicSetup } from 'codemirror'
 import type { QuickEditTarget } from '../../utils/quickEditTarget'
+import { applyMarkdownFormat, type MarkdownFormatCommand } from './markdownFormatCommands'
+import { createMarkdownEditorExtensions } from './markdownEditorExtensions'
 import './MarkdownEditorPane.css'
 
 export interface MarkdownEditorPaneHandle {
@@ -13,6 +11,7 @@ export interface MarkdownEditorPaneHandle {
   replaceDocument: (content: string) => void
   focus: () => void
   scrollToLine: (lineNumber: number) => boolean
+  applyFormat: (command: MarkdownFormatCommand) => void
 }
 
 interface MarkdownEditorPaneProps {
@@ -60,6 +59,7 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
   const readOnlyCompartmentRef = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
+  const suppressChangeRef = useRef(false)
 
   onChangeRef.current = onChange
   onSaveRef.current = onSave
@@ -83,12 +83,19 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
     replaceDocument: (nextContent: string) => {
       const view = viewRef.current
       if (!view) return
+      suppressChangeRef.current = true
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: nextContent },
       })
+      suppressChangeRef.current = false
     },
     focus: () => viewRef.current?.focus(),
     scrollToLine,
+    applyFormat: (command: MarkdownFormatCommand) => {
+      const view = viewRef.current
+      if (!view) return
+      applyMarkdownFormat(view, command)
+    },
   }), [content])
 
   useEffect(() => {
@@ -105,21 +112,17 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
       },
     }])
     const updateListener = EditorView.updateListener.of((update: ViewUpdate) => {
-      if (update.docChanged) onChangeRef.current(update.state.doc.toString())
+      if (update.docChanged && !suppressChangeRef.current) onChangeRef.current(update.state.doc.toString())
     })
 
     const state = EditorState.create({
       doc: content,
-      extensions: [
-        basicSetup,
-        history(),
-        markdown(),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+      extensions: createMarkdownEditorExtensions([
         saveKey,
         updateListener,
         editableCompartment.of(EditorView.editable.of(!readOnly)),
         readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
-      ],
+      ]),
     })
 
     const view = new EditorView({ state, parent: hostRef.current })
@@ -147,9 +150,11 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
     if (!view) return
     const currentContent = view.state.doc.toString()
     if (currentContent === content) return
+    suppressChangeRef.current = true
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: content },
     })
+    suppressChangeRef.current = false
   }, [content])
 
   useEffect(() => {

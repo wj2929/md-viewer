@@ -40,8 +40,10 @@ describe('MarkdownEditWorkbench', () => {
         leafId="single"
         canonicalPath="/real/docs/a.md"
         mode="compare"
+        compareRatio={0.5}
         target={null}
         onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
         onSave={vi.fn()}
         onCopyDraft={vi.fn()}
         onReloadFromDisk={vi.fn()}
@@ -64,8 +66,10 @@ describe('MarkdownEditWorkbench', () => {
         leafId="single"
         canonicalPath="/real/docs/a.md"
         mode="compare"
+        compareRatio={0.5}
         target={null}
         onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
         onSave={onSave}
         onCopyDraft={vi.fn()}
         onReloadFromDisk={vi.fn()}
@@ -77,6 +81,56 @@ describe('MarkdownEditWorkbench', () => {
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith('/real/docs/a.md', '# B', '1000:3', false, expect.any(Number))
+    })
+  })
+
+  it('persists compare ratio changes from the separator keyboard control', () => {
+    const onCompareRatioChange = vi.fn()
+
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={onCompareRatioChange}
+        onSave={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    fireEvent.keyDown(screen.getByRole('separator', { name: '调整编辑和预览宽度' }), { key: 'ArrowRight' })
+
+    expect(onCompareRatioChange).toHaveBeenCalledWith(0.55)
+  })
+
+  it('applies toolbar formatting to the draft preview', async () => {
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '加粗' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('draft-preview')).toHaveTextContent('**文本**# A')
     })
   })
 })

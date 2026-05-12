@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
+import type { CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { VirtualizedMarkdown } from '../VirtualizedMarkdown'
 import FloatingNav from '../FloatingNav'
 import type { Tab } from '../TabBar'
@@ -6,7 +7,9 @@ import { useEditSessionStore } from '../../stores/editSessionStore'
 import type { DocumentViewMode } from '../../stores/documentViewModeStore'
 import type { QuickEditTarget } from '../../utils/quickEditTarget'
 import { DocumentModeSwitch } from './DocumentModeSwitch'
+import { MarkdownFormatToolbar } from './MarkdownFormatToolbar'
 import { MarkdownEditorPane, type MarkdownEditorPaneHandle } from './MarkdownEditorPane'
+import type { MarkdownFormatCommand } from './markdownFormatCommands'
 import './MarkdownEditWorkbench.css'
 
 interface MarkdownEditWorkbenchProps {
@@ -14,8 +17,10 @@ interface MarkdownEditWorkbenchProps {
   leafId: string
   canonicalPath: string
   mode: DocumentViewMode
+  compareRatio: number
   target: QuickEditTarget | null
   onModeChange: (mode: DocumentViewMode) => void
+  onCompareRatioChange: (ratio: number) => void
   onSave: (
     canonicalPath: string,
     content: string,
@@ -39,8 +44,10 @@ export function MarkdownEditWorkbench({
   leafId,
   canonicalPath,
   mode,
+  compareRatio,
   target,
   onModeChange,
+  onCompareRatioChange,
   onSave,
   onCopyDraft,
   onReloadFromDisk,
@@ -49,6 +56,9 @@ export function MarkdownEditWorkbench({
   const writerId = `${leafId}:${tab.id}`
   const editorRef = useRef<MarkdownEditorPaneHandle | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
+  const workbenchRef = useRef<HTMLElement | null>(null)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const narrowModeAppliedRef = useRef(false)
   const session = useEditSessionStore(state => state.sessions[canonicalPath])
   const updateDraft = useEditSessionStore(state => state.updateDraft)
   const claimWriter = useEditSessionStore(state => state.claimWriter)
@@ -67,6 +77,57 @@ export function MarkdownEditWorkbench({
   const content = session?.draft ?? tab.content
   const dirty = Boolean(session?.dirty)
   const hasConflict = Boolean(session?.conflictReason)
+  const boundedCompareRatio = Math.min(0.8, Math.max(0.2, compareRatio))
+
+  const updateCompareRatioFromPointer = useCallback((clientX: number, clientY: number) => {
+    const body = bodyRef.current
+    if (!body) return
+    const rect = body.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    const nextRatio = rect.width < 900
+      ? (clientY - rect.top) / rect.height
+      : (clientX - rect.left) / rect.width
+    onCompareRatioChange(Math.min(0.8, Math.max(0.2, nextRatio)))
+  }, [onCompareRatioChange])
+
+  const handleDividerMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
+      updateCompareRatioFromPointer(moveEvent.clientX, moveEvent.clientY)
+    }
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [updateCompareRatioFromPointer])
+
+  const handleDividerKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 0.1 : 0.05
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'ArrowUp' && event.key !== 'ArrowDown') {
+      return
+    }
+    event.preventDefault()
+    const delta = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -step : step
+    onCompareRatioChange(Math.min(0.8, Math.max(0.2, boundedCompareRatio + delta)))
+  }, [boundedCompareRatio, onCompareRatioChange])
+
+  useEffect(() => {
+    if (mode !== 'compare' || narrowModeAppliedRef.current) return
+    const element = workbenchRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || narrowModeAppliedRef.current) return
+      if (entry.contentRect.width > 0 && entry.contentRect.width < 680) {
+        narrowModeAppliedRef.current = true
+        onModeChange('edit')
+      }
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [mode, onModeChange])
 
   const handleChange = useCallback((nextContent: string) => {
     updateDraft(canonicalPath, nextContent, { writerId })
@@ -87,6 +148,11 @@ export function MarkdownEditWorkbench({
     }
   }, [canonicalPath, createSaveSnapshot, onSave, readOnly, session, setError, setSaving, updateDraft, writerId])
 
+  const handleFormatCommand = useCallback((command: MarkdownFormatCommand) => {
+    if (readOnly) return
+    editorRef.current?.applyFormat(command)
+  }, [readOnly])
+
   const previewPane = useMemo(() => (
     <div className="markdown-workbench-preview-pane">
       <div className="markdown-workbench-preview-status" role="status">
@@ -106,9 +172,12 @@ export function MarkdownEditWorkbench({
   ), [content, dirty, leafId, tab.file.path, tab.id])
 
   return (
-    <section className={`markdown-edit-workbench mode-${mode}`} aria-label={`${tab.file.name} 编辑工作区`}>
+    <section ref={workbenchRef} className={`markdown-edit-workbench mode-${mode}`} aria-label={`${tab.file.name} 编辑工作区`}>
       <header className="markdown-workbench-toolbar">
-        <DocumentModeSwitch mode={mode} dirty={dirty} onChange={onModeChange} />
+        <div className="markdown-workbench-toolbar-left">
+          <DocumentModeSwitch mode={mode} dirty={dirty} onChange={onModeChange} />
+          <MarkdownFormatToolbar disabled={readOnly || mode === 'preview'} onCommand={handleFormatCommand} />
+        </div>
         <div className="markdown-workbench-actions">
           <button type="button" onClick={() => handleSave()} disabled={!dirty || session?.saving || readOnly} aria-label="保存修改">
             {session?.saving ? '保存中...' : '保存'}
@@ -135,7 +204,14 @@ export function MarkdownEditWorkbench({
         </div>
       )}
 
-      <div className="markdown-workbench-body">
+      <div
+        ref={bodyRef}
+        className={`markdown-workbench-body ${mode === 'compare' ? 'compare' : ''}`}
+        style={{
+          '--editor-size': `${boundedCompareRatio}fr`,
+          '--preview-size': `${1 - boundedCompareRatio}fr`,
+        } as CSSProperties}
+      >
         {mode !== 'preview' && (
           <MarkdownEditorPane
             ref={editorRef}
@@ -145,6 +221,20 @@ export function MarkdownEditWorkbench({
             onChange={handleChange}
             onSave={(nextContent) => handleSave(nextContent)}
             onLocateComplete={onLocateComplete}
+          />
+        )}
+        {mode === 'compare' && (
+          <div
+            className="markdown-workbench-divider"
+            role="separator"
+            aria-label="调整编辑和预览宽度"
+            aria-orientation="vertical"
+            aria-valuemin={20}
+            aria-valuemax={80}
+            aria-valuenow={Math.round(boundedCompareRatio * 100)}
+            tabIndex={0}
+            onMouseDown={handleDividerMouseDown}
+            onKeyDown={handleDividerKeyDown}
           />
         )}
         {mode !== 'edit' && previewPane}

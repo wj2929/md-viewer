@@ -51,6 +51,7 @@ function App(): React.JSX.Element {
   const getDocumentViewState = useDocumentViewModeStore(state => state.getViewState)
   const setDocumentViewMode = useDocumentViewModeStore(state => state.setMode)
   const setDocumentViewTarget = useDocumentViewModeStore(state => state.setTarget)
+  const setDocumentCompareRatio = useDocumentViewModeStore(state => state.setCompareRatio)
 
   const { lastExportedFilePath, lastExportedTime } = useExportTaskStore()
 
@@ -1223,8 +1224,10 @@ function App(): React.JSX.Element {
                     onDropTab={handleDropTab}
                     onSwapPanels={handleSwapPanels}
                     getDocumentViewMode={(leafId, tabId) => getDocumentViewState(leafId, tabId).mode}
+                    getDocumentCompareRatio={(leafId, tabId) => getDocumentViewState(leafId, tabId).compareRatio}
                     getDocumentViewTarget={(leafId, tabId) => getDocumentViewState(leafId, tabId).target}
                     onDocumentViewModeChange={setDocumentViewMode}
+                    onDocumentCompareRatioChange={setDocumentCompareRatio}
                     onDocumentLocateComplete={(leafId, tabId, located) => {
                       if (located) toast.success('已定位到源码附近')
                       else toast.info('未能精确定位，已打开编辑器')
@@ -1248,8 +1251,10 @@ function App(): React.JSX.Element {
                         leafId={SINGLE_LEAF_ID}
                         canonicalPath={activeQuickEditSession.canonicalPath}
                         mode={activeViewState.mode}
+                        compareRatio={activeViewState.compareRatio}
                         target={activeViewState.target}
                         onModeChange={(mode: DocumentViewMode) => setDocumentViewMode(SINGLE_LEAF_ID, activeTab.id, mode)}
+                        onCompareRatioChange={(ratio) => setDocumentCompareRatio(SINGLE_LEAF_ID, activeTab.id, ratio)}
                         onSave={handleSaveQuickEdit}
                         onCopyDraft={handleCopyQuickEditDraft}
                         onReloadFromDisk={handleReloadQuickEdit}

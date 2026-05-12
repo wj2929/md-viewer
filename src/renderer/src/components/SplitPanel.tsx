@@ -43,8 +43,10 @@ export interface SplitPanelProps {
   onDropTab: (leafId: string, tabId: string, position: 'center' | 'left' | 'right' | 'top' | 'bottom') => void
   onSwapPanels?: (leafIdA: string, leafIdB: string) => void
   getDocumentViewMode?: (leafId: string, tabId: string) => DocumentViewMode
+  getDocumentCompareRatio?: (leafId: string, tabId: string) => number
   getDocumentViewTarget?: (leafId: string, tabId: string) => QuickEditTarget | null
   onDocumentViewModeChange?: (leafId: string, tabId: string, mode: DocumentViewMode) => void
+  onDocumentCompareRatioChange?: (leafId: string, tabId: string, ratio: number) => void
   onDocumentLocateComplete?: (leafId: string, tabId: string, located: boolean) => void
   onOpenMarkdownEdit?: (tab: Tab, leafId: string) => void
   getQuickEditCanonicalPath?: (tab: Tab) => string | null
@@ -85,8 +87,10 @@ function LeafPanel({
   onDropTab,
   onSwapPanels,
   getDocumentViewMode,
+  getDocumentCompareRatio,
   getDocumentViewTarget,
   onDocumentViewModeChange,
+  onDocumentCompareRatioChange,
   onDocumentLocateComplete,
   onOpenMarkdownEdit,
   getQuickEditCanonicalPath,
@@ -108,8 +112,10 @@ function LeafPanel({
   onDropTab: SplitPanelProps['onDropTab']
   onSwapPanels?: SplitPanelProps['onSwapPanels']
   getDocumentViewMode?: SplitPanelProps['getDocumentViewMode']
+  getDocumentCompareRatio?: SplitPanelProps['getDocumentCompareRatio']
   getDocumentViewTarget?: SplitPanelProps['getDocumentViewTarget']
   onDocumentViewModeChange?: SplitPanelProps['onDocumentViewModeChange']
+  onDocumentCompareRatioChange?: SplitPanelProps['onDocumentCompareRatioChange']
   onDocumentLocateComplete?: SplitPanelProps['onDocumentLocateComplete']
   onOpenMarkdownEdit?: SplitPanelProps['onOpenMarkdownEdit']
   getQuickEditCanonicalPath?: SplitPanelProps['getQuickEditCanonicalPath']
@@ -259,8 +265,10 @@ function LeafPanel({
             leafId={node.id}
             canonicalPath={quickEditSession.canonicalPath}
             mode={documentMode}
+            compareRatio={getDocumentCompareRatio?.(node.id, tab.id) ?? 0.5}
             target={documentTarget}
             onModeChange={(mode) => onDocumentViewModeChange?.(node.id, tab.id, mode)}
+            onCompareRatioChange={(ratio) => onDocumentCompareRatioChange?.(node.id, tab.id, ratio)}
             onSave={onSaveQuickEdit}
             onCopyDraft={onCopyDraft}
             onReloadFromDisk={onReloadQuickEdit}
@@ -400,8 +408,10 @@ export function SplitPanel(props: SplitPanelProps): JSX.Element {
         onDropTab={props.onDropTab}
         onSwapPanels={props.onSwapPanels}
         getDocumentViewMode={props.getDocumentViewMode}
+        getDocumentCompareRatio={props.getDocumentCompareRatio}
         getDocumentViewTarget={props.getDocumentViewTarget}
         onDocumentViewModeChange={props.onDocumentViewModeChange}
+        onDocumentCompareRatioChange={props.onDocumentCompareRatioChange}
         onDocumentLocateComplete={props.onDocumentLocateComplete}
         onOpenMarkdownEdit={props.onOpenMarkdownEdit}
         getQuickEditCanonicalPath={props.getQuickEditCanonicalPath}

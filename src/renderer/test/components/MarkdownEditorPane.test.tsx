@@ -38,6 +38,53 @@ describe('MarkdownEditorPane', () => {
     expect(ref.current?.getCurrentDoc()).toBe('# B')
   })
 
+  it('does not report programmatic content replacement as user edits', () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <MarkdownEditorPane
+        content="# A"
+        readOnly={false}
+        target={null}
+        onChange={onChange}
+        onSave={vi.fn()}
+      />
+    )
+
+    rerender(
+      <MarkdownEditorPane
+        content="# From disk"
+        readOnly={false}
+        target={null}
+        onChange={onChange}
+        onSave={vi.fn()}
+      />
+    )
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('applies Markdown formatting commands to the current document', () => {
+    const onChange = vi.fn()
+    const ref = createRef<MarkdownEditorPaneHandle>()
+    render(
+      <MarkdownEditorPane
+        ref={ref}
+        content="# A"
+        readOnly={false}
+        target={null}
+        onChange={onChange}
+        onSave={vi.fn()}
+      />
+    )
+
+    act(() => {
+      ref.current?.applyFormat('bold')
+    })
+
+    expect(ref.current?.getCurrentDoc()).toBe('**文本**# A')
+    expect(onChange).toHaveBeenCalledWith('**文本**# A')
+  })
+
   it('locates a source line target and reports completion', () => {
     const onLocateComplete = vi.fn()
     const ref = createRef<MarkdownEditorPaneHandle>()

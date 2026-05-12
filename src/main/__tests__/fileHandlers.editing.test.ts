@@ -79,7 +79,7 @@ describe('Markdown editing file handlers', () => {
       content: '# A',
       mtimeMs: 1000,
       size: 12,
-      revisionToken: '1000:12',
+      revisionToken: '1000:12:327f031b25e00b1a',
     })
 
     mockStat.mockResolvedValue({ isFile: () => true, size: 18, mtimeMs: 1000 } as fs.Stats)
@@ -112,10 +112,32 @@ describe('Markdown editing file handlers', () => {
       success: false,
       conflict: {
         reason: 'revision_changed',
-        diskRevisionToken: '2000:20',
+        diskRevisionToken: '2000:20:327f031b25e00b1a',
       },
     })
     expect(mockWriteFile).not.toHaveBeenCalled()
+  })
+
+  it('allows saving when only file metadata changed but disk content is unchanged', async () => {
+    mockRealpath.mockResolvedValue('/docs/a.md')
+    mockStat
+      .mockResolvedValueOnce({ isFile: () => true, size: 12, mtimeMs: 1000 } as fs.Stats)
+      .mockResolvedValueOnce({ isFile: () => true, size: 12, mtimeMs: 2000 } as fs.Stats)
+      .mockResolvedValueOnce({ isFile: () => true, size: 22, mtimeMs: 3000 } as fs.Stats)
+    mockReadFile.mockResolvedValue('# A')
+
+    const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
+    const saveEditable = handler<(event: any, payload: any) => Promise<any>>('fs:saveEditableMarkdown')
+
+    const opened = await openEditable(eventFor(1), '/docs/a.md')
+
+    await expect(saveEditable(eventFor(1), {
+      canonicalPath: '/docs/a.md',
+      content: '# Changed',
+      expectedRevisionToken: opened.revisionToken,
+      force: false,
+    })).resolves.toEqual({ success: true, mtimeMs: 3000, size: 22, revisionToken: '3000:22:2c30f987a9e44271' })
+    expect(mockWriteFile).toHaveBeenCalledWith('/docs/a.md', '# Changed', 'utf-8')
   })
 
   it('saves when authorized and mtime matches', async () => {
@@ -136,7 +158,7 @@ describe('Markdown editing file handlers', () => {
       content: '# Changed',
       expectedRevisionToken: '1000:20',
       force: false,
-    })).resolves.toEqual({ success: true, mtimeMs: 3000, size: 22, revisionToken: '3000:22' })
+    })).resolves.toEqual({ success: true, mtimeMs: 3000, size: 22, revisionToken: '3000:22:2c30f987a9e44271' })
     expect(mockWriteFile).toHaveBeenCalledWith('/docs/a.md', '# Changed', 'utf-8')
   })
 
@@ -149,7 +171,7 @@ describe('Markdown editing file handlers', () => {
 
     await expect(openEditable(eventFor(1), '/docs/a.md')).resolves.toMatchObject({
       canonicalPath: path.resolve('/docs/a.md'),
-      revisionToken: '1000:12',
+      revisionToken: '1000:12:327f031b25e00b1a',
     })
   })
 
