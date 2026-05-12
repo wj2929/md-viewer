@@ -21,6 +21,8 @@ export { useSearchHistoryStore } from './searchHistoryStore'
 export { useEditSessionStore } from './editSessionStore'
 export type { EditSession, EditConflictReason, OpenEditSessionInput } from './editSessionStore'
 export { useQuickEditPlacementStore } from './quickEditPlacementStore'
+export { useDocumentViewModeStore } from './documentViewModeStore'
+export type { DocumentViewMode, DocumentViewState } from './documentViewModeStore'
 
 // v1.6.0: 新增 Stores
 export { useFileStore } from './fileStore'
