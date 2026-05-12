@@ -9,6 +9,7 @@ import { useBookmarkStore } from '../src/stores/bookmarkStore'
 import { useLayoutStore } from '../src/stores/layoutStore'
 import { useEditSessionStore } from '../src/stores/editSessionStore'
 import { useQuickEditPlacementStore } from '../src/stores/quickEditPlacementStore'
+import { useDocumentViewModeStore } from '../src/stores/documentViewModeStore'
 
 // Mock window.api
 const mockApi = {
@@ -213,6 +214,7 @@ describe('App 集成测试', () => {
     useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
     useEditSessionStore.getState().reset()
     useQuickEditPlacementStore.getState().reset()
+    useDocumentViewModeStore.getState().reset()
     vi.stubGlobal('confirm', vi.fn(() => false))
     mockApi.onQuickEditFromPreview.mockImplementation(() => vi.fn())
     mockApi.openEditableMarkdown.mockResolvedValue({
@@ -390,6 +392,43 @@ describe('App 集成测试', () => {
       await waitFor(() => {
         expect(mockApi.readFile).toHaveBeenCalledTimes(2)
         expect(screen.getByRole('heading', { name: '新内容' })).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Markdown 编辑模式', () => {
+    it('快速编辑此处应该进入对照预览编辑工作区', async () => {
+      let quickEditHandler: ((target: any) => void) | undefined
+      const file = { name: 'report.md', path: '/test/folder/report.md', isDirectory: false }
+      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.readDir.mockResolvedValue([file])
+      mockApi.readFile.mockResolvedValue('# Report')
+      mockApi.onQuickEditFromPreview.mockImplementation((handler) => {
+        quickEditHandler = handler
+        return vi.fn()
+      })
+
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+
+      const fileName = await screen.findByText('report.md')
+      fireEvent.click(fileName)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Report' })).toBeInTheDocument()
+      })
+
+      await act(async () => {
+        quickEditHandler?.({
+          filePath: '/test/folder/report.md',
+          mode: 'source-line',
+          sourceLine: 1,
+        })
+      })
+
+      await waitFor(() => {
+        expect(mockApi.openEditableMarkdown).toHaveBeenCalledWith('/test/folder/report.md')
+        expect(screen.getByLabelText('report.md 编辑工作区')).toBeInTheDocument()
       })
     })
   })
@@ -747,7 +786,7 @@ describe('App 集成测试', () => {
       expect(screen.queryByRole('button', { name: '快速编辑 report.md' })).not.toBeInTheDocument()
     })
 
-    it('应该通过预览区右键菜单事件打开快速编辑抽屉', async () => {
+    it('应该通过预览区右键菜单事件进入对照预览编辑工作区', async () => {
       let quickEditCallback: (params: { filePath: string }) => void = () => {}
       mockApi.onQuickEditFromPreview.mockImplementation((callback) => {
         quickEditCallback = callback
@@ -763,7 +802,8 @@ describe('App 集成测试', () => {
       await waitFor(() => {
         expect(mockApi.openEditableMarkdown).toHaveBeenCalledWith('/test/folder/report.md')
       })
-      expect(await screen.findByLabelText('Markdown 源码编辑区')).toHaveValue('# Report')
+      expect(await screen.findByLabelText('report.md 编辑工作区')).toBeInTheDocument()
+      expect(await screen.findByLabelText('Markdown 源码编辑区')).toBeInTheDocument()
     })
 
     it('保存快速编辑后应该更新当前标签内容', async () => {
@@ -773,9 +813,11 @@ describe('App 集成测试', () => {
         const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
         callback({ filePath: '/test/folder/report.md' })
       })
-      const editor = await screen.findByLabelText('Markdown 源码编辑区')
+      await screen.findByLabelText('Markdown 源码编辑区')
 
-      fireEvent.change(editor, { target: { value: '# Changed' } })
+      act(() => {
+        useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Changed')
+      })
       fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
 
       await waitFor(() => {
@@ -797,11 +839,13 @@ describe('App 集成测试', () => {
         const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
         callback({ filePath: '/test/folder/report.md' })
       })
-      const editor = await screen.findByLabelText('Markdown 源码编辑区')
+      await screen.findByLabelText('Markdown 源码编辑区')
 
-      fireEvent.change(editor, { target: { value: '# Draft Preview' } })
+      act(() => {
+        useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Draft Preview')
+      })
 
-      expect(await screen.findByText('草稿预览，未保存')).toBeInTheDocument()
+      expect(await screen.findByText('草稿预览，未保存到磁盘')).toBeInTheDocument()
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Draft Preview' })).toBeInTheDocument()
       })
@@ -820,8 +864,10 @@ describe('App 集成测试', () => {
         const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
         callback({ filePath: '/test/folder/report.md' })
       })
-      const editor = await screen.findByLabelText('Markdown 源码编辑区')
-      fireEvent.change(editor, { target: { value: '# Unsaved Draft' } })
+      await screen.findByLabelText('Markdown 源码编辑区')
+      act(() => {
+        useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Unsaved Draft')
+      })
 
       await act(async () => {
         await exportHtmlCallback()
@@ -831,7 +877,7 @@ describe('App 集成测试', () => {
       expect(mockApi.exportHTML).not.toHaveBeenCalled()
     })
 
-    it('应该通过分屏预览区右键菜单事件打开面板内快速编辑抽屉', async () => {
+    it('应该通过分屏预览区右键菜单事件打开面板内编辑工作区', async () => {
       useTabStore.setState(state => ({
         ...state,
         splitState: {
@@ -844,11 +890,11 @@ describe('App 集成测试', () => {
 
       act(() => {
         const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
-        callback({ filePath: '/test/folder/report.md' })
+        callback({ filePath: '/test/folder/report.md', leafId: 'leaf-1' })
       })
 
-      expect(await screen.findByLabelText('Markdown 源码编辑区')).toHaveValue('# Report')
-      expect(document.querySelector('.split-panel-content.with-quick-edit .quick-edit-drawer')).toBeInTheDocument()
+      expect(await screen.findByLabelText('report.md 编辑工作区')).toBeInTheDocument()
+      expect(document.querySelector('.split-panel-content.with-quick-edit .quick-edit-drawer')).not.toBeInTheDocument()
     })
   })
 })
