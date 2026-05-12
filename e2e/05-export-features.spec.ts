@@ -201,6 +201,9 @@ test.describe('导出功能测试', () => {
 
     expect(htmlContent).toContain('<style>')
     expect(htmlContent).toContain('.markdown-body')
+    expect(htmlContent).toContain('.markdown-body blockquote')
+    expect(htmlContent).toContain('.markdown-body table')
+    expect(htmlContent).toContain('border-collapse: collapse')
     expect(htmlContent).toContain('--bg-primary')
 
     // 验证包含代码高亮样式

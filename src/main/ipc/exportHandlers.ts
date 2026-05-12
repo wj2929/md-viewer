@@ -26,6 +26,49 @@ function withExportExtension(fileName: string, extension: 'html' | 'pdf' | 'docx
 }
 
 // 获取导出用的完整 CSS（包含所有必需的变量和样式）
+function sanitizeBundledExportCss(css: string): string {
+  // 过滤掉应用程序的布局样式（这些样式会阻止导出 HTML 滚动）
+  // 移除 body { overflow: hidden; height: 100vh; } 等应用布局样式
+  return css
+    // 移除 body 的 overflow: hidden 和 height: 100vh
+    .replace(/body\s*\{[^}]*overflow\s*:\s*hidden[^}]*\}/g, (match) => {
+      // 只移除 overflow: hidden 和 height: 100vh，保留其他样式
+      return match
+        .replace(/overflow\s*:\s*hidden\s*;?/g, '')
+        .replace(/height\s*:\s*100vh\s*;?/g, '')
+    })
+    // 移除 #root, .app, .workspace-container 等应用容器样式
+    .replace(/#root\s*\{[^}]*\}/g, '')
+    .replace(/\.app\s*\{[^}]*\}/g, '')
+    .replace(/\.workspace-container\s*\{[^}]*\}/g, '')
+    .replace(/\.main-content\s*\{[^}]*\}/g, '')
+    .replace(/\.sidebar\s*\{[^}]*\}/g, '')
+    .replace(/\.titlebar\s*\{[^}]*\}/g, '')
+    .replace(/\.header\s*\{[^}]*\}/g, '')
+    // 移除文件树相关样式
+    .replace(/\.file-tree[^{]*\{[^}]*\}/g, '')
+    // 移除标签栏相关样式
+    .replace(/\.tab-bar[^{]*\{[^}]*\}/g, '')
+    .replace(/\.tab-item[^{]*\{[^}]*\}/g, '')
+    // 移除导航栏相关样式
+    .replace(/\.navigation-bar[^{]*\{[^}]*\}/g, '')
+    .replace(/\.nav-[^{]*\{[^}]*\}/g, '')
+    // 移除书签栏相关样式
+    .replace(/\.bookmark-bar[^{]*\{[^}]*\}/g, '')
+    .replace(/\.bookmark-panel[^{]*\{[^}]*\}/g, '')
+    // 移除搜索相关样式
+    .replace(/\.search-[^{]*\{[^}]*\}/g, '')
+    // 移除设置面板相关样式
+    .replace(/\.settings-[^{]*\{[^}]*\}/g, '')
+}
+
+function hasCoreMarkdownExportCss(css: string): boolean {
+  return /\.markdown-body\s*\{/.test(css) &&
+    /\.markdown-body\s+blockquote\b/.test(css) &&
+    /\.markdown-body\s+table\b/.test(css) &&
+    /\.markdown-body\s+table\s+(td|th)\b/.test(css)
+}
+
 async function getExportStyles(): Promise<{ markdownCss: string; prismCss: string }> {
   let markdownCss = ''
   let prismCss = ''
@@ -55,42 +98,17 @@ async function getExportStyles(): Promise<{ markdownCss: string; prismCss: strin
           // 尝试读取合并后的 CSS 文件（Vite 可能会重命名）
           try {
             const files = await fs.readdir(assetsPath)
-            const cssFile = files.find(f => f.endsWith('.css') && f.startsWith('index'))
-            if (cssFile) {
-              let combinedCss = await fs.readFile(join(assetsPath, cssFile), 'utf-8')
-              // 过滤掉应用程序的布局样式（这些样式会阻止导出 HTML 滚动）
-              // 移除 body { overflow: hidden; height: 100vh; } 等应用布局样式
-              combinedCss = combinedCss
-                // 移除 body 的 overflow: hidden 和 height: 100vh
-                .replace(/body\s*\{[^}]*overflow\s*:\s*hidden[^}]*\}/g, (match) => {
-                  // 只移除 overflow: hidden 和 height: 100vh，保留其他样式
-                  return match
-                    .replace(/overflow\s*:\s*hidden\s*;?/g, '')
-                    .replace(/height\s*:\s*100vh\s*;?/g, '')
-                })
-                // 移除 #root, .app, .workspace-container 等应用容器样式
-                .replace(/#root\s*\{[^}]*\}/g, '')
-                .replace(/\.app\s*\{[^}]*\}/g, '')
-                .replace(/\.workspace-container\s*\{[^}]*\}/g, '')
-                .replace(/\.main-content\s*\{[^}]*\}/g, '')
-                .replace(/\.sidebar\s*\{[^}]*\}/g, '')
-                .replace(/\.titlebar\s*\{[^}]*\}/g, '')
-                .replace(/\.header\s*\{[^}]*\}/g, '')
-                // 移除文件树相关样式
-                .replace(/\.file-tree[^{]*\{[^}]*\}/g, '')
-                // 移除标签栏相关样式
-                .replace(/\.tab-bar[^{]*\{[^}]*\}/g, '')
-                .replace(/\.tab-item[^{]*\{[^}]*\}/g, '')
-                // 移除导航栏相关样式
-                .replace(/\.navigation-bar[^{]*\{[^}]*\}/g, '')
-                .replace(/\.nav-[^{]*\{[^}]*\}/g, '')
-                // 移除书签栏相关样式
-                .replace(/\.bookmark-bar[^{]*\{[^}]*\}/g, '')
-                .replace(/\.bookmark-panel[^{]*\{[^}]*\}/g, '')
-                // 移除搜索相关样式
-                .replace(/\.search-[^{]*\{[^}]*\}/g, '')
-                // 移除设置面板相关样式
-                .replace(/\.settings-[^{]*\{[^}]*\}/g, '')
+            const cssFiles = files.filter(f => f.endsWith('.css')).sort((a, b) => {
+              const score = (name: string): number => name.startsWith('katex') ? 0 : name.startsWith('index') ? 1 : 2
+              return score(a) - score(b) || a.localeCompare(b)
+            })
+            if (cssFiles.length > 0) {
+              const combinedCss = sanitizeBundledExportCss(
+                (await Promise.all(cssFiles.map(file => fs.readFile(join(assetsPath, file), 'utf-8')))).join('\n')
+              )
+              if (!hasCoreMarkdownExportCss(combinedCss)) {
+                continue
+              }
               markdownCss = combinedCss
               prismCss = ''
               break
@@ -106,7 +124,7 @@ async function getExportStyles(): Promise<{ markdownCss: string; prismCss: strin
   }
 
   // 如果仍然没有样式，使用内嵌的完整样式
-  if (!markdownCss) {
+  if (!markdownCss || !hasCoreMarkdownExportCss(markdownCss)) {
     markdownCss = getBuiltinMarkdownCSS()
     prismCss = getBuiltinPrismCSS()
   }
