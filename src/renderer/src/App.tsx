@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
 import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
@@ -9,8 +9,8 @@ import { useDragDrop } from './hooks/useDragDrop'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIPC } from './hooks/useIPC'
 import { useExport } from './hooks/useExport'
-import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore } from './stores'
-import type { EditConflictReason, EditSession } from './stores'
+import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore, useDocumentViewModeStore } from './stores'
+import type { DocumentViewMode, EditConflictReason, EditSession } from './stores'
 import { useExportTaskStore } from './stores/exportTaskStore'
 import type { QuickEditTarget } from './utils/quickEditTarget'
 
@@ -33,6 +33,8 @@ function getDraftPreviewDebounceMs(content: string, hasEditSession: boolean): nu
     : 250
 }
 
+const SINGLE_LEAF_ID = 'single'
+
 function App(): React.JSX.Element {
   // v1.6.0: Zustand stores
   const { folderPath, setFolderPath, files, setFiles, isLoading, setIsLoading, selectedPaths, setSelectedPaths } = useFileStore()
@@ -45,8 +47,10 @@ function App(): React.JSX.Element {
   const markEditSessionConflict = useEditSessionStore(state => state.markConflict)
   const replaceEditSessionFromDisk = useEditSessionStore(state => state.replaceFromDisk)
   const quickEditPlacements = useQuickEditPlacementStore(state => state.placements)
-  const openQuickEditPlacement = useQuickEditPlacementStore(state => state.openPlacement)
   const closeQuickEditPlacement = useQuickEditPlacementStore(state => state.closePlacement)
+  const getDocumentViewState = useDocumentViewModeStore(state => state.getViewState)
+  const setDocumentViewMode = useDocumentViewModeStore(state => state.setMode)
+  const setDocumentViewTarget = useDocumentViewModeStore(state => state.setTarget)
 
   const { lastExportedFilePath, lastExportedTime } = useExportTaskStore()
 
@@ -442,6 +446,7 @@ function App(): React.JSX.Element {
 
   // 获取当前活动标签
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId), [tabs, activeTabId])
+  const activeViewState = activeTab ? getDocumentViewState(SINGLE_LEAF_ID, activeTab.id) : null
   const editSessionList = useMemo(() => Object.values(editSessions), [editSessions])
   const getQuickEditCanonicalPath = useCallback((tab: Tab): string | null => {
     const session = editSessionList.find(item =>
@@ -468,31 +473,40 @@ function App(): React.JSX.Element {
     ))
   }, [setTabs])
 
-  const handleOpenQuickEdit = useCallback(async (tab: Tab, target?: Partial<QuickEditTarget>) => {
+  const handleOpenMarkdownEdit = useCallback(async (tab: Tab, leafId = SINGLE_LEAF_ID, target?: Partial<QuickEditTarget>) => {
     if (!isMarkdownFile(tab.file.path)) {
-      toast.error('当前文件不是 Markdown，不能快速编辑')
+      toast.error('当前文件不是 Markdown，不能编辑文档')
       return
     }
     try {
       const result = await window.api.openEditableMarkdown(tab.file.path)
       openEditSession(result)
-      openQuickEditPlacement({
-        filePath: tab.file.path,
-        tabId: tab.id,
-        mode: 'document',
-        ...target,
-        canonicalPath: result.canonicalPath,
-      })
+      setDocumentViewMode(leafId, tab.id, 'compare')
+      setDocumentViewTarget(leafId, tab.id, target
+        ? {
+            filePath: tab.file.path,
+            tabId: tab.id,
+            leafId,
+            mode: 'document',
+            ...target,
+            canonicalPath: result.canonicalPath,
+          }
+        : null)
     } catch (error) {
-      toast.error(`无法打开快速编辑：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`无法打开编辑器：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [openEditSession, openQuickEditPlacement, toast])
+  }, [openEditSession, setDocumentViewMode, setDocumentViewTarget, toast])
+
+  const handleOpenQuickEdit = useCallback(async (tab: Tab, target?: Partial<QuickEditTarget>) => {
+    await handleOpenMarkdownEdit(tab, target?.leafId || SINGLE_LEAF_ID, target)
+  }, [handleOpenMarkdownEdit])
 
   const handleSaveQuickEdit = useCallback(async (
     canonicalPath: string,
     content: string,
     expectedRevisionToken: string,
-    force: boolean
+    force: boolean,
+    draftVersion?: number
   ) => {
     const result = await window.api.saveEditableMarkdown({
       canonicalPath,
@@ -511,7 +525,7 @@ function App(): React.JSX.Element {
     }
 
     const session = useEditSessionStore.getState().sessions[canonicalPath]
-    markEditSessionSaved(canonicalPath, content, result.revisionToken ?? expectedRevisionToken)
+    markEditSessionSaved(canonicalPath, content, result.revisionToken ?? expectedRevisionToken, draftVersion)
     if (session) {
       clearFileCache(session.displayPath)
       clearFileCache(session.canonicalPath)
@@ -1178,50 +1192,78 @@ function App(): React.JSX.Element {
                     onScrollToLineComplete={() => setScrollToLine(undefined)}
                   />
                 ) : (
-                  <div className={`preview-container ${activeQuickEditCanonicalPath ? 'with-quick-edit' : ''}`}>
-                    <div className="preview-body">
-                      <div className="preview-pane">
-                        {isActiveDraftPreview && (
-                          <div className="quick-edit-preview-banner" role="status">草稿预览，未保存</div>
-                        )}
-                        <div className="preview" ref={setPreviewNode}>
-                          {activeTab ? (
-                            <VirtualizedMarkdown
-                              key={activeTab.file.path}
-                              content={activePreviewContent}
-                              filePath={activeTab.file.path}
-                              tabId={activeTab.id}
-                              renderDebounceMs={getDraftPreviewDebounceMs(activePreviewContent, Boolean(activeQuickEditSession))}
-                              scrollToLine={scrollToLine}
-                              onScrollToLineComplete={() => setScrollToLine(undefined)}
-                              highlightKeyword={highlightKeyword}
-                              onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
-                              onImageClick={setLightbox}
-                            />
-                          ) : (
-                            <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                  <div className={`preview-container ${activeQuickEditCanonicalPath && activeViewState?.mode === 'preview' ? 'with-quick-edit' : ''}`}>
+                    {activeTab && activeViewState && activeViewState.mode !== 'preview' && activeQuickEditSession ? (
+                      <MarkdownEditWorkbench
+                        tab={activeTab}
+                        leafId={SINGLE_LEAF_ID}
+                        canonicalPath={activeQuickEditSession.canonicalPath}
+                        mode={activeViewState.mode}
+                        target={activeViewState.target}
+                        onModeChange={(mode: DocumentViewMode) => setDocumentViewMode(SINGLE_LEAF_ID, activeTab.id, mode)}
+                        onSave={handleSaveQuickEdit}
+                        onCopyDraft={handleCopyQuickEditDraft}
+                        onReloadFromDisk={handleReloadQuickEdit}
+                        onLocateComplete={(located) => {
+                          if (located) toast.success('已定位到源码附近')
+                          else toast.info('未能精确定位，已打开编辑器')
+                          setDocumentViewTarget(SINGLE_LEAF_ID, activeTab.id, null)
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <div className="document-preview-toolbar">
+                          {activeTab && isMarkdownFile(activeTab.file.path) && (
+                            <button type="button" onClick={() => handleOpenMarkdownEdit(activeTab)} aria-label="编辑文档">
+                              编辑文档
+                            </button>
                           )}
                         </div>
-                        {activeTab && isMarkdownFile(activeTab.file.path) && (
-                          <FloatingNav
-                            containerRef={previewRef}
-                            markdown={activePreviewContent}
-                          />
-                        )}
-                      </div>
-                      {activeQuickEditCanonicalPath && (
-                        <QuickEditDrawer
-                          canonicalPath={activeQuickEditCanonicalPath}
-                          placementKey="single"
-                          previewElement={previewElement}
-                          target={activeQuickEditTarget}
-                          onSave={handleSaveQuickEdit}
-                          onClose={() => closeQuickEditPlacement('single')}
-                          onReloadFromDisk={handleReloadQuickEdit}
-                          onCopyDraft={handleCopyQuickEditDraft}
-                        />
-                      )}
-                    </div>
+                        <div className="preview-body">
+                          <div className="preview-pane">
+                            {isActiveDraftPreview && (
+                              <div className="quick-edit-preview-banner" role="status">草稿预览，未保存</div>
+                            )}
+                            <div className="preview" ref={setPreviewNode}>
+                              {activeTab ? (
+                                <VirtualizedMarkdown
+                                  key={activeTab.file.path}
+                                  content={activePreviewContent}
+                                  filePath={activeTab.file.path}
+                                  tabId={activeTab.id}
+                                  renderDebounceMs={getDraftPreviewDebounceMs(activePreviewContent, Boolean(activeQuickEditSession))}
+                                  scrollToLine={scrollToLine}
+                                  onScrollToLineComplete={() => setScrollToLine(undefined)}
+                                  highlightKeyword={highlightKeyword}
+                                  onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
+                                  onImageClick={setLightbox}
+                                />
+                              ) : (
+                                <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                              )}
+                            </div>
+                            {activeTab && isMarkdownFile(activeTab.file.path) && (
+                              <FloatingNav
+                                containerRef={previewRef}
+                                markdown={activePreviewContent}
+                              />
+                            )}
+                          </div>
+                          {activeQuickEditCanonicalPath && activeViewState?.mode === 'preview' && (
+                            <QuickEditDrawer
+                              canonicalPath={activeQuickEditCanonicalPath}
+                              placementKey="single"
+                              previewElement={previewElement}
+                              target={activeQuickEditTarget}
+                              onSave={handleSaveQuickEdit}
+                              onClose={() => closeQuickEditPlacement('single')}
+                              onReloadFromDisk={handleReloadQuickEdit}
+                              onCopyDraft={handleCopyQuickEditDraft}
+                            />
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </section>
