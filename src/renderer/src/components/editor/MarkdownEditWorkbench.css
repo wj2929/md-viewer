@@ -84,7 +84,8 @@
 
 .markdown-workbench-preview-status,
 .markdown-workbench-readonly-banner,
-.markdown-workbench-error {
+.markdown-workbench-error,
+.markdown-workbench-conflict {
   padding: 6px 10px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -94,6 +95,19 @@
 
 .markdown-workbench-error {
   color: var(--danger-color, #b42318);
+}
+
+.markdown-workbench-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  color: var(--danger-color, #b42318);
+  background: color-mix(in srgb, var(--danger-color, #b42318) 8%, var(--bg-secondary));
+}
+
+.markdown-workbench-conflict-meta {
+  color: var(--text-secondary);
 }
 
 .markdown-workbench-preview-pane .preview {

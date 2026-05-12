@@ -133,4 +133,31 @@ describe('MarkdownEditWorkbench', () => {
       expect(screen.getByTestId('draft-preview')).toHaveTextContent('**文本**# A')
     })
   })
+
+  it('shows clear conflict guidance when disk changed externally', () => {
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# Local draft')
+    useEditSessionStore.getState().markConflict('/real/docs/a.md', 'external_changed', '2000:20')
+
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('磁盘文件已被外部修改')
+    expect(screen.getByRole('alert')).toHaveTextContent('当前草稿仍保留')
+    expect(screen.getByRole('button', { name: '复制草稿' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存并覆盖' })).toBeInTheDocument()
+  })
 })

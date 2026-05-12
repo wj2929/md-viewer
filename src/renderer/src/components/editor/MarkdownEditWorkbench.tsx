@@ -39,6 +39,14 @@ function getDraftPreviewDebounceMs(content: string): number {
     : 250
 }
 
+function getConflictMessage(reason: string | null | undefined): string | null {
+  if (!reason) return null
+  if (reason === 'missing') return '磁盘文件已被删除或不可访问，当前草稿仍保留。请复制草稿或另存后再处理。'
+  if (reason === 'renamed') return '磁盘文件可能已被重命名，当前草稿仍保留。请复制草稿或重新载入确认路径。'
+  if (reason === 'external_changed') return '磁盘文件已被外部修改，当前草稿仍保留。建议先复制草稿，再决定重新载入或保存并覆盖。'
+  return '磁盘文件版本已变化，当前草稿仍保留。建议先复制草稿，再决定重新载入或保存并覆盖。'
+}
+
 export function MarkdownEditWorkbench({
   tab,
   leafId,
@@ -77,6 +85,7 @@ export function MarkdownEditWorkbench({
   const content = session?.draft ?? tab.content
   const dirty = Boolean(session?.dirty)
   const hasConflict = Boolean(session?.conflictReason)
+  const conflictMessage = getConflictMessage(session?.conflictReason)
   const boundedCompareRatio = Math.min(0.8, Math.max(0.2, compareRatio))
 
   const updateCompareRatioFromPointer = useCallback((clientX: number, clientY: number) => {
@@ -201,6 +210,18 @@ export function MarkdownEditWorkbench({
       {session?.error && (
         <div className="markdown-workbench-error" role="alert">
           {session.error}
+        </div>
+      )}
+
+      {conflictMessage && (
+        <div className="markdown-workbench-conflict" role="alert">
+          <strong>保存冲突</strong>
+          <span>{conflictMessage}</span>
+          {session?.lastKnownDiskRevisionToken && (
+            <span className="markdown-workbench-conflict-meta">
+              磁盘版本：{session.lastKnownDiskRevisionToken}
+            </span>
+          )}
         </div>
       )}
 

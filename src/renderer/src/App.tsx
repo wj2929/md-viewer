@@ -9,6 +9,7 @@ import { useDragDrop } from './hooks/useDragDrop'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIPC } from './hooks/useIPC'
 import { useExport } from './hooks/useExport'
+import { useEditDraftPersistence } from './hooks/useEditDraftPersistence'
 import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore, useDocumentViewModeStore } from './stores'
 import type { DocumentViewMode, EditConflictReason, EditSession } from './stores'
 import { useExportTaskStore } from './stores/exportTaskStore'
@@ -83,6 +84,7 @@ function App(): React.JSX.Element {
   // v1.6.0: 提取的 hooks
   useDragDrop()
   useKeyboardShortcuts()
+  useEditDraftPersistence()
 
   // v1.3.6：加载书签设置
   useEffect(() => { loadBookmarkSettings() }, [])

@@ -106,4 +106,46 @@ describe('editSessionStore', () => {
     expect(session.dirty).toBe(true)
     expect(session.status).toBe('dirty')
   })
+
+  it('exports only dirty sessions for crash recovery', () => {
+    useEditSessionStore.getState().openSession(baseSession)
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# Recovered draft')
+    useEditSessionStore.getState().claimWriter('/real/docs/a.md', 'leaf-a:tab-a')
+    useEditSessionStore.getState().setSaving('/real/docs/a.md', true)
+
+    const drafts = useEditSessionStore.getState().exportPersistedDrafts()
+
+    expect(drafts).toEqual([expect.objectContaining({
+      canonicalPath: '/real/docs/a.md',
+      displayPath: '/docs/a.md',
+      fileName: 'a.md',
+      original: '# A',
+      draft: '# Recovered draft',
+      baseRevisionToken: '1000:12',
+    })])
+    expect(drafts[0]).not.toHaveProperty('writerId')
+    expect(drafts[0]).not.toHaveProperty('saving')
+  })
+
+  it('restores dirty sessions without reviving runtime-only state', () => {
+    useEditSessionStore.getState().restorePersistedDrafts([{
+      canonicalPath: '/real/docs/a.md',
+      displayPath: '/docs/a.md',
+      fileName: 'a.md',
+      original: '# A',
+      draft: '# Recovered draft',
+      draftVersion: 3,
+      baseRevisionToken: '1000:12',
+      lastKnownDiskRevisionToken: '1000:12',
+      savedAt: 1700000000000,
+    }])
+
+    const session = useEditSessionStore.getState().sessions['/real/docs/a.md']
+    expect(session.dirty).toBe(true)
+    expect(session.status).toBe('dirty')
+    expect(session.writerId).toBeNull()
+    expect(session.saving).toBe(false)
+    expect(session.error).toBeNull()
+    expect(session.draft).toBe('# Recovered draft')
+  })
 })

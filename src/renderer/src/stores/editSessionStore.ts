@@ -10,6 +10,18 @@ export interface SaveSnapshot {
   expectedRevisionToken: string
 }
 
+export interface PersistedEditDraft {
+  canonicalPath: string
+  displayPath: string
+  fileName: string
+  original: string
+  draft: string
+  draftVersion: number
+  baseRevisionToken: string
+  lastKnownDiskRevisionToken: string | null
+  savedAt: number
+}
+
 export interface UpdateDraftOptions {
   writerId?: string | null
 }
@@ -54,6 +66,8 @@ interface EditSessionState {
   markSaved: (canonicalPath: string, content: string, revisionToken: string, savedDraftVersion?: number) => void
   markConflict: (canonicalPath: string, reason: EditConflictReason, diskRevisionToken?: string) => void
   replaceFromDisk: (canonicalPath: string, content: string, revisionToken: string) => void
+  exportPersistedDrafts: () => PersistedEditDraft[]
+  restorePersistedDrafts: (drafts: PersistedEditDraft[]) => void
   reset: () => void
 }
 
@@ -266,6 +280,55 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
             lastKnownDiskRevisionToken: revisionToken,
             conflictReason: null,
           },
+        },
+      }
+    })
+  },
+
+  exportPersistedDrafts: () => {
+    const now = Date.now()
+    return Object.values(get().sessions)
+      .filter(session => session.dirty && session.draft !== session.original)
+      .map(session => ({
+        canonicalPath: session.canonicalPath,
+        displayPath: session.displayPath,
+        fileName: session.fileName,
+        original: session.original,
+        draft: session.draft,
+        draftVersion: session.draftVersion,
+        baseRevisionToken: session.baseRevisionToken,
+        lastKnownDiskRevisionToken: session.lastKnownDiskRevisionToken,
+        savedAt: now,
+      }))
+  },
+
+  restorePersistedDrafts: (drafts) => {
+    set(state => {
+      const restoredSessions = drafts.reduce<Record<string, EditSession>>((acc, draft) => {
+        if (!draft.canonicalPath || draft.draft === draft.original) return acc
+        acc[draft.canonicalPath] = {
+          canonicalPath: draft.canonicalPath,
+          displayPath: draft.displayPath,
+          fileName: draft.fileName,
+          status: 'dirty',
+          original: draft.original,
+          draft: draft.draft,
+          draftVersion: Math.max(1, draft.draftVersion),
+          writerId: null,
+          dirty: true,
+          saving: false,
+          error: null,
+          baseRevisionToken: draft.baseRevisionToken,
+          lastKnownDiskRevisionToken: draft.lastKnownDiskRevisionToken,
+          conflictReason: null,
+        }
+        return acc
+      }, {})
+
+      return {
+        sessions: {
+          ...restoredSessions,
+          ...state.sessions,
         },
       }
     })
