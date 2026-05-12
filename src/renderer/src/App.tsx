@@ -1182,6 +1182,15 @@ function App(): React.JSX.Element {
                     onImageClick={setLightbox}
                     onDropTab={handleDropTab}
                     onSwapPanels={handleSwapPanels}
+                    getDocumentViewMode={(leafId, tabId) => getDocumentViewState(leafId, tabId).mode}
+                    getDocumentViewTarget={(leafId, tabId) => getDocumentViewState(leafId, tabId).target}
+                    onDocumentViewModeChange={setDocumentViewMode}
+                    onDocumentLocateComplete={(leafId, tabId, located) => {
+                      if (located) toast.success('已定位到源码附近')
+                      else toast.info('未能精确定位，已打开编辑器')
+                      setDocumentViewTarget(leafId, tabId, null)
+                    }}
+                    onOpenMarkdownEdit={handleOpenMarkdownEdit}
                     getQuickEditCanonicalPath={getQuickEditCanonicalPath}
                     getQuickEditTarget={getQuickEditTarget}
                     onSaveQuickEdit={handleSaveQuickEdit}

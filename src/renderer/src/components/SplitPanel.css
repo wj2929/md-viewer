@@ -107,6 +107,15 @@
   position: relative;
 }
 
+.split-leaf-panel .split-preview-stack {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .split-leaf-panel .split-preview-pane {
   display: flex;
   flex: 1;

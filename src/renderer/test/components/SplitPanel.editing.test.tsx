@@ -151,4 +151,41 @@ describe('SplitPanel lightweight editing', () => {
     expect(screen.queryByText('当前预览暂不可同步')).not.toBeInTheDocument()
     expect(useQuickEditPlacementStore.getState().isScrollSyncEnabled('leaf-b')).toBe(true)
   })
+
+  it('renders the compare workbench for the matching leaf and tab mode', () => {
+    useEditSessionStore.getState().openSession({
+      canonicalPath: '/real/docs/b.md',
+      displayPath: '/docs/b.md',
+      fileName: 'b.md',
+      content: '# B',
+      mtimeMs: 1000,
+      size: 3,
+      revisionToken: '1000:3',
+    })
+
+    render(
+      <SplitPanel
+        node={root}
+        tabs={tabs}
+        activeLeafId="leaf-b"
+        onSplitPanel={vi.fn()}
+        onClosePanel={vi.fn()}
+        onResizePanel={vi.fn()}
+        onSetActiveLeaf={vi.fn()}
+        onImageClick={vi.fn()}
+        onDropTab={vi.fn()}
+        getDocumentViewMode={(leafId, tabId) => leafId === 'leaf-b' && tabId === 'tab-b' ? 'compare' : 'preview'}
+        onDocumentViewModeChange={vi.fn()}
+        getQuickEditCanonicalPath={(tab) => tab.file.path === '/docs/b.md' ? '/real/docs/b.md' : null}
+        onOpenMarkdownEdit={vi.fn()}
+        onSaveQuickEdit={vi.fn()}
+        onCloseQuickEdit={vi.fn()}
+        onReloadQuickEdit={vi.fn()}
+        onCopyDraft={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('b.md 编辑工作区')).toBeInTheDocument()
+    expect(screen.queryByLabelText('b.md 快速编辑')).not.toBeInTheDocument()
+  })
 })
