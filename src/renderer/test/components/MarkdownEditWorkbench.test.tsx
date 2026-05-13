@@ -109,7 +109,16 @@ describe('MarkdownEditWorkbench', () => {
     expect(onCompareRatioChange).toHaveBeenCalledWith(0.55)
   })
 
-  it('applies toolbar formatting to the draft preview', async () => {
+  it.each([
+    ['加粗', '**文本**# A'],
+    ['斜体', '*文本*# A'],
+    ['行内代码', '`文本`# A'],
+    ['链接', '[链接文本](https://example.com)# A'],
+    ['二级标题', '## # A'],
+    ['无序列表', '- # A'],
+    ['引用', '> # A'],
+    ['代码块', '```\ncode\n```# A'],
+  ])('applies the %s toolbar action to the draft', async (buttonName, expectedDraft) => {
     render(
       <MarkdownEditWorkbench
         tab={tab}
@@ -127,10 +136,10 @@ describe('MarkdownEditWorkbench', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '加粗' }))
+    fireEvent.click(screen.getByRole('button', { name: buttonName }))
 
     await waitFor(() => {
-      expect(screen.getByTestId('draft-preview')).toHaveTextContent('**文本**# A')
+      expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe(expectedDraft)
     })
   })
 

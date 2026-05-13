@@ -2,6 +2,7 @@ import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { MarkdownEditorPane, type MarkdownEditorPaneHandle } from '../../src/components/editor/MarkdownEditorPane'
+import type { MarkdownFormatCommand } from '../../src/components/editor'
 
 describe('MarkdownEditorPane', () => {
   beforeEach(() => {
@@ -63,7 +64,16 @@ describe('MarkdownEditorPane', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('applies Markdown formatting commands to the current document', () => {
+  it.each([
+    ['bold', '**文本**# A'],
+    ['italic', '*文本*# A'],
+    ['inlineCode', '`文本`# A'],
+    ['link', '[链接文本](https://example.com)# A'],
+    ['heading', '## # A'],
+    ['quote', '> # A'],
+    ['bulletList', '- # A'],
+    ['codeBlock', '```\ncode\n```# A'],
+  ] satisfies Array<[MarkdownFormatCommand, string]>)('applies the %s Markdown formatting command', (command, expected) => {
     const onChange = vi.fn()
     const ref = createRef<MarkdownEditorPaneHandle>()
     render(
@@ -78,11 +88,11 @@ describe('MarkdownEditorPane', () => {
     )
 
     act(() => {
-      ref.current?.applyFormat('bold')
+      ref.current?.applyFormat(command)
     })
 
-    expect(ref.current?.getCurrentDoc()).toBe('**文本**# A')
-    expect(onChange).toHaveBeenCalledWith('**文本**# A')
+    expect(ref.current?.getCurrentDoc()).toBe(expected)
+    expect(onChange).toHaveBeenCalledWith(expected)
   })
 
   it('locates a source line target and reports completion', () => {
