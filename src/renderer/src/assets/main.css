@@ -872,10 +872,10 @@ body {
   min-width: 0;
   height: 24px;
   padding: 2px 4px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   outline: none;
-  background: transparent;
+  background: var(--bg-primary);
   color: var(--text-primary);
   font: inherit;
 }
