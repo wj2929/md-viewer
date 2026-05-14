@@ -120,6 +120,22 @@
   word-wrap: break-word;
 }
 
+.markdown-body .markdown-preview-editable-block {
+  border-radius: 4px;
+  outline: 1px dashed transparent;
+  outline-offset: 3px;
+  cursor: text;
+}
+
+.markdown-body .markdown-preview-editable-block:hover {
+  outline-color: color-mix(in srgb, var(--accent-color, #2563eb) 35%, transparent);
+}
+
+.markdown-body .markdown-preview-editable-block:focus {
+  outline-color: var(--accent-color, #2563eb);
+  background: color-mix(in srgb, var(--accent-color, #2563eb) 8%, transparent);
+}
+
 /* ============================================
    列表 List
    ============================================ */

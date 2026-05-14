@@ -1,6 +1,7 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
+import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VirtualizedMarkdown } from '../../src/components/VirtualizedMarkdown'
 
 const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
@@ -426,6 +427,262 @@ fn main() {}
       // linkify 选项应该将 URL 转换为链接
       const link = container.querySelector('a')
       expect(link).toBeInTheDocument()
+    })
+  })
+
+  describe('渲染区块编辑', () => {
+    it('默认预览不允许直接编辑渲染块', () => {
+      const { container } = render(<VirtualizedMarkdown content={'# 标题\n\n正文'} renderDebounceMs={0} />)
+
+      expect(container.querySelector('h1')).not.toHaveAttribute('contenteditable', 'true')
+      expect(container.querySelector('p')).not.toHaveAttribute('contenteditable', 'true')
+    })
+
+    it('开启渲染区块编辑后，普通段落失焦时回传源码行修改', () => {
+      const onPreviewBlockEdit = vi.fn()
+      const { container } = render(
+        <VirtualizedMarkdown
+          content={'# 标题\n\n正文'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={onPreviewBlockEdit}
+        />
+      )
+
+      const paragraph = container.querySelector('p') as HTMLElement
+      expect(paragraph).toHaveAttribute('contenteditable', 'true')
+
+      paragraph.textContent = '修改后的正文'
+      fireEvent.blur(paragraph)
+
+      expect(onPreviewBlockEdit).toHaveBeenCalledWith({
+        sourceLine: 3,
+        originalText: '正文',
+        nextText: '修改后的正文',
+      })
+    })
+
+    it('开启渲染区块编辑后，带格式的列表项也可以回传源码行修改', () => {
+      const onPreviewBlockEdit = vi.fn()
+      const { container } = render(
+        <VirtualizedMarkdown
+          content={'- **最终脚本设置：** `MAX_REQ=490/10秒`，20线程并发'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={onPreviewBlockEdit}
+        />
+      )
+
+      const listItem = container.querySelector('li') as HTMLElement
+      expect(listItem).toHaveAttribute('contenteditable', 'true')
+
+      listItem.textContent = '最终脚本设置：MAX_REQ=480/10秒，20线程并发'
+      fireEvent.blur(listItem)
+
+      expect(onPreviewBlockEdit).toHaveBeenCalledWith({
+        sourceLine: 1,
+        originalText: '最终脚本设置： MAX_REQ=490/10秒，20线程并发',
+        nextText: '最终脚本设置：MAX_REQ=480/10秒，20线程并发',
+      })
+    })
+
+    it('开启渲染区块编辑后，表格单元格失焦时回传单元格位置', () => {
+      const onPreviewBlockEdit = vi.fn()
+      const { container } = render(
+        <VirtualizedMarkdown
+          content={'| 数据 | 状态 |\n| --- | --- |\n| 频道汇总统计 | 完成 |'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={onPreviewBlockEdit}
+        />
+      )
+
+      const statusCell = Array.from(container.querySelectorAll('td'))
+        .find(cell => cell.textContent?.trim() === '完成') as HTMLElement
+      expect(statusCell).toHaveAttribute('contenteditable', 'true')
+
+      statusCell.textContent = '处理中'
+      fireEvent.blur(statusCell)
+
+      expect(onPreviewBlockEdit).toHaveBeenCalledWith({
+        sourceLine: 3,
+        originalText: '完成',
+        nextText: '处理中',
+        editKind: 'table-cell',
+        tableCellIndex: 1,
+      })
+    })
+
+    it('开启渲染区块编辑后，普通代码块失焦时回传围栏代码范围', () => {
+      const onPreviewBlockEdit = vi.fn()
+      const { container } = render(
+        <VirtualizedMarkdown
+          content={'```text\nBaseUrl: http://api.polyv.net/\n```'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={onPreviewBlockEdit}
+        />
+      )
+
+      const codeBlock = container.querySelector('pre') as HTMLElement
+      expect(codeBlock).toHaveAttribute('contenteditable', 'true')
+
+      codeBlock.textContent = 'BaseUrl: https://api.polyv.net/'
+      fireEvent.blur(codeBlock)
+
+      expect(onPreviewBlockEdit).toHaveBeenCalledWith({
+        sourceLine: 1,
+        sourceEndLine: 3,
+        originalText: 'BaseUrl: http://api.polyv.net/',
+        nextText: 'BaseUrl: https://api.polyv.net/',
+        editKind: 'code-block',
+      })
+    })
+
+    it('开启渲染区块编辑后不直接编辑图表代码块', () => {
+      const { container } = render(
+        <VirtualizedMarkdown
+          content={'```mermaid\ngraph TD\n  A --> B\n```'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+        />
+      )
+
+      expect(container.querySelector('pre')).not.toHaveAttribute('contenteditable', 'true')
+    })
+
+    it('可编辑块获得焦点后，待处理的预览重渲染不应替换该块', async () => {
+      const { container, rerender } = render(
+        <VirtualizedMarkdown
+          content={'# 标题\n\n旧段落'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+        />
+      )
+
+      const paragraph = container.querySelector('p') as HTMLElement
+      paragraph.focus()
+      expect(document.activeElement).toBe(paragraph)
+
+      rerender(
+        <VirtualizedMarkdown
+          content={'# 标题\n\n外部重渲染内容'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+        />
+      )
+
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20))
+      })
+
+      expect(container.querySelector('p')).toBe(paragraph)
+      expect(document.activeElement).toBe(paragraph)
+      expect(paragraph.textContent).toBe('旧段落')
+    })
+
+    it('中文 IME 组合输入期间不应被预览重渲染替换', async () => {
+      const { container, rerender } = render(
+        <VirtualizedMarkdown
+          content={'# 标题\n\n输入中'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+        />
+      )
+
+      const paragraph = container.querySelector('p') as HTMLElement
+      paragraph.focus()
+      fireEvent.compositionStart(paragraph)
+
+      rerender(
+        <VirtualizedMarkdown
+          content={'# 标题\n\n外部重渲染内容'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+        />
+      )
+
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20))
+      })
+
+      expect(container.querySelector('p')).toBe(paragraph)
+      expect(document.activeElement).toBe(paragraph)
+      expect(paragraph.textContent).toBe('输入中')
+    })
+
+    it('可编辑块无修改失焦后，应应用之前延迟的预览重渲染', async () => {
+      const { container, rerender } = render(
+        <VirtualizedMarkdown
+          content={'# 标题\n\n旧段落'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+        />
+      )
+
+      const paragraph = container.querySelector('p') as HTMLElement
+      paragraph.focus()
+
+      rerender(
+        <VirtualizedMarkdown
+          content={'# 标题\n\n外部重渲染内容'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+        />
+      )
+
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20))
+      })
+      expect(paragraph.textContent).toBe('旧段落')
+
+      await act(async () => {
+        fireEvent.blur(paragraph)
+      })
+
+      await waitFor(() => {
+        expect(container.querySelector('p')?.textContent).toBe('外部重渲染内容')
+      })
+    })
+
+    it('可编辑块提交后，应允许父级草稿内容重渲染到预览区', async () => {
+      function EditablePreviewHarness(): JSX.Element {
+        const [content, setContent] = useState('# 标题\n\n旧段落')
+        return (
+          <VirtualizedMarkdown
+            content={content}
+            renderDebounceMs={0}
+            previewEditingEnabled
+            onPreviewBlockEdit={(edit) => {
+              setContent(`# 标题\n\n${edit.nextText}\n\n父级补充段落`)
+            }}
+          />
+        )
+      }
+
+      const { container } = render(<EditablePreviewHarness />)
+
+      const paragraph = container.querySelector('p') as HTMLElement
+      paragraph.focus()
+      paragraph.textContent = '提交后的段落'
+
+      await act(async () => {
+        fireEvent.blur(paragraph)
+      })
+
+      await waitFor(() => {
+        expect(Array.from(container.querySelectorAll('p')).map(element => element.textContent)).toEqual([
+          '提交后的段落',
+          '父级补充段落',
+        ])
+      })
     })
   })
 

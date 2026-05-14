@@ -40,12 +40,114 @@ interface VirtualizedMarkdownProps {
   highlightKeyword?: string
   onHighlightKeywordComplete?: () => void
   onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
+  previewEditingEnabled?: boolean
+  onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
+}
+
+export interface PreviewBlockEdit {
+  sourceLine: number
+  sourceEndLine?: number
+  originalText: string
+  nextText: string
+  editKind?: 'block' | 'table-cell' | 'code-block'
+  tableCellIndex?: number
+}
+
+const CHART_CODE_LANGUAGES = new Set([
+  'mermaid',
+  'echarts',
+  'js',
+  'javascript',
+  'json',
+  'drawio',
+  'dio',
+  'plantuml',
+  'puml',
+  'dot',
+  'graphviz',
+  'markmap',
+  'infographic',
+  'excalidraw',
+  'excalidraw-json',
+])
+
+function normalizeRenderedText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeForMatch(value: string): string {
+  return normalizeRenderedText(value)
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^>\s?/, '')
+    .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, '')
+    .replace(/[|]/g, ' ')
+    .replace(/\s+/g, '')
+}
+
+function parseMarkdownTableRow(line: string): string[] | null {
+  const trimmed = line.trim()
+  if (!trimmed.includes('|')) return null
+  const withoutOuterPipes = trimmed.replace(/^\|/, '').replace(/\|$/, '')
+  const cells = withoutOuterPipes.split(/(?<!\\)\|/).map(cell => normalizeRenderedText(cell))
+  if (cells.length < 2) return null
+  if (cells.every(cell => /^:?-{3,}:?$/.test(cell))) return null
+  return cells
+}
+
+interface FencedCodeRange {
+  startLine: number
+  endLine: number
+  lang: string
+  content: string
+}
+
+function findFencedCodeRanges(lines: string[]): FencedCodeRange[] {
+  const ranges: FencedCodeRange[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const opening = lines[index].match(/^\s{0,3}(`{3,}|~{3,})\s*([^\s`]*)/)
+    if (!opening) {
+      index += 1
+      continue
+    }
+
+    const fence = opening[1]
+    const fenceChar = fence[0]
+    const lang = (opening[2] || '').toLowerCase()
+    let endLine = lines.length - 1
+
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const closing = lines[cursor].match(/^\s{0,3}(`{3,}|~{3,})\s*$/)
+      if (closing && closing[1][0] === fenceChar && closing[1].length >= fence.length) {
+        endLine = cursor
+        break
+      }
+    }
+
+    ranges.push({
+      startLine: index + 1,
+      endLine: endLine + 1,
+      lang,
+      content: lines.slice(index + 1, endLine).join('\n'),
+    })
+    index = endLine + 1
+  }
+
+  return ranges
 }
 
 /**
  * Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit }: VirtualizedMarkdownProps): JSX.Element {
 
   // v1.3.7：右键菜单处理（添加书签 + 原有功能）
   const folderPath = useFileStore(state => state.folderPath)
@@ -258,6 +360,8 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
       onContextMenu={handleContextMenu}
       onPreviewKeyDown={handleKeyDown}
       onImageClick={onImageClick}
+      previewEditingEnabled={previewEditingEnabled}
+      onPreviewBlockEdit={onPreviewBlockEdit}
     />
   )
 }
@@ -275,7 +379,9 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   renderDebounceMs,
   onContextMenu,
   onPreviewKeyDown,
-  onImageClick
+  onImageClick,
+  previewEditingEnabled,
+  onPreviewBlockEdit
 }: {
   content: string
   md: MarkdownIt
@@ -285,11 +391,14 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onContextMenu?: (e: React.MouseEvent) => void
   onPreviewKeyDown?: (e: React.KeyboardEvent) => void
   onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
+  previewEditingEnabled: boolean
+  onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // v1.4.3: 防抖状态 - 延迟渲染以提升性能
   const [debouncedContent, setDebouncedContent] = useState(content)
+  const [renderVersion, setRenderVersion] = useState(0)
 
   // v1.4.3: 防抖更新内容，快速编辑草稿预览可传入更短延迟
   useEffect(() => {
@@ -303,6 +412,10 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
       debouncedUpdate.cancel()
     }
   }, [content, renderDebounceMs])
+
+  useEffect(() => {
+    if (content === debouncedContent) setRenderVersion(version => version + 1)
+  }, [content, debouncedContent])
 
   // v1.4.0: 页面内搜索
   const search = useInPageSearch(containerRef, debouncedContent.length)
@@ -412,9 +525,12 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         className={className}
         filePath={filePath}
         sourceContent={debouncedContent}
+        renderVersion={renderVersion}
         onContextMenu={onContextMenu}
         onKeyDown={onPreviewKeyDown}
         onImageClick={onImageClick}
+        previewEditingEnabled={previewEditingEnabled}
+        onPreviewBlockEdit={onPreviewBlockEdit}
       />
     </>
   )
@@ -430,35 +546,180 @@ const MarkdownContent = memo(
     className: string
     filePath?: string
     sourceContent: string
+    renderVersion: number
     onContextMenu?: (e: React.MouseEvent) => void
     onKeyDown?: (e: React.KeyboardEvent) => void
     onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
-  }>(function MarkdownContent({ html, className, filePath, sourceContent, onContextMenu, onKeyDown, onImageClick }, ref) {
+    previewEditingEnabled: boolean
+    onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
+  }>(function MarkdownContent({ html, className, filePath, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
+    const skippedFocusedRenderRef = useRef(false)
+    const allowDeferredRenderBlockRef = useRef<HTMLElement | null>(null)
+    const [deferredRenderVersion, setDeferredRenderVersion] = useState(0)
 
     // 只在 html 变化时更新 DOM
     useEffect(() => {
       if (combinedRef.current) {
+        const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        const activeEditableBlock = activeElement?.closest('.markdown-preview-editable-block') as HTMLElement | null
+        const activeBlockBelongsToPreview = activeEditableBlock && combinedRef.current.contains(activeEditableBlock)
+        const composingBlock = combinedRef.current.querySelector('.markdown-preview-editable-block[data-preview-composing="true"]')
+        const allowedDeferredBlock = allowDeferredRenderBlockRef.current
+        const activeBlockIsCleanDeferredBlock = Boolean(
+          allowedDeferredBlock &&
+          activeEditableBlock === allowedDeferredBlock &&
+          normalizeRenderedText(activeEditableBlock.textContent || '') === (activeEditableBlock.dataset.previewOriginalText || '')
+        )
+        const hasBlockingActiveBlock = activeBlockBelongsToPreview && !activeBlockIsCleanDeferredBlock
+
+        if (previewEditingEnabled && (hasBlockingActiveBlock || composingBlock)) {
+          skippedFocusedRenderRef.current = true
+          return
+        }
+
+        allowDeferredRenderBlockRef.current = null
         combinedRef.current.innerHTML = html
         const sourceLines = sourceContent.split('\n')
-        const elements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,pre,blockquote,table')
+        const fencedCodeRanges = findFencedCodeRanges(sourceLines)
+        const elements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,pre,blockquote,table,li')
         let searchFrom = 0
         elements.forEach((element) => {
           const text = (element.textContent || '').trim()
           if (!text) return
           const firstLine = text.split('\n').find(line => line.trim().length > 0)?.trim()
           if (!firstLine) return
-          const foundIndex = sourceLines.findIndex((line, index) =>
-            index >= searchFrom && line.includes(firstLine.slice(0, Math.min(40, firstLine.length)))
-          )
+          const normalizedFirstLine = normalizeForMatch(firstLine).slice(0, 40)
+          if (!normalizedFirstLine) return
+          const foundIndex = sourceLines.findIndex((line, index) => {
+            if (index < searchFrom) return false
+            return normalizeForMatch(line).includes(normalizedFirstLine)
+          })
           if (foundIndex >= 0) {
             ;(element as HTMLElement).dataset.sourceLine = String(foundIndex + 1)
             searchFrom = foundIndex
           }
         })
+
+        let tableSearchFrom = 0
+        combinedRef.current.querySelectorAll('tr').forEach((row) => {
+          const cells = Array.from(row.querySelectorAll<HTMLElement>('th,td'))
+          if (cells.length === 0) return
+          const renderedCells = cells.map(cell => normalizeForMatch(cell.textContent || ''))
+          const foundIndex = sourceLines.findIndex((line, index) => {
+            if (index < tableSearchFrom) return false
+            const markdownCells = parseMarkdownTableRow(line)
+            if (!markdownCells || markdownCells.length < renderedCells.length) return false
+            return renderedCells.every((cell, cellIndex) => normalizeForMatch(markdownCells[cellIndex]) === cell)
+          })
+          if (foundIndex < 0) return
+          row.dataset.sourceLine = String(foundIndex + 1)
+          cells.forEach((cell, cellIndex) => {
+            cell.dataset.sourceLine = String(foundIndex + 1)
+            cell.dataset.previewEditKind = 'table-cell'
+            cell.dataset.tableCellIndex = String(cellIndex)
+          })
+          tableSearchFrom = foundIndex + 1
+        })
+
+        let codeRangeIndex = 0
+        combinedRef.current.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
+          const range = fencedCodeRanges[codeRangeIndex]
+          codeRangeIndex += 1
+          if (!range) return
+          pre.dataset.sourceLine = String(range.startLine)
+          pre.dataset.sourceEndLine = String(range.endLine)
+          pre.dataset.previewEditKind = 'code-block'
+          if (CHART_CODE_LANGUAGES.has(range.lang)) {
+            pre.dataset.previewReadOnlyReason = 'chart-code'
+          }
+        })
+
+        const editableElements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,li,td,th,pre')
+        editableElements.forEach((element) => {
+          const editableElement = element as HTMLElement
+          const sourceLine = editableElement.dataset.sourceLine
+          const isReadOnlyPreviewBlock = Boolean(editableElement.dataset.previewReadOnlyReason)
+          if (!previewEditingEnabled || !sourceLine || !onPreviewBlockEdit || isReadOnlyPreviewBlock) {
+            editableElement.removeAttribute('contenteditable')
+            editableElement.removeAttribute('spellcheck')
+            editableElement.removeAttribute('aria-label')
+            editableElement.classList.remove('markdown-preview-editable-block')
+            delete editableElement.dataset.previewOriginalText
+            return
+          }
+          editableElement.setAttribute('contenteditable', 'true')
+          editableElement.setAttribute('spellcheck', 'true')
+          editableElement.setAttribute('aria-label', `编辑第 ${sourceLine} 行渲染内容`)
+          editableElement.classList.add('markdown-preview-editable-block')
+          editableElement.dataset.previewOriginalText = normalizeRenderedText(editableElement.textContent || '')
+        })
       }
-    }, [html, sourceContent])
+    }, [deferredRenderVersion, html, onPreviewBlockEdit, previewEditingEnabled, renderVersion, sourceContent])
+
+    useEffect(() => {
+      const container = combinedRef.current
+      if (!container || !previewEditingEnabled || !onPreviewBlockEdit) return
+
+      const flushSkippedFocusedRender = (block: HTMLElement) => {
+        if (!skippedFocusedRenderRef.current) return
+        skippedFocusedRenderRef.current = false
+        allowDeferredRenderBlockRef.current = block
+        setDeferredRenderVersion(version => version + 1)
+      }
+
+      const handleBlur = (event: FocusEvent) => {
+        const target = event.target as HTMLElement | null
+        const block = target?.closest('.markdown-preview-editable-block') as HTMLElement | null
+        if (!block || !container.contains(block)) return
+        const sourceLine = Number(block.dataset.sourceLine)
+        if (!Number.isFinite(sourceLine)) {
+          flushSkippedFocusedRender(block)
+          return
+        }
+        const sourceEndLine = block.dataset.sourceEndLine ? Number(block.dataset.sourceEndLine) : undefined
+        const tableCellIndex = block.dataset.tableCellIndex ? Number(block.dataset.tableCellIndex) : undefined
+        const originalText = block.dataset.previewOriginalText || ''
+        const nextText = normalizeRenderedText(block.textContent || '')
+        if (nextText === originalText) {
+          flushSkippedFocusedRender(block)
+          return
+        }
+        block.dataset.previewOriginalText = nextText
+        const edit: PreviewBlockEdit = {
+          sourceLine,
+          originalText,
+          nextText,
+        }
+        if (Number.isFinite(sourceEndLine)) edit.sourceEndLine = sourceEndLine
+        if (block.dataset.previewEditKind) edit.editKind = block.dataset.previewEditKind as PreviewBlockEdit['editKind']
+        if (Number.isFinite(tableCellIndex)) edit.tableCellIndex = tableCellIndex
+        allowDeferredRenderBlockRef.current = block
+        onPreviewBlockEdit(edit)
+      }
+
+      const handleCompositionStart = (event: CompositionEvent) => {
+        const target = event.target as HTMLElement | null
+        const block = target?.closest('.markdown-preview-editable-block') as HTMLElement | null
+        if (block && container.contains(block)) block.dataset.previewComposing = 'true'
+      }
+
+      const handleCompositionEnd = (event: CompositionEvent) => {
+        const target = event.target as HTMLElement | null
+        const block = target?.closest('.markdown-preview-editable-block') as HTMLElement | null
+        if (block && container.contains(block)) delete block.dataset.previewComposing
+      }
+
+      container.addEventListener('blur', handleBlur, true)
+      container.addEventListener('compositionstart', handleCompositionStart, true)
+      container.addEventListener('compositionend', handleCompositionEnd, true)
+      return () => {
+        container.removeEventListener('blur', handleBlur, true)
+        container.removeEventListener('compositionstart', handleCompositionStart, true)
+        container.removeEventListener('compositionend', handleCompositionEnd, true)
+      }
+    }, [combinedRef, onPreviewBlockEdit, previewEditingEnabled])
 
     // 本地图片路径转换：将相对路径转为 local-image:// 协议
     useEffect(() => {
@@ -553,6 +814,10 @@ const MarkdownContent = memo(
       const handleClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement
 
+        if (previewEditingEnabled && target.closest('.markdown-preview-editable-block')) {
+          return
+        }
+
         // v1.5.1: 图片点击 → Lightbox
         const img = target.tagName === 'IMG' ? target : target.closest('img')
         if (img && onImageClick) {
@@ -637,7 +902,7 @@ const MarkdownContent = memo(
 
       combinedRef.current.addEventListener('click', handleClick)
       return () => combinedRef.current?.removeEventListener('click', handleClick)
-    }, [html, filePath, onImageClick])
+    }, [html, filePath, onImageClick, previewEditingEnabled])
 
     // v1.5.2: 为普通代码块添加复制按钮
     useEffect(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SearchBar } from '../../src/components/SearchBar'
 import { FileInfo } from '../../src/components/FileTree'
@@ -311,6 +311,26 @@ describe('SearchBar', () => {
       await userEvent.click(clearButton)
 
       expect(input).toHaveValue('')
+    })
+  })
+
+  describe('中文输入法兼容', () => {
+    it('IME 组合输入期间 Escape 不应该关闭搜索弹窗', async () => {
+      render(<SearchBar files={[]} folderPath={null} onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
+
+      const trigger = screen.getByRole('button', { name: /搜索文件/i })
+      await userEvent.click(trigger)
+
+      const input = screen.getByPlaceholderText('搜索文件名...')
+      fireEvent.keyDown(input, {
+        key: 'Escape',
+        keyCode: 229,
+        isComposing: true
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(screen.getByPlaceholderText('搜索文件名...')).toBeInTheDocument()
     })
   })
 

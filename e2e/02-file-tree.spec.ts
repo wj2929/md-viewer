@@ -1,4 +1,6 @@
 import { test, expect, openFolderViaIPC } from './fixtures/electron'
+import { join } from 'path'
+import { writeFileSync } from 'fs'
 
 /**
  * E2E 测试 2: 文件树功能
@@ -103,6 +105,44 @@ test.describe('文件树功能测试', () => {
     }
   })
 
+  test('搜索弹窗应该支持中文文本输入', async ({ page, electronApp, testDir }) => {
+    writeFileSync(join(testDir, '保利威费用分析报告.md'), '# 保利威费用分析报告\n')
+
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    await page.click('.search-trigger')
+    const searchInput = page.locator('.search-input')
+    await expect(searchInput).toBeFocused()
+    await page.keyboard.insertText('保利')
+
+    await expect(searchInput).toHaveValue('保利')
+    await expect(page.locator('.search-result-item:has-text("保利威费用分析报告.md")')).toBeVisible()
+  })
+
+  test('文件树隐式过滤应该支持中文组合输入', async ({ page, electronApp, testDir }) => {
+    writeFileSync(join(testDir, '保利威费用分析报告.md'), '# 保利威费用分析报告\n')
+
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+    await expect(page.locator('.file-tree-row.file:has-text("保利威费用分析报告.md")')).toBeVisible()
+
+    const tree = page.locator('.file-tree')
+    await tree.click()
+    await expect(page.getByRole('textbox', { name: '文件过滤' })).toBeFocused()
+    await page.keyboard.insertText('保利')
+
+    const filterInput = page.getByRole('textbox', { name: '文件过滤' })
+    await expect(filterInput).toBeVisible()
+    await expect(filterInput).toHaveValue('保利')
+    await expect(page.locator('.file-tree-row.file:has-text("保利威费用分析报告.md")')).toBeVisible()
+    await expect(page.locator('.file-tree-row.file:has-text("test1.md")')).not.toBeVisible()
+
+    await filterInput.fill('费用')
+    await expect(filterInput).toHaveValue('费用')
+    await expect(page.locator('.file-tree-row.file:has-text("保利威费用分析报告.md")')).toBeVisible()
+  })
+
   test('刷新按钮应该重新加载文件树', async ({ page, electronApp, testDir }) => {
     await openFolderViaIPC(electronApp, testDir)
     await page.waitForSelector('.file-tree-container', { timeout: 10000 })
@@ -129,5 +169,23 @@ test.describe('文件树功能测试', () => {
     const changeBtn = page.locator('.folder-btn')
     await expect(changeBtn).toBeVisible()
     await expect(changeBtn).toHaveAttribute('title', '切换文件夹')
+  })
+
+  test('历史文件夹下拉菜单不应该被导航栏裁剪', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    await page.locator('.history-toggle-btn').click()
+    await expect(page.locator('.history-menu')).toBeVisible()
+
+    const menuCanReceivePointer = await page.evaluate(() => {
+      const menu = document.querySelector('.history-menu')
+      if (!menu) return false
+      const rect = menu.getBoundingClientRect()
+      const hitTarget = document.elementFromPoint(rect.left + 12, rect.top + 12)
+      return Boolean(hitTarget?.closest('.history-menu'))
+    })
+
+    expect(menuCanReceivePointer).toBe(true)
   })
 })

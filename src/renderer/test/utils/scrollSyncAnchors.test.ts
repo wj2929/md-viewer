@@ -13,6 +13,23 @@ function setLayout(element: HTMLElement, offsetTop: number, height = 20): void {
   Object.defineProperty(element, 'offsetHeight', { configurable: true, value: height })
 }
 
+function setRect(element: HTMLElement, top: number, height = 20): void {
+  Object.defineProperty(element, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      top,
+      bottom: top + height,
+      left: 0,
+      right: 100,
+      width: 100,
+      height,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    }),
+  })
+}
+
 describe('scrollSyncAnchors', () => {
   it('collects sorted source-line anchors from the current preview container only', () => {
     const preview = document.createElement('div')
@@ -41,6 +58,20 @@ describe('scrollSyncAnchors', () => {
       { sourceLine: 1, offsetTop: 10, kind: 'stable' },
       { sourceLine: 5, offsetTop: 120, kind: 'stable' },
     ])
+  })
+
+  it('uses visual positions relative to the scroll container when collecting anchors', () => {
+    const preview = document.createElement('div')
+    Object.defineProperty(preview, 'scrollTop', { configurable: true, value: 40 })
+    setRect(preview, 100, 300)
+
+    const heading = document.createElement('h2')
+    heading.dataset.sourceLine = '8'
+    setLayout(heading, 999)
+    setRect(heading, 175)
+    preview.append(heading)
+
+    expect(collectPreviewAnchors(preview)[0].offsetTop).toBe(115)
   })
 
   it('builds a scrollMap that interpolates missing source lines between anchors', () => {

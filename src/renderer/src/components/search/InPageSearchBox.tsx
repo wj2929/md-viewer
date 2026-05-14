@@ -14,6 +14,10 @@
 import React, { useRef, useEffect, useState } from 'react'
 import './InPageSearchBox.css'
 
+function isImeComposingEvent(e: KeyboardEvent): boolean {
+  return e.isComposing || e.key === 'Process' || e.key === 'Unidentified' || e.keyCode === 229
+}
+
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -120,6 +124,8 @@ export function InPageSearchBox({
     if (!visible) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isImeComposingEvent(e)) return
+
       // Enter: 下一个匹配
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()

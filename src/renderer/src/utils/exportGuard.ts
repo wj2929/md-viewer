@@ -34,11 +34,11 @@ export function createExportGuard({ toast, saveBeforeExport }: CreateExportGuard
       return (await saveBeforeExport(session.canonicalPath)) !== false
     }
 
-    if (saveBeforeExport && window.confirm('存在未保存的快速编辑草稿。是否先保存并继续导出？')) {
+    if (saveBeforeExport && window.confirm('存在未保存的编辑草稿。是否先保存并继续导出？')) {
       return (await saveBeforeExport(session.canonicalPath)) !== false
     }
 
-    toast.error('请先保存快速编辑草稿后再导出')
+    toast.error('请先保存编辑草稿后再导出')
     return false
   }
 }

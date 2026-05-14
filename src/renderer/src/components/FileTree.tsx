@@ -41,16 +41,17 @@ interface FileTreeItemProps {
   collapsedFolders: Record<string, false>
   treeStateLoaded: boolean
   onFolderToggle: (folder: FileInfo, expanded: boolean) => void
+  forceExpanded?: boolean
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle, forceExpanded = false }: FileTreeItemProps): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
   const isSelected = selectedPath === item.path
   const isExpanded = item.isDirectory
-    ? treeStateLoaded && item.treePath ? collapsedFolders[item.treePath] !== false : false
+    ? forceExpanded || (treeStateLoaded && item.treePath ? collapsedFolders[item.treePath] !== false : false)
     : false
   // v1.3 阶段 5：多选状态检查
   const isMultiSelected = selectedPaths?.has(item.path) ?? false
@@ -90,6 +91,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
       onMultiSelect(item.path, e)
     } else if (item.isDirectory) {
       if (!treeStateLoaded) return
+      if (forceExpanded) return
       onFolderToggle(item, !isExpanded)
     } else {
       onFileSelect(item)
@@ -216,6 +218,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               collapsedFolders={collapsedFolders}
               treeStateLoaded={treeStateLoaded}
               onFolderToggle={onFolderToggle}
+              forceExpanded={forceExpanded}
             />
           ))}
         </div>
@@ -244,10 +247,70 @@ function flattenFileTree(files: FileInfo[]): FileInfo[] {
   return result
 }
 
+function fileMatchesFilter(item: FileInfo, query: string): boolean {
+  const lowerQuery = query.toLowerCase()
+  return [
+    item.name,
+    item.treePath,
+    item.path
+  ].some(value => value?.toLowerCase().includes(lowerQuery))
+}
+
+function filterFileTree(files: FileInfo[], query: string): FileInfo[] {
+  const trimmedQuery = query.trim()
+  if (!trimmedQuery) return files
+
+  const filterItem = (item: FileInfo): FileInfo | null => {
+    const selfMatches = fileMatchesFilter(item, trimmedQuery)
+
+    if (!item.isDirectory) {
+      return selfMatches ? item : null
+    }
+
+    if (selfMatches) {
+      return item
+    }
+
+    const filteredChildren = item.children
+      ?.map(filterItem)
+      .filter((child): child is FileInfo => child !== null) ?? []
+
+    if (filteredChildren.length === 0) return null
+
+    return {
+      ...item,
+      children: filteredChildren
+    }
+  }
+
+  return files
+    .map(filterItem)
+    .filter((item): item is FileInfo => item !== null)
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tagName = target.tagName.toLowerCase()
+  return tagName === 'input' || tagName === 'textarea' || target.isContentEditable
+}
+
+function isReactImeComposingEvent(e: React.KeyboardEvent): boolean {
+  const nativeEvent = e.nativeEvent as KeyboardEvent & { keyCode?: number }
+  return e.key === 'Process' || e.key === 'Unidentified' || nativeEvent.isComposing || nativeEvent.keyCode === 229
+}
+
 // 文件树组件
 export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onSelectionChange }: FileTreeProps): JSX.Element {
+  const [filterQuery, setFilterQuery] = useState('')
+  const filterInputRef = useRef<HTMLInputElement>(null)
+  const trimmedFilterQuery = filterQuery.trim()
+  const isFilteringFileTree = trimmedFilterQuery.length > 0
+  const visibleFiles = useMemo(
+    () => filterFileTree(files, trimmedFilterQuery),
+    [files, trimmedFilterQuery]
+  )
   // v1.3 阶段 5：扁平化文件列表用于区间选择
-  const flatFiles = useMemo(() => flattenFileTree(files), [files])
+  const flatFiles = useMemo(() => flattenFileTree(visibleFiles), [visibleFiles])
 
   // 文件预览 tooltip（父组件级别单一实例）
   const { tooltipProps, handleMouseEnter, handleMouseLeave } = useFilePreview()
@@ -280,6 +343,7 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
     setTreeStateLoaded(false)
     setCollapsedFolders({})
     setLoadedBasePath(null)
+    setFilterQuery('')
 
     if (!basePath) {
       setLoadedBasePath(basePath)
@@ -363,6 +427,18 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
     }
   }, [])
 
+  const hasResettableFolderTreeState = Object.keys(collapsedFolders).length > 0
+
+  const handleClearFilter = useCallback(() => {
+    setFilterQuery('')
+  }, [])
+
+  const focusFilterInput = useCallback(() => {
+    window.setTimeout(() => {
+      filterInputRef.current?.focus()
+    }, 0)
+  }, [])
+
   // 多选处理逻辑
   const handleMultiSelect = useCallback((path: string, event: React.MouseEvent) => {
     if (!onSelectionChange) return
@@ -402,11 +478,29 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
     }
   }, [flatFiles, selectedPaths, onSelectionChange])
 
+  const handleFilterInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextQuery = e.target.value
+    setFilterQuery(nextQuery)
+  }, [])
+
+  const handleFilterInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isReactImeComposingEvent(e)) return
+
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setFilterQuery('')
+    } else if (e.key === 'Enter' && !filterQuery) {
+      e.preventDefault()
+    }
+  }, [filterQuery])
+
   // v1.3 阶段 5：键盘快捷键（Cmd+A 全选，Escape 取消）
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!onSelectionChange) return
+    if (e.defaultPrevented) return
+    if (isEditableTarget(e.target)) return
 
     if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+      if (!onSelectionChange) return
       e.preventDefault()
       // Cmd/Ctrl+A：全选所有文件（不包括目录）
       const allFilePaths = flatFiles
@@ -414,11 +508,37 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
         .map(f => f.path)
       onSelectionChange(new Set(allFilePaths))
     } else if (e.key === 'Escape') {
+      if (filterQuery) {
+        e.preventDefault()
+        setFilterQuery('')
+        return
+      }
+      if (!onSelectionChange) return
       // Escape：清空选择
       onSelectionChange(new Set())
       lastSelectedRef.current = null
+    } else if (e.key === 'Backspace' && filterQuery) {
+      e.preventDefault()
+      setFilterQuery(prev => {
+        return prev.slice(0, -1)
+      })
     }
-  }, [flatFiles, onSelectionChange])
+  }, [filterQuery, flatFiles, onSelectionChange])
+
+  const handleFileTreeClick = useCallback((e: React.MouseEvent) => {
+    if (isEditableTarget(e.target)) return
+    focusFilterInput()
+  }, [focusFilterInput])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (isEditableTarget(e.target)) return
+
+    const text = e.clipboardData.getData('text').trim()
+    if (!text) return
+
+    e.preventDefault()
+    setFilterQuery(prev => `${prev}${text}`)
+  }, [])
 
   if (!treeStateLoaded || loadedBasePath !== basePath) {
     return (
@@ -438,44 +558,81 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
 
   return (
     <div className="file-tree-shell">
-      <div className="file-tree-toolbar">
+      <div
+        className="file-tree-filter-bar"
+        role="search"
+        aria-label="文件树过滤"
+      >
+        <span className="file-tree-filter-label">过滤:</span>
+        <input
+          ref={filterInputRef}
+          type="text"
+          className="file-tree-filter-input"
+          value={filterQuery}
+          onChange={handleFilterInputChange}
+          onKeyDown={handleFilterInputKeyDown}
+          aria-label="文件过滤"
+          spellCheck={false}
+        />
         <button
           type="button"
-          className="file-tree-reset-btn"
-          onClick={handleResetFolderTreeState}
-          title="重置当前文件夹展开状态"
-          aria-label="重置当前文件夹展开状态"
+          className="file-tree-filter-clear"
+          onClick={handleClearFilter}
+          title="清除文件过滤"
+          aria-label="清除文件过滤"
         >
-          重置展开状态
+          ×
         </button>
       </div>
+      {hasResettableFolderTreeState && (
+        <div className="file-tree-toolbar">
+          <button
+            type="button"
+            className="file-tree-reset-btn"
+            onClick={handleResetFolderTreeState}
+            title="重置当前文件夹展开状态"
+            aria-label="重置当前文件夹展开状态"
+          >
+            重置展开状态
+          </button>
+        </div>
+      )}
       <div
         className="file-tree"
         role="tree"
         aria-label="文件列表"
+        onClick={handleFileTreeClick}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         tabIndex={-1}
       >
-        {files.map((file, index) => (
-          <FileTreeItem
-            key={file.path}
-            item={file}
-            depth={0}
-            onFileSelect={onFileSelect}
-            selectedPath={selectedPath}
-            basePath={basePath}
-            onFileRenamed={onFileRenamed}
-            selectedPaths={selectedPaths}
-            onMultiSelect={handleMultiSelect}
-            flatIndex={index}
-            renamingPath={renamingPath}
-            onFileMouseEnter={handleMouseEnter}
-            onFileMouseLeave={handleMouseLeave}
-            collapsedFolders={collapsedFolders}
-            treeStateLoaded={treeStateLoaded}
-            onFolderToggle={handleFolderToggle}
-          />
-        ))}
+        {visibleFiles.length === 0 && isFilteringFileTree ? (
+          <div className="file-tree-no-results" role="status">
+            没有匹配的文件
+          </div>
+        ) : (
+          visibleFiles.map((file, index) => (
+            <FileTreeItem
+              key={file.path}
+              item={file}
+              depth={0}
+              onFileSelect={onFileSelect}
+              selectedPath={selectedPath}
+              basePath={basePath}
+              onFileRenamed={onFileRenamed}
+              selectedPaths={selectedPaths}
+              onMultiSelect={handleMultiSelect}
+              flatIndex={index}
+              renamingPath={renamingPath}
+              onFileMouseEnter={handleMouseEnter}
+              onFileMouseLeave={handleMouseLeave}
+              collapsedFolders={collapsedFolders}
+              treeStateLoaded={treeStateLoaded}
+              onFolderToggle={handleFolderToggle}
+              forceExpanded={isFilteringFileTree}
+            />
+          ))
+        )}
       </div>
       <FilePreviewTooltip {...tooltipProps} />
     </div>

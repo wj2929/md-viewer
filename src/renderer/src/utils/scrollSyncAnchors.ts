@@ -47,6 +47,18 @@ function getAnchorKind(element: HTMLElement): ScrollAnchorKind | null {
 }
 
 function getOffsetTopWithin(element: HTMLElement, container: HTMLElement): number {
+  const elementRect = element.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+  const hasUsefulRect =
+    elementRect.top !== 0 ||
+    elementRect.bottom !== 0 ||
+    elementRect.height !== 0 ||
+    containerRect.top !== 0 ||
+    containerRect.bottom !== 0 ||
+    containerRect.height !== 0
+  const visualTop = elementRect.top - containerRect.top + container.scrollTop
+  if (hasUsefulRect && Number.isFinite(visualTop)) return visualTop
+
   let current: HTMLElement | null = element
   let top = 0
   while (current && current !== container) {

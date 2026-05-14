@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
 import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
@@ -9,8 +9,9 @@ import { useDragDrop } from './hooks/useDragDrop'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIPC } from './hooks/useIPC'
 import { useExport } from './hooks/useExport'
-import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore } from './stores'
-import type { EditConflictReason, EditSession } from './stores'
+import { useEditDraftPersistence } from './hooks/useEditDraftPersistence'
+import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore, useDocumentViewModeStore } from './stores'
+import type { DocumentViewMode, EditConflictReason, EditSession } from './stores'
 import { useExportTaskStore } from './stores/exportTaskStore'
 import type { QuickEditTarget } from './utils/quickEditTarget'
 
@@ -33,6 +34,9 @@ function getDraftPreviewDebounceMs(content: string, hasEditSession: boolean): nu
     : 250
 }
 
+const SINGLE_LEAF_ID = 'single'
+const UNSAVED_EDIT_LEAVE_MESSAGE = '当前文档有未保存编辑草稿，离开后草稿会保留但尚未写入磁盘。是否继续？'
+
 function App(): React.JSX.Element {
   // v1.6.0: Zustand stores
   const { folderPath, setFolderPath, files, setFiles, isLoading, setIsLoading, selectedPaths, setSelectedPaths } = useFileStore()
@@ -45,8 +49,12 @@ function App(): React.JSX.Element {
   const markEditSessionConflict = useEditSessionStore(state => state.markConflict)
   const replaceEditSessionFromDisk = useEditSessionStore(state => state.replaceFromDisk)
   const quickEditPlacements = useQuickEditPlacementStore(state => state.placements)
-  const openQuickEditPlacement = useQuickEditPlacementStore(state => state.openPlacement)
   const closeQuickEditPlacement = useQuickEditPlacementStore(state => state.closePlacement)
+  const documentViews = useDocumentViewModeStore(state => state.views)
+  const getDocumentViewState = useDocumentViewModeStore(state => state.getViewState)
+  const setDocumentViewMode = useDocumentViewModeStore(state => state.setMode)
+  const setDocumentViewTarget = useDocumentViewModeStore(state => state.setTarget)
+  const setDocumentCompareRatio = useDocumentViewModeStore(state => state.setCompareRatio)
 
   const { lastExportedFilePath, lastExportedTime } = useExportTaskStore()
 
@@ -78,6 +86,18 @@ function App(): React.JSX.Element {
   // v1.6.0: 提取的 hooks
   useDragDrop()
   useKeyboardShortcuts()
+  useEditDraftPersistence()
+
+  const confirmLeaveDirtyActiveTab = useCallback((nextFilePath?: string): boolean => {
+    const currentActiveTabId = useTabStore.getState().activeTabId
+    const active = tabsRef.current.find(tab => tab.id === currentActiveTabId)
+    if (!active || active.file.path === nextFilePath) return true
+
+    const session = findEditSessionForPath(useEditSessionStore.getState().sessions, active.file.path)
+    if (!session?.dirty) return true
+
+    return window.confirm(UNSAVED_EDIT_LEAVE_MESSAGE)
+  }, [])
 
   // v1.3.6：加载书签设置
   useEffect(() => { loadBookmarkSettings() }, [])
@@ -358,8 +378,17 @@ function App(): React.JSX.Element {
     }
   }, [handleRefreshFiles, toast])
 
+  const confirmCloseDirtyTab = useCallback((tab: Tab): boolean => {
+    const session = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
+    if (!session?.dirty) return true
+    return window.confirm(`"${tab.file.name}" 有未保存编辑草稿，关闭会保留内存草稿但不会写入磁盘。是否继续关闭标签？`)
+  }, [])
+
   // 关闭标签
   const handleTabClose = useCallback((tabId: string) => {
+    const closingTab = tabsRef.current.find(tab => tab.id === tabId)
+    if (closingTab && !confirmCloseDirtyTab(closingTab)) return
+
     setTabs(prev => {
       const closingTab = prev.find(tab => tab.id === tabId)
       if (closingTab) clearFileCache(closingTab.file.path)
@@ -376,11 +405,12 @@ function App(): React.JSX.Element {
       }
       return newTabs
     })
-  }, [])
+  }, [confirmCloseDirtyTab])
 
   // 选择文件
   const handleFileSelect = useCallback(async (file: FileInfo, lineNumber?: number, keyword?: string) => {
     if (file.isDirectory) return
+    if (!confirmLeaveDirtyActiveTab(file.path)) return
     setScrollToLine(lineNumber)
     setHighlightKeyword(keyword)
     const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
@@ -435,13 +465,18 @@ function App(): React.JSX.Element {
     } catch (error) {
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [refreshExistingTabContent, toast])
+  }, [confirmLeaveDirtyActiveTab, refreshExistingTabContent, toast])
 
   // 切换标签
-  const handleTabClick = useCallback((tabId: string) => { setActiveTabId(tabId) }, [])
+  const handleTabClick = useCallback((tabId: string) => {
+    const nextTab = tabsRef.current.find(tab => tab.id === tabId)
+    if (!confirmLeaveDirtyActiveTab(nextTab?.file.path)) return
+    setActiveTabId(tabId)
+  }, [confirmLeaveDirtyActiveTab, setActiveTabId])
 
   // 获取当前活动标签
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId), [tabs, activeTabId])
+  const activeViewState = activeTab ? documentViews[`${SINGLE_LEAF_ID}:${activeTab.id}`] ?? getDocumentViewState(SINGLE_LEAF_ID, activeTab.id) : null
   const editSessionList = useMemo(() => Object.values(editSessions), [editSessions])
   const getQuickEditCanonicalPath = useCallback((tab: Tab): string | null => {
     const session = editSessionList.find(item =>
@@ -468,31 +503,40 @@ function App(): React.JSX.Element {
     ))
   }, [setTabs])
 
-  const handleOpenQuickEdit = useCallback(async (tab: Tab, target?: Partial<QuickEditTarget>) => {
+  const handleOpenMarkdownEdit = useCallback(async (tab: Tab, leafId = SINGLE_LEAF_ID, target?: Partial<QuickEditTarget>) => {
     if (!isMarkdownFile(tab.file.path)) {
-      toast.error('当前文件不是 Markdown，不能快速编辑')
+      toast.error('当前文件不是 Markdown，不能编辑文档')
       return
     }
     try {
       const result = await window.api.openEditableMarkdown(tab.file.path)
       openEditSession(result)
-      openQuickEditPlacement({
-        filePath: tab.file.path,
-        tabId: tab.id,
-        mode: 'document',
-        ...target,
-        canonicalPath: result.canonicalPath,
-      })
+      setDocumentViewMode(leafId, tab.id, 'compare')
+      setDocumentViewTarget(leafId, tab.id, target
+        ? {
+            filePath: tab.file.path,
+            tabId: tab.id,
+            leafId,
+            mode: 'document',
+            ...target,
+            canonicalPath: result.canonicalPath,
+          }
+        : null)
     } catch (error) {
-      toast.error(`无法打开快速编辑：${error instanceof Error ? error.message : '未知错误'}`)
+      toast.error(`无法打开编辑器：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [openEditSession, openQuickEditPlacement, toast])
+  }, [openEditSession, setDocumentViewMode, setDocumentViewTarget, toast])
+
+  const handleOpenQuickEdit = useCallback(async (tab: Tab, target?: Partial<QuickEditTarget>) => {
+    await handleOpenMarkdownEdit(tab, target?.leafId || SINGLE_LEAF_ID, target)
+  }, [handleOpenMarkdownEdit])
 
   const handleSaveQuickEdit = useCallback(async (
     canonicalPath: string,
     content: string,
     expectedRevisionToken: string,
-    force: boolean
+    force: boolean,
+    draftVersion?: number
   ) => {
     const result = await window.api.saveEditableMarkdown({
       canonicalPath,
@@ -511,7 +555,7 @@ function App(): React.JSX.Element {
     }
 
     const session = useEditSessionStore.getState().sessions[canonicalPath]
-    markEditSessionSaved(canonicalPath, content, result.revisionToken ?? expectedRevisionToken)
+    markEditSessionSaved(canonicalPath, content, result.revisionToken ?? expectedRevisionToken, draftVersion)
     if (session) {
       clearFileCache(session.displayPath)
       clearFileCache(session.canonicalPath)
@@ -523,10 +567,11 @@ function App(): React.JSX.Element {
     const session = useEditSessionStore.getState().sessions[canonicalPath]
     if (!session) return false
 
-    await handleSaveQuickEdit(canonicalPath, session.draft, session.baseRevisionToken, false)
+    const snapshot = useEditSessionStore.getState().createSaveSnapshot(canonicalPath)
+    await handleSaveQuickEdit(canonicalPath, snapshot.content, snapshot.expectedRevisionToken, false, snapshot.draftVersion)
     const nextSession = useEditSessionStore.getState().sessions[canonicalPath]
     if (nextSession?.dirty || nextSession?.conflictReason) {
-      toast.error('保存快速编辑草稿失败，已取消导出')
+      toast.error('保存编辑草稿失败，已取消导出')
       return false
     }
     return true
@@ -750,9 +795,23 @@ function App(): React.JSX.Element {
 
     const unsubscribeChanged = window.api.onFileChanged(async (changedPath: string) => {
       clearFileCache(changedPath)
-      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, changedPath)
-      if (dirtySession?.dirty) {
-        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'external_changed')
+      const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, changedPath)
+      if (editSession?.dirty) {
+        useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'external_changed')
+        return
+      }
+      if (editSession) {
+        try {
+          const result = await window.api.openEditableMarkdown(editSession.displayPath)
+          replaceEditSessionFromDisk(editSession.canonicalPath, result.content, result.revisionToken)
+          setTabs(prev => prev.map(tab =>
+            tab.file.path === editSession.displayPath || tab.file.path === editSession.canonicalPath
+              ? { ...tab, content: result.content }
+              : tab
+          ))
+        } catch (error) {
+          console.error('Failed to reload clean edit session:', error)
+        }
         return
       }
       const currentTabs = tabsRef.current
@@ -772,13 +831,25 @@ function App(): React.JSX.Element {
     const unsubscribeAdded = window.api.onFileAdded(async (addedPath: string) => {
       // 如果新增文件匹配已打开的 tab，重新读取内容（覆盖原子写入超时场景）
       clearFileCache(addedPath)
-      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, addedPath)
-      if (dirtySession?.dirty) {
-        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'external_changed')
+      const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, addedPath)
+      if (editSession?.dirty) {
+        useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'external_changed')
       }
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === addedPath)
-      if (affectedTab && !dirtySession?.dirty) {
+      if (editSession && !editSession.dirty) {
+        try {
+          const result = await window.api.openEditableMarkdown(editSession.displayPath)
+          replaceEditSessionFromDisk(editSession.canonicalPath, result.content, result.revisionToken)
+          setTabs(prev => prev.map(tab =>
+            tab.file.path === editSession.displayPath || tab.file.path === editSession.canonicalPath
+              ? { ...tab, content: result.content }
+              : tab
+          ))
+        } catch (error) {
+          console.error('Failed to reload clean edit session after add:', error)
+        }
+      } else if (affectedTab && !editSession?.dirty) {
         try {
           const newContent = await window.api.readFile(addedPath)
           setTabs(prev => prev.map(tab =>
@@ -925,6 +996,10 @@ function App(): React.JSX.Element {
   }, [])
 
   const handleClosePanel = useCallback((leafId: string) => {
+    const leaf = splitStateRef.current.root ? findLeaf(splitStateRef.current.root, leafId) : null
+    const tab = leaf?.tabId ? tabsRef.current.find(item => item.id === leaf.tabId) : null
+    if (tab && !confirmCloseDirtyTab(tab)) return
+
     setSplitState(prev => {
       if (!prev.root) return prev
       const newRoot = closeLeaf(prev.root, leafId)
@@ -935,7 +1010,7 @@ function App(): React.JSX.Element {
       }
       return { ...prev, root: newRoot }
     })
-  }, [])
+  }, [confirmCloseDirtyTab])
 
   const handleResizePanel = useCallback((splitId: string, ratio: number) => {
     setSplitState(prev => {
@@ -1168,6 +1243,16 @@ function App(): React.JSX.Element {
                     onImageClick={setLightbox}
                     onDropTab={handleDropTab}
                     onSwapPanels={handleSwapPanels}
+                    getDocumentViewMode={(leafId, tabId) => getDocumentViewState(leafId, tabId).mode}
+                    getDocumentCompareRatio={(leafId, tabId) => getDocumentViewState(leafId, tabId).compareRatio}
+                    getDocumentViewTarget={(leafId, tabId) => getDocumentViewState(leafId, tabId).target}
+                    onDocumentViewModeChange={setDocumentViewMode}
+                    onDocumentCompareRatioChange={setDocumentCompareRatio}
+                    onDocumentLocateComplete={(leafId, tabId, located) => {
+                      if (located) toast.success('已定位到源码附近')
+                      else toast.info('未能精确定位，已打开编辑器')
+                      setDocumentViewTarget(leafId, tabId, null)
+                    }}
                     getQuickEditCanonicalPath={getQuickEditCanonicalPath}
                     getQuickEditTarget={getQuickEditTarget}
                     onSaveQuickEdit={handleSaveQuickEdit}
@@ -1178,50 +1263,73 @@ function App(): React.JSX.Element {
                     onScrollToLineComplete={() => setScrollToLine(undefined)}
                   />
                 ) : (
-                  <div className={`preview-container ${activeQuickEditCanonicalPath ? 'with-quick-edit' : ''}`}>
-                    <div className="preview-body">
-                      <div className="preview-pane">
-                        {isActiveDraftPreview && (
-                          <div className="quick-edit-preview-banner" role="status">草稿预览，未保存</div>
-                        )}
-                        <div className="preview" ref={setPreviewNode}>
-                          {activeTab ? (
-                            <VirtualizedMarkdown
-                              key={activeTab.file.path}
-                              content={activePreviewContent}
-                              filePath={activeTab.file.path}
-                              tabId={activeTab.id}
-                              renderDebounceMs={getDraftPreviewDebounceMs(activePreviewContent, Boolean(activeQuickEditSession))}
-                              scrollToLine={scrollToLine}
-                              onScrollToLineComplete={() => setScrollToLine(undefined)}
-                              highlightKeyword={highlightKeyword}
-                              onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
-                              onImageClick={setLightbox}
+                  <div className={`preview-container ${activeQuickEditCanonicalPath && activeViewState?.mode === 'preview' ? 'with-quick-edit' : ''}`}>
+                    {activeTab && activeViewState && activeViewState.mode !== 'preview' && activeQuickEditSession ? (
+                      <MarkdownEditWorkbench
+                        tab={activeTab}
+                        leafId={SINGLE_LEAF_ID}
+                        canonicalPath={activeQuickEditSession.canonicalPath}
+                        mode={activeViewState.mode}
+                        compareRatio={activeViewState.compareRatio}
+                        target={activeViewState.target}
+                        onModeChange={(mode: DocumentViewMode) => setDocumentViewMode(SINGLE_LEAF_ID, activeTab.id, mode)}
+                        onCompareRatioChange={(ratio) => setDocumentCompareRatio(SINGLE_LEAF_ID, activeTab.id, ratio)}
+                        onSave={handleSaveQuickEdit}
+                        onCopyDraft={handleCopyQuickEditDraft}
+                        onReloadFromDisk={handleReloadQuickEdit}
+                        onLocateComplete={(located) => {
+                          if (located) toast.success('已定位到源码附近')
+                          else toast.info('未能精确定位，已打开编辑器')
+                          setDocumentViewTarget(SINGLE_LEAF_ID, activeTab.id, null)
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <div className="preview-body">
+                          <div className="preview-pane">
+                            {isActiveDraftPreview && (
+                              <div className="quick-edit-preview-banner" role="status">草稿预览，未保存</div>
+                            )}
+                            <div className="preview" ref={setPreviewNode}>
+                              {activeTab ? (
+                                <VirtualizedMarkdown
+                                  key={activeTab.file.path}
+                                  content={activePreviewContent}
+                                  filePath={activeTab.file.path}
+                                  tabId={activeTab.id}
+                                  renderDebounceMs={getDraftPreviewDebounceMs(activePreviewContent, Boolean(activeQuickEditSession))}
+                                  scrollToLine={scrollToLine}
+                                  onScrollToLineComplete={() => setScrollToLine(undefined)}
+                                  highlightKeyword={highlightKeyword}
+                                  onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
+                                  onImageClick={setLightbox}
+                                />
+                              ) : (
+                                <p className="placeholder">选择一个 Markdown 文件开始预览</p>
+                              )}
+                            </div>
+                            {activeTab && isMarkdownFile(activeTab.file.path) && (
+                              <FloatingNav
+                                containerRef={previewRef}
+                                markdown={activePreviewContent}
+                              />
+                            )}
+                          </div>
+                          {activeQuickEditCanonicalPath && activeViewState?.mode === 'preview' && (
+                            <QuickEditDrawer
+                              canonicalPath={activeQuickEditCanonicalPath}
+                              placementKey="single"
+                              previewElement={previewElement}
+                              target={activeQuickEditTarget}
+                              onSave={handleSaveQuickEdit}
+                              onClose={() => closeQuickEditPlacement('single')}
+                              onReloadFromDisk={handleReloadQuickEdit}
+                              onCopyDraft={handleCopyQuickEditDraft}
                             />
-                          ) : (
-                            <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                           )}
                         </div>
-                        {activeTab && isMarkdownFile(activeTab.file.path) && (
-                          <FloatingNav
-                            containerRef={previewRef}
-                            markdown={activePreviewContent}
-                          />
-                        )}
-                      </div>
-                      {activeQuickEditCanonicalPath && (
-                        <QuickEditDrawer
-                          canonicalPath={activeQuickEditCanonicalPath}
-                          placementKey="single"
-                          previewElement={previewElement}
-                          target={activeQuickEditTarget}
-                          onSave={handleSaveQuickEdit}
-                          onClose={() => closeQuickEditPlacement('single')}
-                          onReloadFromDisk={handleReloadQuickEdit}
-                          onCopyDraft={handleCopyQuickEditDraft}
-                        />
-                      )}
-                    </div>
+                      </>
+                    )}
                   </div>
                 )}
               </section>

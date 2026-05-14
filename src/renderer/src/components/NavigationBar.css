@@ -8,7 +8,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
   padding: 0 16px; /* 默认：Windows/Linux */
+  overflow: visible;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   position: relative;
@@ -46,6 +48,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   font-weight: 600;
   font-size: 14px;
   color: var(--text-primary);
@@ -113,6 +116,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
 /* 搜索区域 */
 .nav-search-section {
   flex: 1;
+  min-width: 44px;
   max-width: 400px;
   z-index: 1;
 }
@@ -122,6 +126,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
   margin-left: auto;
   z-index: 1;
 }
@@ -153,5 +158,37 @@ body[data-platform="darwin"] .titlebar-drag-region {
 
   .nav-search-section {
     max-width: 300px;
+  }
+}
+
+@media (max-width: 900px) {
+  .navigation-bar {
+    gap: 8px;
+  }
+
+  .nav-logo-text {
+    display: none;
+  }
+
+  .nav-search-section {
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 720px) {
+  body[data-platform="darwin"] .navigation-bar {
+    padding-left: 72px;
+  }
+
+  body[data-platform="darwin"] .titlebar-drag-region {
+    left: 72px;
+  }
+
+  .nav-search-section {
+    max-width: 44px;
+  }
+
+  .nav-actions {
+    gap: 4px;
   }
 }

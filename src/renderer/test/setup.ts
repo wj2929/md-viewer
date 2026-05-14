@@ -20,6 +20,31 @@ global.window.matchMedia = vi.fn().mockImplementation(query => ({
   dispatchEvent: vi.fn()
 }))
 
+// CodeMirror 在 jsdom 中会调用 Range 几何测量；补齐空实现以避免异步测量噪声。
+if (!document.createRange().getClientRects) {
+  Object.defineProperty(Range.prototype, 'getClientRects', {
+    configurable: true,
+    value: () => [],
+  })
+}
+
+if (!document.createRange().getBoundingClientRect) {
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }),
+  })
+}
+
 // Mock Electron API
 global.window.electronAPI = {
   openFolder: vi.fn(),
