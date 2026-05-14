@@ -2,15 +2,24 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, type ViewUpdate, keymap } from '@codemirror/view'
 import type { QuickEditTarget } from '../../utils/quickEditTarget'
+import { DEFAULT_TOP_RATIO, getScrollRatio } from '../../utils/scrollSyncAnchors'
 import { applyMarkdownFormat, type MarkdownFormatCommand } from './markdownFormatCommands'
 import { createMarkdownEditorExtensions } from './markdownEditorExtensions'
 import './MarkdownEditorPane.css'
+
+interface ScrollToLineOptions {
+  focus?: boolean
+  select?: boolean
+  y?: 'start' | 'end' | 'center' | 'nearest'
+}
 
 export interface MarkdownEditorPaneHandle {
   getCurrentDoc: () => string
   replaceDocument: (content: string) => void
   focus: () => void
-  scrollToLine: (lineNumber: number) => boolean
+  getScroller: () => HTMLElement | null
+  getVisibleLine: (topRatio?: number) => number
+  scrollToLine: (lineNumber: number, options?: ScrollToLineOptions) => boolean
   applyFormat: (command: MarkdownFormatCommand) => void
 }
 
@@ -64,17 +73,31 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
   onChangeRef.current = onChange
   onSaveRef.current = onSave
 
-  const scrollToLine = (lineNumber: number): boolean => {
+  const getVisibleLine = (topRatio = DEFAULT_TOP_RATIO): number => {
+    const view = viewRef.current
+    if (!view) return 1
+
+    const scroller = view.scrollDOM
+    try {
+      const block = view.lineBlockAtHeight(scroller.scrollTop + scroller.clientHeight * topRatio)
+      return view.state.doc.lineAt(block.from).number
+    } catch {
+      const ratio = getScrollRatio(scroller.scrollTop, scroller.scrollHeight, scroller.clientHeight)
+      return Math.max(1, Math.min(view.state.doc.lines, Math.round(1 + ratio * Math.max(0, view.state.doc.lines - 1))))
+    }
+  }
+
+  const scrollToLine = (lineNumber: number, options: ScrollToLineOptions = {}): boolean => {
     const view = viewRef.current
     if (!view) return false
     const boundedLine = Math.max(1, Math.min(lineNumber, view.state.doc.lines))
     const line = view.state.doc.line(boundedLine)
     const canMeasureTextRange = typeof document.createRange().getClientRects === 'function'
     view.dispatch({
-      selection: { anchor: line.from },
-      effects: canMeasureTextRange ? EditorView.scrollIntoView(line.from, { y: 'center' }) : [],
+      ...(options.select === false ? {} : { selection: { anchor: line.from } }),
+      effects: canMeasureTextRange ? EditorView.scrollIntoView(line.from, { y: options.y ?? 'center' }) : [],
     })
-    view.focus()
+    if (options.focus !== false) view.focus()
     return true
   }
 
@@ -90,6 +113,8 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
       suppressChangeRef.current = false
     },
     focus: () => viewRef.current?.focus(),
+    getScroller: () => viewRef.current?.scrollDOM ?? null,
+    getVisibleLine,
     scrollToLine,
     applyFormat: (command: MarkdownFormatCommand) => {
       const view = viewRef.current

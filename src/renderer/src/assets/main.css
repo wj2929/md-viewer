@@ -638,11 +638,15 @@ body {
   align-items: center;
   padding: 0 8px;
   gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .tab {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 6px;
   padding: 6px 12px;
   background-color: var(--bg-tertiary);
@@ -655,6 +659,7 @@ body {
   transition: background-color 0.15s;
   position: relative;
   max-width: 200px;
+  min-width: 0;
 }
 
 .tab:hover {
@@ -780,16 +785,6 @@ body {
   overflow: hidden;
 }
 
-.document-preview-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  min-height: 38px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-primary);
-}
-
 .preview-pane {
   display: flex;
   flex: 1;
@@ -855,6 +850,58 @@ body {
   flex-direction: column;
 }
 
+.file-tree-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  background: var(--bg-secondary);
+}
+
+.file-tree-filter-label {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.file-tree-filter-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.file-tree-filter-input:focus {
+  border-color: var(--accent-color);
+  background: var(--bg-primary);
+}
+
+.file-tree-filter-clear {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.file-tree-filter-clear:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 .file-tree-toolbar {
   display: flex;
   justify-content: flex-end;
@@ -878,6 +925,13 @@ body {
 
 .file-tree-loading {
   padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.file-tree-no-results {
+  padding: 24px 16px;
   color: var(--text-muted);
   font-size: 13px;
   text-align: center;
@@ -929,6 +983,7 @@ body {
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .search-trigger:hover {
@@ -943,6 +998,9 @@ body {
 
 .search-trigger span {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: left;
 }
 
@@ -953,6 +1011,7 @@ body {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 3px;
+  white-space: nowrap;
   color: var(--text-muted);
 }
 
@@ -1169,6 +1228,22 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .search-trigger {
+    justify-content: center;
+    padding: 6px;
+  }
+
+  .search-trigger span,
+  .search-trigger .shortcut {
+    display: none;
+  }
+
+  .tab {
+    max-width: 160px;
+  }
 }
 
 .result-path {

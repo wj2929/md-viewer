@@ -20,6 +20,10 @@ interface FileWithContent extends FileInfo {
   content?: string
 }
 
+function isImeComposingEvent(e: KeyboardEvent): boolean {
+  return e.isComposing || e.key === 'Process' || e.key === 'Unidentified' || e.keyCode === 229
+}
+
 // 跨平台路径前缀判断（兼容 Windows '\' 和 Unix '/'）
 const isSubPath = (child: string, parent: string): boolean =>
   child.startsWith(parent + '/') || child.startsWith(parent + '\\')
@@ -634,6 +638,8 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
   // 键盘快捷键：Cmd/Ctrl + K 打开搜索 + 上下箭头导航
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
+      if (isImeComposingEvent(e)) return
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         setIsOpen(true)

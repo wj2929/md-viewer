@@ -847,8 +847,102 @@ describe('App 集成测试', () => {
 
       expect(await screen.findByText('草稿预览，未保存到磁盘')).toBeInTheDocument()
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'Draft Preview' })).toBeInTheDocument()
+        expect(screen.getByText('Draft Preview')).toBeInTheDocument()
       })
+    })
+
+    it('退出编辑模式应该回到普通预览', async () => {
+      render(<App />)
+
+      act(() => {
+        const callback = mockApi.onQuickEditFromPreview.mock.calls[0][0]
+        callback({ filePath: '/test/folder/report.md' })
+      })
+
+      expect(await screen.findByLabelText('report.md 编辑工作区')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: '退出编辑模式' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText('report.md 编辑工作区')).not.toBeInTheDocument()
+      })
+      expect(screen.queryByRole('button', { name: '编辑文档' })).not.toBeInTheDocument()
+    })
+
+    it('存在未保存编辑草稿时取消切换标签应该留在当前标签', () => {
+      useTabStore.setState({
+        tabs: [
+          {
+            id: 'tab-1',
+            file: { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+            content: '# Report'
+          },
+          {
+            id: 'tab-2',
+            file: { name: 'other.md', path: '/test/folder/other.md', isDirectory: false },
+            content: '# Other'
+          }
+        ],
+        activeTabId: 'tab-1',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        highlightKeyword: undefined
+      })
+      useEditSessionStore.getState().openSession({
+        canonicalPath: '/real/test/folder/report.md',
+        displayPath: '/test/folder/report.md',
+        fileName: 'report.md',
+        content: '# Report',
+        mtimeMs: 1000,
+        size: 8,
+        revisionToken: '1000:8'
+      })
+      useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Unsaved')
+      vi.mocked(window.confirm).mockReturnValue(false)
+
+      render(<App />)
+
+      fireEvent.click(screen.getByText('other.md'))
+
+      expect(window.confirm).toHaveBeenCalledWith('当前文档有未保存编辑草稿，离开后草稿会保留但尚未写入磁盘。是否继续？')
+      expect(useTabStore.getState().activeTabId).toBe('tab-1')
+    })
+
+    it('存在未保存编辑草稿时确认后允许切换标签', () => {
+      useTabStore.setState({
+        tabs: [
+          {
+            id: 'tab-1',
+            file: { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+            content: '# Report'
+          },
+          {
+            id: 'tab-2',
+            file: { name: 'other.md', path: '/test/folder/other.md', isDirectory: false },
+            content: '# Other'
+          }
+        ],
+        activeTabId: 'tab-1',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        highlightKeyword: undefined
+      })
+      useEditSessionStore.getState().openSession({
+        canonicalPath: '/real/test/folder/report.md',
+        displayPath: '/test/folder/report.md',
+        fileName: 'report.md',
+        content: '# Report',
+        mtimeMs: 1000,
+        size: 8,
+        revisionToken: '1000:8'
+      })
+      useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Unsaved')
+      vi.mocked(window.confirm).mockReturnValue(true)
+
+      render(<App />)
+
+      fireEvent.click(screen.getByText('other.md'))
+
+      expect(useTabStore.getState().activeTabId).toBe('tab-2')
     })
 
     it('存在未保存快速编辑草稿时应该拦截导出 HTML', async () => {

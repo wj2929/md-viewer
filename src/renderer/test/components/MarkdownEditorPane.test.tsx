@@ -39,6 +39,23 @@ describe('MarkdownEditorPane', () => {
     expect(ref.current?.getCurrentDoc()).toBe('# B')
   })
 
+  it('exposes the CodeMirror scroller and visible source line for scroll sync', () => {
+    const ref = createRef<MarkdownEditorPaneHandle>()
+    render(
+      <MarkdownEditorPane
+        ref={ref}
+        content={['# A', '', '## B'].join('\n')}
+        readOnly={false}
+        target={null}
+        onChange={vi.fn()}
+        onSave={vi.fn()}
+      />
+    )
+
+    expect(ref.current?.getScroller()).toBeInstanceOf(HTMLElement)
+    expect(ref.current?.getVisibleLine()).toBe(1)
+  })
+
   it('does not report programmatic content replacement as user edits', () => {
     const onChange = vi.fn()
     const { rerender } = render(

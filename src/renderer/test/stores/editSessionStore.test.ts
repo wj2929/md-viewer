@@ -92,6 +92,40 @@ describe('editSessionStore', () => {
     expect(session.status).toBe('dirty')
   })
 
+  it('records explicit undo history and redoes reverted draft changes', () => {
+    useEditSessionStore.getState().openSession(baseSession)
+
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# B', { recordUndo: true })
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# C', { recordUndo: true })
+
+    let session = useEditSessionStore.getState().sessions['/real/docs/a.md']
+    expect(session.draft).toBe('# C')
+    expect(session.undoStack).toEqual(['# A', '# B'])
+    expect(session.redoStack).toEqual([])
+
+    expect(useEditSessionStore.getState().undoDraft('/real/docs/a.md')).toBe(true)
+    session = useEditSessionStore.getState().sessions['/real/docs/a.md']
+    expect(session.draft).toBe('# B')
+    expect(session.undoStack).toEqual(['# A'])
+    expect(session.redoStack).toEqual(['# C'])
+
+    expect(useEditSessionStore.getState().redoDraft('/real/docs/a.md')).toBe(true)
+    session = useEditSessionStore.getState().sessions['/real/docs/a.md']
+    expect(session.draft).toBe('# C')
+    expect(session.undoStack).toEqual(['# A', '# B'])
+    expect(session.redoStack).toEqual([])
+  })
+
+  it('does not record undo history for ordinary source editor typing', () => {
+    useEditSessionStore.getState().openSession(baseSession)
+
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# B')
+
+    const session = useEditSessionStore.getState().sessions['/real/docs/a.md']
+    expect(session.undoStack).toEqual([])
+    expect(useEditSessionStore.getState().undoDraft('/real/docs/a.md')).toBe(false)
+  })
+
   it('does not mark clean when saved version is older than current draftVersion', () => {
     useEditSessionStore.getState().openSession(baseSession)
     useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# B', { writerId: null })

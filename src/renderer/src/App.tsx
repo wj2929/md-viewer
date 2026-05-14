@@ -35,6 +35,7 @@ function getDraftPreviewDebounceMs(content: string, hasEditSession: boolean): nu
 }
 
 const SINGLE_LEAF_ID = 'single'
+const UNSAVED_EDIT_LEAVE_MESSAGE = '当前文档有未保存编辑草稿，离开后草稿会保留但尚未写入磁盘。是否继续？'
 
 function App(): React.JSX.Element {
   // v1.6.0: Zustand stores
@@ -49,6 +50,7 @@ function App(): React.JSX.Element {
   const replaceEditSessionFromDisk = useEditSessionStore(state => state.replaceFromDisk)
   const quickEditPlacements = useQuickEditPlacementStore(state => state.placements)
   const closeQuickEditPlacement = useQuickEditPlacementStore(state => state.closePlacement)
+  const documentViews = useDocumentViewModeStore(state => state.views)
   const getDocumentViewState = useDocumentViewModeStore(state => state.getViewState)
   const setDocumentViewMode = useDocumentViewModeStore(state => state.setMode)
   const setDocumentViewTarget = useDocumentViewModeStore(state => state.setTarget)
@@ -85,6 +87,17 @@ function App(): React.JSX.Element {
   useDragDrop()
   useKeyboardShortcuts()
   useEditDraftPersistence()
+
+  const confirmLeaveDirtyActiveTab = useCallback((nextFilePath?: string): boolean => {
+    const currentActiveTabId = useTabStore.getState().activeTabId
+    const active = tabsRef.current.find(tab => tab.id === currentActiveTabId)
+    if (!active || active.file.path === nextFilePath) return true
+
+    const session = findEditSessionForPath(useEditSessionStore.getState().sessions, active.file.path)
+    if (!session?.dirty) return true
+
+    return window.confirm(UNSAVED_EDIT_LEAVE_MESSAGE)
+  }, [])
 
   // v1.3.6：加载书签设置
   useEffect(() => { loadBookmarkSettings() }, [])
@@ -397,6 +410,7 @@ function App(): React.JSX.Element {
   // 选择文件
   const handleFileSelect = useCallback(async (file: FileInfo, lineNumber?: number, keyword?: string) => {
     if (file.isDirectory) return
+    if (!confirmLeaveDirtyActiveTab(file.path)) return
     setScrollToLine(lineNumber)
     setHighlightKeyword(keyword)
     const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
@@ -451,14 +465,18 @@ function App(): React.JSX.Element {
     } catch (error) {
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [refreshExistingTabContent, toast])
+  }, [confirmLeaveDirtyActiveTab, refreshExistingTabContent, toast])
 
   // 切换标签
-  const handleTabClick = useCallback((tabId: string) => { setActiveTabId(tabId) }, [])
+  const handleTabClick = useCallback((tabId: string) => {
+    const nextTab = tabsRef.current.find(tab => tab.id === tabId)
+    if (!confirmLeaveDirtyActiveTab(nextTab?.file.path)) return
+    setActiveTabId(tabId)
+  }, [confirmLeaveDirtyActiveTab, setActiveTabId])
 
   // 获取当前活动标签
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId), [tabs, activeTabId])
-  const activeViewState = activeTab ? getDocumentViewState(SINGLE_LEAF_ID, activeTab.id) : null
+  const activeViewState = activeTab ? documentViews[`${SINGLE_LEAF_ID}:${activeTab.id}`] ?? getDocumentViewState(SINGLE_LEAF_ID, activeTab.id) : null
   const editSessionList = useMemo(() => Object.values(editSessions), [editSessions])
   const getQuickEditCanonicalPath = useCallback((tab: Tab): string | null => {
     const session = editSessionList.find(item =>
@@ -1235,7 +1253,6 @@ function App(): React.JSX.Element {
                       else toast.info('未能精确定位，已打开编辑器')
                       setDocumentViewTarget(leafId, tabId, null)
                     }}
-                    onOpenMarkdownEdit={handleOpenMarkdownEdit}
                     getQuickEditCanonicalPath={getQuickEditCanonicalPath}
                     getQuickEditTarget={getQuickEditTarget}
                     onSaveQuickEdit={handleSaveQuickEdit}
@@ -1268,13 +1285,6 @@ function App(): React.JSX.Element {
                       />
                     ) : (
                       <>
-                        <div className="document-preview-toolbar">
-                          {activeTab && isMarkdownFile(activeTab.file.path) && (
-                            <button type="button" onClick={() => handleOpenMarkdownEdit(activeTab)} aria-label="编辑文档">
-                              编辑文档
-                            </button>
-                          )}
-                        </div>
                         <div className="preview-body">
                           <div className="preview-pane">
                             {isActiveDraftPreview && (

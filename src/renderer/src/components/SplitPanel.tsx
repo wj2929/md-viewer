@@ -48,7 +48,6 @@ export interface SplitPanelProps {
   onDocumentViewModeChange?: (leafId: string, tabId: string, mode: DocumentViewMode) => void
   onDocumentCompareRatioChange?: (leafId: string, tabId: string, ratio: number) => void
   onDocumentLocateComplete?: (leafId: string, tabId: string, located: boolean) => void
-  onOpenMarkdownEdit?: (tab: Tab, leafId: string) => void
   getQuickEditCanonicalPath?: (tab: Tab) => string | null
   getQuickEditTarget?: (tab: Tab, leafId: string) => QuickEditTarget | null
   onSaveQuickEdit?: (canonicalPath: string, content: string, expectedRevisionToken: string, force: boolean, draftVersion?: number) => Promise<void>
@@ -92,7 +91,6 @@ function LeafPanel({
   onDocumentViewModeChange,
   onDocumentCompareRatioChange,
   onDocumentLocateComplete,
-  onOpenMarkdownEdit,
   getQuickEditCanonicalPath,
   getQuickEditTarget,
   onSaveQuickEdit,
@@ -117,7 +115,6 @@ function LeafPanel({
   onDocumentViewModeChange?: SplitPanelProps['onDocumentViewModeChange']
   onDocumentCompareRatioChange?: SplitPanelProps['onDocumentCompareRatioChange']
   onDocumentLocateComplete?: SplitPanelProps['onDocumentLocateComplete']
-  onOpenMarkdownEdit?: SplitPanelProps['onOpenMarkdownEdit']
   getQuickEditCanonicalPath?: SplitPanelProps['getQuickEditCanonicalPath']
   getQuickEditTarget?: SplitPanelProps['getQuickEditTarget']
   onSaveQuickEdit?: SplitPanelProps['onSaveQuickEdit']
@@ -277,13 +274,6 @@ function LeafPanel({
         ) : (
           <>
             <div className="split-preview-stack">
-              <div className="document-preview-toolbar">
-                {tab && (
-                  <button type="button" onClick={() => onOpenMarkdownEdit?.(tab, node.id)} aria-label="编辑文档">
-                    编辑文档
-                  </button>
-                )}
-              </div>
               <div className="split-preview-pane">
                 {isDraftPreview && (
                   <div className="quick-edit-preview-banner" role="status">草稿预览，未保存</div>
@@ -413,7 +403,6 @@ export function SplitPanel(props: SplitPanelProps): JSX.Element {
         onDocumentViewModeChange={props.onDocumentViewModeChange}
         onDocumentCompareRatioChange={props.onDocumentCompareRatioChange}
         onDocumentLocateComplete={props.onDocumentLocateComplete}
-        onOpenMarkdownEdit={props.onOpenMarkdownEdit}
         getQuickEditCanonicalPath={props.getQuickEditCanonicalPath}
         getQuickEditTarget={props.getQuickEditTarget}
         onSaveQuickEdit={props.onSaveQuickEdit}

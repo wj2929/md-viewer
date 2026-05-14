@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
-import { VirtualizedMarkdown } from '../VirtualizedMarkdown'
+import { VirtualizedMarkdown, type PreviewBlockEdit } from '../VirtualizedMarkdown'
 import FloatingNav from '../FloatingNav'
 import type { Tab } from '../TabBar'
 import { useEditSessionStore } from '../../stores/editSessionStore'
 import type { DocumentViewMode } from '../../stores/documentViewModeStore'
+import { useMarkdownWorkbenchScrollSync } from '../../hooks/useMarkdownWorkbenchScrollSync'
 import type { QuickEditTarget } from '../../utils/quickEditTarget'
 import { DocumentModeSwitch } from './DocumentModeSwitch'
 import { MarkdownFormatToolbar } from './MarkdownFormatToolbar'
@@ -47,6 +48,47 @@ function getConflictMessage(reason: string | null | undefined): string | null {
   return '磁盘文件版本已变化，当前草稿仍保留。建议先复制草稿，再决定重新载入或保存并覆盖。'
 }
 
+function applyRenderedBlockText(sourceLine: string, nextText: string): string {
+  const headingMatch = sourceLine.match(/^(\s{0,3}#{1,6}\s+).*/)
+  if (headingMatch) return `${headingMatch[1]}${nextText}`
+
+  const quoteMatch = sourceLine.match(/^(\s*>\s?).*/)
+  if (quoteMatch) return `${quoteMatch[1]}${nextText}`
+
+  const listMatch = sourceLine.match(/^(\s*(?:[-*+]\s+|\d+[.)]\s+)).*/)
+  if (listMatch) return `${listMatch[1]}${nextText}`
+
+  return nextText
+}
+
+function applyRenderedTableCellText(sourceLine: string, nextText: string, tableCellIndex: number): string {
+  const indent = sourceLine.match(/^\s*/)?.[0] ?? ''
+  const trimmed = sourceLine.trim()
+  const hasLeadingPipe = trimmed.startsWith('|')
+  const hasTrailingPipe = trimmed.endsWith('|')
+  const body = trimmed.replace(/^\|/, '').replace(/\|$/, '')
+  const cells = body.split(/(?<!\\)\|/)
+
+  if (tableCellIndex < 0 || tableCellIndex >= cells.length) return sourceLine
+
+  const currentCell = cells[tableCellIndex]
+  const leadingSpace = currentCell.match(/^\s*/)?.[0] || ' '
+  const trailingSpace = currentCell.match(/\s*$/)?.[0] || ' '
+  cells[tableCellIndex] = `${leadingSpace}${nextText}${trailingSpace}`
+
+  return `${indent}${hasLeadingPipe ? '|' : ''}${cells.join('|')}${hasTrailingPipe ? '|' : ''}`
+}
+
+function applyRenderedCodeBlockText(lines: string[], edit: PreviewBlockEdit): boolean {
+  if (!edit.sourceEndLine) return false
+  const startIndex = edit.sourceLine - 1
+  const endIndex = edit.sourceEndLine - 1
+  if (startIndex < 0 || endIndex <= startIndex || endIndex >= lines.length) return false
+
+  lines.splice(startIndex + 1, endIndex - startIndex - 1, ...edit.nextText.split('\n'))
+  return true
+}
+
 export function MarkdownEditWorkbench({
   tab,
   leafId,
@@ -64,13 +106,18 @@ export function MarkdownEditWorkbench({
   const writerId = `${leafId}:${tab.id}`
   const editorRef = useRef<MarkdownEditorPaneHandle | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
-  const workbenchRef = useRef<HTMLElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
-  const narrowModeAppliedRef = useRef(false)
+  const pendingFormatUndoDraftRef = useRef<string | null>(null)
+  const pendingRenderedEditScrollTopRef = useRef<number | null>(null)
+  const [previewResetVersion, setPreviewResetVersion] = useState(0)
+  const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true)
   const session = useEditSessionStore(state => state.sessions[canonicalPath])
   const updateDraft = useEditSessionStore(state => state.updateDraft)
+  const undoDraft = useEditSessionStore(state => state.undoDraft)
+  const redoDraft = useEditSessionStore(state => state.redoDraft)
   const claimWriter = useEditSessionStore(state => state.claimWriter)
   const releaseWriter = useEditSessionStore(state => state.releaseWriter)
+  const closeSession = useEditSessionStore(state => state.closeSession)
   const createSaveSnapshot = useEditSessionStore(state => state.createSaveSnapshot)
   const setSaving = useEditSessionStore(state => state.setSaving)
   const setError = useEditSessionStore(state => state.setError)
@@ -87,6 +134,13 @@ export function MarkdownEditWorkbench({
   const hasConflict = Boolean(session?.conflictReason)
   const conflictMessage = getConflictMessage(session?.conflictReason)
   const boundedCompareRatio = Math.min(0.8, Math.max(0.2, compareRatio))
+  const { status: scrollSyncStatus } = useMarkdownWorkbenchScrollSync({
+    enabled: scrollSyncEnabled,
+    mode,
+    previewElement: previewRef.current,
+    editorRef,
+    content,
+  })
 
   const updateCompareRatioFromPointer = useCallback((clientX: number, clientY: number) => {
     const body = bodyRef.current
@@ -122,24 +176,10 @@ export function MarkdownEditWorkbench({
     onCompareRatioChange(Math.min(0.8, Math.max(0.2, boundedCompareRatio + delta)))
   }, [boundedCompareRatio, onCompareRatioChange])
 
-  useEffect(() => {
-    if (mode !== 'compare' || narrowModeAppliedRef.current) return
-    const element = workbenchRef.current
-    if (!element || typeof ResizeObserver === 'undefined') return
-
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry || narrowModeAppliedRef.current) return
-      if (entry.contentRect.width > 0 && entry.contentRect.width < 680) {
-        narrowModeAppliedRef.current = true
-        onModeChange('edit')
-      }
-    })
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [mode, onModeChange])
-
   const handleChange = useCallback((nextContent: string) => {
-    updateDraft(canonicalPath, nextContent, { writerId })
+    const recordUndo = pendingFormatUndoDraftRef.current !== null && pendingFormatUndoDraftRef.current !== nextContent
+    pendingFormatUndoDraftRef.current = null
+    updateDraft(canonicalPath, nextContent, { writerId, recordUndo })
   }, [canonicalPath, updateDraft, writerId])
 
   const handleSave = useCallback(async (contentFromEditor?: string, force = false) => {
@@ -159,8 +199,107 @@ export function MarkdownEditWorkbench({
 
   const handleFormatCommand = useCallback((command: MarkdownFormatCommand) => {
     if (readOnly) return
+    pendingFormatUndoDraftRef.current = editorRef.current?.getCurrentDoc() ?? content
     editorRef.current?.applyFormat(command)
-  }, [readOnly])
+  }, [content, readOnly])
+
+  const rememberRenderedEditScrollTop = useCallback(() => {
+    pendingRenderedEditScrollTopRef.current = previewRef.current?.scrollTop ?? null
+  }, [])
+
+  useEffect(() => {
+    const targetTop = pendingRenderedEditScrollTopRef.current
+    if (targetTop === null) return
+
+    const restore = () => {
+      const preview = previewRef.current
+      if (!preview) return
+      preview.scrollTop = Math.min(targetTop, Math.max(0, preview.scrollHeight - preview.clientHeight))
+    }
+
+    const frame = window.requestAnimationFrame(restore)
+    const shortTimer = window.setTimeout(restore, 60)
+    const renderTimer = window.setTimeout(() => {
+      restore()
+      pendingRenderedEditScrollTopRef.current = null
+    }, getDraftPreviewDebounceMs(content) + 120)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(shortTimer)
+      window.clearTimeout(renderTimer)
+    }
+  }, [content])
+
+  const handlePreviewBlockEdit = useCallback((edit: PreviewBlockEdit) => {
+    if (readOnly || mode === 'preview') return
+    const currentContent = editorRef.current?.getCurrentDoc() ?? content
+    const lines = currentContent.split('\n')
+    const lineIndex = edit.sourceLine - 1
+    if (lineIndex < 0 || lineIndex >= lines.length) return
+
+    if (edit.editKind === 'code-block') {
+      if (!applyRenderedCodeBlockText(lines, edit)) return
+      rememberRenderedEditScrollTop()
+      updateDraft(canonicalPath, lines.join('\n'), { writerId, recordUndo: true })
+      return
+    }
+
+    const nextLine = edit.editKind === 'table-cell' && Number.isFinite(edit.tableCellIndex)
+      ? applyRenderedTableCellText(lines[lineIndex], edit.nextText, edit.tableCellIndex as number)
+      : applyRenderedBlockText(lines[lineIndex], edit.nextText)
+    if (nextLine === lines[lineIndex]) return
+    lines[lineIndex] = nextLine
+    rememberRenderedEditScrollTop()
+    updateDraft(canonicalPath, lines.join('\n'), { writerId, recordUndo: true })
+  }, [canonicalPath, content, mode, readOnly, rememberRenderedEditScrollTop, updateDraft, writerId])
+
+  const handleUndo = useCallback(() => {
+    if (readOnly) return
+    if (undoDraft(canonicalPath)) setPreviewResetVersion(version => version + 1)
+  }, [canonicalPath, readOnly, undoDraft])
+
+  const handleRedo = useCallback(() => {
+    if (readOnly) return
+    if (redoDraft(canonicalPath)) setPreviewResetVersion(version => version + 1)
+  }, [canonicalPath, readOnly, redoDraft])
+
+  useEffect(() => {
+    if (mode === 'preview' || readOnly) return
+
+    const handleWorkbenchKeyDown = (event: globalThis.KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('.cm-editor')) return
+      if (target?.closest('[contenteditable="true"]')) return
+      if (!event.metaKey && !event.ctrlKey) return
+
+      const key = event.key.toLowerCase()
+      const shouldRedo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey && !event.metaKey)
+      const shouldUndo = key === 'z' && !event.shiftKey
+      if (!shouldUndo && !shouldRedo) return
+
+      event.preventDefault()
+      const changed = shouldRedo ? redoDraft(canonicalPath) : undoDraft(canonicalPath)
+      if (changed) setPreviewResetVersion(version => version + 1)
+    }
+
+    window.addEventListener('keydown', handleWorkbenchKeyDown)
+    return () => window.removeEventListener('keydown', handleWorkbenchKeyDown)
+  }, [canonicalPath, mode, readOnly, redoDraft, undoDraft])
+
+  const handleExitEditMode = useCallback(() => {
+    window.setTimeout(() => onModeChange('preview'), 0)
+  }, [onModeChange])
+
+  const handleDiscardEdit = useCallback(() => {
+    if (readOnly) return
+    if (!window.confirm('放弃未保存的编辑草稿？此操作不可撤销。')) return
+
+    window.setTimeout(() => {
+      closeSession(canonicalPath)
+      onModeChange('preview')
+    }, 0)
+  }, [canonicalPath, closeSession, onModeChange, readOnly])
 
   const previewPane = useMemo(() => (
     <div className="markdown-workbench-preview-pane">
@@ -169,25 +308,78 @@ export function MarkdownEditWorkbench({
       </div>
       <div className="preview" ref={previewRef}>
         <VirtualizedMarkdown
+          key={previewResetVersion}
           content={content}
           filePath={tab.file.path}
           tabId={tab.id}
           leafId={leafId}
           renderDebounceMs={getDraftPreviewDebounceMs(content)}
+          previewEditingEnabled={mode !== 'preview' && !readOnly}
+          onPreviewBlockEdit={handlePreviewBlockEdit}
         />
       </div>
       <FloatingNav containerRef={previewRef} markdown={content} />
     </div>
-  ), [content, dirty, leafId, tab.file.path, tab.id])
+  ), [content, dirty, handlePreviewBlockEdit, leafId, mode, previewResetVersion, readOnly, tab.file.path, tab.id])
 
   return (
-    <section ref={workbenchRef} className={`markdown-edit-workbench mode-${mode}`} aria-label={`${tab.file.name} 编辑工作区`}>
+    <section className={`markdown-edit-workbench mode-${mode}`} aria-label={`${tab.file.name} 编辑工作区`}>
       <header className="markdown-workbench-toolbar">
         <div className="markdown-workbench-toolbar-left">
           <DocumentModeSwitch mode={mode} dirty={dirty} onChange={onModeChange} />
           <MarkdownFormatToolbar disabled={readOnly || mode === 'preview'} onCommand={handleFormatCommand} />
+          {mode === 'compare' && (
+            <label className="markdown-workbench-scroll-sync" title={`同步状态：${scrollSyncStatus}`}>
+              <input
+                type="checkbox"
+                aria-label="同步编辑区与预览区滚动"
+                checked={scrollSyncEnabled}
+                onChange={event => setScrollSyncEnabled(event.target.checked)}
+              />
+              <span>同步滚动</span>
+            </label>
+          )}
         </div>
         <div className="markdown-workbench-actions">
+          {mode !== 'preview' && (
+            <>
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={readOnly || !session?.undoStack.length}
+                aria-label="撤销编辑"
+                title="撤销编辑"
+              >
+                撤销
+              </button>
+              <button
+                type="button"
+                onClick={handleRedo}
+                disabled={readOnly || !session?.redoStack.length}
+                aria-label="重做编辑"
+                title="重做编辑"
+              >
+                重做
+              </button>
+            </>
+          )}
+          {mode !== 'preview' && (
+            <button type="button" onMouseDown={handleExitEditMode} onClick={handleExitEditMode} aria-label="退出编辑模式">
+              退出编辑
+            </button>
+          )}
+          {mode !== 'preview' && !readOnly && (
+            <button
+              type="button"
+              className="danger"
+              onMouseDown={event => event.preventDefault()}
+              onClick={handleDiscardEdit}
+              disabled={session?.saving}
+              aria-label="放弃编辑"
+            >
+              放弃编辑
+            </button>
+          )}
           <button type="button" onClick={() => handleSave()} disabled={!dirty || session?.saving || readOnly} aria-label="保存修改">
             {session?.saving ? '保存中...' : '保存'}
           </button>

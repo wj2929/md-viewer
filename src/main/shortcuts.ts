@@ -33,6 +33,16 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
   { accelerator: 'CommandOrControl+Shift+W', action: 'close-window', description: '关闭窗口' }
 ]
 
+function isImeInput(input: Electron.Input): boolean {
+  const maybeInput = input as Electron.Input & { isComposing?: boolean; keyCode?: number }
+  return Boolean(
+    maybeInput.isComposing ||
+    maybeInput.key === 'Process' ||
+    maybeInput.key === 'Unidentified' ||
+    maybeInput.keyCode === 229
+  )
+}
+
 /**
  * 注册窗口快捷键
  * 使用 webContents 的 before-input-event 来处理快捷键
@@ -44,6 +54,7 @@ export function registerWindowShortcuts(window: BrowserWindow): void {
   webContents.on('before-input-event', (event, input) => {
     // 只处理按键按下事件
     if (input.type !== 'keyDown') return
+    if (isImeInput(input)) return
 
     const isMac = process.platform === 'darwin'
     const cmdOrCtrl = isMac ? input.meta : input.control

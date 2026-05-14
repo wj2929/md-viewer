@@ -24,6 +24,7 @@ export interface PersistedEditDraft {
 
 export interface UpdateDraftOptions {
   writerId?: string | null
+  recordUndo?: boolean
 }
 
 export interface OpenEditSessionInput {
@@ -51,6 +52,8 @@ export interface EditSession {
   baseRevisionToken: string
   lastKnownDiskRevisionToken: string | null
   conflictReason: EditConflictReason | null
+  undoStack: string[]
+  redoStack: string[]
 }
 
 interface EditSessionState {
@@ -58,6 +61,8 @@ interface EditSessionState {
   openSession: (input: OpenEditSessionInput) => void
   closeSession: (canonicalPath: string) => void
   updateDraft: (canonicalPath: string, draft: string, options?: UpdateDraftOptions) => void
+  undoDraft: (canonicalPath: string) => boolean
+  redoDraft: (canonicalPath: string) => boolean
   claimWriter: (canonicalPath: string, writerId: string) => boolean
   releaseWriter: (canonicalPath: string, writerId: string) => void
   createSaveSnapshot: (canonicalPath: string, content?: string) => SaveSnapshot
@@ -96,6 +101,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
           baseRevisionToken: input.revisionToken,
           lastKnownDiskRevisionToken: input.revisionToken,
           conflictReason: null,
+          undoStack: [],
+          redoStack: [],
         },
       },
     }))
@@ -114,8 +121,12 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
       const session = state.sessions[canonicalPath]
       if (!session) return state
       if (options.writerId && session.writerId && session.writerId !== options.writerId) return state
+      if (draft === session.draft) return state
 
       const dirty = draft !== session.original
+      const undoStack = options.recordUndo
+        ? [...session.undoStack, session.draft].slice(-100)
+        : session.undoStack
 
       return {
         sessions: {
@@ -127,10 +138,68 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
             dirty,
             status: dirty ? 'dirty' : 'ready',
             error: null,
+            undoStack,
+            redoStack: options.recordUndo ? [] : session.redoStack,
           },
         },
       }
     })
+  },
+
+  undoDraft: (canonicalPath) => {
+    const session = get().sessions[canonicalPath]
+    if (!session || session.undoStack.length === 0) return false
+    const previousDraft = session.undoStack[session.undoStack.length - 1]
+    const dirty = previousDraft !== session.original
+
+    set(state => {
+      const current = state.sessions[canonicalPath]
+      if (!current || current.undoStack.length === 0) return state
+      return {
+        sessions: {
+          ...state.sessions,
+          [canonicalPath]: {
+            ...current,
+            draft: previousDraft,
+            draftVersion: current.draftVersion + 1,
+            dirty,
+            status: dirty ? 'dirty' : 'ready',
+            error: null,
+            undoStack: current.undoStack.slice(0, -1),
+            redoStack: [...current.redoStack, current.draft].slice(-100),
+          },
+        },
+      }
+    })
+    return true
+  },
+
+  redoDraft: (canonicalPath) => {
+    const session = get().sessions[canonicalPath]
+    if (!session || session.redoStack.length === 0) return false
+    const nextDraft = session.redoStack[session.redoStack.length - 1]
+    const dirty = nextDraft !== session.original
+
+    set(state => {
+      const current = state.sessions[canonicalPath]
+      if (!current || current.redoStack.length === 0) return state
+      return {
+        sessions: {
+          ...state.sessions,
+          [canonicalPath]: {
+            ...current,
+            draft: nextDraft,
+            draftVersion: current.draftVersion + 1,
+            dirty,
+            status: dirty ? 'dirty' : 'ready',
+            error: null,
+            undoStack: [...current.undoStack, current.draft].slice(-100),
+            redoStack: current.redoStack.slice(0, -1),
+          },
+        },
+      }
+    })
+    return true
   },
 
   claimWriter: (canonicalPath, writerId) => {
@@ -234,6 +303,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
             baseRevisionToken: revisionToken,
             lastKnownDiskRevisionToken: revisionToken,
             conflictReason: null,
+            undoStack: draftChangedAfterSnapshot ? session.undoStack : [],
+            redoStack: draftChangedAfterSnapshot ? session.redoStack : [],
           },
         },
       }
@@ -279,6 +350,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
             baseRevisionToken: revisionToken,
             lastKnownDiskRevisionToken: revisionToken,
             conflictReason: null,
+            undoStack: [],
+            redoStack: [],
           },
         },
       }
@@ -321,6 +394,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
           baseRevisionToken: draft.baseRevisionToken,
           lastKnownDiskRevisionToken: draft.lastKnownDiskRevisionToken,
           conflictReason: null,
+          undoStack: [],
+          redoStack: [],
         }
         return acc
       }, {})

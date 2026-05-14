@@ -1,9 +1,14 @@
 .markdown-edit-workbench {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   height: 100%;
+  overflow: hidden;
   background: var(--bg-primary);
+  container-type: inline-size;
 }
 
 .markdown-workbench-toolbar {
@@ -12,7 +17,10 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 40px;
+  min-width: 0;
   padding: 6px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -20,6 +28,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
@@ -29,11 +38,35 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.document-mode-switch button,
+.markdown-workbench-actions button,
+.markdown-format-toolbar button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .markdown-format-toolbar {
   padding-left: 10px;
   border-left: 1px solid var(--border-color);
+}
+
+.markdown-workbench-scroll-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.markdown-workbench-scroll-sync input {
+  margin: 0;
 }
 
 .markdown-format-toolbar button {
@@ -117,6 +150,29 @@
 }
 
 @media (max-width: 900px) {
+  .markdown-workbench-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(280px, 1fr) minmax(280px, 1fr);
+  }
+
+  .markdown-workbench-body.compare {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, var(--editor-size, 1fr)) 6px minmax(220px, var(--preview-size, 1fr));
+  }
+
+  .markdown-workbench-divider {
+    min-width: 0;
+    min-height: 6px;
+    cursor: row-resize;
+  }
+
+  .markdown-workbench-preview-pane {
+    border-left: 0;
+    border-top: 1px solid var(--border-color);
+  }
+}
+
+@container (max-width: 900px) {
   .markdown-workbench-body {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(280px, 1fr) minmax(280px, 1fr);

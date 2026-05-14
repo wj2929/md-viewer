@@ -84,6 +84,17 @@ describe('FileTree', () => {
       expect(screen.getByText('file3.md')).toBeInTheDocument()
     })
 
+    it('纯文件列表不应该显示重置展开状态按钮', () => {
+      const files = [
+        createMockFile('file1.md', '/file1.md'),
+        createMockFile('file2.md', '/file2.md')
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      expect(screen.queryByRole('button', { name: '重置当前文件夹展开状态' })).not.toBeInTheDocument()
+    })
+
     it('应该渲染文件夹和文件', () => {
       const files = [
         createMockDirectory('docs', '/docs', [
@@ -97,6 +108,18 @@ describe('FileTree', () => {
       expect(screen.getByText('docs')).toBeInTheDocument()
       expect(screen.getByText('readme.md')).toBeInTheDocument()
       expect(screen.getByText('index.md')).toBeInTheDocument()
+    })
+
+    it('没有折叠目录状态时不应该显示重置展开状态按钮', () => {
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('readme.md', '/docs/readme.md')
+        ])
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      expect(screen.queryByRole('button', { name: '重置当前文件夹展开状态' })).not.toBeInTheDocument()
     })
   })
 
@@ -255,6 +278,7 @@ describe('FileTree', () => {
 
       expect(clear).toHaveBeenCalled()
       expect(screen.getByText('readme.md')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '重置当前文件夹展开状态' })).not.toBeInTheDocument()
     })
 
     it('文件夹默认应该展开', () => {
@@ -305,6 +329,197 @@ describe('FileTree', () => {
       await userEvent.click(folderElement)
 
       expect(mockOnFileSelect).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('隐式文件过滤', () => {
+    it('默认显示过滤输入框，并可通过真实输入框过滤文件树', async () => {
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('guide.md', '/docs/guide.md', 'docs/guide.md')
+        ], 'docs'),
+        createMockFile('report.md', '/report.md', 'report.md')
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+
+      fireEvent.change(screen.getByRole('textbox', { name: '文件过滤' }), { target: { value: 're' } })
+
+      expect(screen.getByText('过滤:')).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: '文件过滤' })).toHaveValue('re')
+      expect(screen.getByText('report.md')).toBeInTheDocument()
+      expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    })
+
+    it('点击文件树后应该显示并聚焦输入框以承接中文输入法', async () => {
+      const files = [
+        createMockFile('保利威费用分析报告.md', '/保利威费用分析报告.md', '保利威费用分析报告.md'),
+        createMockFile('guide.md', '/guide.md', 'guide.md')
+      ]
+
+      const user = userEvent.setup()
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const tree = container.querySelector('[role="tree"]')!
+
+      await user.click(tree)
+
+      const input = screen.getByRole('textbox', { name: '文件过滤' }) as HTMLInputElement
+      expect(input).toHaveFocus()
+
+      fireEvent.change(input, { target: { value: '保利' } })
+
+      expect(input).toBeVisible()
+      expect(input).toHaveValue('保利')
+      expect(screen.getByText('保利威费用分析报告.md')).toBeInTheDocument()
+      expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    })
+
+    it('过滤输入框应该支持中文输入和光标定位', async () => {
+      const files = [
+        createMockFile('保利威费用分析报告.md', '/保利威费用分析报告.md', '保利威费用分析报告.md'),
+        createMockFile('guide.md', '/guide.md', 'guide.md')
+      ]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const tree = container.querySelector('[role="tree"]')!
+
+      await userEvent.click(tree)
+      const input = screen.getByRole('textbox', { name: '文件过滤' }) as HTMLInputElement
+      fireEvent.change(input, { target: { value: '保利' } })
+
+      expect(input).toHaveFocus()
+
+      input.setSelectionRange(1, 1)
+
+      expect(input.selectionStart).toBe(1)
+      expect(input).toHaveValue('保利')
+      expect(screen.getByText('保利威费用分析报告.md')).toBeInTheDocument()
+      expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    })
+
+    it('过滤输入框在 IME 组合输入期间不应该响应快捷键隐藏', async () => {
+      const files = [
+        createMockFile('保利威费用分析报告.md', '/保利威费用分析报告.md', '保利威费用分析报告.md'),
+        createMockFile('guide.md', '/guide.md', 'guide.md')
+      ]
+
+      const user = userEvent.setup()
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const tree = container.querySelector('[role="tree"]')!
+
+      await user.click(tree)
+
+      const input = screen.getByRole('textbox', { name: '文件过滤' }) as HTMLInputElement
+      fireEvent.change(input, { target: { value: 'b' } })
+      fireEvent.keyDown(input, {
+        key: 'Escape',
+        keyCode: 229,
+        isComposing: true
+      })
+
+      expect(screen.getByRole('textbox', { name: '文件过滤' })).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: '文件过滤' })).toHaveValue('b')
+    })
+
+    it('文件树不应该在非输入元素上拦截中文组合输入', () => {
+      const files = [
+        createMockFile('保利威费用分析报告.md', '/保利威费用分析报告.md', '保利威费用分析报告.md'),
+        createMockFile('guide.md', '/guide.md', 'guide.md')
+      ]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const tree = container.querySelector('[role="tree"]')!
+
+      fireEvent.compositionStart(tree)
+      fireEvent.compositionEnd(tree, { data: '保利' })
+
+      expect(screen.getByRole('textbox', { name: '文件过滤' })).toHaveValue('')
+      expect(screen.getByText('保利威费用分析报告.md')).toBeInTheDocument()
+      expect(screen.getByText('guide.md')).toBeInTheDocument()
+    })
+
+    it('过滤时应该显示命中文件的父目录，即使父目录原本折叠', async () => {
+      window.api.getFolderTreeState = vi.fn(() => createImmediateFolderTreeState({ docs: false }))
+      const files = [
+        createMockDirectory('docs', '/docs', [
+          createMockFile('guide.md', '/docs/guide.md', 'docs/guide.md')
+        ], 'docs'),
+        createMockFile('report.md', '/report.md', 'report.md')
+      ]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const tree = container.querySelector('[role="tree"]')!
+
+      expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+
+      await userEvent.click(tree)
+      fireEvent.change(screen.getByRole('textbox', { name: '文件过滤' }), { target: { value: 'g' } })
+
+      expect(screen.getByText('docs')).toBeInTheDocument()
+      expect(screen.getByText('guide.md')).toBeInTheDocument()
+      expect(screen.queryByText('report.md')).not.toBeInTheDocument()
+    })
+
+    it('Backspace 和 Escape 应该恢复完整文件树并保留过滤条', async () => {
+      const files = [
+        createMockFile('guide.md', '/guide.md', 'guide.md'),
+        createMockFile('report.md', '/report.md', 'report.md')
+      ]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const tree = container.querySelector('[role="tree"]')!
+
+      await userEvent.click(tree)
+      fireEvent.change(screen.getByRole('textbox', { name: '文件过滤' }), { target: { value: 'r' } })
+      expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+
+      fireEvent.change(screen.getByRole('textbox', { name: '文件过滤' }), { target: { value: '' } })
+      expect(screen.getByRole('textbox', { name: '文件过滤' })).toHaveValue('')
+      expect(screen.getByText('guide.md')).toBeInTheDocument()
+      expect(screen.getByText('report.md')).toBeInTheDocument()
+
+      fireEvent.change(screen.getByRole('textbox', { name: '文件过滤' }), { target: { value: 'g' } })
+      expect(screen.queryByText('report.md')).not.toBeInTheDocument()
+
+      fireEvent.keyDown(screen.getByRole('textbox', { name: '文件过滤' }), { key: 'Escape' })
+      expect(screen.getByRole('textbox', { name: '文件过滤' })).toHaveValue('')
+      expect(screen.getByText('guide.md')).toBeInTheDocument()
+      expect(screen.getByText('report.md')).toBeInTheDocument()
+    })
+
+    it('空格键选择文件时不应该进入过滤模式', () => {
+      const file = createMockFile('guide.md', '/guide.md', 'guide.md')
+      const files = [file]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const fileRow = container.querySelector('.file-tree-row')!
+
+      fireEvent.keyDown(fileRow, { key: ' ' })
+
+      expect(mockOnFileSelect).toHaveBeenCalledWith(file)
+      expect(screen.getByRole('textbox', { name: '文件过滤' })).toHaveValue('')
+    })
+
+    it('无匹配时显示空结果，点击清除后恢复完整文件树', async () => {
+      const files = [
+        createMockFile('guide.md', '/guide.md', 'guide.md'),
+        createMockFile('report.md', '/report.md', 'report.md')
+      ]
+
+      const { container } = render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const tree = container.querySelector('[role="tree"]')!
+
+      await userEvent.click(tree)
+      fireEvent.change(screen.getByRole('textbox', { name: '文件过滤' }), { target: { value: 'z' } })
+
+      expect(screen.getByText('没有匹配的文件')).toBeInTheDocument()
+      expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: '清除文件过滤' }))
+
+      expect(screen.queryByText('没有匹配的文件')).not.toBeInTheDocument()
+      expect(screen.getByText('guide.md')).toBeInTheDocument()
+      expect(screen.getByText('report.md')).toBeInTheDocument()
     })
   })
 

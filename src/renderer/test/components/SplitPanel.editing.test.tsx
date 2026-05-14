@@ -28,6 +28,15 @@ const root: PanelNode = {
   second: { type: 'leaf', id: 'leaf-b', tabId: 'tab-b' },
 }
 
+const duplicatedTabRoot: PanelNode = {
+  type: 'split',
+  id: 'split-1',
+  direction: 'horizontal',
+  ratio: 0.5,
+  first: { type: 'leaf', id: 'leaf-a', tabId: 'tab-a' },
+  second: { type: 'leaf', id: 'leaf-b', tabId: 'tab-a' },
+}
+
 describe('SplitPanel lightweight editing', () => {
   beforeEach(() => {
     useEditSessionStore.getState().reset()
@@ -177,7 +186,6 @@ describe('SplitPanel lightweight editing', () => {
         getDocumentViewMode={(leafId, tabId) => leafId === 'leaf-b' && tabId === 'tab-b' ? 'compare' : 'preview'}
         onDocumentViewModeChange={vi.fn()}
         getQuickEditCanonicalPath={(tab) => tab.file.path === '/docs/b.md' ? '/real/docs/b.md' : null}
-        onOpenMarkdownEdit={vi.fn()}
         onSaveQuickEdit={vi.fn()}
         onCloseQuickEdit={vi.fn()}
         onReloadQuickEdit={vi.fn()}
@@ -187,5 +195,41 @@ describe('SplitPanel lightweight editing', () => {
 
     expect(screen.getByLabelText('b.md 编辑工作区')).toBeInTheDocument()
     expect(screen.queryByLabelText('b.md 快速编辑')).not.toBeInTheDocument()
+  })
+
+  it('keeps only one writable workbench when the same file is edited in two split panels', async () => {
+    useEditSessionStore.getState().openSession({
+      canonicalPath: '/real/docs/a.md',
+      displayPath: '/docs/a.md',
+      fileName: 'a.md',
+      content: '# A',
+      mtimeMs: 1000,
+      size: 3,
+      revisionToken: '1000:3',
+    })
+
+    render(
+      <SplitPanel
+        node={duplicatedTabRoot}
+        tabs={tabs}
+        activeLeafId="leaf-a"
+        onSplitPanel={vi.fn()}
+        onClosePanel={vi.fn()}
+        onResizePanel={vi.fn()}
+        onSetActiveLeaf={vi.fn()}
+        onImageClick={vi.fn()}
+        onDropTab={vi.fn()}
+        getDocumentViewMode={() => 'compare'}
+        onDocumentViewModeChange={vi.fn()}
+        getQuickEditCanonicalPath={(tab) => tab.file.path === '/docs/a.md' ? '/real/docs/a.md' : null}
+        onSaveQuickEdit={vi.fn()}
+        onCloseQuickEdit={vi.fn()}
+        onReloadQuickEdit={vi.fn()}
+        onCopyDraft={vi.fn()}
+      />
+    )
+
+    expect(screen.getAllByLabelText('a.md 编辑工作区')).toHaveLength(2)
+    expect(await screen.findByText('此文件已在另一个面板编辑，当前为只读镜像。')).toBeInTheDocument()
   })
 })
