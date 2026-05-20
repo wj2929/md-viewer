@@ -16,13 +16,15 @@ MD Viewer 用于浏览本地 Markdown 文档目录。它支持文件树、多标
 ## 功能特性
 
 - 本地 Markdown 文件夹浏览，支持文件树、多标签、最近文件和书签。
-- 实时预览 Markdown，支持表格、任务列表、代码高亮、数学公式和图片预览。
-- 支持 Mermaid、ECharts、Markmap、Graphviz、PlantUML、DrawIO、Infographic、KaTeX、Excalidraw 等图表或公式渲染。
+- 默认预览优先，可切换到 Markdown 编辑模式，支持源码编辑、渲染区直接编辑和对照预览。
+- 实时预览 Markdown，支持表格、任务列表、代码高亮、数学公式、图片预览和图表密集型文档。
+- 支持 Mermaid、ECharts、Markmap、Graphviz、PlantUML、DrawIO、Infographic、KaTeX、Excalidraw、Vega-Lite、D2、BPMN、WaveDrom、C4-PlantUML、Structurizr、Plotly、DBML、AntV G6、Kroki 等图表或公式渲染。
 - 支持文件名搜索、全文搜索和页面内搜索。
 - 支持多窗口、递归分屏、目录导航、字体大小调节、窗口置顶和全屏阅读。
 - 支持按根目录保存文件树折叠状态，重新打开常用目录时保留用户整理过的展开状态。
 - 支持文件监听，已打开的 Markdown 被外部编辑器修改后会自动刷新预览。
-- 支持 HTML、PDF、DOCX 导出；DOCX 高质量图表导出依赖可选的外部 DOCX 服务。
+- 支持 HTML、PDF、DOCX 导出；支持右键批量打包下载当前文档中的图表 PNG。
+- DOCX 高质量图表导出依赖可选的外部 DOCX 服务。
 - 支持 `.excalidraw` 文件和 Markdown 中的相对路径引用，当前仅用于静态预览和导出，不提供 Excalidraw 编辑能力。
 - Electron 沙箱、路径校验和 CSP 加固，降低本地文件预览场景的安全风险。
 
@@ -34,16 +36,18 @@ MD Viewer 用于浏览本地 Markdown 文档目录。它支持文件树、多标
 
 下载 `dmg` 或 `zip` 安装包，支持 Apple Silicon 和 Intel Mac。
 
-如果首次打开时提示“已损坏”或“无法验证开发者”，这是未公证开源应用在 macOS 上的常见提示。可以任选一种方式处理：
+如果首次打开时提示“已损坏”“无法验证开发者”或“Apple 无法检查其是否包含恶意软件”，这是未公证开源应用在 macOS 上的常见提示。
+
+请先确认应用来自本项目 Release，并已拖入 `/Applications`，然后执行：
 
 ```bash
-xattr -cr /Applications/MD\ Viewer.app
+APP="/Applications/MD Viewer.app"; if [ -d "$APP" ]; then xattr -dr com.apple.quarantine "$APP" 2>/dev/null || sudo xattr -dr com.apple.quarantine "$APP"; xattr -d com.apple.provenance "$APP" 2>/dev/null || true; else echo "未找到 $APP，请先把 MD Viewer.app 拖到 /Applications"; fi
 ```
 
-如果仍无法打开，可继续执行：
+如果仍无法打开，可继续执行兜底清理：
 
 ```bash
-xattr -d com.apple.provenance /Applications/MD\ Viewer.app
+APP="/Applications/MD Viewer.app"; xattr -cr "$APP" 2>/dev/null || sudo xattr -cr "$APP"
 ```
 
 也可以在“系统设置 -> 隐私与安全性”中选择“仍要打开”。
@@ -101,11 +105,27 @@ chmod +x MD-Viewer-*.AppImage
 | Infographic | <code>```infographic</code> | AntV Infographic 信息图 |
 | KaTeX | `$...$` / `$$...$$` | 行内公式和块级公式 |
 | Excalidraw | <code>```excalidraw</code> / `.excalidraw` 文件 | 静态画板预览和导出 |
+| Vega-Lite | <code>```vega-lite</code> | 声明式统计图、分析图和仪表板图表 |
+| D2 | <code>```d2</code> | 架构图、流程图和系统关系图 |
+| BPMN | <code>```bpmn</code> / `.bpmn` 文件 | 业务流程建模图 |
+| WaveDrom | <code>```wavedrom</code> | 数字时序图 |
+| C4-PlantUML | <code>```c4</code> / <code>```c4plantuml</code> | C4 架构图 |
+| Structurizr | <code>```structurizr</code> | Structurizr DSL 架构模型 |
+| Plotly | <code>```plotly</code> | PPT 型复杂图表、统计图和 3D 图表 |
+| DBML | <code>```dbml</code> | 数据库 ERD |
+| AntV G6 | <code>```antv-g6</code> | 复杂关系、拓扑和知识图谱 |
+| Kroki | <code>```kroki</code> / <code>```nomnoml</code> 等 | 长尾图表格式入口 |
 
 Excalidraw 文件也可以通过 Markdown 图片语法引用：
 
 ```markdown
 ![架构图](./diagrams/architecture.excalidraw)
+```
+
+BPMN 文件也可以通过 Markdown 图片语法引用：
+
+```markdown
+![审批流程](./process.bpmn)
 ```
 
 ## DOCX 导出

@@ -1,18 +1,34 @@
-import { BrowserWindow, ipcMain, dialog, app } from 'electron'
+import { BrowserWindow, ipcMain, dialog, app, net } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import * as os from 'os'
+import AdmZip from 'adm-zip'
 import { IPCContext } from './context'
 import { appDataManager } from '../appDataManager'
 import { exportToDocx, ChartImageData, EmbeddedDocxImage } from '../docxExporter'
 import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
 import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveRemoteDocxStyle } from '../remoteDocxExporter'
 import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
+import { validatePath } from '../security'
 
 let lastDocxExportPath: string | null = null
 const EXPORT_SOURCE_EXTENSION_RE = /\.(md|markdown|mdown|mkd|mkdn|excalidraw)$/i
+const KROKI_ENDPOINT = 'https://kroki.io'
+const KROKI_FORMATS = new Set(['pikchr', 'nomnoml', 'svgbob', 'bytefield', 'tikz', 'plantuml', 'erd', 'graphviz', 'd2'])
+const MAX_KROKI_SOURCE_LENGTH = 128_000
+const MAX_CHART_ZIP_IMAGES = 200
+
+interface ChartZipImagePayload {
+  filename: string
+  pngBase64: string
+}
+
+interface ExportChartsZipPayload {
+  markdownFilePath: string
+  images: ChartZipImagePayload[]
+}
 
 export function getLastDocxExportPath(): string | null {
   return lastDocxExportPath
@@ -23,6 +39,56 @@ function withExportExtension(fileName: string, extension: 'html' | 'pdf' | 'docx
     return fileName.replace(EXPORT_SOURCE_EXTENSION_RE, `.${extension}`)
   }
   return `${fileName}.${extension}`
+}
+
+function resolveChartsZipDefaultPath(markdownFilePath: string): string {
+  const dir = path.dirname(markdownFilePath)
+  const baseName = path.basename(markdownFilePath).replace(EXPORT_SOURCE_EXTENSION_RE, '')
+  return path.join(dir, `${baseName || 'markdown'}-charts.zip`)
+}
+
+function sanitizeZipEntryName(filename: string, fallbackIndex: number): string {
+  const fallback = `${String(fallbackIndex + 1).padStart(2, '0')}-chart.png`
+  const baseName = path.basename(filename || fallback)
+    .replace(/[\x00-\x1f<>:"/\\|?*]/g, '_')
+    .trim()
+  const normalized = baseName || fallback
+  return normalized.toLowerCase().endsWith('.png') ? normalized : `${normalized}.png`
+}
+
+function sanitizeZipDirectoryName(name: string): string {
+  const normalized = String(name || 'charts')
+    .replace(/[\x00-\x1f<>:"/\\|?*]/g, '_')
+    .replace(/^\.+$/, '')
+    .trim()
+  return normalized || 'charts'
+}
+
+function uniqueZipEntryName(filename: string, usedNames: Set<string>): string {
+  if (!usedNames.has(filename)) {
+    usedNames.add(filename)
+    return filename
+  }
+
+  const ext = path.extname(filename) || '.png'
+  const stem = path.basename(filename, ext)
+  let index = 2
+  while (usedNames.has(`${stem}-${index}${ext}`)) {
+    index += 1
+  }
+  const uniqueName = `${stem}-${index}${ext}`
+  usedNames.add(uniqueName)
+  return uniqueName
+}
+
+function decodePngBase64(input: string): Buffer | null {
+  const clean = String(input || '')
+    .replace(/^data:image\/png;base64,/i, '')
+    .replace(/\s/g, '')
+  if (!clean) return null
+
+  const buffer = Buffer.from(clean, 'base64')
+  return buffer.length > 0 ? buffer : null
 }
 
 // 获取导出用的完整 CSS（包含所有必需的变量和样式）
@@ -689,6 +755,73 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
   }
 })
 
+ipcMain.handle('export:charts-zip', async (event, payload: ExportChartsZipPayload) => {
+  try {
+    const markdownFilePath = payload?.markdownFilePath
+    const images = Array.isArray(payload?.images) ? payload.images : []
+
+    if (!markdownFilePath) {
+      return { error: '缺少 Markdown 文件路径' }
+    }
+    validatePath(markdownFilePath)
+
+    if (images.length === 0) {
+      return { error: '当前文档没有可打包下载的图表' }
+    }
+    if (images.length > MAX_CHART_ZIP_IMAGES) {
+      return { error: `单次最多打包 ${MAX_CHART_ZIP_IMAGES} 张图表，请拆分文档后重试` }
+    }
+
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      title: '打包下载图表',
+      defaultPath: resolveChartsZipDefaultPath(markdownFilePath),
+      filters: [{ name: 'ZIP Archives', extensions: ['zip'] }],
+    }
+    const result = window
+      ? await dialog.showSaveDialog(window, options)
+      : await dialog.showSaveDialog(options)
+
+    if (result.canceled || !result.filePath) {
+      return { canceled: true }
+    }
+
+    const zip = new AdmZip()
+    const usedNames = new Set<string>()
+    const rootDirectory = sanitizeZipDirectoryName(
+      path.basename(result.filePath, path.extname(result.filePath)),
+    )
+    let written = 0
+
+    images.forEach((image, index) => {
+      const buffer = decodePngBase64(image.pngBase64)
+      if (!buffer) return
+
+      const safeName = uniqueZipEntryName(
+        sanitizeZipEntryName(image.filename, index),
+        usedNames,
+      )
+      zip.addFile(`${rootDirectory}/${safeName}`, buffer)
+      written += 1
+    })
+
+    if (written === 0) {
+      return { error: '没有有效的 PNG 图表数据可写入 ZIP' }
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      zip.writeZip(result.filePath!, (error: Error | null) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
+    return { filePath: result.filePath, written }
+  } catch (error) {
+    console.error('Failed to export chart ZIP:', error)
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
 
 ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
   try {
@@ -932,6 +1065,42 @@ html, body {
     return { success: true, data: pngBuffer.toString('base64'), width: bounds.width, height: bounds.height }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('render:krokiSvg', async (_, payload: { format?: string; source?: string }) => {
+  const format = String(payload?.format || '').trim().toLowerCase()
+  const source = String(payload?.source || '').trim()
+
+  if (!KROKI_FORMATS.has(format)) {
+    return { ok: false, error: `暂不支持 Kroki 格式：${format || 'unknown'}` }
+  }
+  if (!source) {
+    return { ok: false, error: 'Kroki 图表内容为空' }
+  }
+  if (source.length > MAX_KROKI_SOURCE_LENGTH) {
+    return { ok: false, error: 'Kroki 图表内容超过 128KB，已阻止渲染' }
+  }
+
+  try {
+    const response = await net.fetch(`${KROKI_ENDPOINT}/${format}/svg`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+      body: source,
+    })
+    const svg = await response.text()
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: svg || `Kroki 服务返回 ${response.status}` }
+    }
+    if (!/<svg[\s>]/i.test(svg)) {
+      return { ok: false, error: 'Kroki 服务未返回 SVG' }
+    }
+    return { ok: true, svg }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
   }
 })
 

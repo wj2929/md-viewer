@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Defs_Review_File" targetNamespace="http://md-viewer.local/review-file">
+  <bpmn:process id="Process_Review_File" isExecutable="false">
+    <bpmn:startEvent id="Start_Review_File" name="提交评审"><bpmn:outgoing>RF_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="Task_Review_File" name="专家评审"><bpmn:incoming>RF_1</bpmn:incoming><bpmn:outgoing>RF_2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_Review_File" name="通过?"><bpmn:incoming>RF_2</bpmn:incoming><bpmn:outgoing>RF_3</bpmn:outgoing><bpmn:outgoing>RF_4</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_Review_Pass" name="归档"><bpmn:incoming>RF_3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_Review_Back" name="修改"><bpmn:incoming>RF_4</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="RF_1" sourceRef="Start_Review_File" targetRef="Task_Review_File" />
+    <bpmn:sequenceFlow id="RF_2" sourceRef="Task_Review_File" targetRef="Gateway_Review_File" />
+    <bpmn:sequenceFlow id="RF_3" name="是" sourceRef="Gateway_Review_File" targetRef="End_Review_Pass" />
+    <bpmn:sequenceFlow id="RF_4" name="否" sourceRef="Gateway_Review_File" targetRef="End_Review_Back" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="D_Review_File">
+    <bpmndi:BPMNPlane id="P_Review_File" bpmnElement="Process_Review_File">
+      <bpmndi:BPMNShape id="Start_Review_File_di" bpmnElement="Start_Review_File"><dc:Bounds x="80" y="120" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Review_File_di" bpmnElement="Task_Review_File"><dc:Bounds x="180" y="98" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Review_File_di" bpmnElement="Gateway_Review_File"><dc:Bounds x="370" y="113" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Review_Pass_di" bpmnElement="End_Review_Pass"><dc:Bounds x="500" y="80" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Review_Back_di" bpmnElement="End_Review_Back"><dc:Bounds x="500" y="170" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="RF_1_di" bpmnElement="RF_1"><di:waypoint x="116" y="138" /><di:waypoint x="180" y="138" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RF_2_di" bpmnElement="RF_2"><di:waypoint x="300" y="138" /><di:waypoint x="370" y="138" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RF_3_di" bpmnElement="RF_3"><di:waypoint x="420" y="138" /><di:waypoint x="460" y="98" /><di:waypoint x="500" y="98" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RF_4_di" bpmnElement="RF_4"><di:waypoint x="420" y="138" /><di:waypoint x="460" y="188" /><di:waypoint x="500" y="188" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

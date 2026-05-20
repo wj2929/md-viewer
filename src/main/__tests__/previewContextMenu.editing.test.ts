@@ -90,6 +90,7 @@ describe('preview context menu quick editing', () => {
       selectionText: '',
       sourceLine: null,
       scrollRatio: null,
+      chartCount: 0,
     })
 
     const template = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as any[]
@@ -133,6 +134,7 @@ describe('preview context menu quick editing', () => {
       selectionText: '重复文本',
       sourceLine: 42,
       scrollRatio: 0.5,
+      chartCount: 0,
     })
 
     const template = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as any[]
@@ -151,5 +153,82 @@ describe('preview context menu quick editing', () => {
       scrollRatio: 0.5,
       mode: 'selection',
     })
+  })
+
+  it('adds batch chart download action when preview has exportable charts', async () => {
+    const sender = {
+      send: vi.fn(),
+      copy: vi.fn(),
+    }
+    const window = { webContents: sender }
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as unknown as BrowserWindow)
+
+    registerMenuHandlers({
+      openPathInWindow: vi.fn(),
+    } as any)
+
+    const handler = vi.mocked(ipcMain.handle).mock.calls.find(([channel]) => channel === 'preview:show-context-menu')?.[1]
+
+    await handler?.({ sender } as any, {
+      filePath: '/docs/report.md',
+      headingId: null,
+      headingText: null,
+      headingLevel: null,
+      hasSelection: false,
+      linkHref: null,
+      basePath: '/docs',
+      tabId: 'tab-a',
+      leafId: 'leaf-a',
+      selectionText: '',
+      sourceLine: null,
+      scrollRatio: null,
+      chartCount: 3,
+    })
+
+    const template = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as any[]
+    const item = template.find((entry) => entry.label === '📦 打包下载图表（3 张）')
+    expect(item).toBeDefined()
+
+    item.click()
+
+    expect(sender.send).toHaveBeenCalledWith('markdown:export-charts-zip', {
+      filePath: '/docs/report.md',
+      tabId: 'tab-a',
+      leafId: 'leaf-a',
+    })
+  })
+
+  it('does not show batch chart download action when preview has no charts', async () => {
+    const sender = {
+      send: vi.fn(),
+      copy: vi.fn(),
+    }
+    const window = { webContents: sender }
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as unknown as BrowserWindow)
+
+    registerMenuHandlers({
+      openPathInWindow: vi.fn(),
+    } as any)
+
+    const handler = vi.mocked(ipcMain.handle).mock.calls.find(([channel]) => channel === 'preview:show-context-menu')?.[1]
+
+    await handler?.({ sender } as any, {
+      filePath: '/docs/report.md',
+      headingId: null,
+      headingText: null,
+      headingLevel: null,
+      hasSelection: false,
+      linkHref: null,
+      basePath: '/docs',
+      tabId: 'tab-a',
+      leafId: 'leaf-a',
+      selectionText: '',
+      sourceLine: null,
+      scrollRatio: null,
+      chartCount: 0,
+    })
+
+    const template = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as any[]
+    expect(template.some((entry) => String(entry.label || '').includes('打包下载图表'))).toBe(false)
   })
 })

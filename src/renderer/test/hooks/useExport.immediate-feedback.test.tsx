@@ -158,6 +158,34 @@ describe('useExport immediate feedback', () => {
     expect(useExportTaskStore.getState().fileName).toBe('report.md')
   })
 
+  it('带 warning 的 DOCX 导出 toast 应提示已导出但有问题', async () => {
+    const { result, toast } = renderExportHook()
+    ;(window.api.exportDOCX as any).mockResolvedValue({
+      filePath: '/tmp/report.docx',
+      usedRemote: false,
+      usedPandoc: true,
+      imagesFailed: 0,
+      warnings: ['BPMN 文件渲染失败，已保留原引用。'],
+    })
+
+    await act(async () => {
+      void result.current.handleExportDOCX('preview')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await flushExportFeedbackPaint()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(toast.success).toHaveBeenCalledWith(
+      'Word 已导出，但有问题（Pandoc，1 个警告）',
+      expect.any(Object),
+    )
+  })
+
   it('waitForExportFeedbackPaint 在没有 requestAnimationFrame 时退回到 setTimeout', async () => {
     vi.stubGlobal('requestAnimationFrame', undefined)
     const promise = waitForExportFeedbackPaint()

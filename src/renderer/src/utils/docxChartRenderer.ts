@@ -9,6 +9,15 @@ import { renderEChartsToSvg } from './echartsRenderer'
 import { renderMermaidToSvg } from './mermaidRenderer'
 import { renderGraphvizToSvg } from './graphvizRenderer'
 import { renderPlantUMLToSvg } from './plantumlRenderer'
+import { renderVegaLiteToSvg } from './vegaLiteRenderer'
+import { renderD2ToSvg } from './d2Renderer'
+import { isMissingReadBpmnFileHandlerError, renderBpmnToSvg, resolveBpmnFallbackPath } from './bpmnRenderer'
+import { renderWaveDromToSvg } from './wavedromRenderer'
+import { renderStructurizrToSvg } from './structurizrRenderer'
+import { renderPlotlyToSvg } from './plotlyRenderer'
+import { renderDbmlToSvg } from './dbmlRenderer'
+import { renderAntvG6ToSvg } from './antvG6Renderer'
+import { renderKrokiToSvg } from './krokiRenderer'
 import { cleanUserFacingError } from './userFacingErrors'
 
 export interface ChartImage {
@@ -23,7 +32,7 @@ export interface ChartRenderResult {
   warnings: string[]
 }
 
-type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio' | 'excalidraw' | 'infographic'
+type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio' | 'excalidraw' | 'infographic' | 'vega-lite' | 'd2' | 'bpmn' | 'wavedrom' | 'c4plantuml' | 'structurizr' | 'plotly' | 'dbml' | 'antv-g6' | 'kroki'
 
 export interface DocxChartRenderOptions {
   markdownFilePath?: string
@@ -32,6 +41,10 @@ export interface DocxChartRenderOptions {
 
 const CHART_LANGS = new Set<string>([
   'echarts', 'mermaid', 'dot', 'graphviz', 'markmap', 'plantuml', 'drawio', 'dio', 'excalidraw', 'excalidraw-json', 'infographic',
+  'vega-lite', 'vegalite', 'd2', 'bpmn', 'wavedrom', 'c4', 'c4plantuml',
+  'structurizr', 'structurizr-dsl', 'plotly', 'plotly-json', 'dbml', 'antv-g6', 'g6',
+  'kroki', 'kroki-pikchr', 'kroki-nomnoml', 'kroki-svgbob', 'kroki-bytefield', 'kroki-tikz',
+  'pikchr', 'nomnoml', 'svgbob', 'bytefield', 'tikz',
 ])
 
 const CODE_BLOCK_RE = /```([\w-]+)\n([\s\S]*?)```/g
@@ -47,6 +60,16 @@ const CONTAINER_CLASS_MAP: Record<string, string> = {
   drawio: 'drawio-container',
   excalidraw: 'excalidraw-container',
   infographic: 'infographic-container',
+  'vega-lite': 'vega-lite-container',
+  d2: 'd2-container',
+  bpmn: 'bpmn-container',
+  wavedrom: 'wavedrom-container',
+  c4plantuml: 'plantuml-container',
+  structurizr: 'structurizr-container',
+  plotly: 'plotly-container',
+  dbml: 'dbml-container',
+  'antv-g6': 'antv-g6-container',
+  kroki: 'kroki-container',
 }
 
 const DOCX_CHART_SAFE_PADDING_PX = 32
@@ -101,10 +124,20 @@ interface ExcalidrawImageRef {
   end: number
 }
 
+interface BpmnImageRef {
+  fullMatch: string
+  alt: string
+  refPath: string
+  cleanRefPath: string
+  start: number
+  end: number
+}
+
 interface RenderChartCodeToPngOptions {
   allowDomFallback?: boolean
   excalidrawSourceKind?: 'code-block' | 'file-reference'
   excalidrawSourceLabel?: string
+  sourceLanguage?: string
 }
 
 interface MarkdownReplacement {
@@ -324,6 +357,12 @@ function normalizeChartType(lang: string): ChartType {
   if (lang === 'graphviz') return 'dot'
   if (lang === 'excalidraw-json') return 'excalidraw'
   if (lang === 'dio') return 'drawio'
+  if (lang === 'vegalite') return 'vega-lite'
+  if (lang === 'c4') return 'c4plantuml'
+  if (lang === 'structurizr-dsl') return 'structurizr'
+  if (lang === 'plotly-json') return 'plotly'
+  if (lang === 'g6') return 'antv-g6'
+  if (/^(?:kroki|kroki-|pikchr|nomnoml|svgbob|bytefield|tikz)/.test(lang)) return 'kroki'
   return lang as ChartType
 }
 
@@ -333,6 +372,14 @@ function cleanExcalidrawRefPath(refPath: string): string {
 
 function isExcalidrawRefPath(refPath: string): boolean {
   return /\.excalidraw(?:[?#].*)?$/i.test(refPath.trim().replace(/^<|>$/g, ''))
+}
+
+function cleanBpmnRefPath(refPath: string): string {
+  return refPath.trim().replace(/^<|>$/g, '').split(/[?#]/, 1)[0] || refPath
+}
+
+function isBpmnRefPath(refPath: string): boolean {
+  return /\.bpmn(?:[?#].*)?$/i.test(refPath.trim().replace(/^<|>$/g, ''))
 }
 
 function collectFencedBlockRanges(markdown: string): MarkdownRange[] {
@@ -365,6 +412,30 @@ function collectExcalidrawImageRefs(markdown: string, fencedRanges: MarkdownRang
       alt: imageMatch[1],
       refPath,
       cleanRefPath: cleanExcalidrawRefPath(refPath),
+      start: imageMatch.index,
+      end: imageMatch.index + imageMatch[0].length,
+    })
+  }
+
+  return refs
+}
+
+function collectBpmnImageRefs(markdown: string, fencedRanges: MarkdownRange[]): BpmnImageRef[] {
+  const refs: BpmnImageRef[] = []
+  const imageRefRe = /!\[([^\]]*)\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g
+  let imageMatch: RegExpExecArray | null
+
+  while ((imageMatch = imageRefRe.exec(markdown)) !== null) {
+    if (isInsideRanges(imageMatch.index, fencedRanges)) continue
+
+    const refPath = imageMatch[2] || imageMatch[3] || ''
+    if (!isBpmnRefPath(refPath)) continue
+
+    refs.push({
+      fullMatch: imageMatch[0],
+      alt: imageMatch[1],
+      refPath,
+      cleanRefPath: cleanBpmnRefPath(refPath),
       start: imageMatch.index,
       end: imageMatch.index + imageMatch[0].length,
     })
@@ -602,7 +673,8 @@ async function renderChartCodeToPng(
             break
           }
           case 'plantuml':
-            svgString = await renderPlantUMLToSvg(code)
+          case 'c4plantuml':
+            svgString = await renderPlantUMLToSvg(code, type === 'c4plantuml' ? 'c4plantuml' : 'plantuml')
             break
           case 'excalidraw': {
             const { renderExcalidrawToSvg } = await import('./excalidrawRenderer')
@@ -616,6 +688,51 @@ async function renderChartCodeToPng(
           case 'infographic': {
             const { renderInfographicToSvg } = await import('./infographicRenderer')
             svgString = await renderInfographicToSvg(code, `docx-export-${globalIndex}`)
+            break
+          }
+          case 'vega-lite': {
+            const result = await renderVegaLiteToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'd2': {
+            const result = await renderD2ToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'bpmn': {
+            const result = await renderBpmnToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'wavedrom': {
+            const result = renderWaveDromToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'structurizr': {
+            const result = renderStructurizrToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'plotly': {
+            const result = await renderPlotlyToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'dbml': {
+            const result = renderDbmlToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'antv-g6': {
+            const result = renderAntvG6ToSvg(code)
+            svgString = result.ok ? result.svg : null
+            break
+          }
+          case 'kroki': {
+            const result = await renderKrokiToSvg(code, { language: options.sourceLanguage || 'kroki' })
+            svgString = result.ok ? result.svg : null
             break
           }
         }
@@ -685,7 +802,8 @@ export async function renderChartsForDocx(
   }
 
   const imageRefs = collectExcalidrawImageRefs(markdown, fencedRanges)
-  const totalCharts = blocks.length + imageRefs.length
+  const bpmnImageRefs = collectBpmnImageRefs(markdown, fencedRanges)
+  const totalCharts = blocks.length + imageRefs.length + bpmnImageRefs.length
   let completedCharts = 0
 
   // 计算每个 block 在同类型中的序号（用于 DOM fallback 索引）
@@ -705,7 +823,7 @@ export async function renderChartsForDocx(
     completedCharts += 1
     options.onProgress?.(completedCharts, totalCharts, type)
 
-    const result = await renderChartCodeToPng(type, block.code, i, typeIndices[i])
+    const result = await renderChartCodeToPng(type, block.code, i, typeIndices[i], { sourceLanguage: block.lang })
 
     if (result) {
       const placeholderId = generatePlaceholderId()
@@ -755,6 +873,48 @@ export async function renderChartsForDocx(
       })
     } catch (error) {
       warnings.push(`Excalidraw 文件“${imageRef.refPath}”读取失败：${cleanUserFacingError(error)}。已保留原引用。`)
+    }
+  }
+
+  for (const imageRef of bpmnImageRefs) {
+    completedCharts += 1
+    options.onProgress?.(completedCharts, totalCharts, 'bpmn')
+
+    if (!options.markdownFilePath) {
+      warnings.push(`BPMN 文件“${imageRef.refPath}”缺少 Markdown 文件路径，已保留原引用。`)
+      continue
+    }
+    try {
+      let content: string
+      try {
+        const file = await window.api.readBpmnFile({
+          markdownFilePath: options.markdownFilePath,
+          refPath: imageRef.cleanRefPath,
+        })
+        content = file.content
+      } catch (error) {
+        if (typeof window.api?.readFile === 'function' && isMissingReadBpmnFileHandlerError(error)) {
+          content = await window.api.readFile(resolveBpmnFallbackPath(options.markdownFilePath, imageRef.cleanRefPath))
+        } else {
+          throw error
+        }
+      }
+      const png = await renderChartCodeToPng('bpmn', content, completedCharts - 1, 0, {
+        allowDomFallback: false,
+      })
+      if (!png) {
+        warnings.push(`BPMN 文件“${imageRef.refPath}”渲染失败，已保留原引用。`)
+        continue
+      }
+      const placeholderId = generatePlaceholderId()
+      images.push({ id: placeholderId, pngBase64: png.pngBase64, widthCm: png.widthCm })
+      replacements.push({
+        start: imageRef.start,
+        end: imageRef.end,
+        value: `![${imageRef.alt}](${placeholderId})`,
+      })
+    } catch (error) {
+      warnings.push(`BPMN 文件“${imageRef.refPath}”读取失败：${cleanUserFacingError(error)}。已保留原引用。`)
     }
   }
 

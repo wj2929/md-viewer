@@ -1,6 +1,6 @@
 # 全部图表类型汇总测试
 
-> 本文档包含 7 种图表类型，每种 10 个示例，共 70 个图表。用于全面测试 md-viewer 的渲染能力。
+> 本文档包含基础图表类型和 RendererPlugin 新增示例，用于全面测试 md-viewer 的渲染能力。
 
 ## 1. Mermaid 图表
 
@@ -1480,4 +1480,159 @@ data
     </mxGraphModel>
   </diagram>
 </mxfile>
+```
+
+## 8. RendererPlugin 新增图表
+
+### 8.1 Vega-Lite 柱状图
+
+```vega-lite
+{
+  "data": {
+    "values": [
+      { "category": "预览", "count": 18 },
+      { "category": "导出", "count": 11 },
+      { "category": "编辑", "count": 9 }
+    ]
+  },
+  "mark": "bar",
+  "encoding": {
+    "x": { "field": "category", "type": "nominal", "axis": { "title": "功能" } },
+    "y": { "field": "count", "type": "quantitative", "axis": { "title": "数量" } }
+  }
+}
+```
+
+### 8.2 D2 流程图
+
+```d2
+user: 用户
+viewer: MD Viewer
+plugin: RendererPlugin
+exporter: 导出链路
+docx: DOCX 服务
+
+user -> viewer: 打开 Markdown
+viewer -> plugin: 识别 fence
+plugin -> exporter: 生成 SVG/PNG
+exporter -> docx: blockId 替换
+```
+
+### 8.3 BPMN 内联流程
+
+```bpmn
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Defs_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_1" name="开始">
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:task id="Task_1" name="渲染 Markdown">
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="EndEvent_1" name="完成">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_1" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_1" targetRef="EndEvent_1" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="120" y="100" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1">
+        <dc:Bounds x="220" y="78" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="420" y="100" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="156" y="118" />
+        <di:waypoint x="220" y="118" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="340" y="118" />
+        <di:waypoint x="420" y="118" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
+```
+
+### 8.4 BPMN 文件引用
+
+![BPMN 文件流程](process.bpmn)
+
+### 8.5 WaveDrom 时序图
+
+```wavedrom
+{ signal: [
+  { name: 'clk', wave: 'p..P..p.' },
+  { name: 'req', wave: '0.1..0..' },
+  { name: 'ack', wave: '0...1.0.' }
+] }
+```
+
+### 8.6 C4-PlantUML
+
+```c4
+@startuml
+Person(user, "用户")
+System(viewer, "MD Viewer", "Markdown 预览与导出")
+Rel(user, viewer, "打开和导出文档")
+@enduml
+```
+
+### 8.7 Structurizr 架构模型
+
+```structurizr
+workspace "All Charts Structurizr" {
+  model {
+    user = person "用户"
+    app = softwareSystem "MD Viewer" {
+      renderer = container "RendererPlugin"
+      exporter = container "Export Pipeline"
+    }
+    service = softwareSystem "DOCX Service"
+    user -> app "预览 Markdown"
+    renderer -> exporter "输出 SVG"
+    exporter -> service "生成 DOCX"
+  }
+}
+```
+
+### 8.8 Plotly 复杂图表
+
+```plotly
+{"data":[{"type":"bar","name":"图表数量","x":["架构","流程","统计"],"y":[12,18,9]},{"type":"scatter3d","name":"三维评分","x":[1,2,3],"y":[2,1,3],"z":[4,2,5]}],"layout":{"title":"All Charts Plotly","width":820,"height":480}}
+```
+
+### 8.9 DBML ERD
+
+```dbml
+Table documents {
+  id int [pk]
+  path varchar
+}
+Table export_tasks {
+  id int [pk]
+  document_id int [ref: > documents.id]
+  format varchar
+}
+Ref: export_tasks.document_id > documents.id
+```
+
+### 8.10 AntV G6 拓扑
+
+```antv-g6
+{"title":"All Charts G6","nodes":[{"id":"preview","label":"Preview"},{"id":"renderer","label":"RendererPlugin"},{"id":"export","label":"Export"},{"id":"docx","label":"DOCX"}],"edges":[{"source":"preview","target":"renderer"},{"source":"renderer","target":"export"},{"source":"export","target":"docx"}]}
+```
+
+### 8.11 Kroki 长尾格式
+
+```nomnoml
+[Markdown] -> [Kroki]
+[Kroki] -> [SVG]
 ```

@@ -5,9 +5,39 @@ import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VirtualizedMarkdown } from '../../src/components/VirtualizedMarkdown'
 
 const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
+const mockRenderVegaLiteToSvg = vi.hoisted(() => vi.fn())
+const mockRenderD2ToSvg = vi.hoisted(() => vi.fn())
+const mockRenderBpmnToSvg = vi.hoisted(() => vi.fn())
+const mockRenderWaveDromToSvg = vi.hoisted(() => vi.fn())
+const mockRenderPlantUMLToSvg = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/utils/excalidrawRenderer', () => ({
   renderExcalidrawToSvg: mockRenderExcalidrawToSvg,
+}))
+vi.mock('../../src/utils/vegaLiteRenderer', () => ({
+  renderVegaLiteToSvg: mockRenderVegaLiteToSvg,
+  vegaLiteErrorHtml: (_title: string, message: string) => `<div class="vega-lite-error">${message}</div>`,
+}))
+vi.mock('../../src/utils/d2Renderer', () => ({
+  renderD2ToSvg: mockRenderD2ToSvg,
+  rendererErrorHtml: (_title: string, message: string, className: string) => `<div class="${className}">${message}</div>`,
+}))
+vi.mock('../../src/utils/bpmnRenderer', () => ({
+  renderBpmnToSvg: mockRenderBpmnToSvg,
+  cleanBpmnRefPath: (refPath: string) => refPath.split(/[?#]/, 1)[0] || refPath,
+  isMissingReadBpmnFileHandlerError: (error: unknown) => String((error as Error)?.message || error).includes('No handler registered')
+    && String((error as Error)?.message || error).includes('fs:readBpmnFile'),
+  resolveBpmnFallbackPath: (markdownFilePath: string, refPath: string) => {
+    const baseDir = markdownFilePath.replace(/[/\\][^/\\]*$/, '')
+    return `${baseDir}/${refPath.replace(/^\.\//, '')}`
+  },
+}))
+vi.mock('../../src/utils/wavedromRenderer', () => ({
+  renderWaveDromToSvg: mockRenderWaveDromToSvg,
+}))
+vi.mock('../../src/utils/plantumlRenderer', () => ({
+  validatePlantUMLCode: vi.fn(() => ({ valid: true })),
+  renderPlantUMLToSvg: mockRenderPlantUMLToSvg,
 }))
 
 // Mock window.api
@@ -34,6 +64,23 @@ beforeEach(() => {
     sourceLabel: '流程',
     rawCode: '{"type":"excalidraw","elements":[]}',
   })
+  mockRenderVegaLiteToSvg.mockResolvedValue({
+    ok: true,
+    svg: '<svg viewBox="0 0 100 40"><text>Vega</text></svg>',
+  })
+  mockRenderD2ToSvg.mockResolvedValue({
+    ok: true,
+    svg: '<svg viewBox="0 0 100 40"><text>D2</text></svg>',
+  })
+  mockRenderBpmnToSvg.mockResolvedValue({
+    ok: true,
+    svg: '<svg viewBox="0 0 100 40"><text>BPMN</text></svg>',
+  })
+  mockRenderWaveDromToSvg.mockReturnValue({
+    ok: true,
+    svg: '<svg viewBox="0 0 100 40"><text>WaveDrom</text></svg>',
+  })
+  mockRenderPlantUMLToSvg.mockResolvedValue('<svg viewBox="0 0 100 40"><text>C4</text></svg>')
   // 默认没有选中文本
   vi.spyOn(window, 'getSelection').mockReturnValue(null)
 })
@@ -82,6 +129,115 @@ describe('VirtualizedMarkdown', () => {
       const { container } = render(<VirtualizedMarkdown content={content} />)
 
       expect(container.querySelector('pre.language-mermaid')).toBeInTheDocument()
+    })
+
+    it('应该渲染新增 RendererPlugin 代码块', async () => {
+      const content = [
+        '```vega-lite',
+        '{"data":{"values":[]},"mark":"bar"}',
+        '```',
+        '',
+        '```d2',
+        'a -> b',
+        '```',
+        '',
+        '```bpmn',
+        '<definitions />',
+        '```',
+        '',
+        '```wavedrom',
+        "{ signal: [{ name: 'clk', wave: 'p..P' }] }",
+        '```',
+        '',
+        '```c4',
+        '@startuml',
+        'Person(user, "用户")',
+        '@enduml',
+        '```',
+      ].join('\n')
+
+      render(<VirtualizedMarkdown content={content} renderDebounceMs={0} />)
+
+      await waitFor(() => {
+        expect(document.querySelector('.vega-lite-container svg')).toBeTruthy()
+        expect(document.querySelector('.d2-container svg')).toBeTruthy()
+        expect(document.querySelector('.bpmn-container svg')).toBeTruthy()
+        expect(document.querySelector('.wavedrom-container svg')).toBeTruthy()
+        expect(document.querySelector('.c4plantuml-wrapper .plantuml-container svg')).toBeTruthy()
+      })
+
+      expect(document.querySelector('.vega-lite-toggle-bar .vega-lite-action-btn[data-action="toggleCode"]')).toBeTruthy()
+      expect(document.querySelector('.d2-toggle-bar .d2-action-btn[data-action="toggleCode"]')).toBeTruthy()
+      expect(document.querySelector('.bpmn-toggle-bar .bpmn-action-btn[data-action="toggleCode"]')).toBeTruthy()
+      expect(document.querySelector('.wavedrom-toggle-bar .wavedrom-action-btn[data-action="toggleCode"]')).toBeTruthy()
+      expect(document.querySelector('.c4plantuml-wrapper .plantuml-toggle-bar .plantuml-action-btn[data-action="toggleCode"]')).toBeTruthy()
+    })
+
+    it('新增 SVG RendererPlugin 应支持源码视图切换', async () => {
+      const content = [
+        '```vega-lite',
+        '{"data":{"values":[]},"mark":"bar"}',
+        '```',
+        '',
+        '```bpmn',
+        '<definitions />',
+        '```',
+        '',
+        '```wavedrom',
+        "{ signal: [{ name: 'clk', wave: 'p..P' }] }",
+        '```',
+      ].join('\n')
+
+      render(<VirtualizedMarkdown content={content} renderDebounceMs={0} />)
+
+      await waitFor(() => {
+        expect(document.querySelector('.vega-lite-wrapper .vega-lite-container svg')).toBeTruthy()
+        expect(document.querySelector('.bpmn-wrapper .bpmn-container svg')).toBeTruthy()
+        expect(document.querySelector('.wavedrom-wrapper .wavedrom-container svg')).toBeTruthy()
+      })
+
+      for (const chartType of ['vega-lite', 'bpmn', 'wavedrom']) {
+        const wrapper = document.querySelector(`.${chartType}-wrapper`) as HTMLElement
+        fireEvent.click(wrapper.querySelector(`.${chartType}-action-btn[data-action="toggleCode"]`)!)
+        expect((wrapper.querySelector(`.${chartType}-container`) as HTMLElement).style.display).toBe('none')
+        expect((wrapper.querySelector(`.${chartType}-code-view`) as HTMLElement).style.display).toBe('')
+        fireEvent.click(wrapper.querySelector(`.${chartType}-back-btn`)!)
+        expect((wrapper.querySelector(`.${chartType}-container`) as HTMLElement).style.display).toBe('')
+        expect((wrapper.querySelector(`.${chartType}-code-view`) as HTMLElement).style.display).toBe('none')
+      }
+    })
+
+    it('D2 预览应该支持主动放大并可恢复适应宽度', async () => {
+      mockRenderD2ToSvg.mockResolvedValueOnce({
+        ok: true,
+        svg: '<svg width="400" viewBox="0 0 400 120" style="max-width: 100%; height: auto; display: block"><text>D2</text></svg>',
+      })
+
+      render(<VirtualizedMarkdown content={'```d2\na -> b\n```'} renderDebounceMs={0} />)
+
+      await waitFor(() => {
+        expect(document.querySelector('.d2-wrapper .d2-container svg')).toBeTruthy()
+      })
+
+      const wrapper = document.querySelector('.d2-wrapper') as HTMLElement
+      const container = document.querySelector('.d2-container') as HTMLElement
+      const svg = document.querySelector('.d2-container svg') as SVGSVGElement
+
+      expect(wrapper.querySelector('.d2-action-btn[data-action="zoomIn"]')).toBeTruthy()
+      expect(wrapper.querySelector('.d2-action-btn[data-action="fit"]')).toBeTruthy()
+
+      fireEvent.click(wrapper.querySelector('.d2-action-btn[data-action="zoomIn"]')!)
+      expect(container.dataset.zoomLevel).toBe('120')
+      expect(svg.getAttribute('width')).toBe('480')
+      expect(svg.style.width).toBe('480px')
+      expect(svg.style.maxWidth).toBe('none')
+      expect(svg.style.maxHeight).toBe('none')
+      expect(svg.style.flexShrink).toBe('0')
+
+      fireEvent.click(wrapper.querySelector('.d2-action-btn[data-action="fit"]')!)
+      expect(container.dataset.zoomLevel).toBe('100')
+      expect(svg.getAttribute('width')).toBe('400')
+      expect(svg.getAttribute('style')).toContain('max-width: 100%')
     })
 
     it('应该渲染行内数学公式', () => {
@@ -160,6 +316,27 @@ describe('VirtualizedMarkdown', () => {
       expect(document.querySelector('.excalidraw-container svg')?.getAttribute('aria-label')).toContain('流程')
     })
 
+    it('BPMN 文件引用在旧主进程缺少 readBpmnFile handler 时应该回退到 readFile', async () => {
+      const rawCode = '<definitions />'
+      global.window.api.readBpmnFile = vi.fn().mockRejectedValue(
+        new Error("Error invoking remote method 'fs:readBpmnFile': Error: No handler registered for 'fs:readBpmnFile'")
+      )
+      global.window.api.readFile = vi.fn().mockResolvedValue(rawCode)
+
+      render(<VirtualizedMarkdown content={'![流程](./flow.bpmn)'} filePath="/docs/a.md" renderDebounceMs={0} />)
+
+      await waitFor(() => {
+        expect(document.querySelector('.bpmn-wrapper')).toBeTruthy()
+      })
+      expect(global.window.api.readBpmnFile).toHaveBeenCalledWith({
+        markdownFilePath: '/docs/a.md',
+        refPath: './flow.bpmn'
+      })
+      expect(global.window.api.readFile).toHaveBeenCalledWith('/docs/flow.bpmn')
+      expect(document.querySelector('.bpmn-container svg')).toBeTruthy()
+      expect(document.querySelector('.bpmn-error')).toBeFalsy()
+    })
+
     it('同一 Markdown 中应该渲染超过 20 个 Excalidraw 文件引用', async () => {
       const rawCode = '{"type":"excalidraw","elements":[]}'
       global.window.api.readExcalidrawFile = vi.fn().mockResolvedValue({
@@ -198,6 +375,7 @@ describe('VirtualizedMarkdown', () => {
         selectionText: '',
         sourceLine: null,
         scrollRatio: 0,
+        chartCount: 0,
         tabId: undefined,
         leafId: null,
         linkHref: null,
@@ -238,6 +416,7 @@ describe('VirtualizedMarkdown', () => {
         selectionText: '',
         sourceLine: null,
         scrollRatio: 0,
+        chartCount: 0,
         tabId: 'tab-a',
         leafId: 'leaf-a',
         linkHref: null,
@@ -267,6 +446,7 @@ describe('VirtualizedMarkdown', () => {
           selectionText: '',
           sourceLine: 1,
           scrollRatio: 0,
+          chartCount: 0,
           tabId: undefined,
           leafId: null,
           linkHref: null,
@@ -299,6 +479,7 @@ describe('VirtualizedMarkdown', () => {
         selectionText: '选中的文本',
         sourceLine: null,
         scrollRatio: 0,
+        chartCount: 0,
         tabId: undefined,
         leafId: null,
         linkHref: null,
@@ -307,6 +488,30 @@ describe('VirtualizedMarkdown', () => {
 
       // 恢复 mock
       vi.restoreAllMocks()
+    })
+
+    it('应该把当前预览区可导出的图表数量传给主进程菜单', () => {
+      const content = '# 测试内容'
+      const { container } = render(
+        <VirtualizedMarkdown content={content} filePath="/test/file.md" />
+      )
+
+      const markdownBody = container.querySelector('.markdown-body') as HTMLElement
+      const chartWrapper = document.createElement('div')
+      chartWrapper.className = 'mermaid-wrapper'
+      chartWrapper.innerHTML = `
+        <div class="mermaid-container">
+          <svg viewBox="0 0 120 60"><rect width="120" height="60"></rect></svg>
+        </div>
+      `
+      markdownBody.appendChild(chartWrapper)
+
+      fireEvent.contextMenu(chartWrapper.querySelector('svg')!)
+
+      expect(mockShowPreviewContextMenu).toHaveBeenCalledWith(expect.objectContaining({
+        filePath: '/test/file.md',
+        chartCount: 1,
+      }))
     })
 
     // 虚拟滚动已禁用，跳过此测试

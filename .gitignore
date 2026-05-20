@@ -89,6 +89,8 @@ screenshot-welcome.js
 e2e-results.json
 e2e/test-docx-export-auto.js
 e2e/test-docx-size.js
+e2e/fixtures/*-charts/
+e2e/fixtures/*-charts.zip
 
 # Legacy / transitional files
 electron/

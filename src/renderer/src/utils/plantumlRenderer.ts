@@ -89,17 +89,43 @@ export function encodePlantUML(code: string): string {
   return plantumlEncoder.encode(code)
 }
 
+type PlantUMLDiagramType = 'plantuml' | 'c4plantuml'
+
+function inferC4Include(code: string): string {
+  if (/\b(?:Component|ComponentDb|ComponentQueue|Component_Ext|Component_Boundary)\s*\(/i.test(code)) {
+    return '!include <C4/C4_Component>'
+  }
+  if (/\b(?:Container|ContainerDb|ContainerQueue|Container_Ext|Container_Boundary)\s*\(/i.test(code)) {
+    return '!include <C4/C4_Container>'
+  }
+  return '!include <C4/C4_Context>'
+}
+
+export function normalizePlantUMLCode(code: string, diagramType: PlantUMLDiagramType = 'plantuml'): string {
+  if (diagramType !== 'c4plantuml') return code
+  if (/!include(?:url)?\s+(?:<C4\/|.*C4_)/i.test(code)) return code
+
+  const include = inferC4Include(code)
+  const startMatch = code.match(/^(\s*@startuml[^\n]*)(\r?\n)?/i)
+  if (!startMatch) return `${include}\n${code}`
+
+  const startLine = startMatch[1]
+  const lineBreak = startMatch[2] || '\n'
+  return `${startLine}${lineBreak}${include}${lineBreak}${code.slice(startMatch[0].length)}`
+}
+
 /**
  * 渲染 PlantUML 为 SVG 字符串
  */
-export async function renderPlantUMLToSvg(code: string): Promise<string> {
-  const cacheKey = hashCode(code)
+export async function renderPlantUMLToSvg(code: string, diagramType: PlantUMLDiagramType = 'plantuml'): Promise<string> {
+  const normalizedCode = normalizePlantUMLCode(code, diagramType)
+  const cacheKey = hashCode(`${diagramType}:${normalizedCode}`)
 
   // 检查缓存
   const cached = svgCache.get(cacheKey)
   if (cached) return cached
 
-  const encoded = encodePlantUML(code)
+  const encoded = encodePlantUML(normalizedCode)
   const serverUrl = getServerUrl()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), PLANTUML_CONFIG.FETCH_TIMEOUT)
@@ -117,7 +143,7 @@ export async function renderPlantUMLToSvg(code: string): Promise<string> {
       response = await fetch(`${serverUrl}/svg`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: code,
+        body: normalizedCode,
         signal: controller.signal,
       })
     }
@@ -155,14 +181,15 @@ export async function renderPlantUMLToSvg(code: string): Promise<string> {
  */
 export async function processPlantUMLInHtml(html: string): Promise<string> {
   const regex =
-    /<pre class="language-plantuml"><code class="language-plantuml">([\s\S]*?)<\/code><\/pre>/g
-  const matches: { fullMatch: string; code: string }[] = []
+    /<pre class="language-(plantuml|c4plantuml)"><code class="language-\1">([\s\S]*?)<\/code><\/pre>/g
+  const matches: { fullMatch: string; code: string; diagramType: PlantUMLDiagramType }[] = []
 
   let match: RegExpExecArray | null
   while ((match = regex.exec(html)) !== null) {
     matches.push({
       fullMatch: match[0],
-      code: match[1]
+      diagramType: match[1] === 'c4plantuml' ? 'c4plantuml' : 'plantuml',
+      code: match[2]
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&amp;/g, '&')
@@ -175,9 +202,9 @@ export async function processPlantUMLInHtml(html: string): Promise<string> {
 
   let result = html
   for (let i = 0; i < Math.min(matches.length, PLANTUML_CONFIG.MAX_PER_PAGE); i++) {
-    const { fullMatch, code } = matches[i]
+    const { fullMatch, code, diagramType } = matches[i]
     try {
-      const svgString = await renderPlantUMLToSvg(code)
+      const svgString = await renderPlantUMLToSvg(code, diagramType)
       const svgHtml = `<div class="plantuml-container" style="width: 100%; text-align: center;">${svgString}</div>`
       result = result.replace(fullMatch, svgHtml)
     } catch (error) {

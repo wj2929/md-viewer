@@ -15,16 +15,342 @@ import {
 } from '../../utils/drawioRenderer'
 import { downloadSvgAsPng } from '../../utils/chartUtils'
 
+let drawioLightboxObserver: MutationObserver | null = null
+let drawioLightboxRetryTimer: number | null = null
+let drawioLightboxPointerHandlerInstalled = false
+let drawioLightboxKeyHandlerInstalled = false
+
+type DrawioWindow = Window & {
+  urlParams?: Record<string, string | undefined>
+}
+
+function withDrawioLightboxToolbarCloseDisabled(showLightbox: () => void): void {
+  const urlParams = (window as DrawioWindow).urlParams
+  if (!urlParams) {
+    showLightbox()
+    return
+  }
+
+  const previousToolbarConfig = urlParams['toolbar-config']
+  let toolbarConfig: Record<string, unknown> = {}
+  if (previousToolbarConfig) {
+    try {
+      toolbarConfig = JSON.parse(decodeURIComponent(previousToolbarConfig)) as Record<string, unknown>
+    } catch {
+      toolbarConfig = {}
+    }
+  }
+
+  toolbarConfig.noCloseBtn = true
+  urlParams['toolbar-config'] = encodeURIComponent(JSON.stringify(toolbarConfig))
+
+  try {
+    showLightbox()
+  } finally {
+    if (previousToolbarConfig === undefined) {
+      delete urlParams['toolbar-config']
+    } else {
+      urlParams['toolbar-config'] = previousToolbarConfig
+    }
+  }
+}
+
+function findDrawioLightboxOverlay(): HTMLElement | null {
+  return Array.from(document.body.children).find((element): element is HTMLElement => {
+    if (!(element instanceof HTMLElement)) return false
+    const style = element.getAttribute('style') || ''
+    return (
+      style.includes('position: fixed') &&
+      style.includes('z-index: 999') &&
+      style.includes('background-color: rgb(0, 0, 0)')
+    )
+  }) ?? null
+}
+
+function rememberDrawioLightboxBodyOverflow(): void {
+  if (!('drawioLightboxPreviousOverflow' in document.body.dataset)) {
+    document.body.dataset.drawioLightboxPreviousOverflow = document.body.style.overflow
+  }
+}
+
+function restoreDrawioLightboxBodyOverflow(): void {
+  const previousOverflow = document.body.dataset.drawioLightboxPreviousOverflow
+  if (previousOverflow !== undefined) {
+    document.body.style.overflow = previousOverflow
+    delete document.body.dataset.drawioLightboxPreviousOverflow
+  }
+}
+
+function removeDrawioLightboxCloseButton(): void {
+  const lightboxOpen = Boolean(document.querySelector('.geDiagramContainer'))
+  document.querySelectorAll('.drawio-lightbox-close').forEach((element) => element.remove())
+  document.querySelectorAll<HTMLElement>('.drawio-lightbox-native-close-hidden').forEach((element) => {
+    if (!lightboxOpen) {
+      element.remove()
+      return
+    }
+    element.classList.remove('drawio-lightbox-native-close-hidden')
+    element.style.removeProperty('opacity')
+    element.style.removeProperty('pointer-events')
+    element.removeAttribute('aria-hidden')
+  })
+}
+
+function isNativeDrawioLightboxCloseButton(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect()
+  const style = getComputedStyle(element)
+  return (
+    style.position === 'fixed' &&
+    style.cursor === 'pointer' &&
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.right > window.innerWidth - 96 &&
+    rect.top < 96
+  )
+}
+
+function findNativeDrawioLightboxCloseButton(): HTMLElement | null {
+  return Array.from(document.querySelectorAll<HTMLElement>('img.geAdaptiveAsset'))
+    .find(isNativeDrawioLightboxCloseButton) ?? null
+}
+
+function isPointerInsideDrawioLightboxCloseButton(event: MouseEvent): boolean {
+  const closeButton = document.querySelector<HTMLElement>('.drawio-lightbox-close')
+  if (!closeButton) return false
+
+  const rect = closeButton.getBoundingClientRect()
+  return (
+    Number.isFinite(event.clientX) &&
+    Number.isFinite(event.clientY) &&
+    event.clientX >= rect.left &&
+    event.clientX <= rect.right &&
+    event.clientY >= rect.top &&
+    event.clientY <= rect.bottom
+  )
+}
+
+function removeDrawioLightboxToolbarCloseButtons(): void {
+  Array.from(document.body.children).forEach((element) => {
+    if (!(element instanceof HTMLElement)) return
+    const style = element.getAttribute('style') || ''
+    if (!style.includes('position: fixed') || !style.includes('bottom: 60px')) return
+
+    element.querySelectorAll<HTMLElement>('[title]').forEach((toolbarItem) => {
+      const title = toolbarItem.getAttribute('title') || ''
+      if (/^(Close|关闭)/i.test(title)) {
+        toolbarItem.remove()
+      }
+    })
+  })
+}
+
+function cleanupDrawioLightboxFallback(): void {
+  Array.from(document.body.children).forEach((element) => {
+    if (!(element instanceof HTMLElement)) return
+    const style = element.getAttribute('style') || ''
+    const isDrawioLightboxNode =
+      element.classList.contains('geDiagramContainer') ||
+      element.classList.contains('drawio-lightbox-native-close-hidden') ||
+      (
+        style.includes('position: fixed') &&
+        style.includes('z-index: 999') &&
+        (
+          style.includes('background-color: rgb(0, 0, 0)') ||
+          style.includes('bottom: 60px') ||
+          (element.tagName === 'IMG' && element.classList.contains('geAdaptiveAsset'))
+        )
+      )
+
+    if (isDrawioLightboxNode) element.remove()
+  })
+  restoreDrawioLightboxBodyOverflow()
+}
+
+function teardownDrawioLightboxCloseHandling(): void {
+  if (drawioLightboxRetryTimer !== null) {
+    window.clearTimeout(drawioLightboxRetryTimer)
+    drawioLightboxRetryTimer = null
+  }
+  drawioLightboxObserver?.disconnect()
+  drawioLightboxObserver = null
+  if (drawioLightboxPointerHandlerInstalled) {
+    document.removeEventListener('pointerdown', handleDrawioLightboxPointer, true)
+    document.removeEventListener('mousedown', handleDrawioLightboxPointer, true)
+    document.removeEventListener('click', handleDrawioLightboxPointer, true)
+    drawioLightboxPointerHandlerInstalled = false
+  }
+  if (drawioLightboxKeyHandlerInstalled) {
+    document.removeEventListener('keydown', handleDrawioLightboxKeydown, true)
+    drawioLightboxKeyHandlerInstalled = false
+  }
+}
+
+function closeDrawioLightbox(): void {
+  const overlay = findDrawioLightboxOverlay()
+  if (overlay) {
+    overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }))
+    overlay.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }))
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+  }
+
+  window.setTimeout(() => {
+    const overlay = findDrawioLightboxOverlay()
+    if (document.querySelector('.geDiagramContainer') && overlay) {
+      overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }))
+      overlay.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }))
+      overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+    }
+    cleanupDrawioLightboxFallback()
+    removeDrawioLightboxCloseButton()
+    teardownDrawioLightboxCloseHandling()
+  }, 0)
+}
+
+function handleDrawioLightboxPointer(event: MouseEvent): void {
+  if (!document.querySelector('.geDiagramContainer')) {
+    teardownDrawioLightboxCloseHandling()
+    return
+  }
+
+  const target = event.target instanceof Element ? event.target : null
+  const nativeCloseButton = target?.closest('img.geAdaptiveAsset')
+  const proxyCloseButton = target?.closest('.drawio-lightbox-close')
+  if (
+    proxyCloseButton ||
+    isPointerInsideDrawioLightboxCloseButton(event) ||
+    (nativeCloseButton instanceof HTMLElement && isNativeDrawioLightboxCloseButton(nativeCloseButton))
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+    closeDrawioLightbox()
+  }
+}
+
+function handleDrawioLightboxKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') return
+  if (!document.querySelector('.geDiagramContainer')) {
+    teardownDrawioLightboxCloseHandling()
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  event.stopImmediatePropagation()
+  closeDrawioLightbox()
+}
+
+function bindDrawioLightboxCloseEvents(element: HTMLElement): void {
+  const close = (event: Event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if ('stopImmediatePropagation' in event) event.stopImmediatePropagation()
+    closeDrawioLightbox()
+  }
+  element.addEventListener('pointerdown', close)
+  element.addEventListener('mousedown', close)
+  element.addEventListener('click', close)
+}
+
+function createDrawioLightboxCloseButtonFromNative(nativeCloseButton: HTMLElement): void {
+  const rect = nativeCloseButton.getBoundingClientRect()
+  const targetSize = 56
+  const top = Math.max(8, Math.round(rect.top + rect.height / 2 - targetSize / 2))
+  const right = Math.max(8, Math.round(window.innerWidth - (rect.left + rect.width / 2 + targetSize / 2)))
+  const closeButton = document.createElement('button')
+  closeButton.type = 'button'
+  closeButton.className = 'drawio-lightbox-close no-export'
+  closeButton.title = '关闭 DrawIO 全屏预览'
+  closeButton.setAttribute('aria-label', '关闭 DrawIO 全屏预览')
+  closeButton.style.top = `${top}px`
+  closeButton.style.right = `${right}px`
+  bindDrawioLightboxCloseEvents(closeButton)
+
+  nativeCloseButton.remove()
+  document.querySelectorAll('.drawio-lightbox-close').forEach((element) => element.remove())
+  document.body.appendChild(closeButton)
+}
+
+function createDrawioLightboxFallbackCloseButton(): void {
+  if (document.querySelector('.drawio-lightbox-close')) return
+  const closeButton = document.createElement('button')
+  closeButton.type = 'button'
+  closeButton.className = 'drawio-lightbox-close drawio-lightbox-close-fallback no-export'
+  closeButton.title = '关闭 DrawIO 全屏预览'
+  closeButton.setAttribute('aria-label', '关闭 DrawIO 全屏预览')
+  bindDrawioLightboxCloseEvents(closeButton)
+  document.body.appendChild(closeButton)
+}
+
+function syncDrawioLightboxCloseButton(): boolean {
+  const lightbox = document.querySelector('.geDiagramContainer')
+  if (!lightbox) {
+    removeDrawioLightboxCloseButton()
+    teardownDrawioLightboxCloseHandling()
+    return false
+  }
+
+  removeDrawioLightboxToolbarCloseButtons()
+  document.querySelectorAll('.drawio-lightbox-native-close-hidden').forEach((element) => element.remove())
+  const nativeCloseButton = findNativeDrawioLightboxCloseButton()
+  if (nativeCloseButton) {
+    createDrawioLightboxCloseButtonFromNative(nativeCloseButton)
+    return true
+  }
+
+  createDrawioLightboxFallbackCloseButton()
+  return false
+}
+
+function installDrawioLightboxCloseButton(): void {
+  const lightbox = document.querySelector('.geDiagramContainer')
+  if (!lightbox) return
+
+  if (!drawioLightboxPointerHandlerInstalled) {
+    document.addEventListener('pointerdown', handleDrawioLightboxPointer, true)
+    document.addEventListener('mousedown', handleDrawioLightboxPointer, true)
+    document.addEventListener('click', handleDrawioLightboxPointer, true)
+    drawioLightboxPointerHandlerInstalled = true
+  }
+  if (!drawioLightboxKeyHandlerInstalled) {
+    document.addEventListener('keydown', handleDrawioLightboxKeydown, true)
+    drawioLightboxKeyHandlerInstalled = true
+  }
+
+  syncDrawioLightboxCloseButton()
+
+  drawioLightboxObserver?.disconnect()
+  drawioLightboxObserver = new MutationObserver(() => {
+    syncDrawioLightboxCloseButton()
+  })
+  drawioLightboxObserver.observe(document.body, { childList: true, subtree: true })
+
+  let attempts = 0
+  const retryUntilNativeCloseIsHandled = () => {
+    if (!document.querySelector('.geDiagramContainer')) return
+    const handledNativeClose = syncDrawioLightboxCloseButton()
+    attempts += 1
+    if (!handledNativeClose && attempts < 40) {
+      drawioLightboxRetryTimer = window.setTimeout(retryUntilNativeCloseIsHandled, 50)
+    }
+  }
+  retryUntilNativeCloseIsHandled()
+}
+
 /**
  * DrawIO 图表渲染 Hook
  *
  * @param ref - 容器元素的 ref
  * @param html - Markdown 渲染后的 HTML 内容（用于触发重新渲染）
  */
-export function useDrawIOChart(ref: React.RefObject<HTMLElement | null>, html: string): void {
+export function useDrawIOChart(
+  ref: React.RefObject<HTMLElement | null>,
+  html: string,
+  enabled = true
+): void {
   // v1.5.5: DrawIO 图表渲染（异步加载 viewer.min.js）
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     const drawioBlocks = ref.current.querySelectorAll('pre.language-drawio')
     if (drawioBlocks.length === 0) return
@@ -155,7 +481,7 @@ export function useDrawIOChart(ref: React.RefObject<HTMLElement | null>, html: s
         }
       })
     }
-  }, [html])
+  }, [html, enabled])
 
   // v1.5.5: DrawIO 切换按钮 + 工具栏点击事件处理
   useEffect(() => {
@@ -217,7 +543,11 @@ export function useDrawIOChart(ref: React.RefObject<HTMLElement | null>, html: s
               break
             }
             case 'lightbox':
-              viewer?.showLightbox()
+              rememberDrawioLightboxBodyOverflow()
+              if (viewer) {
+                withDrawioLightboxToolbarCloseDisabled(() => viewer.showLightbox())
+              }
+              window.setTimeout(installDrawioLightboxCloseButton, 0)
               break
           }
         } catch (err) {

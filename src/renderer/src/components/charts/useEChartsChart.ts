@@ -12,7 +12,7 @@ import { useEffect } from 'react'
 import * as echarts from '../../utils/echartsRenderer'
 import { validateEChartsConfig, optimizeEChartsConfig } from '../../utils/echartsRenderer'
 import Prism from 'prismjs'
-import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { createSvgChartActionHandler } from '../../utils/chartUtils'
 
 /**
  * ECharts 图表渲染 Hook
@@ -22,11 +22,12 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  */
 export function useEChartsChart(
   ref: React.RefObject<HTMLElement | null>,
-  html: string
+  html: string,
+  enabled = true
 ): void {
   // v1.5.1: ECharts 图表渲染（支持图表/代码切换）
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     const echartsBlocks = ref.current.querySelectorAll('pre.language-echarts')
     if (echartsBlocks.length === 0) return
@@ -63,6 +64,9 @@ export function useEChartsChart(
         toggleBar.className = 'echarts-toggle-bar no-export'
         toggleBar.innerHTML = `
               <button class="echarts-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="echarts-action-btn" data-action="zoomOut" title="缩小">🔍−</button>
+              <button class="echarts-action-btn" data-action="zoomIn" title="放大">🔍+</button>
+              <button class="echarts-action-btn" data-action="fit" title="适应大小">⊡</button>
               <button class="echarts-action-btn" data-action="download" title="下载图片">💾</button>
               <button class="echarts-action-btn" data-action="fullscreen" title="全屏查看">⛶</button>
             `
@@ -180,90 +184,17 @@ export function useEChartsChart(
       })
       observers.forEach((observer) => observer.disconnect())
     }
-  }, [html])
+  }, [html, enabled])
 
   // v1.5.1: ECharts 切换按钮 + 工具栏点击事件处理
   useEffect(() => {
     if (!ref.current) return
 
-    const handleEchartsClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-
-      // 处理代码视图的「返回图表」按钮
-      const backBtn = target.closest('.echarts-back-btn')
-      if (backBtn) {
-        const wrapper = backBtn.closest('.echarts-wrapper') as HTMLElement
-        if (!wrapper) return
-        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
-        const toggleBar = wrapper.querySelector('.echarts-toggle-bar') as HTMLElement
-        if (chartView) chartView.style.display = ''
-        if (codeViewEl) codeViewEl.style.display = 'none'
-        if (toggleBar) toggleBar.style.display = ''
-        return
-      }
-
-      // 处理工具栏操作按钮
-      const actionBtn = target.closest('.echarts-action-btn')
-      if (actionBtn) {
-        const action = actionBtn.getAttribute('data-action')
-        const wrapper = actionBtn.closest('.echarts-wrapper') as HTMLElement
-        if (!wrapper || !action) return
-
-        const container = wrapper.querySelector('.echarts-container') as HTMLElement
-
-        if (action === 'toggleCode') {
-          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
-          const toggleBar = wrapper.querySelector('.echarts-toggle-bar') as HTMLElement
-          if (chartView) chartView.style.display = 'none'
-          if (codeViewEl) codeViewEl.style.display = ''
-          if (toggleBar) toggleBar.style.display = 'none'
-        } else if (action === 'fullscreen') {
-          if (document.fullscreenElement) {
-            document.exitFullscreen?.()
-          } else {
-            wrapper.requestFullscreen?.()
-            if (container) {
-              const chart = echarts.echarts.getInstanceByDom(container)
-              if (chart) setTimeout(() => chart.resize(), 300)
-            }
-          }
-        } else if (action === 'download') {
-          if (container) {
-            const svg = container.querySelector('svg') as SVGSVGElement
-            if (svg) {
-              downloadSvgAsPng(svg, `echarts-${Date.now()}`)
-            }
-          }
-        }
-        return
-      }
-    }
-
-    // 全屏变化时 resize ECharts
-    const handleFullscreenChange = () => {
-      const fsEl = document.fullscreenElement
-      if (fsEl?.classList.contains('echarts-wrapper')) {
-        const container = fsEl.querySelector('.echarts-container') as HTMLElement
-        if (container) {
-          const chart = echarts.echarts.getInstanceByDom(container)
-          if (chart) setTimeout(() => chart.resize(), 300)
-        }
-      } else {
-        // 退出全屏时也需要 resize
-        ref.current?.querySelectorAll('.echarts-container').forEach((container) => {
-          const chart = echarts.echarts.getInstanceByDom(container as HTMLElement)
-          if (chart) setTimeout(() => chart.resize(), 300)
-        })
-      }
-    }
+    const handleEchartsClick = createSvgChartActionHandler('echarts')
 
     ref.current.addEventListener('click', handleEchartsClick)
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => {
       ref.current?.removeEventListener('click', handleEchartsClick)
-      document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
   }, [html])
 }

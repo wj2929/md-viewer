@@ -12,6 +12,8 @@ const api = {
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
   readExcalidrawFile: (payload: { markdownFilePath: string; refPath: string }) =>
     ipcRenderer.invoke('fs:readExcalidrawFile', payload) as Promise<{ content: string; resolvedPath: string }>,
+  readBpmnFile: (payload: { markdownFilePath: string; refPath: string }) =>
+    ipcRenderer.invoke('fs:readBpmnFile', payload) as Promise<{ content: string; resolvedPath: string }>,
   readFilePreview: (path: string) => ipcRenderer.invoke('fs:readFilePreview', path) as Promise<string>,
   testOpenMarkdownFile: (path: string) =>
     ipcRenderer.invoke('test:openMarkdownFile', path) as Promise<boolean>,
@@ -56,6 +58,10 @@ const api = {
   exportPDF: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:pdf', htmlContent, fileName),
   exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>) =>
     ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown, undefined, docStyle, remoteImages) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>,
+  exportChartsZip: (payload: {
+    markdownFilePath: string
+    images: Array<{ filename: string; pngBase64: string }>
+  }) => ipcRenderer.invoke('export:charts-zip', payload) as Promise<{ filePath?: string; written?: number; canceled?: boolean; error?: string }>,
 
   // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
   renderCodeBlockToPng: (code: string) =>
@@ -74,6 +80,14 @@ const api = {
       width?: number
       height?: number
       error?: string
+    }>,
+
+  renderKrokiSvg: (payload: { format: string; source: string }) =>
+    ipcRenderer.invoke('render:krokiSvg', payload) as Promise<{
+      ok: boolean
+      svg?: string
+      error?: string
+      status?: number
     }>,
 
   testDocxConnection: (serverUrl: string, apiKey?: string) =>
@@ -140,6 +154,7 @@ const api = {
     selectionText?: string
     sourceLine?: number | null
     scrollRatio?: number | null
+    chartCount?: number
     linkHref: string | null
     basePath: string | null
   }) => ipcRenderer.invoke('preview:show-context-menu', params),
@@ -626,6 +641,20 @@ const api = {
     }) => callback(params)
     ipcRenderer.on('markdown:quick-edit', handler)
     return () => ipcRenderer.removeListener('markdown:quick-edit', handler)
+  },
+
+  onExportChartsZipFromPreview: (callback: (params: {
+    filePath: string
+    tabId?: string
+    leafId?: string | null
+  }) => void) => {
+    const handler = (_event: unknown, params: {
+      filePath: string
+      tabId?: string
+      leafId?: string | null
+    }) => callback(params)
+    ipcRenderer.on('markdown:export-charts-zip', handler)
+    return () => ipcRenderer.removeListener('markdown:export-charts-zip', handler)
   },
 
   // v1.3.7：文件树右键菜单事件

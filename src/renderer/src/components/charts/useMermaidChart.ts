@@ -11,7 +11,7 @@
 
 import { useEffect } from 'react'
 import mermaid from 'mermaid'
-import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
 
 // ==================== 模块级状态 ====================
 
@@ -108,11 +108,12 @@ if (typeof window !== 'undefined') {
  */
 export function useMermaidChart(
   ref: React.RefObject<HTMLElement | null>,
-  html: string
+  html: string,
+  enabled = true
 ): void {
   // Mermaid 图表渲染（串行化 + 可取消）
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     // 强制重新初始化 Mermaid，确保预览配置正确
     // （mermaidRenderer.ts 的导出功能会将全局配置覆盖为 strict/htmlLabels:false）
@@ -240,7 +241,7 @@ export function useMermaidChart(
       abortController.abort()
       cleanupMermaidTempElements()
     }
-  }, [html])
+  }, [html, enabled])
 
   // v1.5.5: Mermaid 切换按钮 + 工具栏点击事件处理
   useEffect(() => {
@@ -372,11 +373,7 @@ export function useMermaidChart(
               break
             }
             case 'fullscreen':
-              if (document.fullscreenElement) {
-                document.exitFullscreen?.()
-              } else {
-                wrapper?.requestFullscreen?.()
-              }
+              toggleChartFullscreen(wrapper)
               break
           }
         } catch (err) {

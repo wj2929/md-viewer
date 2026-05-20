@@ -70,6 +70,9 @@ test('server render page produces Mermaid result', async ({ page }) => {
     const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
     expect(result?.status).toMatch(/success|partial/)
     expect(result?.images.some((image: { type: string }) => image.type === 'mermaid')).toBe(true)
+    const mermaidImage = result?.images.find((image: { type: string }) => image.type === 'mermaid')
+    expect(mermaidImage?.blockId).toMatch(/^mdv-mermaid-/)
+    expect(mermaidImage?.sourceIndex).toBe(0)
   } finally {
     await server.close()
   }
@@ -170,6 +173,61 @@ test('server render page produces Excalidraw result from bundle resource', async
     const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
     expect(result?.status).toMatch(/success|partial/)
     expect(result?.images.some((image: { type: string }) => image.type === 'excalidraw')).toBe(true)
+    const excalidrawImage = result?.images.find((image: { type: string }) => image.type === 'excalidraw')
+    expect(excalidrawImage?.blockId).toMatch(/^mdv-excalidraw-/)
+    expect(excalidrawImage?.sourceIndex).toBe(0)
+  } finally {
+    await server.close()
+  }
+})
+
+test('server render page produces BPMN result from bundle resource', async ({ page }) => {
+  const server = await serveOutRenderer()
+  const bpmn = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="Defs_File_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_File_1" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_File_1" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_File_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_File_1" bpmnElement="Process_File_1">
+      <bpmndi:BPMNShape id="StartEvent_File_1_di" bpmnElement="StartEvent_File_1">
+        <dc:Bounds x="156" y="81" width="36" height="36" />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`
+
+  await page.addInitScript((source) => {
+    window.__MDV_RENDER_INPUT__ = {
+      schemaVersion: '1.0',
+      markdown: '# BPMN\n\n![流程](../process.bpmn)',
+      markdownFilePath: 'docs/readme.md',
+      resources: [
+        {
+          path: 'process.bpmn',
+          kind: 'text',
+          content: source,
+          mediaType: 'application/xml',
+          size: source.length,
+        },
+      ],
+      enabledRenderers: ['bpmn'],
+      networkPolicy: 'blocked',
+      timeoutMs: 20000,
+    }
+  }, bpmn)
+
+  try {
+    await page.goto(server.url)
+    await expect.poll(() => page.evaluate(() => window.__MDV_RENDER_DONE__ === true), {
+      timeout: 25000,
+    }).toBe(true)
+
+    const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
+    expect(result?.status).toBe('success')
+    const bpmnImage = result?.images.find((image: { type: string }) => image.type === 'bpmn')
+    expect(bpmnImage?.blockId).toMatch(/^mdv-bpmn-/)
+    expect(bpmnImage?.sourceIndex).toBe(0)
   } finally {
     await server.close()
   }
@@ -403,6 +461,204 @@ data
     const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
     expect(result?.status).toMatch(/success|partial/)
     expect(result?.images.some((image: { type: string }) => image.type === 'infographic')).toBe(true)
+  } finally {
+    await server.close()
+  }
+})
+
+test('server render page produces RendererPlugin results', async ({ page }) => {
+  const server = await serveOutRenderer()
+  const vegaLite = JSON.stringify({
+    data: { values: [{ category: 'A', value: 2 }, { category: 'B', value: 5 }] },
+    mark: 'bar',
+    encoding: {
+      x: { field: 'category', type: 'nominal' },
+      y: { field: 'value', type: 'quantitative' },
+    },
+  })
+  const bpmn = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="Defs_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_1" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="156" y="81" width="36" height="36" />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`
+
+  await page.addInitScript(({ vegaLiteSource, bpmnSource }) => {
+    const originalFetch = window.fetch.bind(window)
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      if (url.includes('/plantuml/svg')) {
+        return new Response('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60"><text>C4</text></svg>', {
+          status: 200,
+          headers: { 'content-type': 'image/svg+xml' },
+        })
+      }
+      return originalFetch(input, init)
+    }
+    window.__MDV_RENDER_INPUT__ = {
+      schemaVersion: '1.0',
+      markdown: [
+        '# RendererPlugin',
+        '',
+        '```vega-lite',
+        vegaLiteSource,
+        '```',
+        '',
+        '```d2',
+        'input -> output',
+        '```',
+        '',
+        '```bpmn',
+        bpmnSource,
+        '```',
+        '',
+        '```wavedrom',
+        "{ signal: [{ name: 'clk', wave: 'p..P' }] }",
+        '```',
+        '',
+        '```c4',
+        '@startuml',
+        'Person(user, "用户")',
+        '@enduml',
+        '```',
+      ].join('\n'),
+      enabledRenderers: ['vega-lite', 'd2', 'bpmn', 'wavedrom', 'c4plantuml'],
+      networkPolicy: 'local-friendly',
+      timeoutMs: 30000,
+    }
+  }, { vegaLiteSource: vegaLite, bpmnSource: bpmn })
+
+  try {
+    await page.goto(server.url)
+    await expect.poll(() => page.evaluate(() => window.__MDV_RENDER_DONE__ === true), {
+      timeout: 35000,
+    }).toBe(true)
+
+    const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
+    expect(result?.status).toBe('success')
+    for (const type of ['vega-lite', 'd2', 'bpmn', 'wavedrom', 'c4plantuml']) {
+      const image = result?.images.find((item: { type: string }) => item.type === type)
+      expect(image?.blockId).toMatch(new RegExp(`^mdv-${type}-`))
+      expect(image?.sourceIndex).toBe(0)
+      expect(image?.widthPx).toBeGreaterThan(0)
+      expect(image?.heightPx).toBeGreaterThan(0)
+    }
+  } finally {
+    await server.close()
+  }
+})
+
+test('server render page keeps disabled RendererPlugin blocks as source', async ({ page }) => {
+  const server = await serveOutRenderer()
+
+  await page.addInitScript(() => {
+    window.__MDV_RENDER_INPUT__ = {
+      schemaVersion: '1.0',
+      markdown: '# D2 disabled\n\n```d2\ninput -> output\n```',
+      enabledRenderers: ['mermaid'],
+      networkPolicy: 'blocked',
+      timeoutMs: 15000,
+    }
+  })
+
+  try {
+    await page.goto(server.url)
+    await expect.poll(() => page.evaluate(() => window.__MDV_RENDER_DONE__ === true), {
+      timeout: 20000,
+    }).toBe(true)
+
+    const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
+    expect(result?.status).toBe('success')
+    expect(result?.stats.totalBlocks).toBe(0)
+    expect(result?.images.some((image: { type: string }) => image.type === 'd2')).toBe(false)
+    await expect(page.locator('pre.language-d2')).toBeVisible()
+  } finally {
+    await server.close()
+  }
+})
+
+test('server render page keeps disabled legacy renderer blocks as source', async ({ page }) => {
+  const server = await serveOutRenderer()
+
+  await page.addInitScript(() => {
+    window.__MDV_RENDER_INPUT__ = {
+      schemaVersion: '1.0',
+      markdown: [
+        '# Legacy disabled',
+        '',
+        '```mermaid',
+        'graph TD',
+        'A --> B',
+        '```',
+        '',
+        '```graphviz',
+        'digraph G { A -> B }',
+        '```',
+      ].join('\n'),
+      enabledRenderers: ['d2'],
+      networkPolicy: 'blocked',
+      timeoutMs: 15000,
+    }
+  })
+
+  try {
+    await page.goto(server.url)
+    await expect.poll(() => page.evaluate(() => window.__MDV_RENDER_DONE__ === true), {
+      timeout: 20000,
+    }).toBe(true)
+
+    const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
+    expect(result?.status).toBe('success')
+    expect(result?.stats.totalBlocks).toBe(0)
+    expect(result?.images.some((image: { type: string }) => image.type === 'mermaid' || image.type === 'graphviz')).toBe(false)
+    await expect(page.locator('pre.language-mermaid')).toBeVisible()
+    await expect(page.locator('pre.language-graphviz')).toBeVisible()
+  } finally {
+    await server.close()
+  }
+})
+
+test('server render page blocks PlantUML based renderers when network policy is blocked', async ({ page }) => {
+  const server = await serveOutRenderer()
+
+  await page.addInitScript(() => {
+    window.__MDV_RENDER_INPUT__ = {
+      schemaVersion: '1.0',
+      markdown: [
+        '# C4 blocked',
+        '',
+        '```c4',
+        '@startuml',
+        'Person(user, "用户")',
+        '@enduml',
+        '```',
+      ].join('\n'),
+      enabledRenderers: ['c4plantuml'],
+      networkPolicy: 'blocked',
+      timeoutMs: 15000,
+    }
+  })
+
+  try {
+    await page.goto(server.url)
+    await expect.poll(() => page.evaluate(() => window.__MDV_RENDER_DONE__ === true), {
+      timeout: 20000,
+    }).toBe(true)
+
+    const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
+    expect(result?.status).toBe('partial')
+    expect(result?.stats.totalBlocks).toBe(1)
+    expect(result?.stats.renderedBlocks).toBe(0)
+    expect(result?.stats.failedBlocks).toBe(1)
+    expect(result?.images.some((image: { type: string }) => image.type === 'c4plantuml')).toBe(false)
+    await expect(page.locator('.c4plantuml-wrapper .plantuml-error')).toBeVisible()
   } finally {
     await server.close()
   }

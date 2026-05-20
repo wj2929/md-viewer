@@ -11,7 +11,7 @@
 import { useEffect } from 'react'
 import { Infographic, validateInfographicConfig } from '../../utils/infographicRenderer'
 import Prism from 'prismjs'
-import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { createSvgChartActionHandler } from '../../utils/chartUtils'
 
 /**
  * Infographic 图表渲染 Hook
@@ -21,11 +21,12 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  */
 export function useInfographicChart(
   ref: React.RefObject<HTMLElement | null>,
-  html: string
+  html: string,
+  enabled = true
 ): void {
   // v1.6.0: Infographic 信息图渲染
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     const infographicBlocks = ref.current.querySelectorAll('pre.language-infographic')
     if (infographicBlocks.length === 0) return
@@ -67,6 +68,9 @@ export function useInfographicChart(
         toggleBar.className = 'infographic-toggle-bar no-export'
         toggleBar.innerHTML = `
               <button class="infographic-action-btn" data-action="toggleCode" title="查看代码">💻</button>
+              <button class="infographic-action-btn" data-action="zoomOut" title="缩小">🔍−</button>
+              <button class="infographic-action-btn" data-action="zoomIn" title="放大">🔍+</button>
+              <button class="infographic-action-btn" data-action="fit" title="适应大小">⊡</button>
               <button class="infographic-action-btn" data-action="download" title="下载图片">💾</button>
               <button class="infographic-action-btn" data-action="fullscreen" title="全屏查看">⛶</button>
             `
@@ -217,59 +221,13 @@ export function useInfographicChart(
         }
       })
     }
-  }, [html])
+  }, [html, enabled])
 
   // v1.6.0: Infographic 切换按钮 + 工具栏点击事件处理
   useEffect(() => {
     if (!ref.current) return
 
-    const handleInfographicClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-
-      // 处理代码视图的「返回图表」按钮
-      const backBtn = target.closest('.infographic-back-btn')
-      if (backBtn) {
-        const wrapper = backBtn.closest('.infographic-wrapper') as HTMLElement
-        if (!wrapper) return
-        const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-        const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
-        const toggleBar = wrapper.querySelector('.infographic-toggle-bar') as HTMLElement
-        if (chartView) chartView.style.display = ''
-        if (codeViewEl) codeViewEl.style.display = 'none'
-        if (toggleBar) toggleBar.style.display = ''
-        return
-      }
-
-      // 处理工具栏操作按钮
-      const actionBtn = target.closest('.infographic-action-btn')
-      if (actionBtn) {
-        const action = actionBtn.getAttribute('data-action')
-        const wrapper = actionBtn.closest('.infographic-wrapper') as HTMLElement
-        if (!wrapper || !action) return
-
-        if (action === 'toggleCode') {
-          const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
-          const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
-          const toggleBar = wrapper.querySelector('.infographic-toggle-bar') as HTMLElement
-          if (chartView) chartView.style.display = 'none'
-          if (codeViewEl) codeViewEl.style.display = ''
-          if (toggleBar) toggleBar.style.display = 'none'
-        } else if (action === 'fullscreen') {
-          if (document.fullscreenElement) {
-            document.exitFullscreen?.()
-          } else {
-            wrapper.requestFullscreen?.()
-          }
-        } else if (action === 'download') {
-          const container = wrapper.querySelector('.infographic-container') as HTMLElement
-          const svg = container?.querySelector('svg') as SVGSVGElement
-          if (svg) {
-            downloadSvgAsPng(svg, `infographic-${Date.now()}`)
-          }
-        }
-        return
-      }
-    }
+    const handleInfographicClick = createSvgChartActionHandler('infographic')
 
     ref.current.addEventListener('click', handleInfographicClick)
     return () => ref.current?.removeEventListener('click', handleInfographicClick)

@@ -11,7 +11,7 @@
 import { useEffect } from 'react'
 import { Transformer, Markmap, deriveOptions, validateMarkmapCode } from '../../utils/markmapRenderer'
 import Prism from 'prismjs'
-import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
 
 /**
  * Markmap 思维导图渲染 Hook
@@ -19,10 +19,14 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  * @param ref - 容器元素引用
  * @param html - Markdown 渲染后的 HTML 内容
  */
-export function useMarkmapChart(ref: React.RefObject<HTMLElement | null>, html: string): void {
+export function useMarkmapChart(
+  ref: React.RefObject<HTMLElement | null>,
+  html: string,
+  enabled = true
+): void {
   // v1.5.4: Markmap 思维导图渲染
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     const markmapBlocks = ref.current.querySelectorAll('pre.language-markmap')
     if (markmapBlocks.length === 0) return
@@ -158,7 +162,7 @@ export function useMarkmapChart(ref: React.RefObject<HTMLElement | null>, html: 
         }
       })
     }
-  }, [html])
+  }, [html, enabled])
 
   // v1.5.4: Markmap 切换按钮 + 工具栏点击事件处理
   useEffect(() => {
@@ -219,13 +223,7 @@ export function useMarkmapChart(ref: React.RefObject<HTMLElement | null>, html: 
               break
             }
             case 'fullscreen':
-              if (document.fullscreenElement) {
-                document.exitFullscreen?.()
-              } else {
-                wrapper?.requestFullscreen?.()
-                // 全屏后重新 fit
-                setTimeout(() => mm?.fit(), 300)
-              }
+              toggleChartFullscreen(wrapper)
               break
           }
         } catch (err) {

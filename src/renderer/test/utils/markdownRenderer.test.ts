@@ -60,6 +60,24 @@ describe('markdownRenderer 工具函数测试', () => {
       expect(result).toContain('Link</a>')
     })
 
+    it('应该将本地 BPMN 图片引用直接渲染为占位符，避免浏览器按图片请求 .bpmn 文件', () => {
+      const result = sanitizeHtml(md.render('![订单流程](process.bpmn)'))
+
+      expect(result).toContain('class="bpmn-file-placeholder"')
+      expect(result).toContain('data-bpmn-src="process.bpmn"')
+      expect(result).not.toContain('<img')
+      expect(result).not.toContain('<img src="process.bpmn"')
+    })
+
+    it('应该将本地 Excalidraw 图片引用直接渲染为占位符，避免浏览器按图片请求 .excalidraw 文件', () => {
+      const result = sanitizeHtml(md.render('![草图](diagram.excalidraw)'))
+
+      expect(result).toContain('class="excalidraw-file-placeholder"')
+      expect(result).toContain('data-excalidraw-src="diagram.excalidraw"')
+      expect(result).not.toContain('<img')
+      expect(result).not.toContain('<img src="diagram.excalidraw"')
+    })
+
     it('应该渲染列表', () => {
       const result = md.render('- Item 1\n- Item 2')
       expect(result).toContain('<ul>')
@@ -173,6 +191,35 @@ describe('markdownRenderer 工具函数测试', () => {
       const code = '```puml\n@startuml\nA -> B\n@enduml\n```'
       const result = md.render(code)
       expect(result).toContain('language-plantuml')
+    })
+
+    it('应该将 dot 代码块标记为 language-graphviz', () => {
+      const code = '```dot\ndigraph G { A -> B }\n```'
+      const result = md.render(code)
+      expect(result).toContain('language-graphviz')
+      expect(result).not.toContain('language-dot')
+    })
+
+    it('应该将新增渲染器别名归一为 canonical language class', () => {
+      expect(md.render('```vegalite\n{"data":{"values":[]},"mark":"bar"}\n```')).toContain('language-vega-lite')
+      expect(md.render('```d2\na -> b\n```')).toContain('language-d2')
+      expect(md.render('```bpmn\n<definitions />\n```')).toContain('language-bpmn')
+      expect(md.render('```wavedrom\n{ signal: [] }\n```')).toContain('language-wavedrom')
+      expect(md.render('```c4\n@startuml\n@enduml\n```')).toContain('language-c4plantuml')
+      expect(md.render('```structurizr-dsl\nworkspace "x" {}\n```')).toContain('language-structurizr')
+      expect(md.render('```plotly-json\n{"data":[]}\n```')).toContain('language-plotly')
+      expect(md.render('```g6\n{"nodes":[]}\n```')).toContain('language-antv-g6')
+      expect(md.render('```nomnoml\n[A]->[B]\n```')).toContain('language-kroki')
+      expect(md.render('```nomnoml\n[A]->[B]\n```')).toContain('data-renderer-language="nomnoml"')
+    })
+
+    it('DOMPurify 应该保留新增渲染器 language class', () => {
+      const html = sanitizeHtml(md.render('```vega-lite\n{"data":{"values":[]},"mark":"bar"}\n```\n\n```c4\n@startuml\n@enduml\n```\n\n```nomnoml\n[A]->[B]\n```'))
+
+      expect(html).toContain('language-vega-lite')
+      expect(html).toContain('language-c4plantuml')
+      expect(html).toContain('language-kroki')
+      expect(html).toContain('data-renderer-language="nomnoml"')
     })
 
     it('应该转义 plantuml 代码块中的特殊字符', () => {

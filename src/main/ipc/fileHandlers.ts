@@ -568,6 +568,54 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
+  ipcMain.handle('fs:readBpmnFile', async (_, payload: {
+    markdownFilePath: string
+    refPath: string
+  }) => {
+    const markdownFilePath = payload?.markdownFilePath
+    const refPath = payload?.refPath
+
+    if (!markdownFilePath || !refPath) {
+      throw new Error('缺少 BPMN 文件读取参数')
+    }
+    const hasUrlScheme = /^[a-z][a-z0-9+.-]*:/i.test(refPath)
+    const isWindowsAbsolutePath = /^[a-z]:[\\/]/i.test(refPath)
+    if (hasUrlScheme && !isWindowsAbsolutePath) {
+      throw new Error('不支持 URL 形式的 .bpmn 文件')
+    }
+
+    validateSecurePath(markdownFilePath)
+
+    const cleanRefPath = refPath.split(/[?#]/, 1)[0] || refPath
+    const markdownDir = path.dirname(markdownFilePath)
+    const candidatePath = path.isAbsolute(cleanRefPath)
+      ? path.resolve(cleanRefPath)
+      : path.resolve(markdownDir, cleanRefPath)
+
+    if (path.extname(candidatePath).toLowerCase() !== '.bpmn') {
+      throw new Error('只能读取 .bpmn 文件')
+    }
+
+    const resolvedPath = await fs.realpath(candidatePath)
+    if (path.extname(resolvedPath).toLowerCase() !== '.bpmn') {
+      throw new Error('只能读取 .bpmn 文件')
+    }
+    validateSecurePath(resolvedPath)
+
+    const stats = await fs.stat(resolvedPath)
+    if (!stats.isFile()) {
+      throw new Error('目标不是普通文件')
+    }
+    if (stats.size > 2 * 1024 * 1024) {
+      throw new Error('BPMN 文件超过 2MB，未读取')
+    }
+
+    return {
+      content: await fs.readFile(resolvedPath, 'utf-8'),
+      resolvedPath,
+    }
+  })
+
   // 打开可编辑 Markdown：读取内容，返回规范路径和文件版本信息，并授权当前窗口保存
   ipcMain.handle('fs:openEditableMarkdown', async (event, filePath: string) => {
     validateSecurePath(filePath)

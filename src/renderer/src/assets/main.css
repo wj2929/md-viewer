@@ -2578,6 +2578,67 @@ body {
   color: #ef4444;
 }
 
+.renderer-capability-panel {
+  margin-top: 12px;
+}
+
+.renderer-capability-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.renderer-capability-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.renderer-capability-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.renderer-capability-table th,
+.renderer-capability-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.renderer-capability-table thead th {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.renderer-capability-table tbody tr:last-child th,
+.renderer-capability-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.renderer-capability-state {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.renderer-capability-state-supported {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.renderer-capability-state-needs-setup {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+}
+
 .guide-note-muted {
   font-size: 12px;
   color: var(--text-secondary, #999);
@@ -3681,6 +3742,15 @@ pre:hover .copy-btn,
 .infographic-code-view:hover .copy-btn,
 .markmap-code-view:hover .copy-btn,
 .graphviz-code-view:hover .copy-btn,
+.vega-lite-code-view:hover .copy-btn,
+.d2-code-view:hover .copy-btn,
+.bpmn-code-view:hover .copy-btn,
+.wavedrom-code-view:hover .copy-btn,
+.structurizr-code-view:hover .copy-btn,
+.plotly-code-view:hover .copy-btn,
+.dbml-code-view:hover .copy-btn,
+.antv-g6-code-view:hover .copy-btn,
+.kroki-code-view:hover .copy-btn,
 .drawio-code-view:hover .copy-btn,
 .plantuml-code-view:hover .copy-btn,
 .excalidraw-code-view:hover .copy-btn {
@@ -3716,6 +3786,15 @@ pre:hover .copy-btn,
 .infographic-back-btn,
 .markmap-back-btn,
 .graphviz-back-btn,
+.vega-lite-back-btn,
+.d2-back-btn,
+.bpmn-back-btn,
+.wavedrom-back-btn,
+.structurizr-back-btn,
+.plotly-back-btn,
+.dbml-back-btn,
+.antv-g6-back-btn,
+.kroki-back-btn,
 .drawio-back-btn,
 .plantuml-back-btn,
 .excalidraw-back-btn {
@@ -3741,6 +3820,15 @@ pre:hover .copy-btn,
 .infographic-code-view:hover .infographic-back-btn,
 .markmap-code-view:hover .markmap-back-btn,
 .graphviz-code-view:hover .graphviz-back-btn,
+.vega-lite-code-view:hover .vega-lite-back-btn,
+.d2-code-view:hover .d2-back-btn,
+.bpmn-code-view:hover .bpmn-back-btn,
+.wavedrom-code-view:hover .wavedrom-back-btn,
+.structurizr-code-view:hover .structurizr-back-btn,
+.plotly-code-view:hover .plotly-back-btn,
+.dbml-code-view:hover .dbml-back-btn,
+.antv-g6-code-view:hover .antv-g6-back-btn,
+.kroki-code-view:hover .kroki-back-btn,
 .drawio-code-view:hover .drawio-back-btn,
 .plantuml-code-view:hover .plantuml-back-btn,
 .excalidraw-code-view:hover .excalidraw-back-btn {
@@ -3753,6 +3841,15 @@ pre:hover .copy-btn,
 .infographic-back-btn:hover,
 .markmap-back-btn:hover,
 .graphviz-back-btn:hover,
+.vega-lite-back-btn:hover,
+.d2-back-btn:hover,
+.bpmn-back-btn:hover,
+.wavedrom-back-btn:hover,
+.structurizr-back-btn:hover,
+.plotly-back-btn:hover,
+.dbml-back-btn:hover,
+.antv-g6-back-btn:hover,
+.kroki-back-btn:hover,
 .drawio-back-btn:hover,
 .plantuml-back-btn:hover,
 .excalidraw-back-btn:hover {
@@ -3905,6 +4002,322 @@ pre:hover .copy-btn,
   .echarts-container {
     display: block !important;
   }
+}
+
+/* ============================================
+   RendererPlugin 图表样式
+   ============================================ */
+
+.vega-lite-wrapper,
+.d2-wrapper,
+.bpmn-wrapper,
+.wavedrom-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  margin: 1.5em 0;
+  border-radius: 6px;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.vega-lite-wrapper.zoomed-wrapper,
+.d2-wrapper.zoomed-wrapper,
+.bpmn-wrapper.zoomed-wrapper,
+.wavedrom-wrapper.zoomed-wrapper,
+.c4plantuml-wrapper.zoomed-wrapper {
+  overflow: auto;
+}
+
+.vega-lite-wrapper .vega-lite-container,
+.d2-wrapper .d2-container,
+.bpmn-wrapper .bpmn-container,
+.wavedrom-wrapper .wavedrom-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 16px;
+  background: var(--bg-primary);
+}
+
+.vega-lite-wrapper .vega-lite-container svg,
+.d2-wrapper .d2-container svg,
+.bpmn-wrapper .bpmn-container svg,
+.wavedrom-wrapper .wavedrom-container svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.vega-lite-wrapper .vega-lite-container svg,
+.d2-wrapper .d2-container svg,
+.bpmn-wrapper .bpmn-container svg,
+.wavedrom-wrapper .wavedrom-container svg {
+  max-height: 70vh;
+}
+
+.vega-lite-toggle-bar,
+.d2-toggle-bar,
+.bpmn-toggle-bar,
+.wavedrom-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.vega-lite-action-btn,
+.d2-action-btn,
+.bpmn-action-btn,
+.wavedrom-action-btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.vega-lite-action-btn:hover,
+.d2-action-btn:hover,
+.bpmn-action-btn:hover,
+.wavedrom-action-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.vega-lite-action-btn:active,
+.d2-action-btn:active,
+.bpmn-action-btn:active,
+.wavedrom-action-btn:active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.vega-lite-code-view,
+.d2-code-view,
+.bpmn-code-view,
+.wavedrom-code-view {
+  width: 100%;
+  max-height: 600px;
+  overflow: auto;
+  position: relative;
+  background: var(--code-block-bg);
+  border-top: 1px solid var(--border-color);
+}
+
+.vega-lite-code-view pre,
+.d2-code-view pre,
+.bpmn-code-view pre,
+.wavedrom-code-view pre {
+  margin: 0;
+  padding: 48px 16px 16px;
+  background: var(--code-block-bg);
+  border-radius: 0;
+  border: none;
+  max-height: 600px;
+}
+
+.markdown-body .vega-lite-code-view pre,
+.markdown-body .d2-code-view pre,
+.markdown-body .bpmn-code-view pre,
+.markdown-body .wavedrom-code-view pre {
+  padding: 48px 16px 16px;
+  background: var(--code-block-bg);
+  border-radius: 0;
+  border: none;
+}
+
+.vega-lite-code-view code,
+.d2-code-view code,
+.bpmn-code-view code,
+.wavedrom-code-view code {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.structurizr-wrapper,
+.plotly-wrapper,
+.dbml-wrapper,
+.antv-g6-wrapper,
+.kroki-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  margin: 1.5em 0;
+  border-radius: 6px;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.structurizr-wrapper.zoomed-wrapper,
+.plotly-wrapper.zoomed-wrapper,
+.dbml-wrapper.zoomed-wrapper,
+.antv-g6-wrapper.zoomed-wrapper,
+.kroki-wrapper.zoomed-wrapper {
+  overflow: auto;
+}
+
+.kroki-wrapper {
+  overflow: visible;
+}
+
+.structurizr-wrapper .structurizr-container,
+.plotly-wrapper .plotly-container,
+.dbml-wrapper .dbml-container,
+.antv-g6-wrapper .antv-g6-container,
+.kroki-wrapper .kroki-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  padding: 16px;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.structurizr-wrapper .structurizr-container svg,
+.plotly-wrapper .plotly-container svg,
+.dbml-wrapper .dbml-container svg,
+.antv-g6-wrapper .antv-g6-container svg,
+.kroki-wrapper .kroki-container svg {
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  display: block;
+}
+
+.structurizr-toggle-bar,
+.plotly-toggle-bar,
+.dbml-toggle-bar,
+.antv-g6-toggle-bar,
+.kroki-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.structurizr-action-btn,
+.plotly-action-btn,
+.dbml-action-btn,
+.antv-g6-action-btn,
+.kroki-action-btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.structurizr-action-btn:hover,
+.plotly-action-btn:hover,
+.dbml-action-btn:hover,
+.antv-g6-action-btn:hover,
+.kroki-action-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.structurizr-action-btn:active,
+.plotly-action-btn:active,
+.dbml-action-btn:active,
+.antv-g6-action-btn:active,
+.kroki-action-btn:active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.structurizr-code-view,
+.plotly-code-view,
+.dbml-code-view,
+.antv-g6-code-view,
+.kroki-code-view {
+  width: 100%;
+  max-height: 600px;
+  overflow: auto;
+  position: relative;
+  background: var(--code-block-bg);
+  border-top: 1px solid var(--border-color);
+}
+
+.structurizr-code-view pre,
+.plotly-code-view pre,
+.dbml-code-view pre,
+.antv-g6-code-view pre,
+.kroki-code-view pre,
+.markdown-body .structurizr-code-view pre,
+.markdown-body .plotly-code-view pre,
+.markdown-body .dbml-code-view pre,
+.markdown-body .antv-g6-code-view pre,
+.markdown-body .kroki-code-view pre {
+  margin: 0;
+  padding: 48px 16px 16px;
+  background: var(--code-block-bg);
+  border-radius: 0;
+  border: none;
+  max-height: 600px;
+}
+
+.structurizr-code-view code,
+.plotly-code-view code,
+.dbml-code-view code,
+.antv-g6-code-view code,
+.kroki-code-view code {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.c4plantuml-wrapper {
+  position: relative;
+  width: 100%;
+  margin: 1.5em 0;
+  border-radius: 6px;
+  border: none;
+  overflow: visible;
+  background: var(--bg-primary);
+}
+
+.c4plantuml-wrapper .plantuml-container {
+  display: inline-flex;
+  min-width: 100%;
+  padding: 16px;
+  background: var(--bg-primary);
+  overflow: visible;
+  border-radius: 0;
+  justify-content: center;
+}
+
+.c4plantuml-wrapper .plantuml-container svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.c4plantuml-wrapper:hover .plantuml-toggle-bar,
+.c4plantuml-wrapper:focus-within .plantuml-toggle-bar {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ============================================
@@ -4654,6 +5067,67 @@ body[data-platform="darwin"] .app.fullscreen::before {
   border-color: var(--accent-color);
 }
 
+.drawio-lightbox-close,
+.chart-lightbox-close {
+  position: fixed;
+  z-index: 1001 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+.drawio-lightbox-close::before,
+.chart-lightbox-close::before {
+  content: '';
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #000000;
+  pointer-events: none;
+}
+
+.drawio-lightbox-close::after,
+.chart-lightbox-close::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background:
+    linear-gradient(45deg, transparent 43%, #ffffff 44%, #ffffff 56%, transparent 57%),
+    linear-gradient(-45deg, transparent 43%, #ffffff 44%, #ffffff 56%, transparent 57%);
+  pointer-events: none;
+}
+
+.drawio-lightbox-close:not(.drawio-lightbox-close-fallback):focus-visible,
+.chart-lightbox-close:focus-visible {
+  border-radius: 50%;
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.chart-lightbox-close {
+  top: 17px;
+  right: 17px;
+  z-index: 10002 !important;
+}
+
+.drawio-lightbox-close-fallback {
+  top: 10px;
+  right: 10px;
+}
+
+.drawio-lightbox-close-fallback:hover,
+.drawio-lightbox-close-fallback:focus-visible {
+  outline: none;
+}
+
 /* 图表容器 */
 .drawio-wrapper .drawio-container {
   width: 100%;
@@ -4946,6 +5420,15 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .infographic-toggle-bar,
 .markmap-toggle-bar,
 .graphviz-toggle-bar,
+.vega-lite-toggle-bar,
+.d2-toggle-bar,
+.bpmn-toggle-bar,
+.wavedrom-toggle-bar,
+.structurizr-toggle-bar,
+.plotly-toggle-bar,
+.dbml-toggle-bar,
+.antv-g6-toggle-bar,
+.kroki-toggle-bar,
 .drawio-toggle-bar,
 .plantuml-toggle-bar,
 .excalidraw-toggle-bar {
@@ -4964,6 +5447,15 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .infographic-wrapper:hover .infographic-toggle-bar,
 .markmap-wrapper:hover .markmap-toggle-bar,
 .graphviz-wrapper:hover .graphviz-toggle-bar,
+.vega-lite-wrapper:hover .vega-lite-toggle-bar,
+.d2-wrapper:hover .d2-toggle-bar,
+.bpmn-wrapper:hover .bpmn-toggle-bar,
+.wavedrom-wrapper:hover .wavedrom-toggle-bar,
+.structurizr-wrapper:hover .structurizr-toggle-bar,
+.plotly-wrapper:hover .plotly-toggle-bar,
+.dbml-wrapper:hover .dbml-toggle-bar,
+.antv-g6-wrapper:hover .antv-g6-toggle-bar,
+.kroki-wrapper:hover .kroki-toggle-bar,
 .drawio-wrapper:hover .drawio-toggle-bar,
 .plantuml-wrapper:hover .plantuml-toggle-bar,
 .excalidraw-wrapper:hover .excalidraw-toggle-bar,
@@ -4972,6 +5464,15 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .infographic-wrapper:focus-within .infographic-toggle-bar,
 .markmap-wrapper:focus-within .markmap-toggle-bar,
 .graphviz-wrapper:focus-within .graphviz-toggle-bar,
+.vega-lite-wrapper:focus-within .vega-lite-toggle-bar,
+.d2-wrapper:focus-within .d2-toggle-bar,
+.bpmn-wrapper:focus-within .bpmn-toggle-bar,
+.wavedrom-wrapper:focus-within .wavedrom-toggle-bar,
+.structurizr-wrapper:focus-within .structurizr-toggle-bar,
+.plotly-wrapper:focus-within .plotly-toggle-bar,
+.dbml-wrapper:focus-within .dbml-toggle-bar,
+.antv-g6-wrapper:focus-within .antv-g6-toggle-bar,
+.kroki-wrapper:focus-within .kroki-toggle-bar,
 .drawio-wrapper:focus-within .drawio-toggle-bar,
 .plantuml-wrapper:focus-within .plantuml-toggle-bar,
 .excalidraw-wrapper:focus-within .excalidraw-toggle-bar {
@@ -4989,10 +5490,20 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .infographic-wrapper:fullscreen,
 .markmap-wrapper:fullscreen,
 .graphviz-wrapper:fullscreen,
+.vega-lite-wrapper:fullscreen,
+.d2-wrapper:fullscreen,
+.bpmn-wrapper:fullscreen,
+.wavedrom-wrapper:fullscreen,
 .drawio-wrapper:fullscreen,
 .plantuml-wrapper:fullscreen,
+.c4plantuml-wrapper:fullscreen,
 .excalidraw-wrapper:fullscreen {
   background: var(--bg-primary);
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  overflow: auto;
   padding: 0;
 }
 
@@ -5002,8 +5513,13 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .infographic-wrapper:fullscreen .infographic-toggle-bar,
 .markmap-wrapper:fullscreen .markmap-toggle-bar,
 .graphviz-wrapper:fullscreen .graphviz-toggle-bar,
+.vega-lite-wrapper:fullscreen .vega-lite-toggle-bar,
+.d2-wrapper:fullscreen .d2-toggle-bar,
+.bpmn-wrapper:fullscreen .bpmn-toggle-bar,
+.wavedrom-wrapper:fullscreen .wavedrom-toggle-bar,
 .drawio-wrapper:fullscreen .drawio-toggle-bar,
 .plantuml-wrapper:fullscreen .plantuml-toggle-bar,
+.c4plantuml-wrapper:fullscreen .plantuml-toggle-bar,
 .excalidraw-wrapper:fullscreen .excalidraw-toggle-bar {
   position: fixed;
   top: 8px;
@@ -5015,11 +5531,19 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 
 .mermaid-wrapper:fullscreen .mermaid-container,
 .graphviz-wrapper:fullscreen .graphviz-container,
+.vega-lite-wrapper:fullscreen .vega-lite-container,
+.d2-wrapper:fullscreen .d2-container,
+.bpmn-wrapper:fullscreen .bpmn-container,
+.wavedrom-wrapper:fullscreen .wavedrom-container,
 .plantuml-wrapper:fullscreen .plantuml-container,
+.c4plantuml-wrapper:fullscreen .plantuml-container,
 .excalidraw-wrapper:fullscreen .excalidraw-container {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
   height: calc(100vh - 50px);
   overflow: auto;
 }
@@ -5030,7 +5554,12 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .infographic-wrapper:fullscreen .infographic-code-view,
 .markmap-wrapper:fullscreen .markmap-code-view,
 .graphviz-wrapper:fullscreen .graphviz-code-view,
+.vega-lite-wrapper:fullscreen .vega-lite-code-view,
+.d2-wrapper:fullscreen .d2-code-view,
+.bpmn-wrapper:fullscreen .bpmn-code-view,
+.wavedrom-wrapper:fullscreen .wavedrom-code-view,
 .plantuml-wrapper:fullscreen .plantuml-code-view,
+.c4plantuml-wrapper:fullscreen .plantuml-code-view,
 .excalidraw-wrapper:fullscreen .excalidraw-code-view {
   max-height: calc(100vh - 50px);
 }
@@ -5038,12 +5567,431 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 /* 全屏模式下 SVG 保持宽高比，不拉伸 */
 .mermaid-wrapper:fullscreen .mermaid-container svg,
 .graphviz-wrapper:fullscreen .graphviz-container svg,
+.vega-lite-wrapper:fullscreen .vega-lite-container svg,
+.d2-wrapper:fullscreen .d2-container svg,
+.bpmn-wrapper:fullscreen .bpmn-container svg,
+.wavedrom-wrapper:fullscreen .wavedrom-container svg,
 .plantuml-wrapper:fullscreen .plantuml-container svg,
+.c4plantuml-wrapper:fullscreen .plantuml-container svg,
 .excalidraw-wrapper:fullscreen .excalidraw-container svg {
   max-height: calc(100vh - 82px);
   width: auto;
   height: auto;
   object-fit: contain;
+}
+
+.vega-lite-wrapper:fullscreen .vega-lite-container svg,
+.d2-wrapper:fullscreen .d2-container svg,
+.bpmn-wrapper:fullscreen .bpmn-container svg,
+.wavedrom-wrapper:fullscreen .wavedrom-container svg,
+.c4plantuml-wrapper:fullscreen .plantuml-container svg {
+  width: auto !important;
+  height: auto !important;
+  max-width: min(88vw, calc(100vw - clamp(56px, 8vw, 144px)), 2800px) !important;
+  max-height: calc(100vh - clamp(120px, 16vh, 190px)) !important;
+}
+
+.c4plantuml-wrapper:fullscreen .plantuml-container svg {
+  transform: none !important;
+  transform-origin: center center !important;
+}
+
+body.chart-fullscreen-active {
+  overflow: hidden;
+}
+
+.mermaid-wrapper.chart-fullscreen,
+.echarts-wrapper.chart-fullscreen,
+.infographic-wrapper.chart-fullscreen,
+.markmap-wrapper.chart-fullscreen,
+.graphviz-wrapper.chart-fullscreen,
+.vega-lite-wrapper.chart-fullscreen,
+.d2-wrapper.chart-fullscreen,
+.bpmn-wrapper.chart-fullscreen,
+.wavedrom-wrapper.chart-fullscreen,
+.plantuml-wrapper.chart-fullscreen,
+.c4plantuml-wrapper.chart-fullscreen,
+.excalidraw-wrapper.chart-fullscreen {
+  --chart-lightbox-margin: clamp(20px, 4vmin, 40px);
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  margin: 0;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 0;
+}
+
+.mermaid-wrapper.chart-fullscreen .mermaid-toggle-bar,
+.echarts-wrapper.chart-fullscreen .echarts-toggle-bar,
+.infographic-wrapper.chart-fullscreen .infographic-toggle-bar,
+.markmap-wrapper.chart-fullscreen .markmap-toggle-bar,
+.graphviz-wrapper.chart-fullscreen .graphviz-toggle-bar,
+.vega-lite-wrapper.chart-fullscreen .vega-lite-toggle-bar,
+.d2-wrapper.chart-fullscreen .d2-toggle-bar,
+.bpmn-wrapper.chart-fullscreen .bpmn-toggle-bar,
+.wavedrom-wrapper.chart-fullscreen .wavedrom-toggle-bar,
+.plantuml-wrapper.chart-fullscreen .plantuml-toggle-bar,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-toggle-bar,
+.excalidraw-wrapper.chart-fullscreen .excalidraw-toggle-bar {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: 60px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 104px);
+  padding: 10px 10px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 16px;
+  border: 0;
+  background-color: rgb(0, 0, 0);
+  box-shadow: none;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 600ms ease-in-out;
+}
+
+.mermaid-wrapper.chart-fullscreen .mermaid-action-btn,
+.echarts-wrapper.chart-fullscreen .echarts-action-btn,
+.infographic-wrapper.chart-fullscreen .infographic-action-btn,
+.markmap-wrapper.chart-fullscreen .markmap-action-btn,
+.graphviz-wrapper.chart-fullscreen .graphviz-action-btn,
+.vega-lite-wrapper.chart-fullscreen .vega-lite-action-btn,
+.d2-wrapper.chart-fullscreen .d2-action-btn,
+.bpmn-wrapper.chart-fullscreen .bpmn-action-btn,
+.wavedrom-wrapper.chart-fullscreen .wavedrom-action-btn,
+.plantuml-wrapper.chart-fullscreen .plantuml-action-btn,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-action-btn,
+.excalidraw-wrapper.chart-fullscreen .excalidraw-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 52px;
+  min-width: 52px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 36px;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.mermaid-wrapper.chart-fullscreen .mermaid-action-btn img,
+.echarts-wrapper.chart-fullscreen .echarts-action-btn img,
+.infographic-wrapper.chart-fullscreen .infographic-action-btn img,
+.markmap-wrapper.chart-fullscreen .markmap-action-btn img,
+.graphviz-wrapper.chart-fullscreen .graphviz-action-btn img,
+.vega-lite-wrapper.chart-fullscreen .vega-lite-action-btn img,
+.d2-wrapper.chart-fullscreen .d2-action-btn img,
+.bpmn-wrapper.chart-fullscreen .bpmn-action-btn img,
+.wavedrom-wrapper.chart-fullscreen .wavedrom-action-btn img,
+.plantuml-wrapper.chart-fullscreen .plantuml-action-btn img,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-action-btn img,
+.excalidraw-wrapper.chart-fullscreen .excalidraw-action-btn img {
+  width: 36px;
+  height: 36px;
+  display: block;
+  filter: invert(100%);
+  pointer-events: none;
+}
+
+.mermaid-wrapper.chart-fullscreen .mermaid-action-btn:hover,
+.echarts-wrapper.chart-fullscreen .echarts-action-btn:hover,
+.infographic-wrapper.chart-fullscreen .infographic-action-btn:hover,
+.markmap-wrapper.chart-fullscreen .markmap-action-btn:hover,
+.graphviz-wrapper.chart-fullscreen .graphviz-action-btn:hover,
+.vega-lite-wrapper.chart-fullscreen .vega-lite-action-btn:hover,
+.d2-wrapper.chart-fullscreen .d2-action-btn:hover,
+.bpmn-wrapper.chart-fullscreen .bpmn-action-btn:hover,
+.wavedrom-wrapper.chart-fullscreen .wavedrom-action-btn:hover,
+.plantuml-wrapper.chart-fullscreen .plantuml-action-btn:hover,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-action-btn:hover,
+.excalidraw-wrapper.chart-fullscreen .excalidraw-action-btn:hover {
+  background: transparent;
+  color: #ffffff;
+  opacity: 0.78;
+}
+
+.mermaid-wrapper.chart-fullscreen .mermaid-container,
+.echarts-wrapper.chart-fullscreen .echarts-container,
+.infographic-wrapper.chart-fullscreen .infographic-container,
+.markmap-wrapper.chart-fullscreen .markmap-container,
+.graphviz-wrapper.chart-fullscreen .graphviz-container,
+.vega-lite-wrapper.chart-fullscreen .vega-lite-container,
+.d2-wrapper.chart-fullscreen .d2-container,
+.bpmn-wrapper.chart-fullscreen .bpmn-container,
+.wavedrom-wrapper.chart-fullscreen .wavedrom-container,
+.plantuml-wrapper.chart-fullscreen .plantuml-container,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-container,
+.excalidraw-wrapper.chart-fullscreen .excalidraw-container {
+  position: absolute;
+  inset: var(--chart-lightbox-margin);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: auto !important;
+  max-width: none;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 0;
+  padding: 32px 32px 112px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgb(192, 192, 192);
+  border-radius: 4px;
+  background: var(--bg-primary);
+}
+
+.mermaid-wrapper.chart-fullscreen .mermaid-code-view,
+.echarts-wrapper.chart-fullscreen .echarts-code-view,
+.infographic-wrapper.chart-fullscreen .infographic-code-view,
+.markmap-wrapper.chart-fullscreen .markmap-code-view,
+.graphviz-wrapper.chart-fullscreen .graphviz-code-view,
+.vega-lite-wrapper.chart-fullscreen .vega-lite-code-view,
+.d2-wrapper.chart-fullscreen .d2-code-view,
+.bpmn-wrapper.chart-fullscreen .bpmn-code-view,
+.wavedrom-wrapper.chart-fullscreen .wavedrom-code-view,
+.plantuml-wrapper.chart-fullscreen .plantuml-code-view,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-code-view,
+.excalidraw-wrapper.chart-fullscreen .excalidraw-code-view {
+  max-height: calc(100vh - 50px);
+}
+
+.mermaid-wrapper.chart-fullscreen .mermaid-container svg,
+.echarts-wrapper.chart-fullscreen .echarts-container svg,
+.infographic-wrapper.chart-fullscreen .infographic-container svg,
+.markmap-wrapper.chart-fullscreen .markmap-container svg,
+.graphviz-wrapper.chart-fullscreen .graphviz-container svg,
+.vega-lite-wrapper.chart-fullscreen .vega-lite-container svg,
+.d2-wrapper.chart-fullscreen .d2-container svg,
+.bpmn-wrapper.chart-fullscreen .bpmn-container svg,
+.wavedrom-wrapper.chart-fullscreen .wavedrom-container svg,
+.plantuml-wrapper.chart-fullscreen .plantuml-container svg,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-container svg,
+.excalidraw-wrapper.chart-fullscreen .excalidraw-container svg {
+  width: var(--chart-fullscreen-svg-width, auto) !important;
+  height: var(--chart-fullscreen-svg-height, auto) !important;
+  max-width: 100% !important;
+  max-height: calc(100vh - clamp(120px, 16vh, 190px)) !important;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.mermaid-wrapper.chart-fullscreen.zoomed-wrapper .mermaid-container,
+.echarts-wrapper.chart-fullscreen.zoomed-wrapper .echarts-container,
+.infographic-wrapper.chart-fullscreen.zoomed-wrapper .infographic-container,
+.markmap-wrapper.chart-fullscreen.zoomed-wrapper .markmap-container,
+.graphviz-wrapper.chart-fullscreen.zoomed-wrapper .graphviz-container,
+.vega-lite-wrapper.chart-fullscreen.zoomed-wrapper .vega-lite-container,
+.d2-wrapper.chart-fullscreen.zoomed-wrapper .d2-container,
+.bpmn-wrapper.chart-fullscreen.zoomed-wrapper .bpmn-container,
+.wavedrom-wrapper.chart-fullscreen.zoomed-wrapper .wavedrom-container,
+.plantuml-wrapper.chart-fullscreen.zoomed-wrapper .plantuml-container,
+.c4plantuml-wrapper.chart-fullscreen.zoomed-wrapper .plantuml-container,
+.excalidraw-wrapper.chart-fullscreen.zoomed-wrapper .excalidraw-container {
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+}
+
+.mermaid-wrapper.chart-fullscreen.zoomed-wrapper .mermaid-container svg,
+.echarts-wrapper.chart-fullscreen.zoomed-wrapper .echarts-container svg,
+.infographic-wrapper.chart-fullscreen.zoomed-wrapper .infographic-container svg,
+.markmap-wrapper.chart-fullscreen.zoomed-wrapper .markmap-container svg,
+.graphviz-wrapper.chart-fullscreen.zoomed-wrapper .graphviz-container svg,
+.vega-lite-wrapper.chart-fullscreen.zoomed-wrapper .vega-lite-container svg,
+.d2-wrapper.chart-fullscreen.zoomed-wrapper .d2-container svg,
+.bpmn-wrapper.chart-fullscreen.zoomed-wrapper .bpmn-container svg,
+.wavedrom-wrapper.chart-fullscreen.zoomed-wrapper .wavedrom-container svg,
+.plantuml-wrapper.chart-fullscreen.zoomed-wrapper .plantuml-container svg,
+.c4plantuml-wrapper.chart-fullscreen.zoomed-wrapper .plantuml-container svg,
+.excalidraw-wrapper.chart-fullscreen.zoomed-wrapper .excalidraw-container svg {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.plantuml-wrapper.chart-fullscreen .plantuml-container svg,
+.c4plantuml-wrapper.chart-fullscreen .plantuml-container svg {
+  transform: none !important;
+  transform-origin: center center !important;
+}
+
+.structurizr-wrapper.chart-fullscreen,
+.plotly-wrapper.chart-fullscreen,
+.dbml-wrapper.chart-fullscreen,
+.antv-g6-wrapper.chart-fullscreen,
+.kroki-wrapper.chart-fullscreen {
+  --chart-lightbox-margin: clamp(20px, 4vmin, 40px);
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  margin: 0;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 0;
+}
+
+.structurizr-wrapper.chart-fullscreen .structurizr-toggle-bar,
+.plotly-wrapper.chart-fullscreen .plotly-toggle-bar,
+.dbml-wrapper.chart-fullscreen .dbml-toggle-bar,
+.antv-g6-wrapper.chart-fullscreen .antv-g6-toggle-bar,
+.kroki-wrapper.chart-fullscreen .kroki-toggle-bar {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: 60px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 104px);
+  padding: 10px 10px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 16px;
+  border: 0;
+  background-color: rgb(0, 0, 0);
+  box-shadow: none;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 600ms ease-in-out;
+}
+
+.structurizr-wrapper.chart-fullscreen .structurizr-action-btn,
+.plotly-wrapper.chart-fullscreen .plotly-action-btn,
+.dbml-wrapper.chart-fullscreen .dbml-action-btn,
+.antv-g6-wrapper.chart-fullscreen .antv-g6-action-btn,
+.kroki-wrapper.chart-fullscreen .kroki-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 52px;
+  min-width: 52px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 36px;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.structurizr-wrapper.chart-fullscreen .structurizr-action-btn img,
+.plotly-wrapper.chart-fullscreen .plotly-action-btn img,
+.dbml-wrapper.chart-fullscreen .dbml-action-btn img,
+.antv-g6-wrapper.chart-fullscreen .antv-g6-action-btn img,
+.kroki-wrapper.chart-fullscreen .kroki-action-btn img {
+  width: 36px;
+  height: 36px;
+  display: block;
+  filter: invert(100%);
+  pointer-events: none;
+}
+
+.structurizr-wrapper.chart-fullscreen .structurizr-action-btn:hover,
+.plotly-wrapper.chart-fullscreen .plotly-action-btn:hover,
+.dbml-wrapper.chart-fullscreen .dbml-action-btn:hover,
+.antv-g6-wrapper.chart-fullscreen .antv-g6-action-btn:hover,
+.kroki-wrapper.chart-fullscreen .kroki-action-btn:hover {
+  background: transparent;
+  color: #ffffff;
+  opacity: 0.78;
+}
+
+.structurizr-wrapper.chart-fullscreen .structurizr-container,
+.plotly-wrapper.chart-fullscreen .plotly-container,
+.dbml-wrapper.chart-fullscreen .dbml-container,
+.antv-g6-wrapper.chart-fullscreen .antv-g6-container,
+.kroki-wrapper.chart-fullscreen .kroki-container {
+  position: absolute;
+  inset: var(--chart-lightbox-margin);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: auto !important;
+  max-width: none;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 0;
+  padding: 32px 32px 112px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgb(192, 192, 192);
+  border-radius: 4px;
+  background: var(--bg-primary);
+}
+
+.structurizr-wrapper.chart-fullscreen .structurizr-code-view,
+.plotly-wrapper.chart-fullscreen .plotly-code-view,
+.dbml-wrapper.chart-fullscreen .dbml-code-view,
+.antv-g6-wrapper.chart-fullscreen .antv-g6-code-view,
+.kroki-wrapper.chart-fullscreen .kroki-code-view {
+  max-height: calc(100vh - 50px);
+}
+
+.structurizr-wrapper.chart-fullscreen .structurizr-container svg,
+.plotly-wrapper.chart-fullscreen .plotly-container svg,
+.dbml-wrapper.chart-fullscreen .dbml-container svg,
+.antv-g6-wrapper.chart-fullscreen .antv-g6-container svg,
+.kroki-wrapper.chart-fullscreen .kroki-container svg {
+  width: var(--chart-fullscreen-svg-width, auto) !important;
+  height: var(--chart-fullscreen-svg-height, auto) !important;
+  max-width: 100% !important;
+  max-height: calc(100vh - clamp(120px, 16vh, 190px)) !important;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.structurizr-wrapper.chart-fullscreen.zoomed-wrapper .structurizr-container,
+.plotly-wrapper.chart-fullscreen.zoomed-wrapper .plotly-container,
+.dbml-wrapper.chart-fullscreen.zoomed-wrapper .dbml-container,
+.antv-g6-wrapper.chart-fullscreen.zoomed-wrapper .antv-g6-container,
+.kroki-wrapper.chart-fullscreen.zoomed-wrapper .kroki-container {
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+}
+
+.structurizr-wrapper.chart-fullscreen.zoomed-wrapper .structurizr-container svg,
+.plotly-wrapper.chart-fullscreen.zoomed-wrapper .plotly-container svg,
+.dbml-wrapper.chart-fullscreen.zoomed-wrapper .dbml-container svg,
+.antv-g6-wrapper.chart-fullscreen.zoomed-wrapper .antv-g6-container svg,
+.kroki-wrapper.chart-fullscreen.zoomed-wrapper .kroki-container svg {
+  max-width: none !important;
+  max-height: none !important;
 }
 
 .echarts-wrapper:fullscreen .echarts-container {
@@ -5177,6 +6125,13 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 
 .plantuml-code-view pre {
   margin: 0;
+  padding: 48px 16px 16px;
+  background: var(--code-block-bg);
+  border-radius: 0;
+}
+
+.markdown-body .plantuml-code-view pre,
+.markdown-body .c4plantuml-wrapper .plantuml-code-view pre {
   padding: 48px 16px 16px;
   background: var(--code-block-bg);
   border-radius: 0;

@@ -8,6 +8,8 @@ import { useTheme, Theme } from '../hooks/useTheme'
 import { useUIStore, FONT_SIZE } from '../stores/uiStore'
 import { DocxSetupGuide } from './DocxSetupGuide'
 import { DocxStyleCards } from './DocxStyleCards'
+import { builtinRendererDefinitions } from '../renderers/builtin'
+import type { RendererDefinition, RendererTarget, RendererTargetCapability } from '../renderers/types'
 import {
   DEFAULT_DOCX_STYLE,
   DOCX_STYLE_LABELS,
@@ -22,6 +24,11 @@ import {
 // ============================================================================
 
 type SettingsTab = 'general' | 'about'
+
+type CapabilityColumn = {
+  key: RendererTarget | 'htmlPdf'
+  label: string
+}
 
 type UpdateStatus =
   | { state: 'idle' }
@@ -44,6 +51,23 @@ interface AppVersionInfo {
   node: string
   platform: string
   arch: string
+}
+
+const RENDERER_CAPABILITY_COLUMNS: CapabilityColumn[] = [
+  { key: 'preview', label: '应用预览' },
+  { key: 'htmlPdf', label: 'HTML/PDF' },
+  { key: 'docxClient', label: 'DOCX' },
+  { key: 'docxService', label: 'DOCX 服务' },
+]
+
+function capabilityStateText(definition: RendererDefinition, column: CapabilityColumn): string {
+  const capabilities: RendererTargetCapability[] = column.key === 'htmlPdf'
+    ? [definition.capabilities.html, definition.capabilities.pdf]
+    : [definition.capabilities[column.key]]
+  if (capabilities.some(capability => !capability || capability.state === 'unsupported')) return '不支持'
+  if (capabilities.some(capability => capability.state === 'optional' || capability.state === 'disabledByDefault')) return '需配置'
+  if (definition.networkPolicy === 'explicitRemoteAllowed') return '需服务'
+  return '支持'
 }
 
 // ============================================================================
@@ -711,6 +735,39 @@ function GeneralTab() {
           />
         </div>
         <p className="setting-section-hint">留空使用官方服务器。<a href="#" className="setting-help-link" onClick={e => { e.preventDefault(); setShowPlantumlGuide(true) }}>如何配置本地服务器？</a></p>
+
+        <div className="renderer-capability-panel">
+          <div className="renderer-capability-title">渲染能力</div>
+          <div className="renderer-capability-table-wrap">
+            <table className="renderer-capability-table">
+              <thead>
+                <tr>
+                  <th scope="col">类型</th>
+                  {RENDERER_CAPABILITY_COLUMNS.map(column => (
+                    <th key={column.key} scope="col">{column.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {builtinRendererDefinitions.map(definition => (
+                  <tr key={definition.type}>
+                    <th scope="row">{definition.displayName}</th>
+                    {RENDERER_CAPABILITY_COLUMNS.map(column => {
+                      const text = capabilityStateText(definition, column)
+                      return (
+                        <td key={column.key}>
+                          <span className={`renderer-capability-state renderer-capability-state-${text === '支持' ? 'supported' : 'needs-setup'}`}>
+                            {text}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       {/* 系统集成 */}

@@ -5,6 +5,16 @@ const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
 const mockRenderInfographicToSvg = vi.hoisted(() => vi.fn())
 const mockRenderDrawioInElement = vi.hoisted(() => vi.fn())
 const mockValidateDrawioCode = vi.hoisted(() => vi.fn())
+const mockRenderVegaLiteToSvg = vi.hoisted(() => vi.fn())
+const mockRenderD2ToSvg = vi.hoisted(() => vi.fn())
+const mockRenderBpmnToSvg = vi.hoisted(() => vi.fn())
+const mockRenderWaveDromToSvg = vi.hoisted(() => vi.fn())
+const mockRenderPlantUMLToSvg = vi.hoisted(() => vi.fn())
+const mockRenderStructurizrToSvg = vi.hoisted(() => vi.fn())
+const mockRenderPlotlyToSvg = vi.hoisted(() => vi.fn())
+const mockRenderDbmlToSvg = vi.hoisted(() => vi.fn())
+const mockRenderAntvG6ToSvg = vi.hoisted(() => vi.fn())
+const mockRenderKrokiToSvg = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/utils/excalidrawRenderer', () => ({
   renderExcalidrawToSvg: mockRenderExcalidrawToSvg,
@@ -17,6 +27,52 @@ vi.mock('../../src/utils/infographicRenderer', () => ({
 vi.mock('../../src/utils/drawioRenderer', () => ({
   renderDrawioInElement: mockRenderDrawioInElement,
   validateDrawioCode: mockValidateDrawioCode,
+}))
+
+vi.mock('../../src/utils/vegaLiteRenderer', () => ({
+  renderVegaLiteToSvg: mockRenderVegaLiteToSvg,
+}))
+
+vi.mock('../../src/utils/d2Renderer', () => ({
+  renderD2ToSvg: mockRenderD2ToSvg,
+}))
+
+vi.mock('../../src/utils/bpmnRenderer', () => ({
+  renderBpmnToSvg: mockRenderBpmnToSvg,
+  isMissingReadBpmnFileHandlerError: (error: unknown) => String((error as Error)?.message || error).includes('No handler registered')
+    && String((error as Error)?.message || error).includes('fs:readBpmnFile'),
+  resolveBpmnFallbackPath: (markdownFilePath: string, refPath: string) => {
+    const baseDir = markdownFilePath.replace(/[/\\][^/\\]*$/, '')
+    return `${baseDir}/${refPath.replace(/^\.\//, '')}`
+  },
+}))
+
+vi.mock('../../src/utils/wavedromRenderer', () => ({
+  renderWaveDromToSvg: mockRenderWaveDromToSvg,
+}))
+
+vi.mock('../../src/utils/plantumlRenderer', () => ({
+  renderPlantUMLToSvg: mockRenderPlantUMLToSvg,
+}))
+
+vi.mock('../../src/utils/structurizrRenderer', () => ({
+  renderStructurizrToSvg: mockRenderStructurizrToSvg,
+}))
+
+vi.mock('../../src/utils/plotlyRenderer', () => ({
+  renderPlotlyToSvg: mockRenderPlotlyToSvg,
+}))
+
+vi.mock('../../src/utils/dbmlRenderer', () => ({
+  renderDbmlToSvg: mockRenderDbmlToSvg,
+}))
+
+vi.mock('../../src/utils/antvG6Renderer', () => ({
+  renderAntvG6ToSvg: mockRenderAntvG6ToSvg,
+}))
+
+vi.mock('../../src/utils/krokiRenderer', () => ({
+  renderKrokiToSvg: mockRenderKrokiToSvg,
 }))
 
 let originalWindowApi: typeof window.api | undefined
@@ -147,6 +203,16 @@ describe('DOCX Excalidraw chart rendering', () => {
     })
     mockRenderInfographicToSvg.mockResolvedValue('<svg viewBox="0 0 800 600"><rect width="800" height="600"></rect></svg>')
     mockValidateDrawioCode.mockReturnValue({ valid: true })
+    mockRenderVegaLiteToSvg.mockResolvedValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderD2ToSvg.mockResolvedValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderBpmnToSvg.mockResolvedValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderWaveDromToSvg.mockReturnValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderPlantUMLToSvg.mockResolvedValue('<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>')
+    mockRenderStructurizrToSvg.mockReturnValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderPlotlyToSvg.mockResolvedValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderDbmlToSvg.mockReturnValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderAntvG6ToSvg.mockReturnValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderKrokiToSvg.mockResolvedValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
     mockRenderDrawioInElement.mockImplementation(async (_code: string, container: HTMLElement) => {
       container.innerHTML = '<svg viewBox="0 0 320 140"><rect width="320" height="140"></rect></svg>'
     })
@@ -216,6 +282,71 @@ describe('DOCX Excalidraw chart rendering', () => {
     expect(result.modifiedMarkdown).not.toContain('<mxGraphModel')
   })
 
+  it('DOCX 图表管线识别新增 RendererPlugin 代码块', async () => {
+    const markdown = [
+      '```vega-lite',
+      '{"data":{"values":[]},"mark":"bar"}',
+      '```',
+      '',
+      '```d2',
+      'a -> b',
+      '```',
+      '',
+      '```bpmn',
+      '<definitions />',
+      '```',
+      '',
+      '```wavedrom',
+      "{ signal: [{ name: 'clk', wave: 'p..P' }] }",
+      '```',
+      '',
+      '```c4',
+      '@startuml',
+      'Person(user, "用户")',
+      '@enduml',
+      '```',
+      '',
+      '```structurizr',
+      'workspace "x" { model { user = person "User" } }',
+      '```',
+      '',
+      '```plotly',
+      '{"data":[{"type":"bar","x":["A"],"y":[1]}]}',
+      '```',
+      '',
+      '```dbml',
+      'Table users { id int [pk] }',
+      '```',
+      '',
+      '```antv-g6',
+      '{"nodes":[{"id":"a"}],"edges":[]}',
+      '```',
+      '',
+      '```nomnoml',
+      '[A]->[B]',
+      '```',
+    ].join('\n')
+
+    const result = await renderChartsForDocx(markdown)
+
+    expect(mockRenderVegaLiteToSvg).toHaveBeenCalled()
+    expect(mockRenderD2ToSvg).toHaveBeenCalled()
+    expect(mockRenderBpmnToSvg).toHaveBeenCalled()
+    expect(mockRenderWaveDromToSvg).toHaveBeenCalled()
+    expect(mockRenderPlantUMLToSvg).toHaveBeenCalled()
+    expect(mockRenderStructurizrToSvg).toHaveBeenCalled()
+    expect(mockRenderPlotlyToSvg).toHaveBeenCalled()
+    expect(mockRenderDbmlToSvg).toHaveBeenCalled()
+    expect(mockRenderAntvG6ToSvg).toHaveBeenCalled()
+    expect(mockRenderKrokiToSvg).toHaveBeenCalledWith(expect.any(String), { language: 'nomnoml' })
+    expect(result.images.length).toBe(10)
+    expect(result.modifiedMarkdown.match(/mdv__chart__/g)?.length).toBe(10)
+    expect(result.modifiedMarkdown).not.toContain('```vega-lite')
+    expect(result.modifiedMarkdown).not.toContain('```c4')
+    expect(result.modifiedMarkdown).not.toContain('```structurizr')
+    expect(result.modifiedMarkdown).not.toContain('```nomnoml')
+  })
+
   it('DOCX 图表管线在预览 DOM 缺失时主动离屏渲染 DrawIO', async () => {
     document.body.innerHTML = ''
     const markdown = [
@@ -240,6 +371,53 @@ describe('DOCX Excalidraw chart rendering', () => {
   it('DOCX 文件引用缺少 markdownFilePath 时产生 warning', async () => {
     const result = await renderChartsForDocx('![图](./a.excalidraw)')
     expect(result.warnings.join('\n')).toContain('缺少 Markdown 文件路径')
+  })
+
+  it('DOCX BPMN 文件引用读取并替换为图片占位符', async () => {
+    const readBpmnFile = vi.fn().mockResolvedValue({
+      content: '<definitions />',
+      resolvedPath: '/docs/flow.bpmn',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readBpmnFile,
+    } as typeof window.api
+
+    const result = await renderChartsForDocx('![流程](./flow.bpmn?raw=1#v)', {
+      markdownFilePath: '/docs/doc.md',
+    })
+
+    expect(readBpmnFile).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/doc.md',
+      refPath: './flow.bpmn',
+    })
+    expect(result.images.length).toBe(1)
+    expect(result.modifiedMarkdown).toMatch(/!\[流程\]\(mdv__chart__/)
+  })
+
+  it('DOCX BPMN 文件引用在 readBpmnFile handler 缺失时回退到 readFile', async () => {
+    const readBpmnFile = vi.fn().mockRejectedValue(
+      new Error("Error invoking remote method 'fs:readBpmnFile': Error: No handler registered for 'fs:readBpmnFile'")
+    )
+    const readFile = vi.fn().mockResolvedValue('<definitions />')
+    global.window.api = {
+      ...global.window.api,
+      readBpmnFile,
+      readFile,
+    } as typeof window.api
+
+    const result = await renderChartsForDocx('![流程](./flow.bpmn)', {
+      markdownFilePath: '/docs/doc.md',
+    })
+
+    expect(readBpmnFile).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/doc.md',
+      refPath: './flow.bpmn',
+    })
+    expect(readFile).toHaveBeenCalledWith('/docs/flow.bpmn')
+    expect(result.images.length).toBe(1)
+    expect(result.modifiedMarkdown).toMatch(/!\[流程\]\(mdv__chart__/)
+    expect(result.warnings.join('\n')).not.toContain('No handler registered')
   })
 
   it('DOCX 文件引用扫描跳过 fenced code block 内的示例', async () => {

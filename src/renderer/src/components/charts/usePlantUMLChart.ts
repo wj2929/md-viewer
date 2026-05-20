@@ -11,52 +11,89 @@
 
 import { useEffect } from 'react'
 import { validatePlantUMLCode, renderPlantUMLToSvg } from '../../utils/plantumlRenderer'
-import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
 
 export function usePlantUMLChart(
   ref: React.RefObject<HTMLElement | null>,
   html: string,
-  enabled = true
+  enabled = true,
+  enabledTypes: { plantuml?: boolean; c4plantuml?: boolean } = { plantuml: true, c4plantuml: true },
+  allowRemote = true
 ): void {
   // v1.6.0: PlantUML 图表渲染（异步 fetch 远程服务器）
   useEffect(() => {
     if (!enabled || !ref.current) return
 
-    const plantumlBlocks = ref.current.querySelectorAll('pre.language-plantuml')
+    const plantumlBlocks = ref.current.querySelectorAll('pre.language-plantuml, pre.language-c4plantuml')
     if (plantumlBlocks.length === 0) return
 
     const abortController = new AbortController()
     const { signal } = abortController
 
     ;(async () => {
+      let plantumlIndex = 0
+      let c4PlantumlIndex = 0
       for (let index = 0; index < plantumlBlocks.length; index++) {
         if (signal.aborted) break
 
         const block = plantumlBlocks[index]
+        const isC4Plantuml = block.classList.contains('language-c4plantuml')
+        if (isC4Plantuml && enabledTypes.c4plantuml === false) continue
+        if (!isC4Plantuml && enabledTypes.plantuml === false) continue
+        const sourceIndex = isC4Plantuml ? c4PlantumlIndex++ : plantumlIndex++
         const codeEl = block.querySelector('code') || block
         const code = codeEl.textContent || ''
 
+        if (!allowRemote) {
+          const errorWrapper = document.createElement('div')
+          errorWrapper.className = isC4Plantuml ? 'c4plantuml-wrapper' : 'plantuml-wrapper'
+          if (isC4Plantuml) {
+            errorWrapper.dataset.c4plantumlIndex = String(sourceIndex)
+          } else {
+            errorWrapper.dataset.plantumlIndex = String(sourceIndex)
+          }
+          errorWrapper.innerHTML = `
+            <div class="plantuml-error" role="alert">
+              <div class="error-title">${isC4Plantuml ? 'C4-PlantUML' : 'PlantUML'} 渲染已阻止</div>
+              <div class="error-message">当前导出策略禁止远程 PlantUML 渲染。</div>
+            </div>
+          `
+          block.replaceWith(errorWrapper)
+          continue
+        }
+
         const validation = validatePlantUMLCode(code)
         if (!validation.valid) {
-          const errorDiv = document.createElement('div')
-          errorDiv.className = 'plantuml-error'
-          errorDiv.innerHTML = `
-            <div class="error-title">PlantUML 配置错误</div>
-            <div class="error-message">${validation.error}</div>
+          const errorWrapper = document.createElement('div')
+          errorWrapper.className = isC4Plantuml ? 'c4plantuml-wrapper' : 'plantuml-wrapper'
+          if (isC4Plantuml) {
+            errorWrapper.dataset.c4plantumlIndex = String(sourceIndex)
+          } else {
+            errorWrapper.dataset.plantumlIndex = String(sourceIndex)
+          }
+          errorWrapper.innerHTML = `
+            <div class="plantuml-error">
+              <div class="error-title">PlantUML 配置错误</div>
+              <div class="error-message">${validation.error}</div>
+            </div>
           `
-          if (block.parentNode) block.replaceWith(errorDiv)
+          if (block.parentNode) block.replaceWith(errorWrapper)
           continue
         }
 
         try {
-          const svgString = await renderPlantUMLToSvg(code)
+          const svgString = await renderPlantUMLToSvg(code, isC4Plantuml ? 'c4plantuml' : 'plantuml')
 
           if (signal.aborted) break
 
           // 创建包装容器
           const wrapper = document.createElement('div')
-          wrapper.className = 'plantuml-wrapper'
-          wrapper.dataset.plantumlIndex = String(index)
+          wrapper.className = isC4Plantuml ? 'c4plantuml-wrapper' : 'plantuml-wrapper'
+          if (isC4Plantuml) {
+            wrapper.dataset.c4plantumlIndex = String(sourceIndex)
+          } else {
+            wrapper.dataset.plantumlIndex = String(sourceIndex)
+          }
 
           // 存储原始代码
           wrapper.dataset.plantumlCode = btoa(unescape(encodeURIComponent(code)))
@@ -129,8 +166,12 @@ export function usePlantUMLChart(
           console.error('[PlantUML] 渲染失败:', error)
           // 错误降级：显示错误提示 + 原始代码
           const errorWrapper = document.createElement('div')
-          errorWrapper.className = 'plantuml-wrapper'
-          errorWrapper.dataset.plantumlIndex = String(index)
+          errorWrapper.className = isC4Plantuml ? 'c4plantuml-wrapper' : 'plantuml-wrapper'
+          if (isC4Plantuml) {
+            errorWrapper.dataset.c4plantumlIndex = String(sourceIndex)
+          } else {
+            errorWrapper.dataset.plantumlIndex = String(sourceIndex)
+          }
           errorWrapper.innerHTML = `
             <div class="plantuml-error">
               <div class="error-title">PlantUML 渲染失败</div>
@@ -148,7 +189,7 @@ export function usePlantUMLChart(
     return () => {
       abortController.abort()
     }
-  }, [html, enabled])
+  }, [html, enabled, enabledTypes.plantuml, enabledTypes.c4plantuml, allowRemote])
 
   // v1.6.0: PlantUML 切换按钮 + 工具栏点击事件处理
   useEffect(() => {
@@ -160,7 +201,7 @@ export function usePlantUMLChart(
       // 处理代码视图的「返回图表」按钮
       const backBtn = target.closest('.plantuml-back-btn')
       if (backBtn) {
-        const wrapper = backBtn.closest('.plantuml-wrapper') as HTMLElement
+        const wrapper = backBtn.closest('.plantuml-wrapper, .c4plantuml-wrapper') as HTMLElement
         if (!wrapper) return
         const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
         const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
@@ -175,7 +216,7 @@ export function usePlantUMLChart(
       const actionBtn = target.closest('.plantuml-action-btn')
       if (actionBtn) {
         const action = actionBtn.getAttribute('data-action')
-        const wrapper = actionBtn.closest('.plantuml-wrapper') as HTMLElement
+        const wrapper = actionBtn.closest('.plantuml-wrapper, .c4plantuml-wrapper') as HTMLElement
         const container = wrapper?.querySelector('.plantuml-container') as HTMLElement
         if (!container || !action) return
 
@@ -231,11 +272,7 @@ export function usePlantUMLChart(
               break
             }
             case 'fullscreen':
-              if (document.fullscreenElement) {
-                document.exitFullscreen?.()
-              } else {
-                wrapper?.requestFullscreen?.()
-              }
+              toggleChartFullscreen(wrapper)
               break
           }
         } catch (err) {

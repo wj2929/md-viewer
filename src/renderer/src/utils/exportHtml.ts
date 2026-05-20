@@ -21,6 +21,15 @@ import { processGraphvizInHtml } from './graphvizRenderer'
 import { processDrawioInHtml } from './drawioRenderer'
 import { processPlantUMLInHtml } from './plantumlRenderer'
 import { renderExcalidrawToSvg } from './excalidrawRenderer'
+import { processVegaLiteInHtml } from './vegaLiteRenderer'
+import { processD2InHtml } from './d2Renderer'
+import { processBpmnInHtml } from './bpmnRenderer'
+import { processWaveDromInHtml } from './wavedromRenderer'
+import { processStructurizrInHtml } from './structurizrRenderer'
+import { processPlotlyInHtml } from './plotlyRenderer'
+import { processDbmlInHtml } from './dbmlRenderer'
+import { processAntvG6InHtml } from './antvG6Renderer'
+import { processKrokiInHtml } from './krokiRenderer'
 import { cleanUserFacingError } from './userFacingErrors'
 
 export interface ExportHtmlOptions {
@@ -223,6 +232,15 @@ export async function buildExportHtmlContent(markdown: string, options: ExportHt
   html = await processExcalidrawInHtml(html, options)
   html = await processDrawioInHtml(html)
   html = await processPlantUMLInHtml(html)
+  html = await processVegaLiteInHtml(html)
+  html = await processD2InHtml(html)
+  html = await processBpmnInHtml(html, options)
+  html = await processWaveDromInHtml(html)
+  html = await processStructurizrInHtml(html)
+  html = await processPlotlyInHtml(html)
+  html = await processDbmlInHtml(html)
+  html = await processAntvG6InHtml(html)
+  html = await processKrokiInHtml(html)
 
   // DrawIO 特殊：借预览 DOM 的 SVG 覆盖占位（如果当前有打开的预览）
   html = overrideDrawioWithPreviewSvgs(html)
@@ -233,6 +251,15 @@ export async function buildExportHtmlContent(markdown: string, options: ExportHt
     'plantuml-container',
     'infographic-container',
     'excalidraw-container',
+    'vega-lite-container',
+    'd2-container',
+    'bpmn-container',
+    'wavedrom-container',
+    'structurizr-container',
+    'plotly-container',
+    'dbml-container',
+    'antv-g6-container',
+    'kroki-container',
   ])
 
   return html

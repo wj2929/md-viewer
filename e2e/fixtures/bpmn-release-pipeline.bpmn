@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Defs_Release_File" targetNamespace="http://md-viewer.local/release-file">
+  <bpmn:process id="Process_Release_File" isExecutable="false">
+    <bpmn:startEvent id="Start_Release_File" name="准备发布"><bpmn:outgoing>RP_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:task id="Task_Test_File" name="自动化测试"><bpmn:incoming>RP_1</bpmn:incoming><bpmn:outgoing>RP_2</bpmn:outgoing></bpmn:task>
+    <bpmn:parallelGateway id="Gateway_Split_File"><bpmn:incoming>RP_2</bpmn:incoming><bpmn:outgoing>RP_3</bpmn:outgoing><bpmn:outgoing>RP_4</bpmn:outgoing></bpmn:parallelGateway>
+    <bpmn:task id="Task_Tag_File" name="打 Tag"><bpmn:incoming>RP_3</bpmn:incoming><bpmn:outgoing>RP_5</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_Notes_File" name="写 Release Notes"><bpmn:incoming>RP_4</bpmn:incoming><bpmn:outgoing>RP_6</bpmn:outgoing></bpmn:task>
+    <bpmn:parallelGateway id="Gateway_Join_File"><bpmn:incoming>RP_5</bpmn:incoming><bpmn:incoming>RP_6</bpmn:incoming><bpmn:outgoing>RP_7</bpmn:outgoing></bpmn:parallelGateway>
+    <bpmn:endEvent id="End_Release_File" name="发布"><bpmn:incoming>RP_7</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="RP_1" sourceRef="Start_Release_File" targetRef="Task_Test_File" />
+    <bpmn:sequenceFlow id="RP_2" sourceRef="Task_Test_File" targetRef="Gateway_Split_File" />
+    <bpmn:sequenceFlow id="RP_3" sourceRef="Gateway_Split_File" targetRef="Task_Tag_File" />
+    <bpmn:sequenceFlow id="RP_4" sourceRef="Gateway_Split_File" targetRef="Task_Notes_File" />
+    <bpmn:sequenceFlow id="RP_5" sourceRef="Task_Tag_File" targetRef="Gateway_Join_File" />
+    <bpmn:sequenceFlow id="RP_6" sourceRef="Task_Notes_File" targetRef="Gateway_Join_File" />
+    <bpmn:sequenceFlow id="RP_7" sourceRef="Gateway_Join_File" targetRef="End_Release_File" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="D_Release_File">
+    <bpmndi:BPMNPlane id="P_Release_File" bpmnElement="Process_Release_File">
+      <bpmndi:BPMNShape id="Start_Release_File_di" bpmnElement="Start_Release_File"><dc:Bounds x="70" y="135" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Test_File_di" bpmnElement="Task_Test_File"><dc:Bounds x="150" y="113" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Split_File_di" bpmnElement="Gateway_Split_File"><dc:Bounds x="330" y="128" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Tag_File_di" bpmnElement="Task_Tag_File"><dc:Bounds x="450" y="70" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Notes_File_di" bpmnElement="Task_Notes_File"><dc:Bounds x="450" y="180" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Join_File_di" bpmnElement="Gateway_Join_File"><dc:Bounds x="640" y="128" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Release_File_di" bpmnElement="End_Release_File"><dc:Bounds x="760" y="135" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="RP_1_di" bpmnElement="RP_1"><di:waypoint x="106" y="153" /><di:waypoint x="150" y="153" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RP_2_di" bpmnElement="RP_2"><di:waypoint x="270" y="153" /><di:waypoint x="330" y="153" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RP_3_di" bpmnElement="RP_3"><di:waypoint x="355" y="128" /><di:waypoint x="450" y="105" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RP_4_di" bpmnElement="RP_4"><di:waypoint x="355" y="178" /><di:waypoint x="450" y="215" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RP_5_di" bpmnElement="RP_5"><di:waypoint x="570" y="105" /><di:waypoint x="665" y="128" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RP_6_di" bpmnElement="RP_6"><di:waypoint x="570" y="215" /><di:waypoint x="665" y="178" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="RP_7_di" bpmnElement="RP_7"><di:waypoint x="690" y="153" /><di:waypoint x="760" y="153" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

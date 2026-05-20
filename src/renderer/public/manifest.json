@@ -1,9 +1,625 @@
 {
+  "schemaVersion": "2.0",
   "name": "@md-viewer/server-renderer",
-  "version": "1.7.0",
-  "schemaVersion": "1.0",
+  "version": "2.2.0",
   "entryHtml": "server-render.html",
   "assetsDir": "assets",
-  "supportedCharts": ["mermaid", "katex", "excalidraw", "drawio", "echarts", "markmap", "graphviz", "infographic"],
-  "minDocxServiceVersion": "0.1.0"
+  "supportedCharts": [
+    "mermaid",
+    "echarts",
+    "markmap",
+    "graphviz",
+    "plantuml",
+    "drawio",
+    "infographic",
+    "katex",
+    "excalidraw",
+    "vega-lite",
+    "d2",
+    "bpmn",
+    "wavedrom",
+    "c4plantuml",
+    "structurizr",
+    "plotly",
+    "dbml",
+    "antv-g6",
+    "kroki"
+  ],
+  "minDocxServiceVersion": "0.2.0",
+  "renderers": [
+    {
+      "type": "mermaid",
+      "displayName": "Mermaid",
+      "aliases": [],
+      "languages": ["mermaid"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "mermaid",
+        "settingsDescription": "Mermaid renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-mermaid, .mermaid-wrapper, .mermaid-error",
+        "ready": ".mermaid-wrapper svg",
+        "screenshotTarget": ".mermaid-wrapper svg"
+      }
+    },
+    {
+      "type": "echarts",
+      "displayName": "ECharts",
+      "aliases": [],
+      "languages": ["echarts"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "echarts",
+        "settingsDescription": "ECharts renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-echarts, .echarts-wrapper, .echarts-error",
+        "ready": ".echarts-wrapper .echarts-container svg",
+        "screenshotTarget": ".echarts-wrapper .echarts-container"
+      }
+    },
+    {
+      "type": "markmap",
+      "displayName": "Markmap",
+      "aliases": [],
+      "languages": ["markmap"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "markmap",
+        "settingsDescription": "Markmap renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-markmap, .markmap-wrapper, .markmap-error",
+        "ready": ".markmap-wrapper .markmap-container svg",
+        "screenshotTarget": ".markmap-wrapper .markmap-container svg"
+      }
+    },
+    {
+      "type": "graphviz",
+      "displayName": "Graphviz",
+      "aliases": ["dot"],
+      "languages": ["graphviz"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "graphviz",
+        "settingsDescription": "Graphviz renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-graphviz, .graphviz-wrapper, .graphviz-error",
+        "ready": ".graphviz-wrapper .graphviz-container svg",
+        "screenshotTarget": ".graphviz-wrapper .graphviz-container"
+      }
+    },
+    {
+      "type": "plantuml",
+      "displayName": "PlantUML",
+      "aliases": ["puml"],
+      "languages": ["plantuml"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "explicitRemoteAllowed",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "plantuml",
+        "settingsDescription": "PlantUML renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-plantuml, .plantuml-wrapper, .plantuml-error",
+        "ready": ".plantuml-wrapper .plantuml-container svg",
+        "screenshotTarget": ".plantuml-wrapper .plantuml-container svg"
+      }
+    },
+    {
+      "type": "drawio",
+      "displayName": "DrawIO",
+      "aliases": ["dio"],
+      "languages": ["drawio"],
+      "sourceKinds": ["fence"],
+      "renderMode": "dom",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "drawio",
+        "settingsDescription": "DrawIO renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-drawio, .drawio-wrapper, .drawio-error",
+        "ready": ".drawio-container[data-drawio-ready=\"true\"] svg",
+        "screenshotTarget": ".drawio-wrapper .drawio-container"
+      }
+    },
+    {
+      "type": "infographic",
+      "displayName": "Infographic",
+      "aliases": [],
+      "languages": ["infographic"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "infographic",
+        "settingsDescription": "Infographic renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-infographic, .infographic-wrapper, .infographic-error",
+        "ready": ".infographic-wrapper .infographic-container svg",
+        "screenshotTarget": ".infographic-wrapper .infographic-container svg"
+      }
+    },
+    {
+      "type": "katex",
+      "displayName": "KaTeX",
+      "aliases": [],
+      "languages": [],
+      "sourceKinds": ["inlineMath", "blockMath"],
+      "renderMode": "dom",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "settingsDescription": "KaTeX renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "mathBlockId" },
+      "selectors": {
+        "preview": ".katex",
+        "ready": ".katex",
+        "screenshotTarget": ".katex-html, .katex"
+      }
+    },
+    {
+      "type": "excalidraw",
+      "displayName": "Excalidraw",
+      "aliases": ["excalidraw-json"],
+      "languages": ["excalidraw"],
+      "sourceKinds": ["fence", "imageRef", "fileResource"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "excalidraw",
+        "settingsDescription": "Excalidraw renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": {
+        "strategy": "blockId",
+        "fileExtensions": ["excalidraw"]
+      },
+      "selectors": {
+        "preview": "pre.language-excalidraw, .excalidraw-file-placeholder, .excalidraw-wrapper, .excalidraw-error",
+        "ready": ".excalidraw-wrapper svg",
+        "screenshotTarget": ".excalidraw-wrapper .excalidraw-container svg"
+      }
+    },
+    {
+      "type": "vega-lite",
+      "displayName": "Vega-Lite",
+      "aliases": ["vegalite"],
+      "languages": ["vega-lite"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "vega-lite",
+        "settingsDescription": "Vega-Lite renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-vega-lite, .vega-lite-wrapper, .vega-lite-error",
+        "ready": ".vega-lite-wrapper .vega-lite-container svg",
+        "screenshotTarget": ".vega-lite-wrapper .vega-lite-container svg"
+      }
+    },
+    {
+      "type": "d2",
+      "displayName": "D2",
+      "aliases": [],
+      "languages": ["d2"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "d2",
+        "settingsDescription": "D2 renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-d2, .d2-wrapper, .d2-error",
+        "ready": ".d2-wrapper .d2-container svg",
+        "screenshotTarget": ".d2-wrapper .d2-container svg"
+      }
+    },
+    {
+      "type": "bpmn",
+      "displayName": "BPMN",
+      "aliases": [],
+      "languages": ["bpmn"],
+      "sourceKinds": ["fence", "imageRef", "fileResource"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "bpmn",
+        "settingsDescription": "BPMN renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": {
+        "strategy": "blockId",
+        "fileExtensions": ["bpmn"]
+      },
+      "selectors": {
+        "preview": "pre.language-bpmn, .bpmn-file-placeholder, .bpmn-wrapper, .bpmn-error",
+        "ready": ".bpmn-wrapper .bpmn-container svg",
+        "screenshotTarget": ".bpmn-wrapper .bpmn-container svg"
+      }
+    },
+    {
+      "type": "wavedrom",
+      "displayName": "WaveDrom",
+      "aliases": [],
+      "languages": ["wavedrom"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "wavedrom",
+        "settingsDescription": "WaveDrom renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-wavedrom, .wavedrom-wrapper, .wavedrom-error",
+        "ready": ".wavedrom-wrapper .wavedrom-container svg",
+        "screenshotTarget": ".wavedrom-wrapper .wavedrom-container svg"
+      }
+    },
+    {
+      "type": "c4plantuml",
+      "displayName": "C4-PlantUML",
+      "aliases": ["c4"],
+      "languages": ["c4plantuml"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "explicitRemoteAllowed",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "c4plantuml",
+        "settingsDescription": "C4-PlantUML renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-c4plantuml, .c4plantuml-wrapper, .c4plantuml-error",
+        "ready": ".c4plantuml-wrapper .plantuml-container svg",
+        "screenshotTarget": ".c4plantuml-wrapper .plantuml-container svg"
+      }
+    },
+    {
+      "type": "structurizr",
+      "displayName": "Structurizr",
+      "aliases": ["structurizr-dsl"],
+      "languages": ["structurizr"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "structurizr",
+        "settingsDescription": "Structurizr renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-structurizr, .structurizr-wrapper, .structurizr-error",
+        "ready": ".structurizr-wrapper .structurizr-container svg",
+        "screenshotTarget": ".structurizr-wrapper .structurizr-container svg"
+      }
+    },
+    {
+      "type": "plotly",
+      "displayName": "Plotly",
+      "aliases": ["plotly-json"],
+      "languages": ["plotly"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "plotly",
+        "settingsDescription": "Plotly renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-plotly, .plotly-wrapper, .plotly-error",
+        "ready": ".plotly-wrapper .plotly-container svg",
+        "screenshotTarget": ".plotly-wrapper .plotly-container svg"
+      }
+    },
+    {
+      "type": "dbml",
+      "displayName": "DBML",
+      "aliases": [],
+      "languages": ["dbml"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "dbml",
+        "settingsDescription": "DBML renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-dbml, .dbml-wrapper, .dbml-error",
+        "ready": ".dbml-wrapper .dbml-container svg",
+        "screenshotTarget": ".dbml-wrapper .dbml-container svg"
+      }
+    },
+    {
+      "type": "antv-g6",
+      "displayName": "AntV G6",
+      "aliases": ["g6"],
+      "languages": ["antv-g6"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "antv-g6",
+        "settingsDescription": "AntV G6 renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-antv-g6, .antv-g6-wrapper, .antv-g6-error",
+        "ready": ".antv-g6-wrapper .antv-g6-container svg",
+        "screenshotTarget": ".antv-g6-wrapper .antv-g6-container svg"
+      }
+    },
+    {
+      "type": "kroki",
+      "displayName": "Kroki",
+      "aliases": ["kroki-pikchr", "kroki-nomnoml", "kroki-svgbob", "kroki-bytefield", "kroki-tikz"],
+      "languages": ["kroki", "pikchr", "nomnoml", "svgbob", "bytefield", "tikz"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "explicitRemoteAllowed",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "kroki",
+        "settingsDescription": "Kroki renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-kroki, .kroki-wrapper, .kroki-error",
+        "ready": ".kroki-wrapper .kroki-container svg",
+        "screenshotTarget": ".kroki-wrapper .kroki-container svg"
+      }
+    }
+  ]
 }

@@ -215,6 +215,7 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   selectionText?: string
   sourceLine?: number | null
   scrollRatio?: number | null
+  chartCount?: number
   linkHref: string | null
   basePath: string | null
 }) => {
@@ -251,6 +252,7 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     selectionText,
     sourceLine,
     scrollRatio,
+    chartCount = 0,
     linkHref,
     basePath
   } = params
@@ -375,6 +377,17 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     accelerator: 'CmdOrCtrl+Shift+E',
     click: () => event.sender.send('markdown:export-pdf')
   })
+
+  if (isMarkdownPreview && chartCount > 0) {
+    menuTemplate.push({
+      label: `📦 打包下载图表（${chartCount} 张）`,
+      click: () => event.sender.send('markdown:export-charts-zip', {
+        filePath,
+        ...(tabId ? { tabId } : {}),
+        ...(leafId ? { leafId } : {}),
+      })
+    })
+  }
 
   // Word 导出：根据 docxExport 设置条件显示
   const docxConfig = appDataManager.getSettings().docxExport

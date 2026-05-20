@@ -160,6 +160,11 @@
   margin-bottom: 8px;
 }
 
+.export-task-result.warning {
+  color: #b7791f;
+  font-weight: 500;
+}
+
 .export-task-error-msg {
   font-size: 13px;
   color: var(--text-primary);

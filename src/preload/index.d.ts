@@ -42,6 +42,10 @@ declare global {
         markdownFilePath: string
         refPath: string
       }) => Promise<{ content: string; resolvedPath: string }>
+      readBpmnFile: (payload: {
+        markdownFilePath: string
+        refPath: string
+      }) => Promise<{ content: string; resolvedPath: string }>
       readFilePreview: (path: string) => Promise<string>
       testOpenMarkdownFile?: (path: string) => Promise<boolean>
       openEditableMarkdown: (filePath: string) => Promise<{
@@ -82,6 +86,10 @@ declare global {
       exportHTML: (htmlContent: string, fileName: string) => Promise<string | null>
       exportPDF: (htmlContent: string, fileName: string) => Promise<string | null>
       exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>
+      exportChartsZip: (payload: {
+        markdownFilePath: string
+        images: Array<{ filename: string; pngBase64: string }>
+      }) => Promise<{ filePath?: string; written?: number; canceled?: boolean; error?: string }>
 
       // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
       renderCodeBlockToPng: (code: string) => Promise<{
@@ -156,6 +164,12 @@ declare global {
         width?: number
         height?: number
         error?: string
+      }>
+      renderKrokiSvg: (payload: { format: string; source: string }) => Promise<{
+        ok: boolean
+        svg?: string
+        error?: string
+        status?: number
       }>
 
       // v1.7.0：DOCX 远程服务
@@ -294,6 +308,7 @@ declare global {
         selectionText?: string
         sourceLine?: number | null
         scrollRatio?: number | null
+        chartCount?: number
         linkHref: string | null
         basePath: string | null
       }) => Promise<void>
@@ -312,6 +327,11 @@ declare global {
         sourceLine?: number
         scrollRatio?: number
         mode: 'document' | 'selection' | 'source-line' | 'scroll-ratio'
+      }) => void) => () => void
+      onExportChartsZipFromPreview: (callback: (params: {
+        filePath: string
+        tabId?: string
+        leafId?: string | null
       }) => void) => () => void
 
       // v1.3.7：文件树右键添加书签

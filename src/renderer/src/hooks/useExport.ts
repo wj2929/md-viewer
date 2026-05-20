@@ -335,7 +335,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
             toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: openFolder })
           } else {
             const message = warnings && warnings.length > 0
-              ? `Word 已导出（${styleLabel}，${warnings.length} 个警告）`
+              ? `Word 已导出，但有问题（${styleLabel}，${warnings.length} 个警告）`
               : `Word 已导出（${styleLabel}）`
             toast.success(message, { action: openFolder })
           }
@@ -343,6 +343,11 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
           const hasRemoteFallbackWarning = warnings?.some(w => w.startsWith('远程服务失败'))
           if (hasRemoteFallbackWarning) {
             toast.success('Word 已导出（DOCX 服务暂时不可用，本次使用离线模式，图表显示为代码文本）', { action: openFolder })
+          } else if (warnings && warnings.length > 0) {
+            toast.success(`Word 已导出，但有问题（${warnings.length} 个警告）`, {
+              description: '请检查导出详情或源文档中的图表',
+              action: openFolder
+            })
           } else {
             toast.success('Word 已导出（离线模式）', {
               description: '图表和线框图显示为代码文本',

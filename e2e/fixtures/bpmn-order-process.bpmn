@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Defs_Order" targetNamespace="http://md-viewer.local/order">
+  <bpmn:process id="Process_Order" isExecutable="false">
+    <bpmn:startEvent id="Start_Order" name="下单">
+      <bpmn:outgoing>Flow_O1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:task id="Task_Pay" name="支付确认">
+      <bpmn:incoming>Flow_O1</bpmn:incoming>
+      <bpmn:outgoing>Flow_O2</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="Task_Deliver" name="发货">
+      <bpmn:incoming>Flow_O2</bpmn:incoming>
+      <bpmn:outgoing>Flow_O3</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="End_Order" name="完成">
+      <bpmn:incoming>Flow_O3</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_O1" sourceRef="Start_Order" targetRef="Task_Pay" />
+    <bpmn:sequenceFlow id="Flow_O2" sourceRef="Task_Pay" targetRef="Task_Deliver" />
+    <bpmn:sequenceFlow id="Flow_O3" sourceRef="Task_Deliver" targetRef="End_Order" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_Order">
+    <bpmndi:BPMNPlane id="Plane_Order" bpmnElement="Process_Order">
+      <bpmndi:BPMNShape id="Start_Order_di" bpmnElement="Start_Order"><dc:Bounds x="90" y="90" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="74" y="130" width="68" height="20" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Pay_di" bpmnElement="Task_Pay"><dc:Bounds x="190" y="68" width="110" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Deliver_di" bpmnElement="Task_Deliver"><dc:Bounds x="360" y="68" width="110" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Order_di" bpmnElement="End_Order"><dc:Bounds x="540" y="90" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="524" y="130" width="68" height="20" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_O1_di" bpmnElement="Flow_O1"><di:waypoint x="126" y="108" /><di:waypoint x="190" y="108" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O2_di" bpmnElement="Flow_O2"><di:waypoint x="300" y="108" /><di:waypoint x="360" y="108" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_O3_di" bpmnElement="Flow_O3"><di:waypoint x="470" y="108" /><di:waypoint x="540" y="108" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

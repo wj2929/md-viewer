@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Defs_Escalation_File" targetNamespace="http://md-viewer.local/escalation-file">
+  <bpmn:process id="Process_Escalation_File" isExecutable="false">
+    <bpmn:startEvent id="Start_Esc_File" name="开始"><bpmn:outgoing>EF_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="Task_Esc_Review" name="一线处理"><bpmn:incoming>EF_1</bpmn:incoming><bpmn:outgoing>EF_2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_Esc_File" name="需升级?"><bpmn:incoming>EF_2</bpmn:incoming><bpmn:outgoing>EF_3</bpmn:outgoing><bpmn:outgoing>EF_4</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Task_Esc_Service" name="升级到二线"><bpmn:incoming>EF_3</bpmn:incoming><bpmn:outgoing>EF_5</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="End_Esc_Done" name="完成"><bpmn:incoming>EF_4</bpmn:incoming><bpmn:incoming>EF_5</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="EF_1" sourceRef="Start_Esc_File" targetRef="Task_Esc_Review" />
+    <bpmn:sequenceFlow id="EF_2" sourceRef="Task_Esc_Review" targetRef="Gateway_Esc_File" />
+    <bpmn:sequenceFlow id="EF_3" name="是" sourceRef="Gateway_Esc_File" targetRef="Task_Esc_Service" />
+    <bpmn:sequenceFlow id="EF_4" name="否" sourceRef="Gateway_Esc_File" targetRef="End_Esc_Done" />
+    <bpmn:sequenceFlow id="EF_5" sourceRef="Task_Esc_Service" targetRef="End_Esc_Done" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="D_Escalation_File">
+    <bpmndi:BPMNPlane id="P_Escalation_File" bpmnElement="Process_Escalation_File">
+      <bpmndi:BPMNShape id="Start_Esc_File_di" bpmnElement="Start_Esc_File"><dc:Bounds x="80" y="125" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Esc_Review_di" bpmnElement="Task_Esc_Review"><dc:Bounds x="180" y="103" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Esc_File_di" bpmnElement="Gateway_Esc_File"><dc:Bounds x="370" y="118" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Esc_Service_di" bpmnElement="Task_Esc_Service"><dc:Bounds x="500" y="70" width="130" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Esc_Done_di" bpmnElement="End_Esc_Done"><dc:Bounds x="700" y="125" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="EF_1_di" bpmnElement="EF_1"><di:waypoint x="116" y="143" /><di:waypoint x="180" y="143" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="EF_2_di" bpmnElement="EF_2"><di:waypoint x="300" y="143" /><di:waypoint x="370" y="143" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="EF_3_di" bpmnElement="EF_3"><di:waypoint x="420" y="143" /><di:waypoint x="500" y="105" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="EF_4_di" bpmnElement="EF_4"><di:waypoint x="420" y="143" /><di:waypoint x="700" y="143" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="EF_5_di" bpmnElement="EF_5"><di:waypoint x="630" y="105" /><di:waypoint x="718" y="125" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -6,7 +6,7 @@
 
 import { useEffect } from 'react'
 import { renderExcalidrawToSvg, type ExcalidrawRenderResult } from '../../utils/excalidrawRenderer'
-import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
 import { cleanUserFacingError } from '../../utils/userFacingErrors'
 import type { ResourceHost } from '../../render-core/hosts'
 
@@ -256,10 +256,11 @@ function createFileErrorWrapper(error: unknown, placeholder: HTMLElement): HTMLD
 export function useExcalidrawChart(
   ref: React.RefObject<HTMLElement | null>,
   html: string,
-  options: { markdownFilePath?: string, resourceHost?: ResourceHost } = {}
+  options: { markdownFilePath?: string, resourceHost?: ResourceHost } = {},
+  enabled = true
 ): void {
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     const candidates = Array.from(
       ref.current.querySelectorAll('pre.language-excalidraw, .excalidraw-file-placeholder')
@@ -271,7 +272,8 @@ export function useExcalidrawChart(
     const { signal } = abortController
 
     ;(async () => {
-      for (const candidate of candidates) {
+      for (let index = 0; index < candidates.length; index += 1) {
+        const candidate = candidates[index]
         if (signal.aborted) break
 
         try {
@@ -287,13 +289,16 @@ export function useExcalidrawChart(
           }
 
           if (!signal.aborted && wrapper && candidate.parentNode) {
+            wrapper.dataset.excalidrawIndex = String(index)
             candidate.replaceWith(wrapper)
           }
         } catch (error) {
           if (signal.aborted) break
           console.error('[Excalidraw] 渲染失败:', error)
           if (candidate.matches('.excalidraw-file-placeholder')) {
-            candidate.replaceWith(createFileErrorWrapper(error, candidate as HTMLElement))
+            const wrapper = createFileErrorWrapper(error, candidate as HTMLElement)
+            wrapper.dataset.excalidrawIndex = String(index)
+            candidate.replaceWith(wrapper)
           } else {
             const code = candidate.textContent || ''
             const result: ExcalidrawRenderResult = {
@@ -304,7 +309,9 @@ export function useExcalidrawChart(
               sourceLabel: '代码块',
               rawCode: code,
             }
-            candidate.replaceWith(createWrapper(result, code))
+            const wrapper = createWrapper(result, code)
+            wrapper.dataset.excalidrawIndex = String(index)
+            candidate.replaceWith(wrapper)
           }
         }
       }
@@ -313,7 +320,7 @@ export function useExcalidrawChart(
     return () => {
       abortController.abort()
     }
-  }, [html, options.markdownFilePath])
+  }, [html, options.markdownFilePath, enabled])
 
   useEffect(() => {
     if (!ref.current) return
@@ -392,11 +399,7 @@ export function useExcalidrawChart(
             if (svg) downloadSvgAsPng(svg, `excalidraw-${Date.now()}`)
             break
           case 'fullscreen':
-            if (document.fullscreenElement) {
-              document.exitFullscreen?.()
-            } else {
-              wrapper.requestFullscreen?.()
-            }
+            toggleChartFullscreen(wrapper)
             break
         }
       } catch (err) {

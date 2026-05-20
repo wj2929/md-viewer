@@ -54,12 +54,18 @@ export function ExportTaskView({
 
   if (status === 'idle') return null
 
+  const hasDoneWarnings = status === 'done' && (imagesFailed > 0 || warnings.length > 0)
+
   if (minimized) {
-    return <MinimizedBar status={status} currentChart={currentChart} totalCharts={totalCharts} onExpand={toggleMinimize} onClose={close} />
+    return <MinimizedBar status={status} currentChart={currentChart} totalCharts={totalCharts} hasDoneWarnings={hasDoneWarnings} onExpand={toggleMinimize} onClose={close} />
   }
 
-  const headerIcon = status === 'done' ? '✅' : status === 'error' ? '❌' : '📄'
-  const headerTitle = status === 'done' ? 'Word 已导出' : status === 'error' ? '导出失败' : '正在导出 Word 文档'
+  const headerIcon = status === 'done' ? (hasDoneWarnings ? '⚠️' : '✅') : status === 'error' ? '❌' : '📄'
+  const headerTitle = status === 'done'
+    ? (hasDoneWarnings ? 'Word 已导出，但有问题' : 'Word 已导出')
+    : status === 'error'
+      ? '导出失败'
+      : '正在导出 Word 文档'
 
   return (
     <div className="export-task-panel" ref={panelRef}
@@ -84,11 +90,11 @@ export function ExportTaskView({
   )
 }
 
-function MinimizedBar({ status, currentChart, totalCharts, onExpand, onClose }: {
-  status: string; currentChart: number; totalCharts: number; onExpand: () => void; onClose: () => void
+function MinimizedBar({ status, currentChart, totalCharts, hasDoneWarnings, onExpand, onClose }: {
+  status: string; currentChart: number; totalCharts: number; hasDoneWarnings?: boolean; onExpand: () => void; onClose: () => void
 }): JSX.Element {
-  const icon = status === 'done' ? '✅' : status === 'error' ? '❌' : '📄'
-  const text = status === 'done' ? '导出完成' : status === 'error' ? '导出失败' : `导出中... ${currentChart}/${totalCharts}`
+  const icon = status === 'done' ? (hasDoneWarnings ? '⚠️' : '✅') : status === 'error' ? '❌' : '📄'
+  const text = status === 'done' ? (hasDoneWarnings ? '导出完成，有问题' : '导出完成') : status === 'error' ? '导出失败' : `导出中... ${currentChart}/${totalCharts}`
   const percent = totalCharts > 0 ? Math.round((currentChart / totalCharts) * 100) : 0
   return (
     <div className="export-task-minimized">
@@ -149,11 +155,18 @@ function GeneratingView({ fileName, onCancel }: { fileName: string; onCancel?: (
 function DoneView({ fileName, imagesFailed, warnings, onShowInFolder }: {
   fileName: string; imagesFailed: number; warnings: string[]; onShowInFolder?: () => void
 }): JSX.Element {
+  const hasWarnings = imagesFailed > 0 || warnings.length > 0
   return (
     <>
       <div className="export-task-filename">{fileName}</div>
+      {hasWarnings && (
+        <div className="export-task-result warning">文件已生成，但有 {imagesFailed + warnings.length} 项需要确认</div>
+      )}
+      {!hasWarnings && (
+        <div className="export-task-result">导出完成</div>
+      )}
       {imagesFailed > 0 && (
-        <div className="export-task-result">导出完成，{imagesFailed} 个图表以代码形式保留</div>
+        <div className="export-task-warning-item">· {imagesFailed} 个图表以代码形式保留</div>
       )}
       {warnings.length > 0 && (
         <div className="export-task-warnings">

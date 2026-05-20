@@ -7,6 +7,8 @@ import Prism from 'prismjs'
 import katex from 'katex'
 import DOMPurify from 'dompurify'
 import { slugify } from './slugify'
+import { builtinRendererDefinitions } from '../renderers/builtin'
+import { createRendererRegistry } from '../renderers/registry'
 
 // 导入 Prism 语言支持
 import 'prismjs/components/prism-javascript'
@@ -22,6 +24,8 @@ import 'prismjs/components/prism-json'
 import 'prismjs/components/prism-yaml'
 import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
+
+const rendererRegistry = createRendererRegistry(builtinRendererDefinitions)
 
 /**
  * 检测 JavaScript 代码块是否为 ECharts 配置
@@ -72,16 +76,6 @@ export function createMarkdownRenderer(): MarkdownIt {
     typographer: true,
     breaks: true,
     highlight: (str: string, lang: string): string => {
-      // Mermaid 特殊处理：保留原始代码，标记为 mermaid（用于 HTML 导出时转换为 SVG）
-      if (lang === 'mermaid') {
-        return `<pre class="language-mermaid"><code class="language-mermaid">${md.utils.escapeHtml(str)}</code></pre>`
-      }
-
-      // ECharts 特殊处理：保留原始 JSON 配置（用于渲染和导出）
-      if (lang === 'echarts') {
-        return `<pre class="language-echarts"><code class="language-echarts">${md.utils.escapeHtml(str)}</code></pre>`
-      }
-
       // 智能检测：JavaScript 代码块中的 ECharts 配置
       if (lang === 'javascript' || lang === 'js') {
         if (isEChartsConfig(str)) {
@@ -96,34 +90,13 @@ export function createMarkdownRenderer(): MarkdownIt {
         }
       }
 
-      // Infographic 特殊处理：保留原始语法（用于渲染和导出）
-      if (lang === 'infographic') {
-        return `<pre class="language-infographic"><code class="language-infographic">${md.utils.escapeHtml(str)}</code></pre>`
-      }
-
-      // Markmap 思维导图：保留原始 Markdown 代码（用于渲染和导出）
-      if (lang === 'markmap') {
-        return `<pre class="language-markmap"><code class="language-markmap">${md.utils.escapeHtml(str)}</code></pre>`
-      }
-
-      // Graphviz DOT 图：支持 graphviz 和 dot 两种语言标识
-      if (lang === 'graphviz' || lang === 'dot') {
-        return `<pre class="language-graphviz"><code class="language-graphviz">${md.utils.escapeHtml(str)}</code></pre>`
-      }
-
-      // DrawIO 图表：支持 drawio 和 dio 两种语言标识
-      if (lang === 'drawio' || lang === 'dio') {
-        return `<pre class="language-drawio"><code class="language-drawio">${md.utils.escapeHtml(str)}</code></pre>`
-      }
-
-      // Excalidraw 图表：支持 excalidraw 和 excalidraw-json 两种语言标识
-      if (lang === 'excalidraw' || lang === 'excalidraw-json') {
-        return `<pre class="language-excalidraw"><code class="language-excalidraw">${md.utils.escapeHtml(str)}</code></pre>`
-      }
-
-      // PlantUML 图表：支持 plantuml 和 puml 两种语言标识
-      if (lang === 'plantuml' || lang === 'puml') {
-        return `<pre class="language-plantuml"><code class="language-plantuml">${md.utils.escapeHtml(str)}</code></pre>`
+      const rendererDefinition = rendererRegistry.resolveLanguage(lang)
+      if (rendererDefinition?.sourceKinds.includes('fence')) {
+        const canonicalLanguage = rendererDefinition.languages[0] || rendererDefinition.type
+        const sourceLanguageAttr = lang && lang !== canonicalLanguage
+          ? ` data-renderer-language="${md.utils.escapeHtml(lang)}"`
+          : ''
+        return `<pre class="language-${canonicalLanguage}"${sourceLanguageAttr}><code class="language-${canonicalLanguage}">${md.utils.escapeHtml(str)}</code></pre>`
       }
 
       if (lang && Prism.languages[lang]) {
@@ -271,6 +244,25 @@ export function createMarkdownRenderer(): MarkdownIt {
     token.attrSet('id', uniqueSlug)
 
     return self.renderToken(tokens, idx, options)
+  }
+
+  const defaultImageRenderer = md.renderer.rules.image || ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+  md.renderer.rules.image = (tokens: Token[], idx: number, options: MdOptions, env: unknown, self: Renderer): string => {
+    const token = tokens[idx]
+    const src = token.attrGet('src') || ''
+    const cleanSrc = src.split('#')[0].split('?')[0]
+    const isLocalResource = !/^(?:https?:|data:|blob:|local-image:)/i.test(src)
+    const alt = token.content || token.attrGet('alt') || ''
+
+    if (isLocalResource && /\.bpmn$/i.test(cleanSrc)) {
+      return `<div class="bpmn-file-placeholder" data-bpmn-src="${md.utils.escapeHtml(cleanSrc)}" data-bpmn-alt="${md.utils.escapeHtml(alt)}"></div>`
+    }
+
+    if (isLocalResource && /\.excalidraw$/i.test(cleanSrc)) {
+      return `<div class="excalidraw-file-placeholder" data-excalidraw-src="${md.utils.escapeHtml(cleanSrc)}" data-excalidraw-alt="${md.utils.escapeHtml(alt)}"></div>`
+    }
+
+    return defaultImageRenderer(tokens, idx, options, env, self)
   }
 
   return md
@@ -520,6 +512,18 @@ export function setupDOMPurifyHooks(): void {
 
     // PlantUML 相关
     'plantuml-container', 'plantuml-error', 'language-plantuml', 'language-puml',
+
+    // RendererPlugin 新增图表相关
+    'language-vega-lite', 'vega-lite-wrapper', 'vega-lite-container', 'vega-lite-error',
+    'language-d2', 'd2-wrapper', 'd2-container', 'd2-error',
+    'language-bpmn', 'bpmn-wrapper', 'bpmn-container', 'bpmn-error', 'bpmn-file-placeholder',
+    'language-wavedrom', 'wavedrom-wrapper', 'wavedrom-container', 'wavedrom-error',
+    'language-c4plantuml', 'c4plantuml-wrapper', 'c4plantuml-container', 'c4plantuml-error',
+    'language-structurizr', 'structurizr-wrapper', 'structurizr-container', 'structurizr-error',
+    'language-plotly', 'plotly-wrapper', 'plotly-container', 'plotly-error',
+    'language-dbml', 'dbml-wrapper', 'dbml-container', 'dbml-error',
+    'language-antv-g6', 'antv-g6-wrapper', 'antv-g6-container', 'antv-g6-error',
+    'language-kroki', 'kroki-wrapper', 'kroki-container', 'kroki-error',
 
     // KaTeX 相关（完整的 KaTeX 类白名单）
     'katex', 'katex-html', 'katex-mathml', 'katex-display', 'katex-error',

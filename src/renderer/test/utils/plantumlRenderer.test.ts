@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { validatePlantUMLCode, encodePlantUML, processPlantUMLInHtml, clearSvgCache } from '../../src/utils/plantumlRenderer'
+import { validatePlantUMLCode, encodePlantUML, processPlantUMLInHtml, clearSvgCache, normalizePlantUMLCode } from '../../src/utils/plantumlRenderer'
 
 // Mock plantuml-encoder
 vi.mock('plantuml-encoder', () => ({
@@ -51,6 +51,58 @@ class User {
     })
   })
 
+  describe('normalizePlantUMLCode', () => {
+    it('应该为 C4-PlantUML 自动补充 C4 标准库 include', () => {
+      const code = '@startuml\nPerson(user, "用户")\nSystem(app, "系统")\nRel(user, app, "使用")\n@enduml'
+
+      const result = normalizePlantUMLCode(code, 'c4plantuml')
+
+      expect(result).toContain('!include <C4/C4_Context>')
+      expect(result).toContain('Person(user, "用户")')
+    })
+
+    it('应该根据 C4 容器宏自动补充 C4_Container include', () => {
+      const code = [
+        '@startuml',
+        'Person(user, "用户")',
+        'System_Boundary(app, "MD Viewer") {',
+        '  Container(renderer, "RendererPlugin", "TypeScript", "渲染图表")',
+        '}',
+        'Rel(user, renderer, "预览")',
+        '@enduml',
+      ].join('\n')
+
+      const result = normalizePlantUMLCode(code, 'c4plantuml')
+
+      expect(result).toContain('!include <C4/C4_Container>')
+      expect(result).not.toContain('!include <C4/C4_Context>')
+    })
+
+    it('应该根据 C4 组件宏自动补充 C4_Component include', () => {
+      const code = [
+        '@startuml',
+        'Container_Boundary(exporter, "Export Pipeline") {',
+        '  Component(html, "HTML Export", "TS", "生成 HTML")',
+        '}',
+        '@enduml',
+      ].join('\n')
+
+      const result = normalizePlantUMLCode(code, 'c4plantuml')
+
+      expect(result).toContain('!include <C4/C4_Component>')
+      expect(result).not.toContain('!include <C4/C4_Context>')
+      expect(result).not.toContain('!include <C4/C4_Container>')
+    })
+
+    it('已有 C4 include 时不重复补充', () => {
+      const code = '@startuml\n!include <C4/C4_Context>\nPerson(user, "用户")\n@enduml'
+
+      const result = normalizePlantUMLCode(code, 'c4plantuml')
+
+      expect(result.match(/!include <C4\/C4_Context>/g)).toHaveLength(1)
+    })
+  })
+
   describe('encodePlantUML', () => {
     it('应该调用 plantuml-encoder 编码', () => {
       const result = encodePlantUML('@startuml\nA -> B\n@enduml')
@@ -75,6 +127,18 @@ class User {
       const result = await processPlantUMLInHtml(html)
       expect(result).toContain('plantuml-container')
       expect(result).not.toContain('language-plantuml')
+    })
+
+    it('应该把 c4plantuml 代码块复用 PlantUML 导出路径', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve('<svg><text>C4 Chart</text></svg>')
+      })
+
+      const html = '<pre class="language-c4plantuml"><code class="language-c4plantuml">@startuml\nPerson(user, "用户")\n@enduml</code></pre>'
+      const result = await processPlantUMLInHtml(html)
+      expect(result).toContain('plantuml-container')
+      expect(result).not.toContain('language-c4plantuml')
     })
 
     it('应该处理多个 plantuml 代码块', async () => {

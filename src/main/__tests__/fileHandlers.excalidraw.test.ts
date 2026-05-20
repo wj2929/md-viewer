@@ -198,3 +198,61 @@ describe('Excalidraw file handlers', () => {
     expect(mockRealpath).toHaveBeenCalledWith(path.resolve('/docs/assets/diagram.excalidraw'))
   })
 })
+
+describe('BPMN file handlers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetSecurity()
+    setAllowedBasePath('/docs')
+    registerFileHandlers(ctx as any)
+  })
+
+  it('reads a relative .bpmn file from the Markdown file directory', async () => {
+    mockRealpath.mockResolvedValue('/docs/notes/flow.bpmn')
+    mockStat.mockResolvedValue(fileStats(32))
+    mockReadFile.mockResolvedValue('<definitions />')
+
+    const readBpmnFile = handler<(event: any, payload: {
+      markdownFilePath: string
+      refPath: string
+    }) => Promise<any>>('fs:readBpmnFile')
+
+    await expect(readBpmnFile({}, {
+      markdownFilePath: '/docs/notes/page.md',
+      refPath: './flow.bpmn',
+    })).resolves.toEqual({
+      content: '<definitions />',
+      resolvedPath: '/docs/notes/flow.bpmn',
+    })
+    expect(mockRealpath).toHaveBeenCalledWith(path.resolve('/docs/notes/flow.bpmn'))
+    expect(mockReadFile).toHaveBeenCalledWith('/docs/notes/flow.bpmn', 'utf-8')
+  })
+
+  it('rejects URL BPMN references', async () => {
+    const readBpmnFile = handler<(event: any, payload: {
+      markdownFilePath: string
+      refPath: string
+    }) => Promise<any>>('fs:readBpmnFile')
+
+    await expect(readBpmnFile({}, {
+      markdownFilePath: '/docs/notes/page.md',
+      refPath: 'https://example.com/flow.bpmn',
+    })).rejects.toThrow('不支持 URL 形式的 .bpmn 文件')
+    expect(mockRealpath).not.toHaveBeenCalled()
+  })
+
+  it('rejects symlinks that escape allowedBasePath after realpath', async () => {
+    mockRealpath.mockResolvedValue('/outside/flow.bpmn')
+
+    const readBpmnFile = handler<(event: any, payload: {
+      markdownFilePath: string
+      refPath: string
+    }) => Promise<any>>('fs:readBpmnFile')
+
+    await expect(readBpmnFile({}, {
+      markdownFilePath: '/docs/notes/page.md',
+      refPath: './linked.bpmn',
+    })).rejects.toThrow('安全错误')
+    expect(mockStat).not.toHaveBeenCalled()
+  })
+})

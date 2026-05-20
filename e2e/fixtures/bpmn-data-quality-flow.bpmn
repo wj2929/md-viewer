@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Defs_DataQuality_File" targetNamespace="http://md-viewer.local/data-quality-file">
+  <bpmn:process id="Process_DataQuality_File" isExecutable="false">
+    <bpmn:startEvent id="Start_DQ_File" name="导入数据"><bpmn:outgoing>DQ_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Task_DQ_Check" name="规则校验"><bpmn:incoming>DQ_1</bpmn:incoming><bpmn:outgoing>DQ_2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_DQ_File" name="合格?"><bpmn:incoming>DQ_2</bpmn:incoming><bpmn:outgoing>DQ_3</bpmn:outgoing><bpmn:outgoing>DQ_4</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:task id="Task_DQ_Report" name="生成报告"><bpmn:incoming>DQ_3</bpmn:incoming><bpmn:outgoing>DQ_5</bpmn:outgoing></bpmn:task>
+    <bpmn:userTask id="Task_DQ_Fix" name="人工修正"><bpmn:incoming>DQ_4</bpmn:incoming><bpmn:outgoing>DQ_6</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="End_DQ_File" name="完成"><bpmn:incoming>DQ_5</bpmn:incoming><bpmn:incoming>DQ_6</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="DQ_1" sourceRef="Start_DQ_File" targetRef="Task_DQ_Check" />
+    <bpmn:sequenceFlow id="DQ_2" sourceRef="Task_DQ_Check" targetRef="Gateway_DQ_File" />
+    <bpmn:sequenceFlow id="DQ_3" name="是" sourceRef="Gateway_DQ_File" targetRef="Task_DQ_Report" />
+    <bpmn:sequenceFlow id="DQ_4" name="否" sourceRef="Gateway_DQ_File" targetRef="Task_DQ_Fix" />
+    <bpmn:sequenceFlow id="DQ_5" sourceRef="Task_DQ_Report" targetRef="End_DQ_File" />
+    <bpmn:sequenceFlow id="DQ_6" sourceRef="Task_DQ_Fix" targetRef="End_DQ_File" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="D_DataQuality_File">
+    <bpmndi:BPMNPlane id="P_DataQuality_File" bpmnElement="Process_DataQuality_File">
+      <bpmndi:BPMNShape id="Start_DQ_File_di" bpmnElement="Start_DQ_File"><dc:Bounds x="70" y="130" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DQ_Check_di" bpmnElement="Task_DQ_Check"><dc:Bounds x="160" y="108" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_DQ_File_di" bpmnElement="Gateway_DQ_File"><dc:Bounds x="350" y="123" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DQ_Report_di" bpmnElement="Task_DQ_Report"><dc:Bounds x="480" y="80" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DQ_Fix_di" bpmnElement="Task_DQ_Fix"><dc:Bounds x="480" y="190" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_DQ_File_di" bpmnElement="End_DQ_File"><dc:Bounds x="700" y="130" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DQ_1_di" bpmnElement="DQ_1"><di:waypoint x="106" y="148" /><di:waypoint x="160" y="148" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DQ_2_di" bpmnElement="DQ_2"><di:waypoint x="280" y="148" /><di:waypoint x="350" y="148" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DQ_3_di" bpmnElement="DQ_3"><di:waypoint x="400" y="148" /><di:waypoint x="480" y="115" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DQ_4_di" bpmnElement="DQ_4"><di:waypoint x="400" y="148" /><di:waypoint x="480" y="225" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DQ_5_di" bpmnElement="DQ_5"><di:waypoint x="600" y="115" /><di:waypoint x="718" y="130" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DQ_6_di" bpmnElement="DQ_6"><di:waypoint x="600" y="225" /><di:waypoint x="718" y="166" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

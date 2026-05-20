@@ -65,4 +65,21 @@ describe('SettingsPanel DOCX service styles', () => {
     expect(screen.getByRole('radio', { name: /正式公文/ })).toBeChecked()
     expect(screen.queryByText(/当前服务不支持“正式公文”/)).not.toBeInTheDocument()
   })
+
+  it('shows renderer capability matrix with new RendererPlugin types', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('渲染能力')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Vega-Lite')).toBeInTheDocument()
+    expect(screen.getByText('D2')).toBeInTheDocument()
+    expect(screen.getByText('BPMN')).toBeInTheDocument()
+    expect(screen.getByText('WaveDrom')).toBeInTheDocument()
+    expect(screen.getByText('C4-PlantUML')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '应用预览' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'HTML/PDF' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'DOCX' })).toBeInTheDocument()
+  })
 })

@@ -10,7 +10,7 @@
 
 import { useEffect } from 'react'
 import { validateGraphvizCode, renderGraphvizToSvg } from '../../utils/graphvizRenderer'
-import { downloadSvgAsPng } from '../../utils/chartUtils'
+import { downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
 
 /**
  * Graphviz 图表渲染 Hook
@@ -20,11 +20,12 @@ import { downloadSvgAsPng } from '../../utils/chartUtils'
  */
 export function useGraphvizChart(
   ref: React.RefObject<HTMLElement | null>,
-  html: string
+  html: string,
+  enabled = true
 ): void {
   // v1.5.4: Graphviz DOT 图渲染（异步 WASM 加载）
   useEffect(() => {
-    if (!ref.current) return
+    if (!enabled || !ref.current) return
 
     const graphvizBlocks = ref.current.querySelectorAll('pre.language-graphviz')
     if (graphvizBlocks.length === 0) return
@@ -146,7 +147,7 @@ export function useGraphvizChart(
     return () => {
       abortController.abort()
     }
-  }, [html])
+  }, [html, enabled])
 
   // v1.5.4: Graphviz 切换按钮 + 工具栏点击事件处理
   useEffect(() => {
@@ -266,11 +267,7 @@ export function useGraphvizChart(
               break
             }
             case 'fullscreen':
-              if (document.fullscreenElement) {
-                document.exitFullscreen?.()
-              } else {
-                wrapper?.requestFullscreen?.()
-              }
+              toggleChartFullscreen(wrapper)
               break
           }
         } catch (err) {

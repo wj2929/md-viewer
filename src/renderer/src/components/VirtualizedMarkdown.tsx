@@ -16,12 +16,22 @@ import {
   useDrawIOChart,
   usePlantUMLChart,
   useExcalidrawChart,
+  useVegaLiteChart,
+  useD2Chart,
+  useBpmnChart,
+  useWaveDromChart,
+  useStructurizrChart,
+  usePlotlyChart,
+  useDbmlChart,
+  useAntvG6Chart,
+  useKrokiChart,
 } from './charts'
 
 // v1.4.0: 页面内搜索
 import { useFileStore } from '../stores/fileStore'
 import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
+import { collectExportableChartPngs, countExportableCharts } from '../utils/chartUtils'
 
 /**
  * v1.4.6: 已移除本地的 createMarkdownInstance
@@ -43,6 +53,13 @@ interface VirtualizedMarkdownProps {
   previewEditingEnabled?: boolean
   onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
 }
+
+let lastPreviewChartZipContext: {
+  root: HTMLElement
+  filePath: string
+  tabId?: string
+  leafId?: string | null
+} | null = null
 
 export interface PreviewBlockEdit {
   sourceLine: number
@@ -69,6 +86,31 @@ const CHART_CODE_LANGUAGES = new Set([
   'infographic',
   'excalidraw',
   'excalidraw-json',
+  'vega-lite',
+  'vegalite',
+  'd2',
+  'bpmn',
+  'wavedrom',
+  'c4',
+  'c4plantuml',
+  'structurizr',
+  'structurizr-dsl',
+  'plotly',
+  'plotly-json',
+  'dbml',
+  'antv-g6',
+  'g6',
+  'kroki',
+  'kroki-pikchr',
+  'kroki-nomnoml',
+  'kroki-svgbob',
+  'kroki-bytefield',
+  'kroki-tikz',
+  'pikchr',
+  'nomnoml',
+  'svgbob',
+  'bytefield',
+  'tikz',
 ])
 
 function normalizeRenderedText(value: string): string {
@@ -167,6 +209,13 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
     const scrollRatio = scrollContainer.scrollHeight > scrollContainer.clientHeight
       ? scrollContainer.scrollTop / Math.max(1, scrollContainer.scrollHeight - scrollContainer.clientHeight)
       : 0
+    const chartCount = countExportableCharts(currentTarget)
+    lastPreviewChartZipContext = {
+      root: currentTarget,
+      filePath,
+      tabId,
+      leafId,
+    }
 
     // 检测右键目标是否为内部 .md 链接
     let linkHref: string | null = null
@@ -197,6 +246,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
       selectionText,
       sourceLine: Number.isFinite(sourceLine) ? sourceLine : null,
       scrollRatio,
+      chartCount,
       linkHref,
       basePath: folderPath || null
     }).catch(error => {
@@ -416,6 +466,40 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   useEffect(() => {
     if (content === debouncedContent) setRenderVersion(version => version + 1)
   }, [content, debouncedContent])
+
+  useEffect(() => {
+    if (!filePath || !window.api?.onExportChartsZipFromPreview || !window.api?.exportChartsZip) return
+
+    return window.api.onExportChartsZipFromPreview(async (request) => {
+      const root = containerRef.current
+      const context = lastPreviewChartZipContext
+      if (!root || !context || context.root !== root || context.filePath !== request.filePath) return
+      if (request.tabId && context.tabId && request.tabId !== context.tabId) return
+      if (request.leafId && context.leafId && request.leafId !== context.leafId) return
+
+      try {
+        const images = await collectExportableChartPngs(root)
+        if (images.length === 0) {
+          console.warn('[VirtualizedMarkdown] 当前预览区没有可导出的 SVG 图表')
+          return
+        }
+
+        const result = await window.api.exportChartsZip({
+          markdownFilePath: request.filePath,
+          images,
+        })
+        if (result?.filePath) {
+          window.api.showItemInFolder?.(result.filePath).catch(error => {
+            console.warn('[VirtualizedMarkdown] 无法在文件夹中显示图表 ZIP:', error)
+          })
+        } else if (result?.error) {
+          console.error('[VirtualizedMarkdown] 图表 ZIP 导出失败:', result.error)
+        }
+      } catch (error) {
+        console.error('[VirtualizedMarkdown] 图表 ZIP 导出失败:', error)
+      }
+    })
+  }, [filePath])
 
   // v1.4.0: 页面内搜索
   const search = useInPageSearch(containerRef, debouncedContent.length)
@@ -747,6 +831,14 @@ const MarkdownContent = memo(
           img.replaceWith(placeholder)
           return
         }
+        if (/\.bpmn(?:[?#].*)?$/i.test(src)) {
+          const placeholder = document.createElement('div')
+          placeholder.className = 'bpmn-file-placeholder'
+          placeholder.dataset.bpmnSrc = src.split('#')[0].split('?')[0]
+          placeholder.dataset.bpmnAlt = img.getAttribute('alt') || ''
+          img.replaceWith(placeholder)
+          return
+        }
         // 基于当前 Markdown 文件所在目录解析相对路径
         const dir = filePath.substring(0, filePath.lastIndexOf('/'))
         let absolutePath: string
@@ -776,6 +868,15 @@ const MarkdownContent = memo(
     useDrawIOChart(combinedRef, html)
     usePlantUMLChart(combinedRef, html)
     useExcalidrawChart(combinedRef, html, { markdownFilePath: filePath })
+    useVegaLiteChart(combinedRef, html)
+    useD2Chart(combinedRef, html)
+    useBpmnChart(combinedRef, html, { markdownFilePath: filePath })
+    useWaveDromChart(combinedRef, html)
+    useStructurizrChart(combinedRef, html)
+    usePlotlyChart(combinedRef, html)
+    useDbmlChart(combinedRef, html)
+    useAntvG6Chart(combinedRef, html)
+    useKrokiChart(combinedRef, html)
 
     // 为标题添加 id 属性
     useEffect(() => {
@@ -909,13 +1010,13 @@ const MarkdownContent = memo(
       if (!combinedRef.current) return
 
       // 查找所有 pre > code 代码块，排除 Mermaid 和 ECharts（它们有自己的复制按钮）
-      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio):not(.language-plantuml):not(.language-excalidraw)')
+      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio):not(.language-plantuml):not(.language-excalidraw):not(.language-vega-lite):not(.language-d2):not(.language-bpmn):not(.language-wavedrom):not(.language-structurizr):not(.language-plotly):not(.language-dbml):not(.language-antv-g6):not(.language-kroki)')
 
       codeBlocks.forEach((pre) => {
         // 跳过已经有复制按钮的代码块
         if (pre.querySelector('.copy-btn')) return
-        // 跳过 ECharts/Infographic/Markmap/Graphviz 代码视图中的代码块（已有复制按钮）
-        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view') || pre.closest('.plantuml-code-view') || pre.closest('.excalidraw-code-view')) return
+        // 跳过图表代码视图中的代码块（已有复制按钮）
+        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.vega-lite-code-view') || pre.closest('.d2-code-view') || pre.closest('.bpmn-code-view') || pre.closest('.wavedrom-code-view') || pre.closest('.structurizr-code-view') || pre.closest('.plotly-code-view') || pre.closest('.dbml-code-view') || pre.closest('.antv-g6-code-view') || pre.closest('.kroki-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view') || pre.closest('.plantuml-code-view') || pre.closest('.excalidraw-code-view')) return
 
         const code = pre.querySelector('code')
         if (!code) return
@@ -952,6 +1053,15 @@ const MarkdownContent = memo(
         const markmapCodeView = target.closest('.markmap-code-view')
         const graphvizCodeView = target.closest('.graphviz-code-view')
         const preBlock = target.closest('pre')
+        const decodeChartCode = (wrapper: Element | null, attribute: string): string => {
+          const base64Code = wrapper?.getAttribute(attribute)
+          if (!base64Code) return ''
+          try {
+            return decodeURIComponent(escape(atob(base64Code)))
+          } catch {
+            return ''
+          }
+        }
 
         if (mermaidCodeView) {
           // Mermaid 代码视图：从 wrapper 的 data-mermaid-code 获取
@@ -997,6 +1107,24 @@ const MarkdownContent = memo(
               textToCopy = ''
             }
           }
+        } else if (target.closest('.vega-lite-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.vega-lite-wrapper'), 'data-vega-lite-code')
+        } else if (target.closest('.d2-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.d2-wrapper'), 'data-d2-code')
+        } else if (target.closest('.bpmn-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.bpmn-wrapper'), 'data-bpmn-code')
+        } else if (target.closest('.wavedrom-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.wavedrom-wrapper'), 'data-wavedrom-code')
+        } else if (target.closest('.structurizr-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.structurizr-wrapper'), 'data-structurizr-code')
+        } else if (target.closest('.plotly-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.plotly-wrapper'), 'data-plotly-code')
+        } else if (target.closest('.dbml-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.dbml-wrapper'), 'data-dbml-code')
+        } else if (target.closest('.antv-g6-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.antv-g6-wrapper'), 'data-antv-g6-code')
+        } else if (target.closest('.kroki-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.kroki-wrapper'), 'data-kroki-code')
         } else if (target.closest('.drawio-code-view')) {
           // DrawIO 代码视图：从 wrapper 的 data-drawio-code 获取
           const wrapper = target.closest('.drawio-wrapper')
@@ -1021,15 +1149,7 @@ const MarkdownContent = memo(
           }
         } else if (target.closest('.plantuml-code-view')) {
           // PlantUML 代码视图：从 wrapper 的 data-plantuml-code 获取
-          const wrapper = target.closest('.plantuml-wrapper')
-          const base64Code = wrapper?.getAttribute('data-plantuml-code')
-          if (base64Code) {
-            try {
-              textToCopy = decodeURIComponent(escape(atob(base64Code)))
-            } catch {
-              textToCopy = ''
-            }
-          }
+          textToCopy = decodeChartCode(target.closest('.plantuml-wrapper, .c4plantuml-wrapper'), 'data-plantuml-code')
         } else if (preBlock) {
           // 普通代码块：获取 code 元素的纯文本内容
           const code = preBlock.querySelector('code')

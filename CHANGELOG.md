@@ -7,6 +7,41 @@
 
 ---
 
+## [2.2.0] - 2026-05-20
+
+> **状态**: ✅ **已完成** | **类型**: RendererPlugin 图表扩展 + 图表导出增强 + 稳定性修复
+
+本阶段围绕图表密集型 Markdown 文档补齐渲染能力、统一图表交互，并加强 HTML / PDF / DOCX / 服务端截图链路的一致性。
+
+### ✨ 新功能
+
+#### 1. RendererPlugin 图表扩展 ⭐⭐⭐
+- 新增统一 RendererPlugin registry、manifest、安全网关和源码定位能力，为新增渲染器提供统一契约。
+- 新增 Vega-Lite、D2、BPMN、WaveDrom、C4-PlantUML、Structurizr、Plotly、DBML、AntV G6、Kroki 渲染支持。
+- BPMN 支持 `bpmn` 代码块和 Markdown 图片语法引用 `.bpmn` 文件。
+- Kroki 作为长尾格式入口，支持 `nomnoml`、`pikchr`、`svgbob`、`bytefield`、`tikz` 等格式的安全接入。
+
+#### 2. 图表交互与批量导出 ⭐⭐⭐
+- 新增预览区右键“打包下载图表”入口，可将当前文档中的可导出图表批量保存为 ZIP。
+- ZIP 内自动创建同名文件夹，并按顺序生成 `01-mermaid.png`、`02-dbml.png` 等安全文件名。
+- 统一多类 SVG 图表的工具栏、全屏查看、缩放、适应大小和下载图片交互。
+- 全屏预览复用 DrawIO 风格的遮罩、关闭按钮和底部工具条，并补充 Escape 退出支持。
+
+### 🔧 改进
+- HTML / PDF / DOCX 导出链路识别新增 RendererPlugin 图表，减少预览与导出不一致。
+- 服务端 renderer artifact manifest 扩展新图表能力，供 `md-viewer-docx-service` 进行能力判断。
+- 图表 PNG 导出增加像素级白边裁剪，改善导出图片大白边、偏移和不居中的问题。
+- Markmap 导出改用实际渲染视口处理 `foreignObject` 文本，减少右侧文字裁切。
+- DBML / Structurizr / AntV G6 等简图渲染器优化边线连接、标签背景、字段文本截断和重复关系去重。
+- Markdown 中的 `.bpmn` / `.excalidraw` 本地图片引用先转为渲染占位符，避免浏览器直接请求原始文件导致 404。
+- CSP 放行必要的 `data:` 字体和 AntV 资源来源，避免部分图表字体被误拦截。
+
+### 🧪 测试
+- 新增 Vega-Lite、D2、BPMN、WaveDrom、C4-PlantUML、Structurizr、Plotly、DBML、AntV G6、Kroki 独立 fixture。
+- 扩展 `test-all-charts.md`，用于覆盖多图表混合文档的预览、导出和批量下载。
+- 新增 RendererPlugin registry、manifest、安全策略、源码定位、各新渲染器、DOCX 图表渲染和 ZIP 打包导出的单元测试。
+- 新增图表全屏、工具栏、PNG 下载、批量导出和服务端渲染 smoke E2E 覆盖。
+
 ## [2.1.0] - 2026-05-14
 
 > **状态**: ✅ **已发布** | **类型**: 新功能（Markdown 编辑模式）+ 体验改进 + 稳定性修复
