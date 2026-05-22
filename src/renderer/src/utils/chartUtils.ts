@@ -291,6 +291,25 @@ function trimCanvasWhitespace(canvas: HTMLCanvasElement, paddingPixels: number):
   return trimmedCanvas
 }
 
+function padCanvasToMaxAspectRatio(canvas: HTMLCanvasElement, maxAspectRatio: number): HTMLCanvasElement {
+  if (canvas.width <= 0 || canvas.height <= 0) return canvas
+  if (canvas.width / canvas.height <= maxAspectRatio) return canvas
+
+  const outputHeight = Math.ceil(canvas.width / maxAspectRatio)
+  if (outputHeight <= canvas.height) return canvas
+
+  const outputCanvas = document.createElement('canvas')
+  outputCanvas.width = canvas.width
+  outputCanvas.height = outputHeight
+  const outputCtx = outputCanvas.getContext('2d')
+  if (!outputCtx) return canvas
+
+  outputCtx.fillStyle = '#ffffff'
+  outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height)
+  outputCtx.drawImage(canvas, 0, Math.floor((outputHeight - canvas.height) / 2))
+  return outputCanvas
+}
+
 export function svgToPngDataUrl(
   svg: SVGSVGElement,
   scale = 2,
@@ -311,7 +330,8 @@ export function svgToPngDataUrl(
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      const outputCanvas = trimCanvasWhitespace(canvas, Math.max(0, Math.round(padding * scale)))
+      const trimmedCanvas = trimCanvasWhitespace(canvas, Math.max(0, Math.round(padding * scale)))
+      const outputCanvas = padCanvasToMaxAspectRatio(trimmedCanvas, 5.8)
       resolve(outputCanvas.toDataURL('image/png'))
     }
     img.onerror = () => reject(new Error('SVG 转 PNG 失败'))
@@ -908,7 +928,12 @@ function hydrateMarkmapFullscreenClone(clone: HTMLElement): void {
 
     const transformer = new Transformer()
     const { root, features } = transformer.transform(code)
-    const options = deriveOptions(features)
+    const options = {
+      ...deriveOptions(features),
+      duration: 0,
+      fitRatio: 0.98,
+      maxInitialScale: 4,
+    }
     const markmap = Markmap.create(svg, options, root)
     container.__markmapInstance = markmap
     scheduleMarkmapFullscreenFit(clone)

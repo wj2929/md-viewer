@@ -1,7 +1,7 @@
 {
   "schemaVersion": "2.0",
   "name": "@md-viewer/server-renderer",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "entryHtml": "server-render.html",
   "assetsDir": "assets",
   "supportedCharts": [

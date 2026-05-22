@@ -68,7 +68,7 @@ class WindowManager {
         win.setAlwaysOnTop(true)
       }
 
-      if (is.dev) {
+      if (is.dev && process.env.NODE_ENV !== 'test') {
         win.webContents.openDevTools()
       }
 

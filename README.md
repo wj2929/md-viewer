@@ -92,6 +92,8 @@ chmod +x MD-Viewer-*.AppImage
 4. 使用 `Cmd+K` / `Ctrl+K` 快速搜索文件。
 5. 使用导出菜单将当前文档导出为 HTML、PDF 或 DOCX。
 
+更多日常操作、编辑模式、图表下载和导出限制见 [使用手册](docs/user-manual.md)，跨平台限制见 [已知问题](docs/known-issues.md)。
+
 ## 支持的图表与公式
 
 | 类型 | Markdown 写法 | 说明 |
@@ -175,6 +177,10 @@ npm run test:e2e
 
 # 构建渲染进程与主进程产物
 npm run build
+
+# v2.3 稳定性门禁
+scripts/release-smoke.sh quick
+scripts/release-smoke.sh full
 
 # 打包桌面应用
 npm run build:mac

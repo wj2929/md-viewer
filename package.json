@@ -1,6 +1,6 @@
 {
   "name": "md-viewer",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "A simple and powerful Markdown preview tool with Mermaid diagrams and file watching",
   "main": "./out/main/index.js",
   "scripts": {
@@ -160,6 +160,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",
+    "@types/adm-zip": "^0.5.8",
     "@types/dompurify": "^3.0.5",
     "@types/fs-extra": "^11.0.4",
     "@types/lodash.debounce": "^4.0.9",

@@ -1,7 +1,7 @@
 import { join } from 'path'
 import { mkdirSync, writeFileSync } from 'fs'
 import { test, expect } from './fixtures/electron'
-import type { Page } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
 
 const EXCALIDRAW_VISUAL_DIR = join(__dirname, '..', 'test-results', 'excalidraw-visual')
 const CHART_FULLSCREEN_VISUAL_DIR = join(__dirname, '..', 'test-results', 'chart-fullscreen-visual')
@@ -102,21 +102,96 @@ async function mockPlantUMLFetch(page: Page): Promise<void> {
   })
 }
 
-async function mockKrokiFetch(page: Page): Promise<void> {
-  await page.evaluate(() => {
+function buildKrokiMockSvg(format: string, source: string): string {
+  const escapeSvgText = (value: string) => value.replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] || char))
+  const sizeByFormat: Record<string, { width: number; height: number }> = {
+    nomnoml: { width: 620, height: 240 },
+    pikchr: { width: 720, height: 220 },
+    svgbob: { width: 680, height: 300 },
+    bytefield: { width: 760, height: 220 },
+    tikz: { width: 720, height: 300 },
+  }
+  const { width, height } = sizeByFormat[format] || { width: 620, height: 240 }
+  const title = `Kroki ${format} mock`
+  const lines = source
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(0, 6)
+  const style = format === 'tikz'
+    ? '<style>text.kroki-label { font-family: Arial, sans-serif; font-size: 8px; }</style>'
+    : format === 'svgbob'
+      ? '<style>rect.kroki-box { shape-rendering: crispEdges; } line.kroki-line { shape-rendering: crispEdges; stroke-linecap: square; }</style>'
+      : ''
+  const titleFontSize = format === 'tikz' ? 8 : 22
+  const lineFontSize = format === 'tikz' ? 7 : 16
+  const lineSvg = lines.map((line, index) => {
+    const y = 104 + index * 24
+    return `<text class="kroki-label" x="40" y="${y}" font-size="${lineFontSize}" fill="#344054">${escapeSvgText(line.slice(0, 72))}</text>`
+  }).join('')
+  const cards = Array.from({ length: Math.max(3, Math.min(7, lines.length + 1)) }, (_item, index) => {
+    const x = 36 + index * Math.max(78, Math.floor((width - 120) / 7))
+    const y = height - 76 - (index % 2) * 28
+    return `<rect x="${x}" y="${y}" width="66" height="38" rx="8" fill="#e8f2ff" stroke="#2f5597"/>`
+  }).join('')
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeSvgText(title)}">`,
+    style,
+    '<rect x="8" y="8" width="' + (width - 16) + '" height="' + (height - 16) + '" rx="14" fill="#f8fbff" stroke="#2f5597"/>',
+    `<text class="kroki-label" x="36" y="52" font-size="${titleFontSize}" font-weight="700" fill="#172033">${escapeSvgText(title)}</text>`,
+    '<line class="kroki-line" x1="40" y1="72" x2="' + (width - 40) + '" y2="72" stroke="#d0d7e2" stroke-width="2"/>',
+    lineSvg,
+    cards,
+    '</svg>',
+  ].join('')
+}
+
+async function mockKrokiFetch(page: Page, electronApp?: ElectronApplication): Promise<void> {
+  const mockFactorySource = buildKrokiMockSvg.toString()
+  if (electronApp) {
+    await electronApp.evaluate(({ ipcMain }, source) => {
+      const buildMockSvg = (0, eval)(`(${source})`) as (format: string, krokiSource: string) => string
+      ipcMain.removeHandler('render:krokiSvg')
+      ipcMain.handle('render:krokiSvg', async (_event, payload: { format?: string; source?: string }) => ({
+        ok: true,
+        svg: buildMockSvg(String(payload?.format || 'nomnoml'), String(payload?.source || '')),
+      }))
+    }, mockFactorySource)
+  }
+
+  await page.evaluate((source) => {
+    const buildMockSvg = (0, eval)(`(${source})`) as (format: string, krokiSource: string) => string
+    const mockedRenderKrokiSvg = async (payload: { format?: string; source?: string }) => ({
+      ok: true,
+      svg: buildMockSvg(String(payload?.format || 'nomnoml'), String(payload?.source || '')),
+    })
     const originalFetch = window.fetch.bind(window)
     window.fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
       if (url.includes('kroki.io')) {
         const format = url.split('/').slice(-2, -1)[0] || 'kroki'
         return new Response(
-          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 180"><rect x="8" y="8" width="344" height="164" rx="14" fill="#f8fbff" stroke="#2f5597"/><text x="32" y="96" font-size="20">Kroki ${format} mock</text></svg>`,
+          buildMockSvg(format, typeof init?.body === 'string' ? init.body : ''),
           { status: 200, headers: { 'content-type': 'image/svg+xml' } }
         )
       }
       return originalFetch(input, init)
     }
-  })
+    try {
+      Object.defineProperty(window.api, 'renderKrokiSvg', {
+        configurable: true,
+        value: mockedRenderKrokiSvg,
+      })
+    } catch {
+      window.api.renderKrokiSvg = mockedRenderKrokiSvg
+    }
+  }, mockFactorySource)
 }
 
 interface RendererToolbarFixture {
@@ -1278,7 +1353,7 @@ test.describe('Markdown 渲染测试', () => {
     })
     await page.waitForTimeout(300)
     await mockPlantUMLFetch(page)
-    await mockKrokiFetch(page)
+    await mockKrokiFetch(page, electronApp)
     mkdirSync(CHART_FULLSCREEN_VISUAL_DIR, { recursive: true })
 
     const fixturePath = join(testDir, 'all-chart-fullscreen.md')
@@ -1378,10 +1453,10 @@ test.describe('Markdown 渲染测试', () => {
     ).toBe(false)
   })
 
-  test('RendererPlugin 综合 fixture 应在真实预览中渲染', async ({ page }) => {
+  test('RendererPlugin 综合 fixture 应在真实预览中渲染', async ({ page, electronApp }) => {
     test.setTimeout(300000)
     await mockPlantUMLFetch(page)
-    await mockKrokiFetch(page)
+    await mockKrokiFetch(page, electronApp)
 
     const fixtures = [
       {
@@ -1477,6 +1552,7 @@ test.describe('Markdown 渲染测试', () => {
       BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1280, height: 1000 })
     })
     await page.waitForTimeout(300)
+    await mockKrokiFetch(page, electronApp)
     await openMarkdownFile(page, join(__dirname, 'fixtures/test-kroki.md'))
     await page.waitForSelector('.markdown-body', { timeout: 10000 })
     await expect(page.locator('.kroki-wrapper')).toHaveCount(24, { timeout: 120000 })
@@ -1595,7 +1671,7 @@ test.describe('Markdown 渲染测试', () => {
     })
     await page.waitForTimeout(300)
     await mockPlantUMLFetch(page)
-    await mockKrokiFetch(page)
+    await mockKrokiFetch(page, electronApp)
     await installChartDownloadSpy(page)
     await installChartClipboardSpy(page)
 
@@ -1953,7 +2029,7 @@ test.describe('Markdown 渲染测试', () => {
     })
     await page.waitForTimeout(300)
     await mockPlantUMLFetch(page)
-    await mockKrokiFetch(page)
+    await mockKrokiFetch(page, electronApp)
     await installChartDownloadSpy(page)
 
     await openMarkdownFile(page, join(__dirname, 'fixtures/test-all-charts.md'))

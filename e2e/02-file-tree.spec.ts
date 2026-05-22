@@ -143,6 +143,71 @@ test.describe('文件树功能测试', () => {
     await expect(page.locator('.file-tree-row.file:has-text("保利威费用分析报告.md")')).toBeVisible()
   })
 
+  test('文件树过滤框应该一直显示并支持点击定位后输入中文', async ({ page, electronApp, testDir }) => {
+    writeFileSync(join(testDir, '研发中心保利威复盘.md'), '# 研发中心保利威复盘\n')
+
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    const filterInput = page.getByRole('textbox', { name: '文件过滤' })
+    await expect(filterInput).toBeVisible()
+
+    const box = await filterInput.boundingBox()
+    expect(box).not.toBeNull()
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await expect(filterInput).toBeFocused()
+    await page.keyboard.insertText('保利')
+
+    await expect(filterInput).toHaveValue('保利')
+    await expect(page.locator('.file-tree-row.file:has-text("研发中心保利威复盘.md")')).toBeVisible()
+
+    await page.locator('.file-tree-filter-clear').click()
+    await expect(filterInput).toHaveValue('')
+    await expect(page.locator('.file-tree-row.file:has-text("test1.md")')).toBeVisible()
+  })
+
+  test('点击滚动后靠下文件不应该让文件树滚动回顶', async ({ page, electronApp, testDir }) => {
+    for (let index = 0; index < 70; index += 1) {
+      writeFileSync(join(testDir, `zz-long-${String(index).padStart(2, '0')}.md`), `# Long ${index}\n`)
+    }
+
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    const container = page.locator('.file-tree-container')
+    await container.evaluate(element => {
+      element.scrollTop = element.scrollHeight
+    })
+    const before = await container.evaluate(element => element.scrollTop)
+    expect(before).toBeGreaterThan(100)
+
+    await page.locator('.file-tree-row.file:has-text("zz-long-69.md")').click()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Long 69')
+
+    const after = await container.evaluate(element => element.scrollTop)
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(80)
+  })
+
+  test('鼠标点击 Markdown 预览区不应该出现浏览器默认橙色焦点框', async ({ page, electronApp, testDir }) => {
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+    await page.click('.file-tree-row.file:has-text("test1.md")')
+    await page.waitForSelector('.markdown-body', { timeout: 10000 })
+
+    await page.locator('.markdown-body').click()
+
+    const focusStyle = await page.locator('.markdown-body').evaluate(element => {
+      const style = window.getComputedStyle(element)
+      return {
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth
+      }
+    })
+
+    expect(focusStyle.outlineStyle).toBe('none')
+    expect(focusStyle.outlineWidth).toBe('0px')
+  })
+
   test('刷新按钮应该重新加载文件树', async ({ page, electronApp, testDir }) => {
     await openFolderViaIPC(electronApp, testDir)
     await page.waitForSelector('.file-tree-container', { timeout: 10000 })

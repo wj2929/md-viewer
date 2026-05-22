@@ -351,6 +351,23 @@ describe('FileTree', () => {
       expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
     })
 
+    it('点击文件行不应该聚焦顶部过滤框，避免文件树滚动回顶', () => {
+      vi.useFakeTimers()
+      const file = createMockFile('guide.md', '/guide.md', 'guide.md')
+
+      const { container } = render(<FileTree files={[file]} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const input = screen.getByRole('textbox', { name: '文件过滤' })
+      const fileRow = container.querySelector('.file-tree-row')!
+
+      fireEvent.click(fileRow)
+      act(() => {
+        vi.runOnlyPendingTimers()
+      })
+
+      expect(mockOnFileSelect).toHaveBeenCalledWith(file)
+      expect(input).not.toHaveFocus()
+    })
+
     it('点击文件树后应该显示并聚焦输入框以承接中文输入法', async () => {
       const files = [
         createMockFile('保利威费用分析报告.md', '/保利威费用分析报告.md', '保利威费用分析报告.md'),

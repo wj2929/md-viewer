@@ -1,6 +1,6 @@
 import { test as base, _electron as electron, ElectronApplication, Page } from '@playwright/test'
 import { basename, join } from 'path'
-import { mkdirSync, writeFileSync, rmSync, readdirSync, statSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, readdirSync, statSync } from 'fs'
 import { tmpdir } from 'os'
 
 /**
@@ -43,9 +43,16 @@ export const test = base.extend<ElectronFixtures>({
   },
 
   electronApp: async ({}, use) => {
+    const appEntry = join(__dirname, '../../out/main/index.js')
+    if (!existsSync(appEntry)) {
+      throw new Error(`Electron E2E 构建产物不存在：${appEntry}。请先运行 npm run build。`)
+    }
+
+    const userDataDir = mkdtempSync(join(tmpdir(), 'md-viewer-e2e-user-data-'))
+
     // 启动 Electron 应用
     const app = await electron.launch({
-      args: [join(__dirname, '../../out/main/index.js')],
+      args: [`--user-data-dir=${userDataDir}`, appEntry],
       env: {
         ...process.env,
         NODE_ENV: 'test',
@@ -58,6 +65,7 @@ export const test = base.extend<ElectronFixtures>({
 
     // 关闭应用
     await app.close()
+    rmSync(userDataDir, { recursive: true, force: true })
   },
 
   page: async ({ electronApp }, use) => {

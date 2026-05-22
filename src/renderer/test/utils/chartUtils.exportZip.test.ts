@@ -316,4 +316,62 @@ describe('chart zip export helpers', () => {
     ])
     expect(dataUrlSizes).toEqual([{ width: 120, height: 80 }])
   })
+
+  it('pads extremely wide exported PNGs instead of stretching the chart', async () => {
+    const root = document.createElement('div')
+    root.innerHTML = `
+      <div class="mermaid-wrapper">
+        <div class="mermaid-container">
+          <svg viewBox="0 0 1000 100">
+            <rect width="1000" height="100" fill="#172033"></rect>
+          </svg>
+        </div>
+      </div>
+    `
+
+    Object.defineProperty(SVGElement.prototype, 'getBBox', {
+      configurable: true,
+      value: vi.fn(() => ({
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 100,
+      })),
+    })
+
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function getContext(this: HTMLCanvasElement) {
+      const canvas = this
+      return {
+        fillStyle: '',
+        fillRect: vi.fn(),
+        drawImage: vi.fn(),
+        getImageData: vi.fn((x: number, y: number, width: number, height: number) => ({
+          data: new Uint8ClampedArray(width * height * 4).fill(23),
+          width: canvas.width,
+          height: canvas.height,
+        })),
+      } as any
+    })
+
+    const dataUrlSizes: Array<{ width: number; height: number }> = []
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(function toDataURL(this: HTMLCanvasElement) {
+      dataUrlSizes.push({ width: this.width, height: this.height })
+      return 'data:image/png;base64,UE5H'
+    })
+
+    class TestImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+
+      set src(_value: string) {
+        setTimeout(() => this.onload?.(), 0)
+      }
+    }
+    vi.stubGlobal('Image', TestImage)
+
+    await expect(collectExportableChartPngs(root)).resolves.toEqual([
+      { filename: '01-mermaid.png', pngBase64: 'UE5H' },
+    ])
+    expect(dataUrlSizes[0].width / dataUrlSizes[0].height).toBeLessThanOrEqual(5.8)
+  })
 })

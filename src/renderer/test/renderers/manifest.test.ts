@@ -7,7 +7,7 @@ import { buildRendererManifest } from '../../src/renderers/manifest'
 describe('renderer manifest', () => {
   it('serializes renderer metadata without runtime functions', () => {
     const manifest = buildRendererManifest({
-      version: '2.2.0',
+      version: '2.3.0',
       renderers: builtinRendererDefinitions,
     })
 
@@ -26,7 +26,7 @@ describe('renderer manifest', () => {
 
   it('keeps supportedCharts aligned with renderer entries', () => {
     const manifest = buildRendererManifest({
-      version: '2.2.0',
+      version: '2.3.0',
       renderers: builtinRendererDefinitions,
     })
 
