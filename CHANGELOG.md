@@ -7,7 +7,7 @@
 
 ---
 
-## [2.3.0] - 2026-05-21
+## [2.3.0] - 2026-05-22
 
 > **状态**: ⏳ **待发布** | **类型**: 稳定性修复 + 交互一致性 + 发布门禁增强
 
@@ -20,6 +20,7 @@ v2.3.0 聚焦稳定性与一致性，不新增图表类型。该版本压实 v2.
 - 修复极宽图表导出 PNG 时为了压缩宽高比而拉伸内容的问题，改为白底补边并保持图表原始比例。
 - 修复文件树过滤、点击文件、历史菜单和预览区焦点相关的回归风险，避免滚动位置意外回顶或出现浏览器默认橙色焦点框。
 - 修复分屏与单屏编辑路径不一致的回归风险，覆盖退出编辑、放弃草稿、保存后滚动保持和草稿切换确认。
+- 配套 `md-viewer-docx-service` 修复 DOCX 字体嵌入策略：`preview` 样式默认使用服务内置的 `Noto Sans CJK SC`，按 DOCX 实际引用字体嵌入，避免 macOS 系统字体被全量打包导致 DOCX 体积异常，也避免正常导出时出现无处理指引的字体 warning。
 
 ### ✨ 改进
 - 新增 `scripts/release-smoke.sh`，提供 `quick` 和 `full` 两档本地发布门禁。
@@ -36,11 +37,12 @@ v2.3.0 聚焦稳定性与一致性，不新增图表类型。该版本压实 v2.
 - 本地验证门禁：
   - `scripts/release-smoke.sh quick` 通过。
   - `scripts/release-smoke.sh full` 通过，覆盖全量 Vitest、构建和 57 个核心 Electron E2E。
+  - `md-viewer-docx-service` 配套验证通过，`pytest` 293 个用例通过；真实 Markdown 预览样式 DOCX 导出 `warnings=[]`，仅嵌入 1 个内置 Noto CJK 字体。
 
 ### ⚠️ 已知限制
 - v2.3.0 不新增 renderer 类型，不重写 RendererPlugin 端到端契约，也不新增图表兼容性矩阵设置页。
 - 渲染区直接编辑仍以常见 Markdown 块为主，复杂图表、嵌入式组件、非标准 Markdown 建议使用源码编辑。
-- DOCX 高质量导出仍依赖外部 `md-viewer-docx-service`；未配置服务地址时，DOCX 服务相关 E2E 会记录跳过原因，不阻断桌面端发版。
+- DOCX 高质量导出仍依赖外部 `md-viewer-docx-service`；建议配套使用 `md-viewer-docx-service` 0.2.1 或更高版本。未配置服务地址时，DOCX 服务相关 E2E 会记录跳过原因，不阻断桌面端发版。
 
 ## [2.2.0] - 2026-05-20
 
