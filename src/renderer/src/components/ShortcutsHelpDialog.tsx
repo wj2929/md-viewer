@@ -16,7 +16,7 @@ const SHORTCUTS_DATA = [
   {
     group: '搜索',
     items: [
-      { label: '全局搜索（文件名）', accelerator: 'CmdOrCtrl+F' },
+      { label: '全局搜索（文件名）', accelerator: 'CmdOrCtrl+K' },
       { label: '页面内搜索（当前文档）', accelerator: 'CmdOrCtrl+Shift+F' },
       { label: '下一个匹配', accelerator: 'CmdOrCtrl+G' },
       { label: '上一个匹配', accelerator: 'CmdOrCtrl+Shift+G' }

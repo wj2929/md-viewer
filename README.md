@@ -92,7 +92,9 @@ chmod +x MD-Viewer-*.AppImage
 4. 使用 `Cmd+K` / `Ctrl+K` 快速搜索文件。
 5. 使用导出菜单将当前文档导出为 HTML、PDF 或 DOCX。
 
-更多日常操作、编辑模式、图表下载和导出限制见 [使用手册](docs/user-manual.md)，跨平台限制见 [已知问题](docs/known-issues.md)。
+## 使用手册
+
+完整的安装、浏览、编辑、图表渲染和导出说明见 [MD Viewer 使用手册](docs/user-manual.md)。跨平台限制和已知问题见 [已知问题](docs/known-issues.md)。
 
 ## 支持的图表与公式
 
