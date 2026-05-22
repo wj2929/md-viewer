@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 
-const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3179'
+const SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL
 const SOURCE_MD = process.env.MD_VIEWER_ALL_CHARTS_MD || path.join(__dirname, 'fixtures/test-all-charts.md')
 const OUT_DIR = process.env.MD_VIEWER_ALL_CHARTS_DOCX_OUT || '/tmp/mdv-all-charts-docx-non-preview-check'
 const SAVE_TEMPLATE = path.join(OUT_DIR, 'test-all-charts-{style}.docx')
@@ -29,6 +29,7 @@ const PYTHON = process.env.PYTHON_BIN || findPythonWithPillow([
 ])
 
 test.describe('test-all-charts 非 preview DOCX 格式检查', () => {
+  test.skip(!SERVICE_URL, '未设置 MD_VIEWER_DOCX_SERVICE_URL，跳过 DOCX 服务真实导出检查')
   test.skip(!SOFFICE, '缺少 soffice，无法将 DOCX 转 PDF')
   test.skip(!PDFINFO, '缺少 pdfinfo，无法读取 PDF 页面指标')
   test.skip(!PDFTOPPM, '缺少 pdftoppm，无法将 PDF 页面渲染为 PNG')
@@ -71,7 +72,7 @@ test.describe('test-all-charts 非 preview DOCX 格式检查', () => {
               localFallbackEnabled: false,
             },
           })
-        }, { serverUrl: SERVICE_URL, style })
+        }, { serverUrl: SERVICE_URL!, style })
 
         await electronApp.evaluate(({ BrowserWindow }) => {
           BrowserWindow.getAllWindows()[0]?.webContents.send('markdown:export-docx')

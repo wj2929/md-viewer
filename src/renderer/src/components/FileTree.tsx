@@ -435,7 +435,7 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
 
   const focusFilterInput = useCallback(() => {
     window.setTimeout(() => {
-      filterInputRef.current?.focus()
+      filterInputRef.current?.focus({ preventScroll: true })
     }, 0)
   }, [])
 
@@ -527,6 +527,8 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
 
   const handleFileTreeClick = useCallback((e: React.MouseEvent) => {
     if (isEditableTarget(e.target)) return
+    const target = e.target instanceof Element ? e.target : null
+    if (target?.closest('.file-tree-row')) return
     focusFilterInput()
   }, [focusFilterInput])
 

@@ -15,6 +15,10 @@ echo "========================================="
 echo "🔍 MD Viewer Release Check"
 echo "========================================="
 echo ""
+echo "v2.3 本地门禁："
+echo "   日常修复：scripts/release-smoke.sh quick"
+echo "   发版前：  scripts/release-smoke.sh full"
+echo ""
 
 # 检查是否在项目根目录
 if [ ! -f "package.json" ]; then

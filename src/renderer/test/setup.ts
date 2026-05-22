@@ -3,32 +3,36 @@ import { expect, afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
+const hasDom = typeof globalThis.window !== 'undefined' && typeof globalThis.document !== 'undefined'
+
 // 每次测试后清理
 afterEach(() => {
-  cleanup()
+  if (hasDom) cleanup()
 })
 
-// Mock window.matchMedia
-global.window.matchMedia = vi.fn().mockImplementation(query => ({
-  matches: false,
-  media: query,
-  onchange: null,
-  addListener: vi.fn(),
-  removeListener: vi.fn(),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  dispatchEvent: vi.fn()
-}))
+if (hasDom) {
+  // Mock window.matchMedia
+  global.window.matchMedia = vi.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn()
+  }))
+}
 
 // CodeMirror 在 jsdom 中会调用 Range 几何测量；补齐空实现以避免异步测量噪声。
-if (!document.createRange().getClientRects) {
+if (hasDom && !document.createRange().getClientRects) {
   Object.defineProperty(Range.prototype, 'getClientRects', {
     configurable: true,
     value: () => [],
   })
 }
 
-if (!document.createRange().getBoundingClientRect) {
+if (hasDom && !document.createRange().getBoundingClientRect) {
   Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
     configurable: true,
     value: () => ({
@@ -45,16 +49,18 @@ if (!document.createRange().getBoundingClientRect) {
   })
 }
 
-// Mock Electron API
-global.window.electronAPI = {
-  openFolder: vi.fn(),
-  readDir: vi.fn(),
-  readFile: vi.fn(),
-  exportHtml: vi.fn(),
-  exportPdf: vi.fn(),
-  getLastOpenedFolder: vi.fn(),
-  saveLastOpenedFolder: vi.fn(),
-  onThemeChange: vi.fn()
+if (hasDom) {
+  // Mock Electron API
+  global.window.electronAPI = {
+    openFolder: vi.fn(),
+    readDir: vi.fn(),
+    readFile: vi.fn(),
+    exportHtml: vi.fn(),
+    exportPdf: vi.fn(),
+    getLastOpenedFolder: vi.fn(),
+    saveLastOpenedFolder: vi.fn(),
+    onThemeChange: vi.fn()
+  }
 }
 
 // Mock Prism 全局对象和所有语言组件
