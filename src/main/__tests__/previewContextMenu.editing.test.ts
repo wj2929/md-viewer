@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BrowserWindow, Menu, ipcMain } from 'electron'
 import { registerMenuHandlers } from '../ipc/menuHandlers'
+import { appDataManager } from '../appDataManager'
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -196,6 +197,52 @@ describe('preview context menu quick editing', () => {
       tabId: 'tab-a',
       leafId: 'leaf-a',
     })
+  })
+
+  it('places batch chart download after Word export instead of between PDF and Word', async () => {
+    vi.mocked(appDataManager.getSettings).mockReturnValue({
+      docxExport: {
+        remoteEnabled: true,
+        localFallbackEnabled: false,
+      },
+    } as any)
+
+    const sender = {
+      send: vi.fn(),
+      copy: vi.fn(),
+    }
+    const window = { webContents: sender }
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as unknown as BrowserWindow)
+
+    registerMenuHandlers({
+      openPathInWindow: vi.fn(),
+    } as any)
+
+    const handler = vi.mocked(ipcMain.handle).mock.calls.find(([channel]) => channel === 'preview:show-context-menu')?.[1]
+
+    await handler?.({ sender } as any, {
+      filePath: '/docs/report.md',
+      headingId: null,
+      headingText: null,
+      headingLevel: null,
+      hasSelection: false,
+      linkHref: null,
+      basePath: '/docs',
+      tabId: 'tab-a',
+      leafId: 'leaf-a',
+      selectionText: '',
+      sourceLine: null,
+      scrollRatio: null,
+      chartCount: 3,
+    })
+
+    const labels = (vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as any[])
+      .map((entry) => entry.label)
+
+    expect(labels.indexOf('📤 导出 HTML')).toBeLessThan(labels.indexOf('📑 导出 PDF'))
+    expect(labels.indexOf('📑 导出 PDF')).toBeLessThan(labels.indexOf('📝 导出 Word'))
+    expect(labels.indexOf('📝 导出 Word')).toBeLessThan(labels.indexOf('📦 打包下载图表（3 张）'))
+    expect(labels.indexOf('📦 打包下载图表（3 张）')).toBeLessThan(labels.indexOf('🖨️ 打印'))
   })
 
   it('does not show batch chart download action when preview has no charts', async () => {

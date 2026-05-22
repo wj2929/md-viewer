@@ -378,17 +378,6 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     click: () => event.sender.send('markdown:export-pdf')
   })
 
-  if (isMarkdownPreview && chartCount > 0) {
-    menuTemplate.push({
-      label: `📦 打包下载图表（${chartCount} 张）`,
-      click: () => event.sender.send('markdown:export-charts-zip', {
-        filePath,
-        ...(tabId ? { tabId } : {}),
-        ...(leafId ? { leafId } : {}),
-      })
-    })
-  }
-
   // Word 导出：根据 docxExport 设置条件显示
   const docxConfig = appDataManager.getSettings().docxExport
   const docxVisible = docxConfig?.remoteEnabled || docxConfig?.localFallbackEnabled
@@ -408,6 +397,17 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
         { label: '打开文件', click: () => shell.openPath(lastExportPath!) },
         { label: '在 Finder 中显示', click: () => shell.showItemInFolder(lastExportPath!) },
       ]
+    })
+  }
+
+  if (isMarkdownPreview && chartCount > 0) {
+    menuTemplate.push({
+      label: `📦 打包下载图表（${chartCount} 张）`,
+      click: () => event.sender.send('markdown:export-charts-zip', {
+        filePath,
+        ...(tabId ? { tabId } : {}),
+        ...(leafId ? { leafId } : {}),
+      })
     })
   }
 
