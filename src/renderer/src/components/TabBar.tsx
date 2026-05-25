@@ -133,7 +133,9 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
   useLayoutEffect(() => {
     if (!activeTabId) return
     const element = scrollRef.current?.querySelector(`[data-tab-id="${activeTabId}"]`)
-    element?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    if (element instanceof HTMLElement && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
     updateScrollState()
   }, [activeTabId, updateScrollState])
 
