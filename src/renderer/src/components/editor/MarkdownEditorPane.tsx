@@ -16,6 +16,7 @@ interface ScrollToLineOptions {
 export interface MarkdownEditorPaneHandle {
   getCurrentDoc: () => string
   replaceDocument: (content: string) => void
+  replaceLines: (startLine: number, endLine: number, replacement: string) => boolean
   focus: () => void
   getScroller: () => HTMLElement | null
   getVisibleLine: (topRatio?: number) => number
@@ -107,10 +108,32 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
       const view = viewRef.current
       if (!view) return
       suppressChangeRef.current = true
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: nextContent },
-      })
-      suppressChangeRef.current = false
+      try {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: nextContent },
+        })
+      } finally {
+        suppressChangeRef.current = false
+      }
+    },
+    replaceLines: (startLine: number, endLine: number, replacement: string) => {
+      const view = viewRef.current
+      if (!view) return false
+
+      const boundedStartLine = Math.max(1, Math.min(startLine, view.state.doc.lines))
+      const boundedEndLine = Math.max(boundedStartLine, Math.min(endLine, view.state.doc.lines))
+      const from = view.state.doc.line(boundedStartLine).from
+      const to = view.state.doc.line(boundedEndLine).to
+
+      suppressChangeRef.current = true
+      try {
+        view.dispatch({
+          changes: { from, to, insert: replacement },
+        })
+      } finally {
+        suppressChangeRef.current = false
+      }
+      return true
     },
     focus: () => viewRef.current?.focus(),
     getScroller: () => viewRef.current?.scrollDOM ?? null,
@@ -176,10 +199,13 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
     const currentContent = view.state.doc.toString()
     if (currentContent === content) return
     suppressChangeRef.current = true
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: content },
-    })
-    suppressChangeRef.current = false
+    try {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: content },
+      })
+    } finally {
+      suppressChangeRef.current = false
+    }
   }, [content])
 
   useEffect(() => {

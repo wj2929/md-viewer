@@ -7,6 +7,7 @@ interface TabState {
   activeTabId: string | null
   splitState: SplitState
   scrollToLine: number | undefined
+  scrollToRatio: number | undefined
   highlightKeyword: string | undefined
 }
 
@@ -15,6 +16,7 @@ interface TabActions {
   setActiveTabId: (id: string | null) => void
   setSplitState: (updater: SplitState | ((prev: SplitState) => SplitState)) => void
   setScrollToLine: (line: number | undefined) => void
+  setScrollToRatio: (ratio: number | undefined) => void
   setHighlightKeyword: (keyword: string | undefined) => void
   addTab: (tab: Tab) => void
   removeTab: (tabId: string) => void
@@ -30,6 +32,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
   activeTabId: null,
   splitState: { root: null, activeLeafId: '' },
   scrollToLine: undefined,
+  scrollToRatio: undefined,
   highlightKeyword: undefined,
 
   setTabs: (updater) => {
@@ -51,6 +54,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
   },
 
   setScrollToLine: (line) => set({ scrollToLine: line }),
+  setScrollToRatio: (ratio) => set({ scrollToRatio: ratio }),
   setHighlightKeyword: (keyword) => set({ highlightKeyword: keyword }),
 
   addTab: (tab) => set({ tabs: [...get().tabs, tab] }),

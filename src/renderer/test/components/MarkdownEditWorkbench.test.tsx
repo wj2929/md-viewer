@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MarkdownEditWorkbench } from '../../src/components/editor/MarkdownEditWorkbench'
 import { useEditSessionStore } from '../../src/stores/editSessionStore'
@@ -68,6 +68,7 @@ const tab = {
 
 describe('MarkdownEditWorkbench', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     useEditSessionStore.getState().reset()
     useEditSessionStore.getState().openSession({
       canonicalPath: '/real/docs/a.md',
@@ -277,6 +278,47 @@ describe('MarkdownEditWorkbench', () => {
     await waitFor(() => {
       expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe('# A\nnew')
     })
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Markdown 源码编辑区' })).toHaveTextContent('new')
+    })
+  })
+
+  it('debounces source editor draft commits to avoid updating the preview pipeline on every transaction', async () => {
+    vi.useFakeTimers()
+    const largeDraft = [
+      '# Large',
+      ...Array.from({ length: 800 }, (_, index) => `line ${index + 1}`),
+    ].join('\n')
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', largeDraft, { writerId: null })
+
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '加粗' }))
+
+    expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe(largeDraft)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe(`**文本**${largeDraft}`)
+    vi.useRealTimers()
   })
 
   it('undoes and redoes rendered preview edits from keyboard shortcuts', async () => {
@@ -435,6 +477,83 @@ describe('MarkdownEditWorkbench', () => {
     })
   })
 
+  it('copies the current draft from the toolbar', () => {
+    const onCopyDraft = vi.fn()
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# Copy Me', { writerId: null })
+
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={vi.fn()}
+        onCopyDraft={onCopyDraft}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '复制草稿' }))
+
+    expect(onCopyDraft).toHaveBeenCalledWith('# Copy Me')
+  })
+
+  it('requests reload from disk from the toolbar', () => {
+    const onReloadFromDisk = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={onReloadFromDisk}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '重新载入' }))
+
+    expect(onReloadFromDisk).toHaveBeenCalledWith('/real/docs/a.md')
+  })
+
+  it('offers a force-save action when the disk version conflicts', () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    useEditSessionStore.getState().markConflict('/real/docs/a.md', 'external_changed', '2000:20')
+
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={onSave}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '保存并覆盖' }))
+
+    expect(onSave).toHaveBeenCalledWith('/real/docs/a.md', '# A', '1000:3', true, expect.any(Number))
+  })
+
   it('persists compare ratio changes from the separator keyboard control', () => {
     const onCompareRatioChange = vi.fn()
 
@@ -492,6 +611,29 @@ describe('MarkdownEditWorkbench', () => {
     await waitFor(() => {
       expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe(expectedDraft)
     })
+  })
+
+  it('disables format toolbar actions in preview mode', () => {
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="preview"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+      />
+    )
+
+    for (const name of ['加粗', '斜体', '行内代码', '链接', '二级标题', '无序列表', '引用', '代码块']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled()
+    }
   })
 
   it('shows clear conflict guidance when disk changed externally', () => {

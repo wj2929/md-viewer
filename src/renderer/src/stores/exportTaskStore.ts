@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { normalizeExportResult, type ExportResult } from '../utils/v24WorkflowContracts'
 
 export type ExportTaskStatus = 'idle' | 'rendering' | 'generating' | 'done' | 'error'
 
@@ -32,6 +33,7 @@ interface ExportTaskState {
   imagesFailed: number
   errorMessage: string
   warnings: string[]
+  exportResult: ExportResult | null
   errorDetail: DocxErrorDetail | null
   // session-only，不跨重启持久化
   lastExportedFilePath: string
@@ -59,6 +61,7 @@ const INITIAL_STATE = {
   imagesFailed: 0,
   errorMessage: '',
   warnings: [] as string[],
+  exportResult: null as ExportResult | null,
   errorDetail: null as DocxErrorDetail | null,
   lastExportedFilePath: '',
   lastExportedTime: '',
@@ -83,11 +86,32 @@ export const useExportTaskStore = create<ExportTaskState>((set, get) => ({
   },
 
   setDone: (filePath: string, imagesFailed: number, warnings?: string[]) => {
-    set({ status: 'done', filePath, imagesFailed, warnings: warnings || [], lastExportedFilePath: filePath, lastExportedTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })
+    set({
+      status: 'done',
+      filePath,
+      imagesFailed,
+      warnings: warnings || [],
+      exportResult: normalizeExportResult({ filePath, imagesFailed, warnings }),
+      lastExportedFilePath: filePath,
+      lastExportedTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    })
   },
 
   setError: (message: string, detail?: DocxErrorDetail) => {
-    set({ status: 'error', errorMessage: message, errorDetail: detail || null })
+    set({
+      status: 'error',
+      errorMessage: message,
+      errorDetail: detail || null,
+      exportResult: normalizeExportResult({
+        warnings: [message],
+        diagnostics: {
+          ...(detail?.statusCode ? { statusCode: detail.statusCode } : {}),
+          ...(detail?.serverUrl ? { serverUrl: detail.serverUrl } : {}),
+          ...(detail?.serviceVersion ? { serviceVersion: detail.serviceVersion } : {}),
+          ...(detail?.errorType ? { errorType: detail.errorType } : {}),
+        },
+      }),
+    })
   },
 
   toggleMinimize: () => {

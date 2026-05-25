@@ -50,6 +50,8 @@ describe('SettingsPanel DOCX service styles', () => {
   it('disables preview style without showing a warning for a supported active style', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
 
+    fireEvent.click(screen.getByRole('tab', { name: '导出' }))
+
     await waitFor(() => {
       expect(screen.getByDisplayValue('http://localhost:3179')).toBeInTheDocument()
     })
@@ -69,6 +71,8 @@ describe('SettingsPanel DOCX service styles', () => {
   it('shows renderer capability matrix with new RendererPlugin types', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
 
+    fireEvent.click(screen.getByRole('tab', { name: '图表' }))
+
     await waitFor(() => {
       expect(screen.getByText('渲染能力')).toBeInTheDocument()
     })
@@ -81,5 +85,39 @@ describe('SettingsPanel DOCX service styles', () => {
     expect(screen.getByRole('columnheader', { name: '应用预览' })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'HTML/PDF' })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'DOCX' })).toBeInTheDocument()
+  })
+
+  it('splits settings into task-focused tabs', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    expect(screen.getByRole('tablist', { name: '设置分类' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '外观' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: '外观' })).toBeInTheDocument()
+    expect(screen.getByText('主题')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '浏览' }))
+    expect(screen.getByRole('tabpanel', { name: '浏览' })).toBeInTheDocument()
+    expect(screen.getByText('最近文件上限')).toBeInTheDocument()
+    expect(screen.getByText('文件夹历史上限')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '导出' }))
+    await waitFor(() => {
+      expect(screen.getByRole('tabpanel', { name: '导出' })).toBeInTheDocument()
+      expect(screen.getByText('DOCX 导出服务')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: '图表' }))
+    expect(screen.getByRole('tabpanel', { name: '图表' })).toBeInTheDocument()
+    expect(screen.getByText('PlantUML 服务器')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '系统' }))
+    await waitFor(() => {
+      expect(screen.getByRole('tabpanel', { name: '系统' })).toBeInTheDocument()
+      expect(screen.getByText('右键菜单集成')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: '关于' }))
+    expect(screen.getByRole('tabpanel', { name: '关于' })).toBeInTheDocument()
+    expect(screen.getByText('版本更新')).toBeInTheDocument()
   })
 })

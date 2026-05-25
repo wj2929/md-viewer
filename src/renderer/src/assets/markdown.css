@@ -20,8 +20,7 @@
 }
 
 .markdown-body:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent-color, #2563eb) 50%, transparent);
-  outline-offset: 2px;
+  outline: none;
 }
 
 .markdown-body > :first-child {
@@ -143,6 +142,64 @@
 .markdown-body .markdown-preview-editable-block:focus {
   outline-color: var(--accent-color, #2563eb);
   background: color-mix(in srgb, var(--accent-color, #2563eb) 8%, transparent);
+}
+
+.markdown-body .markdown-preview-source-only-block {
+  border-radius: 4px;
+  outline: 1px dashed transparent;
+  outline-offset: 3px;
+}
+
+.markdown-body .markdown-preview-source-only-block:hover,
+.markdown-body .markdown-preview-source-only-block.is-source-hint-active,
+.markdown-body .markdown-preview-source-only-block:focus {
+  outline-color: var(--warning-color, #d97706);
+}
+
+.markdown-body .markdown-preview-source-only-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 10px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning-color, #d97706) 35%, var(--border-color));
+  border-radius: 6px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--warning-color, #d97706) 7%, var(--bg-secondary));
+  font-size: 12px;
+  line-height: 1.35;
+  user-select: none;
+}
+
+.markdown-body .markdown-preview-source-only-hint[hidden] {
+  display: none;
+}
+
+.markdown-body li > .markdown-preview-source-only-hint,
+.markdown-body td > .markdown-preview-source-only-hint,
+.markdown-body th > .markdown-preview-source-only-hint {
+  display: inline-flex;
+  margin: 4px 0 0 8px;
+  vertical-align: middle;
+}
+
+.markdown-body .markdown-preview-source-edit-btn,
+.markdown-body .markdown-preview-source-help-btn {
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  padding: 3px 7px;
+  color: var(--accent-color, #2563eb);
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.markdown-body .markdown-preview-source-edit-btn:hover,
+.markdown-body .markdown-preview-source-edit-btn:focus,
+.markdown-body .markdown-preview-source-help-btn:hover,
+.markdown-body .markdown-preview-source-help-btn:focus {
+  border-color: var(--accent-color, #2563eb);
+  outline: none;
 }
 
 /* ============================================

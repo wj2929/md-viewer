@@ -90,6 +90,22 @@ describe('QuickEditDrawer', () => {
     expect(screen.getByRole('button', { name: '保存并覆盖' })).toBeInTheDocument()
   })
 
+  it('confirms before force saving a conflicting draft', async () => {
+    useEditSessionStore.getState().openSession(sessionInput)
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# Local Draft')
+    useEditSessionStore.getState().markConflict('/real/docs/a.md', 'revision_changed', '2000:20')
+    const onSave = vi.fn().mockResolvedValue(undefined)
+
+    render(<QuickEditDrawer canonicalPath="/real/docs/a.md" onSave={onSave} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '保存并覆盖' }))
+
+    expect(window.confirm).toHaveBeenCalledWith('磁盘版本已被外部修改。继续保存将覆盖外部修改，此操作不可撤销。建议先复制草稿备份。')
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith('/real/docs/a.md', '# Local Draft', '1000:12', true)
+    })
+  })
+
   it('shows nearby line feedback for a quick edit target', () => {
     useEditSessionStore.getState().openSession({
       ...sessionInput,

@@ -99,3 +99,5 @@ electron/
 # Playwright
 playwright-report/
 test-results/
+docs/v2.4.0-roadmap.md
+docs/v2.4.0-completion-audit.md

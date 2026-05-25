@@ -1,10 +1,24 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { TabBar, Tab } from '../../src/components/TabBar'
 import { FileInfo } from '../../src/components/FileTree'
 
 describe('TabBar 组件测试', () => {
+  const originalScrollIntoView = Element.prototype.scrollIntoView
+  const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  const originalScrollWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollWidth')
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+
+  afterEach(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView
+    if (originalClientWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', originalClientWidth)
+    if (originalScrollWidth) Object.defineProperty(HTMLElement.prototype, 'scrollWidth', originalScrollWidth)
+  })
+
   const mockFileInfo: FileInfo = {
     name: 'test.md',
     path: '/test/test.md',
@@ -397,6 +411,154 @@ describe('TabBar 组件测试', () => {
       )
 
       expect(screen.getByText(longNameTab.file.name)).toBeInTheDocument()
+    })
+  })
+
+  describe('溢出滚动测试', () => {
+    const overflowTabs: Tab[] = Array.from({ length: 12 }, (_, index) => ({
+      id: `tab-${index + 1}`,
+      file: {
+        name: `long-file-${index + 1}.md`,
+        path: `/test/long-file-${index + 1}.md`,
+        isDirectory: false
+      },
+      content: `# File ${index + 1}`
+    }))
+
+    const mockOverflowLayout = () => {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+        configurable: true,
+        get() {
+          return this.classList?.contains('tabs-scroll') ? 300 : 0
+        }
+      })
+      Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
+        configurable: true,
+        get() {
+          return this.classList?.contains('tabs-scroll') ? 900 : 0
+        }
+      })
+    }
+
+    it('标签溢出时显示左右滚动按钮并提供可访问名称', async () => {
+      mockOverflowLayout()
+      const onTabClick = vi.fn()
+      const onTabClose = vi.fn()
+
+      render(
+        <TabBar
+          tabs={overflowTabs}
+          activeTabId="tab-1"
+          onTabClick={onTabClick}
+          onTabClose={onTabClose}
+        />
+      )
+
+      expect(await screen.findByRole('button', { name: '向左滚动标签' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: '向右滚动标签' })).toBeEnabled()
+    })
+
+    it('点击右侧滚动按钮会横向滚动标签容器并更新边界状态', async () => {
+      mockOverflowLayout()
+      const onTabClick = vi.fn()
+      const onTabClose = vi.fn()
+
+      const { container } = render(
+        <TabBar
+          tabs={overflowTabs}
+          activeTabId="tab-1"
+          onTabClick={onTabClick}
+          onTabClose={onTabClose}
+        />
+      )
+
+      const scrollContainer = container.querySelector('.tabs-scroll') as HTMLDivElement
+      Object.defineProperty(scrollContainer, 'scrollLeft', {
+        configurable: true,
+        writable: true,
+        value: 0
+      })
+      scrollContainer.scrollBy = vi.fn(({ left }) => {
+        scrollContainer.scrollLeft += Number(left)
+        fireEvent.scroll(scrollContainer)
+      })
+
+      fireEvent.click(await screen.findByRole('button', { name: '向右滚动标签' }))
+
+      expect(scrollContainer.scrollBy).toHaveBeenCalledWith({ left: 240, behavior: 'smooth' })
+      expect(screen.getByRole('button', { name: '向左滚动标签' })).toBeEnabled()
+    })
+
+    it('active tab 变化后应滚入可见区域', () => {
+      mockOverflowLayout()
+      const onTabClick = vi.fn()
+      const onTabClose = vi.fn()
+
+      const { rerender } = render(
+        <TabBar
+          tabs={overflowTabs}
+          activeTabId="tab-1"
+          onTabClick={onTabClick}
+          onTabClose={onTabClose}
+        />
+      )
+
+      rerender(
+        <TabBar
+          tabs={overflowTabs}
+          activeTabId="tab-12"
+          onTabClick={onTabClick}
+          onTabClose={onTabClose}
+        />
+      )
+
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+    })
+
+    it('标签溢出时提供更多菜单以快速切换全部打开文档', async () => {
+      mockOverflowLayout()
+      const onTabClick = vi.fn()
+      const onTabClose = vi.fn()
+
+      render(
+        <TabBar
+          tabs={overflowTabs}
+          activeTabId="tab-5"
+          onTabClick={onTabClick}
+          onTabClose={onTabClose}
+        />
+      )
+
+      fireEvent.click(await screen.findByRole('button', { name: '显示全部打开文档' }))
+
+      expect(screen.getByRole('menu', { name: '全部打开文档' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitemradio', { name: 'long-file-5.md' })).toHaveAttribute('aria-checked', 'true')
+
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'long-file-12.md' }))
+
+      expect(onTabClick).toHaveBeenCalledWith('tab-12')
+      expect(screen.queryByRole('menu', { name: '全部打开文档' })).not.toBeInTheDocument()
+    })
+
+    it('更多菜单里可以关闭未固定标签且不触发标签切换', async () => {
+      mockOverflowLayout()
+      const onTabClick = vi.fn()
+      const onTabClose = vi.fn()
+
+      render(
+        <TabBar
+          tabs={overflowTabs}
+          activeTabId="tab-5"
+          onTabClick={onTabClick}
+          onTabClose={onTabClose}
+        />
+      )
+
+      fireEvent.click(await screen.findByRole('button', { name: '显示全部打开文档' }))
+      fireEvent.click(screen.getByRole('button', { name: '从更多菜单关闭 long-file-5.md' }))
+
+      expect(onTabClose).toHaveBeenCalledWith('tab-5')
+      expect(onTabClick).not.toHaveBeenCalled()
     })
   })
 })

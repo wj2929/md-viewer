@@ -199,6 +199,28 @@
   margin-bottom: 1px;
 }
 
+.export-task-warning-detail {
+  margin: 2px 0 0 12px;
+  color: var(--text-secondary);
+}
+
+.export-task-warning-help {
+  margin: 6px 0 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  padding: 3px 7px;
+  color: var(--accent-color, #2563eb);
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.export-task-warning-help:hover,
+.export-task-warning-help:focus {
+  border-color: var(--accent-color, #2563eb);
+  outline: none;
+}
+
 /* ─── 高级诊断折叠 ─── */
 
 .export-task-advanced-toggle {

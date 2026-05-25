@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session, protocol, net } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as path from 'path'
+import { pathToFileURL } from 'url'
 import * as fs from 'fs-extra'
 import Store from 'electron-store'
 import { setAllowedBasePath, isPathAllowed } from './security'
@@ -179,7 +180,7 @@ app.whenReady().then(() => {
       return new Response('Not Found', { status: 404 })
     }
 
-    return net.fetch(`file://${filePath}`)
+    return net.fetch(pathToFileURL(filePath).toString())
   })
 
   // 设置 Content Security Policy

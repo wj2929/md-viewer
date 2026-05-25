@@ -17,6 +17,92 @@ async function openMarkdownEditViaIPC(
 }
 
 test.describe('Markdown 编辑模式', () => {
+  test('编辑工作区工具栏按钮应在真实 Electron 中可用', async ({ page, electronApp, testDir }) => {
+    await page.setViewportSize({ width: 1200, height: 720 })
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    await page.click('.file-tree-row.file:has-text("test1.md")')
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 1')
+
+    await openMarkdownEditViaIPC(electronApp, join(testDir, 'test1.md'))
+    const workbench = page.getByLabel('test1.md 编辑工作区')
+    await expect(workbench).toBeVisible()
+
+    await expect(workbench.getByRole('tab', { name: /对照预览/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(workbench.getByRole('checkbox', { name: '同步编辑区与预览区滚动' })).toBeChecked()
+    await workbench.getByRole('checkbox', { name: '同步编辑区与预览区滚动' }).uncheck()
+    await expect(workbench.getByRole('checkbox', { name: '同步编辑区与预览区滚动' })).not.toBeChecked()
+
+    await workbench.getByRole('tab', { name: '仅编辑' }).click()
+    await expect(workbench.getByRole('tab', { name: /仅编辑/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(workbench.getByRole('textbox', { name: 'Markdown 源码编辑区' })).toBeVisible()
+    await expect(workbench.locator('.markdown-workbench-preview-pane')).toHaveCount(0)
+    await expect(workbench.getByRole('checkbox', { name: '同步编辑区与预览区滚动' })).toHaveCount(0)
+
+    const sourceEditor = workbench.locator('.markdown-editor-pane .cm-content')
+    await sourceEditor.click()
+    await workbench.getByRole('button', { name: '加粗' }).click()
+    await expect(sourceEditor).toContainText('**文本**')
+
+    await workbench.getByRole('button', { name: '撤销编辑' }).click()
+    await expect(sourceEditor).not.toContainText('**文本**')
+    await workbench.getByRole('button', { name: '重做编辑' }).click()
+    await expect(sourceEditor).toContainText('**文本**')
+
+    await workbench.getByRole('tab', { name: '对照预览' }).click()
+    await expect(workbench.getByRole('tab', { name: /对照预览/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(workbench.locator('.markdown-workbench-preview-pane')).toBeVisible()
+    await expect(workbench.getByRole('checkbox', { name: '同步编辑区与预览区滚动' })).toBeVisible()
+    await workbench.getByRole('checkbox', { name: '同步编辑区与预览区滚动' }).check()
+    await expect(workbench.getByRole('checkbox', { name: '同步编辑区与预览区滚动' })).toBeChecked()
+
+    await workbench.getByRole('tab', { name: '预览', exact: true }).click()
+    await expect(page.getByLabel('test1.md 编辑工作区')).toBeHidden()
+    await expect(page.locator('.preview-pane .markdown-body')).toBeVisible()
+  })
+
+  test('保存和放弃编辑按钮应在真实 Electron 中可用', async ({ page, electronApp, testDir }) => {
+    await page.setViewportSize({ width: 1400, height: 900 })
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    await page.click('.file-tree-row.file:has-text("test1.md")')
+    await openMarkdownEditViaIPC(electronApp, join(testDir, 'test1.md'))
+    const workbench = page.getByLabel('test1.md 编辑工作区')
+    await expect(workbench).toBeVisible()
+
+    const sourceEditor = workbench.locator('.markdown-editor-pane .cm-content')
+    await sourceEditor.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('\nNew draft line')
+    await expect(workbench.getByRole('button', { name: '保存修改' })).toBeEnabled()
+
+    await workbench.getByRole('button', { name: '保存修改' }).click()
+    await expect(page.getByLabel('test1.md 编辑工作区')).toBeVisible()
+    await expect(workbench.locator('.markdown-workbench-preview-pane .markdown-body')).toContainText('New draft line')
+
+    await workbench.getByRole('button', { name: '退出编辑模式' }).click()
+    await expect(page.getByLabel('test1.md 编辑工作区')).toBeHidden()
+    await expect(page.locator('.preview-pane .markdown-body')).toContainText('New draft line')
+
+    await openMarkdownEditViaIPC(electronApp, join(testDir, 'test1.md'))
+    await expect(workbench).toBeVisible()
+    const discardTarget = workbench.locator('.markdown-editor-pane .cm-content')
+    await discardTarget.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('\nDiscard me')
+    await expect(workbench.getByRole('button', { name: '放弃编辑' })).toBeVisible()
+
+    page.once('dialog', async dialog => {
+      expect(dialog.message()).toContain('放弃未保存的编辑草稿')
+      await dialog.accept()
+    })
+    await workbench.getByRole('button', { name: '放弃编辑' }).click()
+    await expect(page.getByLabel('test1.md 编辑工作区')).toBeHidden()
+    await expect(page.locator('.preview-pane .markdown-body')).not.toContainText('Discard me')
+  })
+
   test('支持进入、源码编辑、渲染区编辑并退出编辑模式', async ({ page, electronApp, testDir }) => {
     await page.setViewportSize({ width: 1400, height: 900 })
     await openFolderViaIPC(electronApp, testDir)
@@ -82,7 +168,7 @@ test.describe('Markdown 编辑模式', () => {
     await expect(page.locator('.preview-pane .markdown-body p', { hasText: 'Draft to discard' })).toHaveCount(0)
   })
 
-  test('支持在渲染区编辑列表、表格单元格和普通代码块', async ({ page, electronApp, testDir }) => {
+  test('列表、表格单元格和普通代码块可直接编辑，图表代码块走源码编辑', async ({ page, electronApp, testDir }) => {
     writeFileSync(join(testDir, 'editable-blocks.md'), [
       '# Editable Blocks',
       '',
@@ -115,19 +201,30 @@ test.describe('Markdown 编辑模式', () => {
     const editableListItem = page.locator('.markdown-workbench-preview-pane li.markdown-preview-editable-block', {
       hasText: 'MAX_REQ=490/10秒',
     })
+    await expect(editableListItem).toBeVisible()
     await editableListItem.fill('最终脚本设置：MAX_REQ=480/10秒，20线程并发')
 
     const editableStatusCell = page.locator('.markdown-workbench-preview-pane td.markdown-preview-editable-block', {
       hasText: '完成',
     })
+    await expect(editableStatusCell).toBeVisible()
     await editableStatusCell.fill('处理中')
 
     const editableCodeBlock = page.locator('.markdown-workbench-preview-pane pre.markdown-preview-editable-block', {
       hasText: 'BaseUrl: http://api.polyv.net/',
     })
+    await expect(editableCodeBlock).toBeVisible()
     await editableCodeBlock.fill('BaseUrl: https://api.polyv.net/')
 
+    const sourceEditor = page.locator('.markdown-editor-pane .cm-content')
+    await expect(sourceEditor).toContainText('MAX_REQ=480/10秒')
+    await expect(sourceEditor).toContainText('处理中')
+    await expect(sourceEditor).toContainText('BaseUrl: https://api.polyv.net/')
+
     await expect(page.locator('.markdown-workbench-preview-pane pre.language-mermaid.markdown-preview-editable-block')).toHaveCount(0)
+    await expect(page.locator('.markdown-workbench-preview-pane .markdown-preview-source-only-hint:visible')).toHaveCount(0)
+    await expect(page.locator('.markdown-workbench-preview-pane .mermaid-wrapper')).toBeVisible()
+    await expect(page.locator('.markdown-workbench-preview-pane .mermaid-action-btn[data-action="toggleCode"]')).toHaveCount(1)
 
     await page.getByRole('button', { name: '退出编辑模式' }).click()
     await expect(page.getByLabel('editable-blocks.md 编辑工作区')).toBeHidden()

@@ -38,6 +38,10 @@ declare global {
       openFolder: () => Promise<string | null>
       readDir: (path: string) => Promise<FileInfo[]>
       readFile: (path: string) => Promise<string>
+      readLocalAssetBase64: (payload: {
+        markdownFilePath: string
+        refPath: string
+      }) => Promise<{ base64: string; mimeType: string; resolvedPath: string }>
       readExcalidrawFile: (payload: {
         markdownFilePath: string
         refPath: string
@@ -144,6 +148,27 @@ declare global {
       getFolderTreeState: () => Promise<Record<string, false>>
       saveFolderTreeState: (folders: Record<string, false>) => Promise<Record<string, false>>
       clearFolderTreeState: () => Promise<void>
+      getReadPosition: (filePath: string) => Promise<{
+        canonicalPath: string
+        scrollRatio?: number
+        headingId?: string
+        updatedAt: number
+        contentHash?: string
+      } | null>
+      saveReadPosition: (position: {
+        canonicalPath: string
+        scrollRatio?: number
+        headingId?: string
+        updatedAt?: number
+        contentHash?: string
+      }) => Promise<{
+        canonicalPath: string
+        scrollRatio?: number
+        headingId?: string
+        updatedAt: number
+        contentHash?: string
+      }>
+      clearReadPosition: (filePath: string) => Promise<void>
 
       // v1.3.6：最近文件
       getRecentFiles: () => Promise<Array<{ path: string; name: string; folderPath: string; lastOpened: number }>>
@@ -372,6 +397,13 @@ declare global {
       openDroppedPaths: (paths: string[]) => Promise<void>
 
       // v1.5.1：内部 .md 链接跳转
+      resolveMdLink: (currentFilePath: string, href: string) => Promise<{
+        success: boolean
+        targetPath?: string
+        targetLine?: number
+        headingId?: string
+        error?: string
+      }>
       openMdLink: (currentFilePath: string, href: string) => Promise<{ success: boolean; error?: string }>
 
       // 书签右键菜单

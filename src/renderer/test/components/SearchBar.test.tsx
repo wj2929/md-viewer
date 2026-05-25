@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SearchBar } from '../../src/components/SearchBar'
 import { FileInfo } from '../../src/components/FileTree'
+import { SEARCH_LIMITS } from '../../src/utils/v24WorkflowContracts'
 
 // Mock window.api
 const mockReadFile = vi.fn()
@@ -18,6 +19,7 @@ global.window.api = {
 describe('SearchBar', () => {
   const mockOnFileSelect = vi.fn()
   const mockOnExternalFileOpen = vi.fn()
+  const mockOnOpenDocumentCommand = vi.fn()
 
   const createMockFile = (name: string, path: string): FileInfo => ({
     name,
@@ -34,6 +36,8 @@ describe('SearchBar', () => {
 
   beforeEach(() => {
     mockOnFileSelect.mockClear()
+    mockOnExternalFileOpen.mockClear()
+    mockOnOpenDocumentCommand.mockClear()
     mockReadFile.mockClear()
   })
 
@@ -217,6 +221,33 @@ describe('SearchBar', () => {
         expect(screen.getByText(/没有找到匹配的内容/i)).toBeInTheDocument()
       })
     })
+
+    it('全文搜索超过扫描阈值时应该显示降级提示', async () => {
+      const manyFiles = Array.from({ length: SEARCH_LIMITS.maxFiles + 1 }, (_, index) =>
+        createMockFile(`doc-${index}.md`, `/docs/doc-${index}.md`)
+      )
+      mockReadFile.mockResolvedValue('降级提示测试内容')
+
+      render(<SearchBar files={manyFiles} folderPath="/docs" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
+
+      const trigger = screen.getByRole('button', { name: /搜索文件/i })
+      await userEvent.click(trigger)
+
+      const contentModeBtn = screen.getByText('全文')
+      await userEvent.click(contentModeBtn)
+
+      await waitFor(() => {
+        expect(mockReadFile).toHaveBeenCalled()
+      })
+
+      const input = screen.getByPlaceholderText('搜索文件内容...')
+      await userEvent.type(input, '降级提示')
+
+      await waitFor(() => {
+        expect(screen.getByText(/只显示部分结果/)).toBeInTheDocument()
+      })
+      expect(mockReadFile.mock.calls.length).toBeLessThanOrEqual(SEARCH_LIMITS.maxFiles)
+    })
   })
 
   describe('搜索结果操作', () => {
@@ -239,6 +270,43 @@ describe('SearchBar', () => {
       await userEvent.click(result)
 
       expect(mockOnFileSelect).toHaveBeenCalledWith(files[0], undefined, 'test')
+    })
+
+    it('提供导航命令回调时点击搜索结果应该生成 OpenDocumentCommand', async () => {
+      render(
+        <SearchBar
+          files={files}
+          folderPath="/test"
+          onFileSelect={mockOnFileSelect}
+          onExternalFileOpen={mockOnExternalFileOpen}
+          onOpenDocumentCommand={mockOnOpenDocumentCommand}
+        />
+      )
+
+      const trigger = screen.getByRole('button', { name: /搜索文件/i })
+      await userEvent.click(trigger)
+
+      const input = screen.getByPlaceholderText('搜索文件名...')
+      await userEvent.type(input, 'test')
+
+      const result = await screen.findByText('test.md')
+      await userEvent.click(result)
+
+      expect(mockOnOpenDocumentCommand).toHaveBeenCalledTimes(1)
+      expect(mockOnOpenDocumentCommand.mock.calls[0][0]).toMatchObject({
+        source: 'search',
+        filePath: '/test/test.md',
+        canonicalPath: '/test/test.md',
+        preserveFilter: true,
+        dirtyPolicy: 'prompt',
+        fallback: 'top',
+        target: {
+          kind: 'top',
+          highlightText: 'test',
+        },
+      })
+      expect(mockOnOpenDocumentCommand.mock.calls[0][1]).toEqual(files[0])
+      expect(mockOnFileSelect).not.toHaveBeenCalled()
     })
 
     it('选择文件后应该关闭搜索框', async () => {

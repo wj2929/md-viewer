@@ -162,12 +162,32 @@
 .shortcuts-help-footer {
   padding: 8px 16px;
   border-top: 1px solid var(--border-color);
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .shortcuts-tip {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.shortcuts-manual-btn {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  color: var(--accent-color, #2563eb);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.shortcuts-manual-btn:hover,
+.shortcuts-manual-btn:focus {
+  border-color: var(--accent-color, #2563eb);
+  outline: none;
 }
 
 /* 响应式 - 小屏幕恢复单列 */
@@ -191,5 +211,10 @@
 
   .shortcut-key {
     align-self: flex-end;
+  }
+
+  .shortcuts-help-footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

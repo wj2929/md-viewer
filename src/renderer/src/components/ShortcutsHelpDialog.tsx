@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useCallback } from 'react'
+import { openHelpLink, USER_MANUAL_URL } from '../utils/helpLinks'
 import './ShortcutsHelpDialog.css'
 
 interface ShortcutsHelpDialogProps {
@@ -128,6 +129,13 @@ export const ShortcutsHelpDialog: React.FC<ShortcutsHelpDialogProps> = ({
           <span className="shortcuts-tip">
             💡 提示：按 Esc 关闭此弹窗
           </span>
+          <button
+            type="button"
+            className="shortcuts-manual-btn"
+            onClick={() => openHelpLink(USER_MANUAL_URL)}
+          >
+            打开使用手册
+          </button>
         </div>
       </div>
     </div>

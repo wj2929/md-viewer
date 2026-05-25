@@ -25,6 +25,10 @@ vi.mock('../../src/utils/markdownRenderer', () => ({
       if (excalidrawImage) {
         return `<p><img src="${excalidrawImage[2]}" alt="${excalidrawImage[1]}"></p>`
       }
+      const pngImage = md.match(/^!\[([^\]]*)\]\(([^)]+\.png(?:[?#][^)]*)?)\)$/)
+      if (pngImage) {
+        return `<p><img src="${pngImage[2]}" alt="${pngImage[1]}"></p>`
+      }
       return md
     },
   }),
@@ -166,5 +170,28 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
     })
     expect(out).toContain('excalidraw-container')
     expect(out).toContain('<svg')
+  })
+
+  it('导出普通本地图片时内嵌为 data URI，避免 PDF 临时目录丢图', async () => {
+    const readLocalAssetBase64 = vi.fn().mockResolvedValue({
+      base64: 'iVBORw0KGgo=',
+      mimeType: 'image/png',
+      resolvedPath: '/docs/images/welcome.png',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readLocalAssetBase64,
+    }
+
+    const out = await buildExportHtmlContent('![欢迎图](./images/welcome.png)', {
+      markdownFilePath: '/docs/user-manual.md',
+    })
+
+    expect(readLocalAssetBase64).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/user-manual.md',
+      refPath: './images/welcome.png',
+    })
+    expect(out).toContain('src="data:image/png;base64,iVBORw0KGgo="')
+    expect(out).not.toContain('src="./images/welcome.png"')
   })
 })

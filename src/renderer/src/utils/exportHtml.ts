@@ -36,6 +36,50 @@ export interface ExportHtmlOptions {
   markdownFilePath?: string
 }
 
+const LOCAL_IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function isEmbeddableLocalImageSrc(src: string): boolean {
+  if (!src) return false
+  if (/^(?:https?:|data:|blob:|local-image:)/i.test(src)) return false
+  if (/\.excalidraw(?:[?#].*)?$/i.test(src)) return false
+  if (/\.bpmn(?:[?#].*)?$/i.test(src)) return false
+  return LOCAL_IMAGE_EXTENSIONS.test(src)
+}
+
+async function embedLocalImagesInHtml(html: string, options: ExportHtmlOptions = {}): Promise<string> {
+  if (!options.markdownFilePath || !window.api?.readLocalAssetBase64) return html
+
+  const template = document.createElement('template')
+  template.innerHTML = html
+  const root = template.content
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+
+  for (const img of images) {
+    const src = img.getAttribute('src') || ''
+    if (!isEmbeddableLocalImageSrc(src)) continue
+
+    try {
+      const result = await window.api.readLocalAssetBase64({
+        markdownFilePath: options.markdownFilePath,
+        refPath: safeDecodeURIComponent(src),
+      })
+      img.setAttribute('src', `data:${result.mimeType};base64,${result.base64}`)
+    } catch (error) {
+      console.warn('[exportHtml] 本地图片导出内嵌失败:', src, error)
+    }
+  }
+
+  return serializeFragment(root)
+}
+
 /**
  * 借预览 DOM 里已渲染的 DrawIO SVG 覆盖导出 HTML 里的占位。
  * 选取当前活动预览面板下的 .drawio-container svg，顺序替换 HTML 字符串里
@@ -241,6 +285,7 @@ export async function buildExportHtmlContent(markdown: string, options: ExportHt
   html = await processDbmlInHtml(html)
   html = await processAntvG6InHtml(html)
   html = await processKrokiInHtml(html)
+  html = await embedLocalImagesInHtml(html, options)
 
   // DrawIO 特殊：借预览 DOM 的 SVG 覆盖占位（如果当前有打开的预览）
   html = overrideDrawioWithPreviewSvgs(html)

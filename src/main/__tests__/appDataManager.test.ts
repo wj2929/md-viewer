@@ -256,4 +256,40 @@ describe('AppDataManager', () => {
       })
     })
   })
+
+  describe('阅读位置', () => {
+    it('应该按规范化路径保存和读取阅读位置', () => {
+      const saved = appDataManager.saveReadPosition({
+        canonicalPath: '/workspace/docs/readme.md',
+        scrollRatio: 0.42,
+        headingId: 'section-a',
+        contentHash: 'hash-a',
+        updatedAt: 1700000000000
+      })
+
+      expect(saved).toMatchObject({
+        canonicalPath: path.resolve('/workspace/docs/readme.md'),
+        scrollRatio: 0.42,
+        headingId: 'section-a',
+        contentHash: 'hash-a',
+        updatedAt: 1700000000000
+      })
+      expect(appDataManager.getReadPosition('/workspace/docs/readme.md')).toMatchObject(saved)
+    })
+
+    it('应该清理无效阅读位置字段并支持清除', () => {
+      const saved = appDataManager.saveReadPosition({
+        canonicalPath: '/workspace/docs/bad.md',
+        scrollRatio: 1.5,
+        headingId: '',
+        updatedAt: 1700000000001
+      })
+
+      expect(saved.scrollRatio).toBeUndefined()
+      expect(saved.headingId).toBeUndefined()
+
+      appDataManager.clearReadPosition('/workspace/docs/bad.md')
+      expect(appDataManager.getReadPosition('/workspace/docs/bad.md')).toBeNull()
+    })
+  })
 })

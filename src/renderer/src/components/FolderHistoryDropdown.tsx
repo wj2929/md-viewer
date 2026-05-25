@@ -60,6 +60,7 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
       <button
         className="history-toggle-btn"
         onClick={() => setIsOpen(!isOpen)}
+        aria-label="最近打开的文件夹"
         title="最近打开的文件夹"
       >
         ▼

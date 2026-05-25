@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MD Viewer v2.3 local smoke gates.
+# MD Viewer v2.4 local smoke gates.
 
 set -euo pipefail
 
@@ -40,21 +40,30 @@ trap print_artifacts_hint EXIT
 
 case "$MODE" in
   quick)
-    echo "运行 v2.3 快速门禁"
+    echo "运行 v2.4 快速门禁"
     echo "可用模式：quick | full"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
     run_step "核心单元测试" npm test -- --run \
       src/renderer/test/components/FileTree.test.tsx \
       src/renderer/test/components/VirtualizedMarkdown.test.tsx \
+      src/renderer/test/components/SearchBar.test.tsx \
+      src/renderer/test/components/ExportTaskView.test.tsx \
+      src/renderer/test/components/ShortcutsHelpDialog.test.tsx \
+      src/renderer/test/utils/v24WorkflowContracts.test.ts \
       src/renderer/test/utils/exportHtml.responsive.test.ts
     run_step "构建 E2E 产物" npm run build
     run_step "核心 E2E" npm run test:e2e -- \
       e2e/02-file-tree.spec.ts \
-      e2e/markdown-edit-mode.spec.ts
+      e2e/markdown-edit-mode.spec.ts \
+      e2e/markdown-links.spec.ts \
+      e2e/read-position.spec.ts
+    run_step "图表预览 Smoke" npm run test:e2e -- \
+      e2e/03-markdown-rendering.spec.ts \
+      -g "Mermaid 图表|DrawIO 应渲染基础图"
     ;;
   full)
-    echo "运行 v2.3 完整发版门禁"
+    echo "运行 v2.4 完整发版门禁"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
     run_step "全量单元测试" npm test -- --run
@@ -63,7 +72,9 @@ case "$MODE" in
       e2e/02-file-tree.spec.ts \
       e2e/03-markdown-rendering.spec.ts \
       e2e/05-export-features.spec.ts \
-      e2e/markdown-edit-mode.spec.ts
+      e2e/markdown-edit-mode.spec.ts \
+      e2e/markdown-links.spec.ts \
+      e2e/read-position.spec.ts
     ;;
   *)
     echo "未知模式：$MODE"
@@ -74,5 +85,5 @@ esac
 
 trap - EXIT
 echo ""
-echo "v2.3 ${MODE} 门禁通过"
+echo "v2.4 ${MODE} 门禁通过"
 print_artifacts_hint

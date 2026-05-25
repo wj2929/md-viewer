@@ -23,6 +23,15 @@ let watchedDir: string | null = null
 let _baseFolderPath: string | null = null
 const watchedFiles = new Set<string>()
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
+const LOCAL_ASSET_MIME_TYPES = new Map<string, string>([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.webp', 'image/webp'],
+  ['.svg', 'image/svg+xml'],
+])
+const MAX_LOCAL_ASSET_SIZE = 10 * 1024 * 1024
 
 let watchedWebContentsId: number | null = null
 
@@ -55,6 +64,25 @@ function hashContent(content: string): string {
 function buildRevisionToken(stats: fs.Stats, content?: string): string {
   const baseToken = `${stats.mtimeMs}:${stats.size}`
   return content === undefined ? baseToken : `${baseToken}:${hashContent(content)}`
+}
+
+function stripUrlSuffix(refPath: string): string {
+  return refPath.split('#')[0].split('?')[0]
+}
+
+function resolveMarkdownRelativePath(markdownFilePath: string, refPath: string): string {
+  const cleanRefPath = stripUrlSuffix(refPath)
+  const hasUrlScheme = /^[a-z][a-z0-9+.-]*:/i.test(cleanRefPath)
+  const isWindowsAbsolutePath = /^[a-z]:[\\/]/i.test(cleanRefPath)
+  if (hasUrlScheme && !isWindowsAbsolutePath) {
+    throw new Error('不支持读取 URL 资源')
+  }
+  if (/^(?:[a-z]:[\\/]|[/\\])/i.test(cleanRefPath)) {
+    return path.normalize(cleanRefPath)
+  }
+
+  const markdownDir = path.dirname(markdownFilePath)
+  return path.normalize(path.join(markdownDir, cleanRefPath))
 }
 
 function parseRevisionToken(token: string): { mtimeMs: string; size: string; hash?: string } {
@@ -518,6 +546,44 @@ export function registerFileHandlers(ctx: IPCContext): void {
       }
       console.error('Failed to read file:', error)
       return ''
+    }
+  })
+
+  ipcMain.handle('fs:readLocalAssetBase64', async (_, payload: {
+    markdownFilePath: string
+    refPath: string
+  }) => {
+    const markdownFilePath = payload?.markdownFilePath
+    const refPath = payload?.refPath
+
+    if (!markdownFilePath || !refPath) {
+      throw new Error('缺少本地图片读取参数')
+    }
+
+    validatePath(markdownFilePath)
+    const resolvedPath = resolveMarkdownRelativePath(markdownFilePath, decodeURIComponent(refPath))
+    validatePath(resolvedPath)
+
+    const ext = path.extname(resolvedPath).toLowerCase()
+    const mimeType = LOCAL_ASSET_MIME_TYPES.get(ext)
+    if (!mimeType) {
+      throw new Error(`不支持的本地图片格式：${ext || '未知'}`)
+    }
+
+    const stats = await fs.stat(resolvedPath)
+    if (!stats.isFile()) {
+      throw new Error('本地图片引用不是文件')
+    }
+    if (stats.size > MAX_LOCAL_ASSET_SIZE) {
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2)
+      throw new Error(`本地图片过大 (${sizeMB}MB)，已跳过导出内嵌`)
+    }
+
+    const buffer = await fs.readFile(resolvedPath)
+    return {
+      base64: buffer.toString('base64'),
+      mimeType,
+      resolvedPath,
     }
   })
 

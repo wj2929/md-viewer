@@ -10,6 +10,8 @@ const api = {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
+  readLocalAssetBase64: (payload: { markdownFilePath: string; refPath: string }) =>
+    ipcRenderer.invoke('fs:readLocalAssetBase64', payload) as Promise<{ base64: string; mimeType: string; resolvedPath: string }>,
   readExcalidrawFile: (payload: { markdownFilePath: string; refPath: string }) =>
     ipcRenderer.invoke('fs:readExcalidrawFile', payload) as Promise<{ content: string; resolvedPath: string }>,
   readBpmnFile: (payload: { markdownFilePath: string; refPath: string }) =>
@@ -194,6 +196,29 @@ const api = {
     ipcRenderer.invoke('folder-tree-state:save', folders) as Promise<Record<string, false>>,
   clearFolderTreeState: () =>
     ipcRenderer.invoke('folder-tree-state:clear') as Promise<void>,
+  getReadPosition: (filePath: string) =>
+    ipcRenderer.invoke('read-position:get', filePath) as Promise<{
+      canonicalPath: string
+      scrollRatio?: number
+      headingId?: string
+      updatedAt: number
+      contentHash?: string
+    } | null>,
+  saveReadPosition: (position: {
+    canonicalPath: string
+    scrollRatio?: number
+    headingId?: string
+    updatedAt?: number
+    contentHash?: string
+  }) => ipcRenderer.invoke('read-position:save', position) as Promise<{
+    canonicalPath: string
+    scrollRatio?: number
+    headingId?: string
+    updatedAt: number
+    contentHash?: string
+  }>,
+  clearReadPosition: (filePath: string) =>
+    ipcRenderer.invoke('read-position:clear', filePath) as Promise<void>,
 
   // 最近文件右键菜单
   showRecentFileContextMenu: (file: {
@@ -741,6 +766,9 @@ const api = {
     ipcRenderer.invoke('drop:openPaths', paths),
 
   // ============== v1.5.1：内部 .md 链接跳转 ==============
+
+  resolveMdLink: (currentFilePath: string, href: string) =>
+    ipcRenderer.invoke('navigate:resolveMdLink', currentFilePath, href) as Promise<{ success: boolean; targetPath?: string; targetLine?: number; headingId?: string; error?: string }>,
 
   openMdLink: (currentFilePath: string, href: string) =>
     ipcRenderer.invoke('navigate:openMdLink', currentFilePath, href) as Promise<{ success: boolean; error?: string }>,
