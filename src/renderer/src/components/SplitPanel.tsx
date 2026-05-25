@@ -56,6 +56,10 @@ export interface SplitPanelProps {
   onCopyDraft?: (content: string) => void
   scrollToLine?: number
   onScrollToLineComplete?: () => void
+  scrollToRatio?: number
+  onScrollToRatioComplete?: () => void
+  onReadPositionChange?: (filePath: string, position: { scrollRatio: number; headingId?: string }) => void
+  onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
 }
 
 type DragPosition = 'center' | 'left' | 'right' | 'top' | 'bottom' | null
@@ -98,7 +102,11 @@ function LeafPanel({
   onReloadQuickEdit,
   onCopyDraft,
   scrollToLine,
-  onScrollToLineComplete
+  onScrollToLineComplete,
+  scrollToRatio,
+  onScrollToRatioComplete,
+  onReadPositionChange,
+  onMarkdownLinkClick
 }: {
   node: LeafNode
   tabs: Tab[]
@@ -123,6 +131,10 @@ function LeafPanel({
   onCopyDraft?: SplitPanelProps['onCopyDraft']
   scrollToLine?: number
   onScrollToLineComplete?: () => void
+  scrollToRatio?: number
+  onScrollToRatioComplete?: () => void
+  onReadPositionChange?: SplitPanelProps['onReadPositionChange']
+  onMarkdownLinkClick?: SplitPanelProps['onMarkdownLinkClick']
 }) {
   const previewRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -289,7 +301,11 @@ function LeafPanel({
                       renderDebounceMs={getDraftPreviewDebounceMs(previewContent, Boolean(quickEditSession))}
                       scrollToLine={isActive ? scrollToLine : undefined}
                       onScrollToLineComplete={isActive ? onScrollToLineComplete : undefined}
+                      scrollToRatio={isActive ? scrollToRatio : undefined}
+                      onScrollToRatioComplete={isActive ? onScrollToRatioComplete : undefined}
                       onImageClick={onImageClick}
+                      onReadPositionChange={(position) => tab && onReadPositionChange?.(tab.file.path, position)}
+                      onMarkdownLinkClick={onMarkdownLinkClick}
                     />
                   ) : (
                     <p className="placeholder">选择文件开始预览</p>
@@ -411,6 +427,10 @@ export function SplitPanel(props: SplitPanelProps): JSX.Element {
         onCopyDraft={props.onCopyDraft}
         scrollToLine={props.scrollToLine}
         onScrollToLineComplete={props.onScrollToLineComplete}
+        scrollToRatio={props.scrollToRatio}
+        onScrollToRatioComplete={props.onScrollToRatioComplete}
+        onReadPositionChange={props.onReadPositionChange}
+        onMarkdownLinkClick={props.onMarkdownLinkClick}
       />
     )
   }

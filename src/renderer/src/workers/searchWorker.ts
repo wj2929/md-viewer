@@ -17,6 +17,7 @@
  */
 
 import Fuse, { FuseResult, IFuseOptions } from 'fuse.js'
+import { SEARCH_LIMITS, applySearchInputLimits } from '../utils/v24WorkflowContracts'
 
 // 类型定义
 interface FileWithContent {
@@ -37,6 +38,8 @@ interface SearchResult {
   file: FileWithContent
   matches: SearchMatch[]
   score?: number
+  degradedReason?: string
+  skippedReason?: string
 }
 
 interface SearchRequest {
@@ -54,6 +57,8 @@ interface SearchResponse {
   totalCount?: number  // 总匹配数
   error?: string
   searchTime?: number
+  degradedReason?: string
+  skippedCount?: number
 }
 
 // 当前搜索 ID（用于取消过期请求）
@@ -105,7 +110,7 @@ function extractExactMatches(content: string, query: string): SearchMatch[] {
     })
 
     index += query.length
-    if (matches.length >= 5) break  // v1.5.1: 每文件最多5个匹配
+    if (matches.length >= SEARCH_LIMITS.maxMatchesPerFile) break
   }
 
   return matches
@@ -147,7 +152,8 @@ function sortExactMatches(
 function searchByFilename(
   files: FileWithContent[],
   query: string
-): { results: SearchResult[]; totalCount: number } {
+): { results: SearchResult[]; totalCount: number; degradedReason?: string; skippedCount?: number } {
+  const limited = applySearchInputLimits(files)
   const fuseOptions: IFuseOptions<FileWithContent> = {
     keys: ['name', 'path'],
     threshold: 0.3,
@@ -155,7 +161,7 @@ function searchByFilename(
     minMatchCharLength: 2
   }
 
-  const fuse = new Fuse(files, fuseOptions)
+  const fuse = new Fuse(limited.files, fuseOptions)
   const allResults = fuse.search(query)
   const totalCount = allResults.length
 
@@ -165,7 +171,12 @@ function searchByFilename(
     score: r.score
   }))
 
-  return { results, totalCount }
+  return {
+    results,
+    totalCount,
+    degradedReason: limited.degradedReason,
+    skippedCount: limited.skippedCount,
+  }
 }
 
 /**
@@ -174,29 +185,14 @@ function searchByFilename(
 function searchByContent(
   files: FileWithContent[],
   query: string
-): { results: SearchResult[]; totalCount: number } {
-  // 性能保护：检查总文件大小
-  const totalSize = files.reduce((sum, f) => sum + (f.content?.length || 0), 0)
-  const totalSizeMB = totalSize / 1024 / 1024
-
-  if (totalSizeMB > 500) {
-    return {
-      results: [{
-        file: {
-          name: '⚠️ 文件过多（超过 500MB），请使用文件名搜索',
-          path: '',
-          isDirectory: false
-        },
-        matches: []
-      }],
-      totalCount: 0
-    }
-  }
+): { results: SearchResult[]; totalCount: number; degradedReason?: string; skippedCount?: number } {
+  const limited = applySearchInputLimits(files)
+  const searchableFiles = limited.files
 
   const lowerQuery = query.toLowerCase()
 
   // 先尝试精确匹配（性能更快，准确率 100%）
-  const exactMatches = files.filter(file =>
+  const exactMatches = searchableFiles.filter(file =>
     file.content?.toLowerCase().includes(lowerQuery)
   )
 
@@ -210,7 +206,12 @@ function searchByContent(
       matches: extractExactMatches(file.content || '', query)
     }))
 
-    return { results, totalCount }
+    return {
+      results,
+      totalCount,
+      degradedReason: limited.degradedReason,
+      skippedCount: limited.skippedCount,
+    }
   }
 
   // 没有精确匹配，使用 Fuse.js 模糊搜索
@@ -225,7 +226,7 @@ function searchByContent(
     useExtendedSearch: false
   }
 
-  const fuse = new Fuse(files, fuseOptions)
+  const fuse = new Fuse(searchableFiles, fuseOptions)
   const allResults = fuse.search(query)
   const totalCount = allResults.length
 
@@ -239,7 +240,12 @@ function searchByContent(
     score: r.score
   }))
 
-  return { results, totalCount }
+  return {
+    results,
+    totalCount,
+    degradedReason: limited.degradedReason,
+    skippedCount: limited.skippedCount,
+  }
 }
 
 /**
@@ -268,15 +274,21 @@ function handleSearch(request: SearchRequest): void {
 
     let results: SearchResult[]
     let totalCount: number
+    let degradedReason: string | undefined
+    let skippedCount: number | undefined
 
     if (searchMode === 'filename') {
       const searchResult = searchByFilename(files, query)
       results = searchResult.results
       totalCount = searchResult.totalCount
+      degradedReason = searchResult.degradedReason
+      skippedCount = searchResult.skippedCount
     } else {
       const searchResult = searchByContent(files, query)
       results = searchResult.results
       totalCount = searchResult.totalCount
+      degradedReason = searchResult.degradedReason
+      skippedCount = searchResult.skippedCount
     }
 
     // 再次检查是否已被取消
@@ -291,7 +303,9 @@ function handleSearch(request: SearchRequest): void {
       id,
       results,
       totalCount,
-      searchTime
+      searchTime,
+      degradedReason,
+      skippedCount,
     } as SearchResponse)
   } catch (error) {
     self.postMessage({

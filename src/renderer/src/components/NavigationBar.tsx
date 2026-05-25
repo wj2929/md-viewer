@@ -13,6 +13,7 @@ import { RecentFilesDropdown } from './RecentFilesDropdown'
 import { FileInfo } from './FileTree'
 import './NavigationBar.css'
 import { RefObject } from 'react'
+import type { OpenDocumentCommand } from '../utils/v24WorkflowContracts'
 
 interface NavigationBarProps {
   folderPath: string | null
@@ -25,8 +26,9 @@ interface NavigationBarProps {
   onOpenFolder: () => void
   onSelectHistoryFolder: (folderPath: string) => void
   onSelectRecentFile: (path: string) => void
-  onFileSelect: (file: FileInfo) => void
+  onFileSelect: (file: FileInfo, scrollToLine?: number, highlightKeyword?: string) => void
   onExternalFileOpen: (filePath: string) => void
+  onOpenDocumentCommand?: (command: OpenDocumentCommand, file: FileInfo) => void
   onSettingsClick: () => void
   onThemeChange: (theme: 'light' | 'dark' | 'auto') => void
   onRefreshFiles: () => void
@@ -48,6 +50,7 @@ export function NavigationBar({
   onSelectRecentFile,
   onFileSelect,
   onExternalFileOpen,
+  onOpenDocumentCommand,
   onSettingsClick,
   onThemeChange,
   onRefreshFiles,
@@ -97,6 +100,7 @@ export function NavigationBar({
           folderPath={folderPath}
           onFileSelect={onFileSelect}
           onExternalFileOpen={onExternalFileOpen}
+          onOpenDocumentCommand={onOpenDocumentCommand}
         />
       </div>
 

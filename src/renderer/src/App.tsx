@@ -14,6 +14,7 @@ import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStor
 import type { DocumentViewMode, EditConflictReason, EditSession } from './stores'
 import { useExportTaskStore } from './stores/exportTaskStore'
 import type { QuickEditTarget } from './utils/quickEditTarget'
+import type { OpenDocumentCommand } from './utils/v24WorkflowContracts'
 
 function findEditSessionForPath(sessions: Record<string, EditSession>, filePath: string): EditSession | undefined {
   return Object.values(sessions).find(session =>
@@ -36,11 +37,21 @@ function getDraftPreviewDebounceMs(content: string, hasEditSession: boolean): nu
 
 const SINGLE_LEAF_ID = 'single'
 const UNSAVED_EDIT_LEAVE_MESSAGE = '当前文档有未保存编辑草稿，离开后草稿会保留但尚未写入磁盘。是否继续？'
+const DIRTY_LEAVE_CONFIRM_REUSE_MS = 1200
+
+function getFileNameFromPath(filePath: string): string {
+  return filePath.split(/[/\\]/).pop() || filePath
+}
+
+function isPathInsideFolder(filePath: string, folderPath: string): boolean {
+  const base = folderPath.replace(/[\\/]+$/, '')
+  return filePath === base || filePath.startsWith(`${base}/`) || filePath.startsWith(`${base}\\`)
+}
 
 function App(): React.JSX.Element {
   // v1.6.0: Zustand stores
   const { folderPath, setFolderPath, files, setFiles, isLoading, setIsLoading, selectedPaths, setSelectedPaths } = useFileStore()
-  const { tabs, setTabs, activeTabId, setActiveTabId, splitState, setSplitState, scrollToLine, setScrollToLine, highlightKeyword, setHighlightKeyword } = useTabStore()
+  const { tabs, setTabs, activeTabId, setActiveTabId, splitState, setSplitState, scrollToLine, setScrollToLine, scrollToRatio, setScrollToRatio, highlightKeyword, setHighlightKeyword } = useTabStore()
   const { bookmarks, bookmarksLoading, bookmarkPanelCollapsed, setBookmarkPanelCollapsed, bookmarkPanelWidth, setBookmarkPanelWidth, bookmarkBarCollapsed, setBookmarkBarCollapsed, loadBookmarks, loadSettings: loadBookmarkSettings } = useBookmarkStore()
   const { sidebarWidth, setSidebarWidth, isResizing, setIsResizing, showSettings, setShowSettings, showShortcutsHelp, setShowShortcutsHelp, isFullscreen, isDragOver, lightbox, setLightbox } = useLayoutStore()
   const editSessions = useEditSessionStore(state => state.sessions)
@@ -78,6 +89,15 @@ function App(): React.JSX.Element {
   const searchBarRef = useRef<SearchBarHandle>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(null)
+  const dirtyLeaveDecisionRef = useRef<{
+    activeTabId: string
+    canonicalPath: string
+    draftVersion: number
+    nextFilePath: string
+    allowed: boolean
+    expiresAt: number
+  } | null>(null)
+  const pendingFileSelectPathRef = useRef<string | null>(null)
   const setPreviewNode = useCallback((element: HTMLDivElement | null) => {
     previewRef.current = element
     setPreviewElement(element)
@@ -96,7 +116,36 @@ function App(): React.JSX.Element {
     const session = findEditSessionForPath(useEditSessionStore.getState().sessions, active.file.path)
     if (!session?.dirty) return true
 
-    return window.confirm(UNSAVED_EDIT_LEAVE_MESSAGE)
+    const decision = dirtyLeaveDecisionRef.current
+    const targetPath = nextFilePath || ''
+    const now = Date.now()
+    if (
+      decision &&
+      decision.activeTabId === currentActiveTabId &&
+      decision.canonicalPath === session.canonicalPath &&
+      decision.draftVersion === session.draftVersion &&
+      decision.nextFilePath === targetPath &&
+      decision.expiresAt > now
+    ) {
+      return decision.allowed
+    }
+
+    const allowed = window.confirm(UNSAVED_EDIT_LEAVE_MESSAGE)
+    const nextDecision = {
+      activeTabId: currentActiveTabId || '',
+      canonicalPath: session.canonicalPath,
+      draftVersion: session.draftVersion,
+      nextFilePath: targetPath,
+      allowed,
+      expiresAt: allowed ? now + DIRTY_LEAVE_CONFIRM_REUSE_MS : Number.POSITIVE_INFINITY,
+    }
+    dirtyLeaveDecisionRef.current = nextDecision
+    if (!allowed) {
+      window.setTimeout(() => {
+        if (dirtyLeaveDecisionRef.current === nextDecision) dirtyLeaveDecisionRef.current = null
+      }, 0)
+    }
+    return allowed
   }, [])
 
   // v1.3.6：加载书签设置
@@ -384,6 +433,27 @@ function App(): React.JSX.Element {
     return window.confirm(`"${tab.file.name}" 有未保存编辑草稿，关闭会保留内存草稿但不会写入磁盘。是否继续关闭标签？`)
   }, [])
 
+  const resolveReadPositionRatio = useCallback(async (filePath: string): Promise<number | undefined> => {
+    try {
+      const position = await window.api.getReadPosition?.(filePath)
+      if (!position || typeof position.scrollRatio !== 'number') return undefined
+      return Math.max(0, Math.min(1, position.scrollRatio))
+    } catch (error) {
+      console.warn('[App] Failed to restore read position:', error)
+      return undefined
+    }
+  }, [])
+
+  const handleReadPositionChange = useCallback((filePath: string, position: { scrollRatio: number; headingId?: string }) => {
+    window.api.saveReadPosition?.({
+      canonicalPath: filePath,
+      scrollRatio: position.scrollRatio,
+      headingId: position.headingId,
+    }).catch(error => {
+      console.warn('[App] Failed to save read position:', error)
+    })
+  }, [])
+
   // 关闭标签
   const handleTabClose = useCallback((tabId: string) => {
     const closingTab = tabsRef.current.find(tab => tab.id === tabId)
@@ -410,41 +480,63 @@ function App(): React.JSX.Element {
   // 选择文件
   const handleFileSelect = useCallback(async (file: FileInfo, lineNumber?: number, keyword?: string) => {
     if (file.isDirectory) return
+    if (pendingFileSelectPathRef.current) return
     if (!confirmLeaveDirtyActiveTab(file.path)) return
-    setScrollToLine(lineNumber)
-    setHighlightKeyword(keyword)
+    pendingFileSelectPathRef.current = file.path
     const existingTab = tabsRef.current.find(tab => tab.file.path === file.path)
-    if (existingTab) {
-      await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(file.path))
-      return
-    }
     try {
-      const content = await readPreviewContentWithCache(file.path)
-      const isPinned = await window.api.isTabPinned(file.path)
-      const newTab: Tab = {
-        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        file,
-        content,
-        isPinned
+      if (existingTab) {
+        const targetRatio = lineNumber || keyword ? undefined : await resolveReadPositionRatio(file.path)
+        setScrollToLine(lineNumber)
+        setScrollToRatio(targetRatio)
+        setHighlightKeyword(keyword)
+        await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(file.path))
+        return
       }
-      setTabs(prev => [...prev, newTab])
-      setActiveTabId(newTab.id)
-      const currentFolderPath = useFileStore.getState().folderPath
-      if (currentFolderPath) {
-        window.api.addRecentFile({ path: file.path, name: file.name, folderPath: currentFolderPath }).catch(err => console.error('Failed to add to recent files:', err))
+      try {
+        const content = await readPreviewContentWithCache(file.path)
+        const targetRatio = lineNumber || keyword ? undefined : await resolveReadPositionRatio(file.path)
+        setScrollToLine(lineNumber)
+        setScrollToRatio(targetRatio)
+        setHighlightKeyword(keyword)
+        const isPinned = await window.api.isTabPinned(file.path)
+        const newTab: Tab = {
+          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file,
+          content,
+          isPinned
+        }
+        setTabs(prev => [...prev, newTab])
+        setActiveTabId(newTab.id)
+        const currentFolderPath = useFileStore.getState().folderPath
+        if (currentFolderPath) {
+          window.api.addRecentFile({ path: file.path, name: file.name, folderPath: currentFolderPath }).catch(err => console.error('Failed to add to recent files:', err))
+        }
+        window.api.watchFile(file.path).catch(err => console.error('Failed to watch file:', err))
+      } catch (error) {
+        console.error('Failed to read file:', error)
+        toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
-      window.api.watchFile(file.path).catch(err => console.error('Failed to watch file:', err))
-    } catch (error) {
-      console.error('Failed to read file:', error)
-      toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      if (pendingFileSelectPathRef.current === file.path) pendingFileSelectPathRef.current = null
     }
-  }, [refreshExistingTabContent, toast])
+  }, [confirmLeaveDirtyActiveTab, refreshExistingTabContent, resolveReadPositionRatio, toast])
+
+  const handleOpenDocumentCommand = useCallback(async (command: OpenDocumentCommand, file: FileInfo) => {
+    if (command.dirtyPolicy === 'block' && !confirmLeaveDirtyActiveTab(command.filePath)) return
+    const targetLine = command.target?.kind === 'line' || command.target?.kind === 'match'
+      ? command.target.lineNumber
+      : undefined
+    await handleFileSelect(file, targetLine, command.target?.highlightText)
+  }, [confirmLeaveDirtyActiveTab, handleFileSelect])
 
   // 打开外部文件（跨文件夹搜索结果）：直接打开到 tab，不切换文件夹
-  const handleExternalFileOpen = useCallback(async (filePath: string) => {
-    const fileName = filePath.split(/[/\\]/).pop() || filePath
+  const handleExternalFileOpen = useCallback(async (filePath: string, lineNumber?: number) => {
+    if (!confirmLeaveDirtyActiveTab(filePath)) return
+    const fileName = getFileNameFromPath(filePath)
     const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
     if (existingTab) {
+      setScrollToLine(lineNumber)
       await refreshExistingTabContent(existingTab, async () =>
         buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
       )
@@ -452,6 +544,7 @@ function App(): React.JSX.Element {
     }
     try {
       const content = buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
+      setScrollToLine(lineNumber)
       const newTab: Tab = {
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         file: { name: fileName, path: filePath, isDirectory: false },
@@ -465,7 +558,31 @@ function App(): React.JSX.Element {
     } catch (error) {
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [confirmLeaveDirtyActiveTab, refreshExistingTabContent, toast])
+  }, [confirmLeaveDirtyActiveTab, refreshExistingTabContent, setScrollToLine, toast])
+
+  const handleMarkdownLinkClick = useCallback(async (href: string, currentFilePath: string) => {
+    try {
+      const result = await window.api.resolveMdLink(currentFilePath, href)
+      if (!result.success || !result.targetPath) {
+        toast.error(`链接跳转失败：${result.error || '文件不存在'}`)
+        return
+      }
+
+      const targetFile = {
+        name: getFileNameFromPath(result.targetPath),
+        path: result.targetPath,
+        isDirectory: false
+      }
+
+      if (folderPath && isPathInsideFolder(result.targetPath, folderPath)) {
+        await handleFileSelect(targetFile, result.targetLine)
+      } else {
+        await handleExternalFileOpen(result.targetPath, result.targetLine)
+      }
+    } catch (error) {
+      toast.error(`链接跳转失败：${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }, [folderPath, handleExternalFileOpen, handleFileSelect, toast])
 
   // 切换标签
   const handleTabClick = useCallback((tabId: string) => {
@@ -1136,6 +1253,7 @@ function App(): React.JSX.Element {
                 onSelectRecentFile={handleSelectRecentFile}
                 onFileSelect={handleFileSelect}
                 onExternalFileOpen={handleExternalFileOpen}
+                onOpenDocumentCommand={handleOpenDocumentCommand}
                 onSettingsClick={() => setShowSettings(true)}
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
@@ -1176,6 +1294,7 @@ function App(): React.JSX.Element {
                 onSelectRecentFile={handleSelectRecentFile}
                 onFileSelect={handleFileSelect}
                 onExternalFileOpen={handleExternalFileOpen}
+                onOpenDocumentCommand={handleOpenDocumentCommand}
                 onSettingsClick={() => setShowSettings(true)}
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
@@ -1261,6 +1380,10 @@ function App(): React.JSX.Element {
                     onCopyDraft={handleCopyQuickEditDraft}
                     scrollToLine={scrollToLine}
                     onScrollToLineComplete={() => setScrollToLine(undefined)}
+                    scrollToRatio={scrollToRatio}
+                    onScrollToRatioComplete={() => setScrollToRatio(undefined)}
+                    onReadPositionChange={handleReadPositionChange}
+                    onMarkdownLinkClick={handleMarkdownLinkClick}
                   />
                 ) : (
                   <div className={`preview-container ${activeQuickEditCanonicalPath && activeViewState?.mode === 'preview' ? 'with-quick-edit' : ''}`}>
@@ -1300,9 +1423,13 @@ function App(): React.JSX.Element {
                                   renderDebounceMs={getDraftPreviewDebounceMs(activePreviewContent, Boolean(activeQuickEditSession))}
                                   scrollToLine={scrollToLine}
                                   onScrollToLineComplete={() => setScrollToLine(undefined)}
+                                  scrollToRatio={scrollToRatio}
+                                  onScrollToRatioComplete={() => setScrollToRatio(undefined)}
                                   highlightKeyword={highlightKeyword}
                                   onHighlightKeywordComplete={() => setHighlightKeyword(undefined)}
                                   onImageClick={setLightbox}
+                                  onReadPositionChange={(position) => handleReadPositionChange(activeTab.file.path, position)}
+                                  onMarkdownLinkClick={handleMarkdownLinkClick}
                                 />
                               ) : (
                                 <p className="placeholder">选择一个 Markdown 文件开始预览</p>

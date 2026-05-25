@@ -3,14 +3,14 @@ import { renderD2ToSvg, rendererErrorHtml } from '../../utils/d2Renderer'
 import { createChartToggleHandler, createChartWrapper, downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
 
 function readSvgWidth(svg: SVGSVGElement): number | null {
-  const renderedWidth = svg.getBoundingClientRect().width
-  if (renderedWidth > 0) return renderedWidth
-
   const attrWidth = svg.getAttribute('width')
   if (attrWidth && !/%|auto/i.test(attrWidth)) {
     const parsed = Number.parseFloat(attrWidth)
     if (Number.isFinite(parsed) && parsed > 0) return parsed
   }
+
+  const renderedWidth = svg.getBoundingClientRect().width
+  if (renderedWidth > 0) return renderedWidth
 
   const viewBox = svg.viewBox?.baseVal
   return viewBox && viewBox.width > 0 ? viewBox.width : null

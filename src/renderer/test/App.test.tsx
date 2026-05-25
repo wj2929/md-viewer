@@ -162,7 +162,9 @@ const mockApi = {
   checkForUpdates: vi.fn().mockResolvedValue({
     hasUpdate: false, currentVersion: '1.5.2', latestVersion: '1.5.2'
   }),
-  openExternal: vi.fn().mockResolvedValue({ success: true })
+  openExternal: vi.fn().mockResolvedValue({ success: true }),
+  resolveMdLink: vi.fn().mockResolvedValue({ success: false, error: '文件不存在' }),
+  openMdLink: vi.fn().mockResolvedValue({ success: true })
 }
 
 // Mock 全局 window.api
@@ -943,6 +945,209 @@ describe('App 集成测试', () => {
       fireEvent.click(screen.getByText('other.md'))
 
       expect(useTabStore.getState().activeTabId).toBe('tab-2')
+    })
+
+    it('脏草稿离开确认后目标文件尚在加载时重复触发同一导航不应重复提醒', async () => {
+      const files = [
+        { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+        { name: 'other.md', path: '/test/folder/other.md', isDirectory: false }
+      ]
+      mockApi.readDir.mockResolvedValue(files)
+      useFileStore.setState({
+        folderPath: '/test/folder',
+        files,
+        isLoading: false,
+        selectedPaths: new Set()
+      })
+      useTabStore.setState({
+        tabs: [
+          {
+            id: 'tab-1',
+            file: { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+            content: '# Report'
+          }
+        ],
+        activeTabId: 'tab-1',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        highlightKeyword: undefined
+      })
+      useEditSessionStore.getState().openSession({
+        canonicalPath: '/real/test/folder/report.md',
+        displayPath: '/test/folder/report.md',
+        fileName: 'report.md',
+        content: '# Report',
+        mtimeMs: 1000,
+        size: 8,
+        revisionToken: '1000:8'
+      })
+      useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Unsaved')
+      vi.mocked(window.confirm).mockReturnValue(true)
+
+      let resolveReadFile: (content: string) => void = () => {}
+      mockApi.readFile.mockImplementation(() => new Promise(resolve => {
+        resolveReadFile = resolve
+      }))
+
+      render(<App />)
+
+      const targetFile = await screen.findByText('other.md')
+      fireEvent.click(targetFile)
+      fireEvent.click(targetFile)
+
+      expect(window.confirm).toHaveBeenCalledTimes(1)
+      expect(mockApi.readFile).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        resolveReadFile('# Other')
+      })
+    })
+
+    it('点击内部 Markdown 链接时取消未保存草稿确认不应打开目标文件', async () => {
+      const files = [
+        { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+        { name: 'other.md', path: '/test/folder/other.md', isDirectory: false }
+      ]
+      mockApi.readDir.mockResolvedValue(files)
+      mockApi.resolveMdLink.mockResolvedValue({
+        success: true,
+        targetPath: '/test/folder/other.md',
+      })
+      useFileStore.setState({
+        folderPath: '/test/folder',
+        files,
+        isLoading: false,
+        selectedPaths: new Set()
+      })
+      useTabStore.setState({
+        tabs: [
+          {
+            id: 'tab-1',
+            file: { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+            content: '# Report\n\n[打开目标](./other.md)'
+          }
+        ],
+        activeTabId: 'tab-1',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        highlightKeyword: undefined
+      })
+      useEditSessionStore.getState().openSession({
+        canonicalPath: '/real/test/folder/report.md',
+        displayPath: '/test/folder/report.md',
+        fileName: 'report.md',
+        content: '# Report\n\n[打开目标](./other.md)',
+        mtimeMs: 1000,
+        size: 29,
+        revisionToken: '1000:29'
+      })
+      useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Report\n\n[打开目标](./other.md)\n\n未保存草稿')
+      vi.mocked(window.confirm).mockReturnValue(false)
+
+      render(<App />)
+
+      fireEvent.click(await screen.findByRole('link', { name: '打开目标' }))
+
+      await waitFor(() => {
+        expect(mockApi.resolveMdLink).toHaveBeenCalledWith('/test/folder/report.md', './other.md')
+      })
+      expect(window.confirm).toHaveBeenCalledTimes(1)
+      expect(mockApi.openMdLink).not.toHaveBeenCalled()
+      expect(mockApi.readFile).not.toHaveBeenCalledWith('/test/folder/other.md')
+      expect(useTabStore.getState().activeTabId).toBe('tab-1')
+    })
+
+    it('点击内部 Markdown 链接时确认未保存草稿后应打开目标文件', async () => {
+      const files = [
+        { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+        { name: 'other.md', path: '/test/folder/other.md', isDirectory: false }
+      ]
+      mockApi.readDir.mockResolvedValue(files)
+      mockApi.resolveMdLink.mockResolvedValue({
+        success: true,
+        targetPath: '/test/folder/other.md',
+        targetLine: 3,
+        headingId: '目标章节',
+      })
+      mockApi.readFile.mockResolvedValue('# Other\n\n## 目标章节\n\n内容')
+      useFileStore.setState({
+        folderPath: '/test/folder',
+        files,
+        isLoading: false,
+        selectedPaths: new Set()
+      })
+      useTabStore.setState({
+        tabs: [
+          {
+            id: 'tab-1',
+            file: { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+            content: '# Report\n\n[打开目标](./other.md#目标章节)'
+          }
+        ],
+        activeTabId: 'tab-1',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        highlightKeyword: undefined
+      })
+      useEditSessionStore.getState().openSession({
+        canonicalPath: '/real/test/folder/report.md',
+        displayPath: '/test/folder/report.md',
+        fileName: 'report.md',
+        content: '# Report\n\n[打开目标](./other.md#目标章节)',
+        mtimeMs: 1000,
+        size: 34,
+        revisionToken: '1000:34'
+      })
+      useEditSessionStore.getState().updateDraft('/real/test/folder/report.md', '# Report\n\n[打开目标](./other.md#目标章节)\n\n未保存草稿')
+      vi.mocked(window.confirm).mockReturnValue(true)
+
+      render(<App />)
+
+      fireEvent.click(await screen.findByRole('link', { name: '打开目标' }))
+
+      await waitFor(() => {
+        expect(mockApi.readFile).toHaveBeenCalledWith('/test/folder/other.md')
+        expect(screen.getByRole('heading', { name: 'Other' })).toBeInTheDocument()
+      })
+      expect(window.confirm).toHaveBeenCalledTimes(1)
+      expect(useTabStore.getState().tabs.some(tab => tab.file.path === '/test/folder/other.md')).toBe(true)
+    })
+
+    it('点击不存在的内部 Markdown 链接应该显示错误提示且不离开当前文件', async () => {
+      const files = [
+        { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+      ]
+      mockApi.readDir.mockResolvedValue(files)
+      mockApi.resolveMdLink.mockResolvedValue({ success: false, error: '文件不存在' })
+      useFileStore.setState({
+        folderPath: '/test/folder',
+        files,
+        isLoading: false,
+        selectedPaths: new Set()
+      })
+      useTabStore.setState({
+        tabs: [
+          {
+            id: 'tab-1',
+            file: { name: 'report.md', path: '/test/folder/report.md', isDirectory: false },
+            content: '# Report\n\n[缺失文档](./missing.md)'
+          }
+        ],
+        activeTabId: 'tab-1',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        highlightKeyword: undefined
+      })
+
+      render(<App />)
+
+      fireEvent.click(await screen.findByRole('link', { name: '缺失文档' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('链接跳转失败：文件不存在')).toBeInTheDocument()
+      })
+      expect(window.confirm).not.toHaveBeenCalled()
+      expect(useTabStore.getState().activeTabId).toBe('tab-1')
     })
 
     it('存在未保存快速编辑草稿时应该拦截导出 HTML', async () => {

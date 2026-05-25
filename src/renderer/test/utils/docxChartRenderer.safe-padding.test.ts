@@ -395,6 +395,43 @@ describe('DOCX Excalidraw chart rendering', () => {
     expect(result.modifiedMarkdown).toMatch(/!\[流程\]\(mdv__chart__/)
   })
 
+  it('DOCX 管线读取普通本地 Markdown 图片并替换为图片占位符', async () => {
+    const readLocalAssetBase64 = vi.fn().mockResolvedValue({
+      base64: 'iVBORw0KGgo=',
+      mimeType: 'image/png',
+      resolvedPath: '/docs/images/welcome.png',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readLocalAssetBase64,
+    } as typeof window.api
+
+    const markdown = [
+      '![欢迎图](<./images/welcome.png?raw=1#v> "首页截图")',
+      '',
+      '```md',
+      '![示例](./images/skip.png)',
+      '```',
+    ].join('\n')
+
+    const result = await renderChartsForDocx(markdown, {
+      markdownFilePath: '/docs/user-manual.md',
+    })
+
+    expect(readLocalAssetBase64).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/user-manual.md',
+      refPath: './images/welcome.png',
+    })
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        pngBase64: 'iVBORw0KGgo=',
+        widthCm: 15.5,
+      }),
+    ])
+    expect(result.modifiedMarkdown).toMatch(/!\[欢迎图\]\(mdv__chart__/)
+    expect(result.modifiedMarkdown).toContain('![示例](./images/skip.png)')
+  })
+
   it('DOCX BPMN 文件引用在 readBpmnFile handler 缺失时回退到 readFile', async () => {
     const readBpmnFile = vi.fn().mockRejectedValue(
       new Error("Error invoking remote method 'fs:readBpmnFile': Error: No handler registered for 'fs:readBpmnFile'")

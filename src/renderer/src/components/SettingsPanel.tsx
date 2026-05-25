@@ -23,7 +23,7 @@ import {
 // 类型定义
 // ============================================================================
 
-type SettingsTab = 'general' | 'about'
+type SettingsTab = 'appearance' | 'browsing' | 'export' | 'charts' | 'system' | 'about'
 
 type CapabilityColumn = {
   key: RendererTarget | 'htmlPdf'
@@ -60,6 +60,15 @@ const RENDERER_CAPABILITY_COLUMNS: CapabilityColumn[] = [
   { key: 'docxService', label: 'DOCX 服务' },
 ]
 
+const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
+  { key: 'appearance', label: '外观' },
+  { key: 'browsing', label: '浏览' },
+  { key: 'export', label: '导出' },
+  { key: 'charts', label: '图表' },
+  { key: 'system', label: '系统' },
+  { key: 'about', label: '关于' },
+]
+
 function capabilityStateText(definition: RendererDefinition, column: CapabilityColumn): string {
   const capabilities: RendererTargetCapability[] = column.key === 'htmlPdf'
     ? [definition.capabilities.html, definition.capabilities.pdf]
@@ -75,7 +84,8 @@ function capabilityStateText(definition: RendererDefinition, column: CapabilityC
 // ============================================================================
 
 export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
+  const activeTabLabel = SETTINGS_TABS.find(tab => tab.key === activeTab)?.label || '设置'
 
   return (
     <>
@@ -87,24 +97,31 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
           </div>
 
           {/* Tab 栏 */}
-          <div className="settings-tabs">
-            <button
-              className={`settings-tab ${activeTab === 'general' ? 'active' : ''}`}
-              onClick={() => setActiveTab('general')}
-            >
-              通用
-            </button>
-            <button
-              className={`settings-tab ${activeTab === 'about' ? 'active' : ''}`}
-              onClick={() => setActiveTab('about')}
-            >
-              关于
-            </button>
+          <div className="settings-tabs" role="tablist" aria-label="设置分类">
+            {SETTINGS_TABS.map(tab => (
+              <button
+                key={tab.key}
+                id={`settings-tab-${tab.key}`}
+                className={`settings-tab ${activeTab === tab.key ? 'active' : ''}`}
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                aria-controls={`settings-panel-${tab.key}`}
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           {/* Tab 内容 */}
-          <div className="settings-content">
-            {activeTab === 'general' ? <GeneralTab /> : <AboutTab />}
+          <div
+            className="settings-content"
+            id={`settings-panel-${activeTab}`}
+            role="tabpanel"
+            aria-labelledby={`settings-tab-${activeTab}`}
+            aria-label={activeTabLabel}
+          >
+            {activeTab === 'about' ? <AboutTab /> : <GeneralTab activeTab={activeTab} />}
           </div>
         </div>
       </div>
@@ -116,7 +133,7 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
 // 通用 Tab
 // ============================================================================
 
-function GeneralTab() {
+function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> }) {
   const { theme, setTheme } = useTheme()
   const { fontSize, setFontSize } = useUIStore()
   const [settings, setSettings] = useState<{ maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean }>({
@@ -374,7 +391,7 @@ function GeneralTab() {
 
   return (
     <>
-      {/* 外观 */}
+      {activeTab === 'appearance' && (
       <section className="settings-section">
         <h3>外观</h3>
         <div className="setting-item setting-row">
@@ -412,10 +429,11 @@ function GeneralTab() {
           </div>
         </div>
       </section>
+      )}
 
-      {/* 数据 */}
+      {activeTab === 'browsing' && (
       <section className="settings-section">
-        <h3>数据</h3>
+        <h3>浏览</h3>
         <div className="setting-item setting-row">
           <label>最近文件上限</label>
           <div className="setting-slider-group">
@@ -451,8 +469,10 @@ function GeneralTab() {
           </div>
         </div>
       </section>
+      )}
 
-      {/* 导出 */}
+      {activeTab === 'export' && (
+      <>
       <section className="settings-section">
         <h3>导出</h3>
         <div className="setting-item setting-row">
@@ -688,8 +708,10 @@ function GeneralTab() {
           </>
         )}
       </section>
+      </>
+      )}
 
-      {/* 图表 */}
+      {activeTab === 'charts' && (
       <section className="settings-section">
         <h3>图表</h3>
         <div className="setting-item setting-row">
@@ -769,8 +791,9 @@ function GeneralTab() {
           </div>
         </div>
       </section>
+      )}
 
-      {/* 系统集成 */}
+      {activeTab === 'system' && (
       <section className="settings-section">
         <h3>系统集成</h3>
         <div className="setting-item">
@@ -814,6 +837,7 @@ function GeneralTab() {
           </div>
         </div>
       </section>
+      )}
 
       {/* 引导模态框 */}
       {showEnableGuide && (

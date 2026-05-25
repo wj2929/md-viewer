@@ -4,12 +4,14 @@ import { FileInfo } from './FileTree'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useSearchHistoryStore } from '../stores'
 import type { SearchRequest, SearchResponse, SearchResult } from '../workers/searchWorker'
+import { applySearchInputLimits, createOpenDocumentCommand, type OpenDocumentCommand } from '../utils/v24WorkflowContracts'
 
 interface SearchBarProps {
   files: FileInfo[]
   folderPath: string | null
   onFileSelect: (file: FileInfo, scrollToLine?: number, highlightKeyword?: string) => void
   onExternalFileOpen: (filePath: string) => void
+  onOpenDocumentCommand?: (command: OpenDocumentCommand, file: FileInfo) => void
 }
 
 export interface SearchBarHandle {
@@ -93,7 +95,7 @@ function countMatches(content: string, query: string): number {
   return matches ? matches.length : 0
 }
 
-export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, folderPath, onFileSelect, onExternalFileOpen }, ref) => {
+export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, folderPath, onFileSelect, onExternalFileOpen, onOpenDocumentCommand }, ref) => {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   // 分组折叠状态（session 级持久化，不随 isOpen 重置）
@@ -105,9 +107,11 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
   const [isSearching, setIsSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [totalCount, setTotalCount] = useState<number>(0)
+  const [searchWarning, setSearchWarning] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const workerRef = useRef<Worker | null>(null)
   const currentSearchIdRef = useRef<number>(0)
+  const contentLoadWarningRef = useRef<string | null>(null)
 
   // 外部数据源状态
   const [recentFilesList, setRecentFilesList] = useState<FileInfo[]>([])
@@ -164,6 +168,8 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
     setFilesWithContent([])
     setSearchResults([])
     setTotalCount(0)
+    contentLoadWarningRef.current = null
+    setSearchWarning(null)
     setSelectedIndex(-1)
   }, [])
 
@@ -242,6 +248,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
     if (hasNewFiles || hasRemovedFiles) {
       // 文件列表变化，需要重新加载
       setFilesWithContent([])
+      contentLoadWarningRef.current = null
       loadedPathsRef.current = new Set()
     }
   }, [flatFiles])
@@ -251,18 +258,24 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
 
   // 当切换到全文搜索模式时，加载所有文件内容（含外部文件）
   useEffect(() => {
+    if (searchMode === 'filename') {
+      contentLoadWarningRef.current = null
+    }
     if (searchMode === 'content' && filesWithContent.length === 0) {
       const filesToLoad = searchScope === 'currentFolder'
         ? flatFiles
         : [...flatFiles, ...recentFilesList, ...recentFolderFiles]
       if (filesToLoad.length === 0) return
+      const limitedFilesToLoad = applySearchInputLimits(filesToLoad)
+      contentLoadWarningRef.current = limitedFilesToLoad.degradedReason || null
+      setSearchWarning(limitedFilesToLoad.degradedReason || null)
       const loadId = ++contentLoadIdRef.current
       const loadAllContents = async (): Promise<void> => {
         setIsLoadingContent(true)
         try {
           const currentPaths = new Set(flatFiles.map(f => f.path))
           const results = await Promise.all(
-            filesToLoad.map(async (file) => {
+            limitedFilesToLoad.files.map(async (file) => {
               try {
                 const content = currentPaths.has(file.path)
                   ? await window.api.readFile(file.path)
@@ -275,7 +288,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
           )
           if (contentLoadIdRef.current !== loadId) return
           setFilesWithContent(results)
-          loadedPathsRef.current = new Set(filesToLoad.map(f => f.path))
+          loadedPathsRef.current = new Set(limitedFilesToLoad.files.map(f => f.path))
         } finally {
           if (contentLoadIdRef.current === loadId) {
             setIsLoadingContent(false)
@@ -296,7 +309,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
       )
 
       workerRef.current.onmessage = (event: MessageEvent<SearchResponse>) => {
-        const { type, id, results, totalCount: count, error } = event.data
+        const { type, id, results, totalCount: count, error, degradedReason } = event.data
 
         // 忽略过期的搜索结果
         if (id !== currentSearchIdRef.current) {
@@ -306,6 +319,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
         if (type === 'result' && results) {
           setSearchResults(results)
           setTotalCount(count || 0)
+          setSearchWarning(degradedReason || contentLoadWarningRef.current || null)
           setIsSearching(false)
           // v1.5.1: content 模式下自动展开所有文件
           setExpandedFiles(new Set(results.map((r: SearchResult) => r.file.path)))
@@ -373,40 +387,36 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
   }, [])
 
   // 主线程搜索（Worker 不可用时的备用方案）
-  const searchInMainThread = useCallback((queryStr: string): { results: SearchResult[]; totalCount: number } => {
+  const searchInMainThread = useCallback((queryStr: string): { results: SearchResult[]; totalCount: number; degradedReason?: string } => {
     if (!queryStr.trim()) return { results: [], totalCount: 0 }
 
     if (searchMode === 'filename') {
-      const allResults = filenameFuse.search(queryStr)
+      const limitedFiles = applySearchInputLimits(flatFiles)
+      const fuse = limitedFiles.degradedReason
+        ? new Fuse(limitedFiles.files, {
+          keys: ['name', 'path'],
+          threshold: 0.4,
+          distance: 100,
+          minMatchCharLength: 2
+        })
+        : filenameFuse
+      const allResults = fuse.search(queryStr)
       return {
         results: allResults.slice(0, 60).map(r => ({
           file: r.item as FileWithContent,
           matches: []
         })),
-        totalCount: allResults.length
+        totalCount: allResults.length,
+        degradedReason: limitedFiles.degradedReason
       }
     } else {
       if (filesWithContent.length === 0) return { results: [], totalCount: 0 }
 
-      // 性能保护
-      const totalSize = filesWithContent.reduce((sum, f) => sum + (f.content?.length || 0), 0)
-      if (totalSize > 500 * 1024 * 1024) {
-        return {
-          results: [{
-            file: {
-              name: '⚠️ 文件过多（超过 500MB），请使用文件名搜索',
-              path: '',
-              isDirectory: false
-            } as FileWithContent,
-            matches: []
-          }],
-          totalCount: 0
-        }
-      }
+      const limitedFiles = applySearchInputLimits(filesWithContent)
 
       // 精确匹配
       const lowerQuery = queryStr.toLowerCase()
-      const exactMatches = filesWithContent.filter(file =>
+      const exactMatches = limitedFiles.files.filter(file =>
         file.content?.toLowerCase().includes(lowerQuery)
       )
 
@@ -430,12 +440,13 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
             file,
             matches: extractExactMatches(file.content || '', queryStr)
           })),
-          totalCount: sortedMatches.length
+          totalCount: sortedMatches.length,
+          degradedReason: limitedFiles.degradedReason || contentLoadWarningRef.current || undefined
         }
       }
 
       // Fuse.js 模糊搜索
-      const contentFuse = new Fuse(filesWithContent, {
+      const contentFuse = new Fuse(limitedFiles.files, {
         keys: ['name', 'path', 'content'],
         threshold: 0.2,
         distance: 500,
@@ -456,16 +467,18 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
             indices: m.indices as [number, number][]
           })) || []
         })),
-        totalCount: allResults.length
+        totalCount: allResults.length,
+        degradedReason: limitedFiles.degradedReason || contentLoadWarningRef.current || undefined
       }
     }
-  }, [searchMode, filenameFuse, filesWithContent, extractExactMatches])
+  }, [searchMode, filenameFuse, flatFiles, filesWithContent, extractExactMatches])
 
   // 触发搜索（使用防抖后的查询值）
   useEffect(() => {
     if (!debouncedQuery.trim()) {
       setSearchResults([])
       setTotalCount(0)
+      setSearchWarning(null)
       setIsSearching(false)
       return
     }
@@ -483,12 +496,14 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
           ? flatFiles
           : [...flatFiles, ...recentFilesList, ...recentFolderFiles]
         : filesWithContent
+      const limitedFiles = applySearchInputLimits(allFiles)
+      setSearchWarning(limitedFiles.degradedReason || contentLoadWarningRef.current || null)
 
       const request: SearchRequest = {
         type: 'search',
         id: searchId,
         query: debouncedQuery,
-        files: allFiles.map(f => ({
+        files: limitedFiles.files.map(f => ({
           name: f.name,
           path: f.path,
           isDirectory: f.isDirectory,
@@ -503,10 +518,11 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
       setIsSearching(true)
       // 使用 setTimeout 避免完全阻塞
       setTimeout(() => {
-        const { results, totalCount: count } = searchInMainThread(debouncedQuery)
+        const { results, totalCount: count, degradedReason } = searchInMainThread(debouncedQuery)
         if (currentSearchIdRef.current === searchId) {
           setSearchResults(results)
           setTotalCount(count)
+          setSearchWarning(degradedReason || null)
           setIsSearching(false)
           setExpandedFiles(new Set(results.map(r => r.file.path)))
           setSelectedIndex(-1)
@@ -531,7 +547,20 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
     }
     const isInternal = folderPath && isSubPath(file.path, folderPath)
     if (isInternal) {
-      onFileSelect(file, lineNumber, debouncedQuery.trim() || undefined)
+      const command = createOpenDocumentCommand({
+        source: 'search',
+        filePath: file.path,
+        canonicalPath: file.path,
+        target: lineNumber
+          ? { kind: 'match', lineNumber, highlightText: keyword }
+          : { kind: 'top', highlightText: keyword },
+        preserveFilter: true,
+      })
+      if (onOpenDocumentCommand) {
+        onOpenDocumentCommand(command, file)
+      } else {
+        onFileSelect(file, lineNumber, debouncedQuery.trim() || undefined)
+      }
     } else {
       onExternalFileOpen(file.path)
     }
@@ -916,6 +945,11 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
                         </div>
                       )
                     })()}
+                    {searchWarning && (
+                      <div className="search-degraded" role="status">
+                        {searchWarning}
+                      </div>
+                    )}
                     {/* 渲染搜索结果 */}
                     {(() => {
                       const renderResultItem = ({ file, matches }: SearchResult) => {
@@ -1008,6 +1042,11 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
                   </>
                 ) : query.trim() && !isSearching ? (
                   <div className="search-no-results">
+                    {searchWarning && (
+                      <div className="search-degraded" role="status">
+                        {searchWarning}
+                      </div>
+                    )}
                     <p>没有找到匹配的{searchMode === 'filename' ? '文件' : '内容'}</p>
                   </div>
                 ) : null}

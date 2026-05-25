@@ -16,14 +16,15 @@ MD Viewer 用于浏览本地 Markdown 文档目录。它支持文件树、多标
 ## 功能特性
 
 - 本地 Markdown 文件夹浏览，支持文件树、多标签、最近文件和书签。
-- 默认预览优先，可切换到 Markdown 编辑模式，支持源码编辑、渲染区直接编辑和对照预览。
+- 默认预览优先，可切换到 Markdown 编辑模式；段落、标题、引用、列表、表格单元格和普通代码块支持渲染区直接编辑，图表和复杂嵌入通过源码编辑处理。
 - 实时预览 Markdown，支持表格、任务列表、代码高亮、数学公式、图片预览和图表密集型文档。
 - 支持 Mermaid、ECharts、Markmap、Graphviz、PlantUML、DrawIO、Infographic、KaTeX、Excalidraw、Vega-Lite、D2、BPMN、WaveDrom、C4-PlantUML、Structurizr、Plotly、DBML、AntV G6、Kroki 等图表或公式渲染。
 - 支持文件名搜索、全文搜索和页面内搜索。
 - 支持多窗口、递归分屏、目录导航、字体大小调节、窗口置顶和全屏阅读。
 - 支持按根目录保存文件树折叠状态，重新打开常用目录时保留用户整理过的展开状态。
 - 支持文件监听，已打开的 Markdown 被外部编辑器修改后会自动刷新预览。
-- 支持 HTML、PDF、DOCX 导出；支持右键批量打包下载当前文档中的图表 PNG。
+- 支持 HTML、PDF、DOCX 导出；导出 warning 会说明发生了什么、影响是什么和下一步怎么做。
+- 支持右键批量打包下载当前文档中的图表 PNG。
 - DOCX 高质量图表导出依赖可选的外部 DOCX 服务。
 - 支持 `.excalidraw` 文件和 Markdown 中的相对路径引用，当前仅用于静态预览和导出，不提供 Excalidraw 编辑能力。
 - Electron 沙箱、路径校验和 CSP 加固，降低本地文件预览场景的安全风险。
@@ -94,7 +95,7 @@ chmod +x MD-Viewer-*.AppImage
 
 ## 使用手册
 
-完整的安装、浏览、编辑、图表渲染和导出说明见 [MD Viewer 使用手册](docs/user-manual.md)。跨平台限制和已知问题见 [已知问题](docs/known-issues.md)。
+完整的安装、浏览、编辑、搜索定位、图表渲染和导出说明见 [MD Viewer 使用手册](docs/user-manual.md)。跨平台限制和已知问题见 [已知问题](docs/known-issues.md)。
 
 ## 支持的图表与公式
 
@@ -180,7 +181,7 @@ npm run test:e2e
 # 构建渲染进程与主进程产物
 npm run build
 
-# v2.3 稳定性门禁
+# v2.4 发布门禁
 scripts/release-smoke.sh quick
 scripts/release-smoke.sh full
 

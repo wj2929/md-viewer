@@ -556,6 +556,28 @@ describe('FileTree', () => {
       expect(screen.getByText('guide.md')).toBeInTheDocument()
       expect(screen.getByText('report.md')).toBeInTheDocument()
     })
+
+    it('清除按钮仅在过滤框有内容时显示', async () => {
+      const files = [
+        createMockFile('guide.md', '/guide.md', 'guide.md'),
+        createMockFile('report.md', '/report.md', 'report.md')
+      ]
+
+      render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
+      const input = screen.getByRole('textbox', { name: '文件过滤' })
+
+      expect(screen.queryByRole('button', { name: '清除文件过滤' })).not.toBeInTheDocument()
+
+      fireEvent.change(input, { target: { value: 'guide' } })
+
+      const clearButton = screen.getByRole('button', { name: '清除文件过滤' })
+      expect(clearButton).toBeInTheDocument()
+
+      await userEvent.click(clearButton)
+
+      expect(input).toHaveValue('')
+      expect(screen.queryByRole('button', { name: '清除文件过滤' })).not.toBeInTheDocument()
+    })
   })
 
   describe('嵌套结构', () => {

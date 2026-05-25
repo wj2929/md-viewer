@@ -82,6 +82,7 @@ const DIRECT_EXCALIDRAW_SOURCE = `{
   "appState": { "viewBackgroundColor": "#ffffff" },
   "files": {}
 }`
+const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP8z4AATAxEcQAz0QEHOoQ+uAAAAABJRU5ErkJggg=='
 
 async function openMarkdownFile(page: Page, filePath: string): Promise<void> {
   await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), filePath)
@@ -188,6 +189,39 @@ test.describe('导出功能测试', () => {
     expect(buffer.toString('utf-8', 0, 4)).toBe('%PDF')
   })
 
+  test('HTML/PDF 导出应保留 Markdown 相对路径本地图片', async ({ page, electronApp }) => {
+    const imageDir = join(testDir, 'images')
+    mkdirSync(imageDir, { recursive: true })
+    writeFileSync(join(imageDir, 'welcome.png'), Buffer.from(TINY_PNG_BASE64, 'base64'))
+    const markdownPath = join(testDir, 'local-image-export.md')
+    writeFileSync(markdownPath, [
+      '# Local Image Export',
+      '',
+      '![欢迎图](./images/welcome.png)',
+      '',
+      '图片应出现在 HTML 和 PDF 导出中。',
+    ].join('\n'))
+
+    await openMarkdownFile(page, markdownPath)
+    await expect(page.getByRole('img', { name: '欢迎图' })).toBeVisible()
+
+    const htmlPath = join(testDir, 'local-image-export.html')
+    await mockSaveDialog(electronApp, htmlPath)
+    await triggerMarkdownExport(electronApp, 'markdown:export-html')
+    await waitForFile(htmlPath)
+    const htmlContent = readFileSync(htmlPath, 'utf-8')
+    expect(htmlContent).toContain(`src="data:image/png;base64,${TINY_PNG_BASE64}"`)
+    expect(htmlContent).not.toContain('src="./images/welcome.png"')
+
+    const pdfPath = join(testDir, 'local-image-export.pdf')
+    await mockSaveDialog(electronApp, pdfPath)
+    await triggerMarkdownExport(electronApp, 'markdown:export-pdf')
+    await waitForFile(pdfPath, 20000)
+    const pdfBuffer = readFileSync(pdfPath)
+    expect(pdfBuffer.length).toBeGreaterThan(1000)
+    expect(pdfBuffer.toString('utf-8', 0, 4)).toBe('%PDF')
+  })
+
   test('导出的 HTML 应该包含完整的样式', async ({ page, electronApp }) => {
     await openMarkdownFile(page, join(testDir, 'export-test.md'))
 
@@ -291,6 +325,49 @@ test.describe('导出功能测试', () => {
     expect(entries.some(name => name.startsWith('word/media/'))).toBe(true)
     expect(documentXml).not.toContain('md-viewer-direct-export-test')
     expect(documentXml).not.toContain('"elements"')
+  })
+
+  test('远程 DOCX 导出应嵌入普通 Markdown 本地图片', async ({ page, electronApp }) => {
+    test.setTimeout(120000)
+    const imageDir = join(testDir, 'images')
+    mkdirSync(imageDir, { recursive: true })
+    writeFileSync(join(imageDir, 'welcome.png'), Buffer.from(TINY_PNG_BASE64, 'base64'))
+    const markdownPath = join(testDir, 'docx-local-image.md')
+    writeFileSync(markdownPath, [
+      '# 本地图片 DOCX 导出',
+      '',
+      '![欢迎图](./images/welcome.png)',
+    ].join('\n'), 'utf8')
+
+    await openMarkdownFile(page, markdownPath)
+    await page.evaluate(() => window.api.updateAppSettings({
+      docxExport: {
+        remoteEnabled: true,
+        serverUrl: 'http://127.0.0.1:3179',
+        style: 'preview',
+        styleTouched: true,
+        timeoutMs: 120000,
+        embedFont: false,
+        localFallbackEnabled: false,
+      },
+    }))
+
+    const docxPath = join(testDir, 'docx-local-image.docx')
+    await mockSaveDialog(electronApp, docxPath)
+    await triggerMarkdownExport(electronApp, 'markdown:export-docx')
+    await waitForFile(docxPath, 120000)
+
+    const zip = new AdmZip(docxPath)
+    const documentXml = zip.readAsText('word/document.xml')
+    const relsXml = zip.readAsText('word/_rels/document.xml.rels')
+    const pngCount = zip.getEntries()
+      .filter(entry => entry.entryName.startsWith('word/media/') && entry.entryName.toLowerCase().endsWith('.png'))
+      .length
+
+    expect(pngCount).toBeGreaterThanOrEqual(1)
+    expect(documentXml).toContain('<w:drawing>')
+    expect(documentXml).not.toContain('mdv__chart__')
+    expect(relsXml).not.toContain('Target="images/welcome.png"')
   })
 
   test('test-excalidraw.md 远程 DOCX 导出应保留全部可渲染 Excalidraw 图', async ({ page, electronApp }) => {

@@ -32,6 +32,8 @@ import { useFileStore } from '../stores/fileStore'
 import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
 import { collectExportableChartPngs, countExportableCharts } from '../utils/chartUtils'
+import { createEditableBlockDecision, type EditableBlockKind } from '../utils/v24WorkflowContracts'
+import { openHelpLink, SOURCE_EDIT_HELP_URL } from '../utils/helpLinks'
 
 /**
  * v1.4.6: 已移除本地的 createMarkdownInstance
@@ -46,12 +48,17 @@ interface VirtualizedMarkdownProps {
   leafId?: string | null
   renderDebounceMs?: number
   scrollToLine?: number
+  scrollToRatio?: number
   onScrollToLineComplete?: () => void
+  onScrollToRatioComplete?: () => void
   highlightKeyword?: string
   onHighlightKeywordComplete?: () => void
   onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
   previewEditingEnabled?: boolean
   onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
+  onSourceEditRequest?: (target: SourceEditRequest) => void
+  onReadPositionChange?: (position: { scrollRatio: number; headingId?: string }) => void
+  onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
 }
 
 let lastPreviewChartZipContext: {
@@ -68,6 +75,11 @@ export interface PreviewBlockEdit {
   nextText: string
   editKind?: 'block' | 'table-cell' | 'code-block'
   tableCellIndex?: number
+}
+
+export interface SourceEditRequest {
+  sourceLine: number
+  sourceEndLine?: number
 }
 
 const CHART_CODE_LANGUAGES = new Set([
@@ -112,6 +124,71 @@ const CHART_CODE_LANGUAGES = new Set([
   'bytefield',
   'tikz',
 ])
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function createHeadingId(text: string, fallbackIndex: number): string {
+  const slug = text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  return slug || `heading-${fallbackIndex + 1}`
+}
+
+function ensureHeadingIds(root: HTMLElement): void {
+  const headings = Array.from(root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'))
+  const usedIds = new Set<string>()
+
+  headings.forEach((heading, index) => {
+    const baseId = heading.id || createHeadingId(heading.textContent || '', index)
+    let uniqueId = baseId
+    let counter = 1
+    while (usedIds.has(uniqueId)) {
+      uniqueId = `${baseId}-${counter}`
+      counter++
+    }
+    usedIds.add(uniqueId)
+    if (heading.id !== uniqueId) heading.id = uniqueId
+  })
+}
+
+function findInPageAnchorTarget(root: HTMLElement, href: string): HTMLElement | null {
+  const targetId = safeDecodeURIComponent(href.slice(1))
+  if (!targetId) return null
+
+  const exactMatch = root.querySelector<HTMLElement>(`#${CSS.escape(targetId)}`)
+  if (exactMatch) return exactMatch
+
+  const normalize = (value: string) => value.replace(/[_-]/g, '').toLowerCase()
+  const normalizedTarget = normalize(targetId)
+  for (const element of root.querySelectorAll<HTMLElement>('[id]')) {
+    if (normalize(element.id) === normalizedTarget) return element
+  }
+
+  return null
+}
+
+function getEditableBlockKind(element: HTMLElement): EditableBlockKind {
+  const tagName = element.tagName.toLowerCase()
+  if (tagName === 'pre' && element.dataset.previewReadOnlyReason === 'chart-code') return 'chart'
+  if (/^h[1-6]$/.test(tagName)) return 'heading'
+  if (tagName === 'p') return 'paragraph'
+  if (tagName === 'blockquote') return 'blockquote'
+  if (tagName === 'li') return 'list'
+  if (tagName === 'td' || tagName === 'th') return 'table-cell'
+  if (tagName === 'pre') return 'code'
+  return 'unknown'
+}
 
 function normalizeRenderedText(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -186,10 +263,60 @@ function findFencedCodeRanges(lines: string[]): FencedCodeRange[] {
   return ranges
 }
 
+function resolveLocalMarkdownResource(markdownFilePath: string, src: string): string {
+  const decodedSrc = safeDecodeURIComponent(src)
+  const dir = markdownFilePath.substring(0, markdownFilePath.lastIndexOf('/'))
+  let absolutePath = decodedSrc.startsWith('/') ? decodedSrc : `${dir}/${decodedSrc}`
+  const parts = absolutePath.split('/')
+  const normalized: string[] = []
+  for (const part of parts) {
+    if (part === '..') normalized.pop()
+    else if (part !== '.' && part !== '') normalized.push(part)
+  }
+  absolutePath = `/${normalized.join('/')}`
+  return `local-image://${encodeURI(absolutePath)}`
+}
+
+function normalizeLocalImageSources(root: HTMLElement, markdownFilePath?: string): void {
+  if (!markdownFilePath) return
+
+  root.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+    const rawSrc = img.getAttribute('src')
+    if (!rawSrc) return
+    const src = safeDecodeURIComponent(rawSrc)
+    if (
+      src.startsWith('local-image://') ||
+      src.startsWith('http://') ||
+      src.startsWith('https://') ||
+      src.startsWith('data:') ||
+      src.startsWith('blob:')
+    ) {
+      return
+    }
+    if (/\.excalidraw(?:[?#].*)?$/i.test(src)) {
+      const placeholder = document.createElement('div')
+      placeholder.className = 'excalidraw-file-placeholder'
+      placeholder.dataset.excalidrawSrc = src.split('#')[0].split('?')[0]
+      placeholder.dataset.excalidrawAlt = img.getAttribute('alt') || ''
+      img.replaceWith(placeholder)
+      return
+    }
+    if (/\.bpmn(?:[?#].*)?$/i.test(src)) {
+      const placeholder = document.createElement('div')
+      placeholder.className = 'bpmn-file-placeholder'
+      placeholder.dataset.bpmnSrc = src.split('#')[0].split('?')[0]
+      placeholder.dataset.bpmnAlt = img.getAttribute('alt') || ''
+      img.replaceWith(placeholder)
+      return
+    }
+    img.setAttribute('src', resolveLocalMarkdownResource(markdownFilePath, src))
+  })
+}
+
 /**
  * Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, scrollToRatio, onScrollToLineComplete, onScrollToRatioComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit, onSourceEditRequest, onReadPositionChange, onMarkdownLinkClick }: VirtualizedMarkdownProps): JSX.Element {
 
   // v1.3.7：右键菜单处理（添加书签 + 原有功能）
   const folderPath = useFileStore(state => state.folderPath)
@@ -265,61 +392,6 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
     showPreviewContextMenu(e.target as HTMLElement, e.currentTarget as HTMLElement)
   }, [showPreviewContextMenu])
 
-  // 统一的链接点击处理（覆盖虚拟滚动和非虚拟滚动路径）
-  const handleLinkClick = useCallback((e: React.MouseEvent) => {
-    const target = e.target as HTMLElement
-    const anchor = target.closest('a')
-    if (!anchor) return
-
-    const href = anchor.getAttribute('href')
-    if (!href) return
-
-    // 锚点链接：页内跳转
-    if (href.startsWith('#')) {
-      e.preventDefault()
-      const targetId = decodeURIComponent(href.slice(1))
-      // 精确匹配
-      let targetElement = document.getElementById(targetId)
-      // fallback：normalize 后模糊匹配（容忍下划线等 slug 差异）
-      if (!targetElement) {
-        const normalize = (s: string) => s.replace(/[_]/g, '').toLowerCase()
-        const normalizedTarget = normalize(targetId)
-        const headings = document.querySelectorAll('[id]')
-        for (const el of headings) {
-          if (normalize(el.id) === normalizedTarget) {
-            targetElement = el as HTMLElement
-            break
-          }
-        }
-      }
-      if (targetElement) {
-        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-      return
-    }
-
-    // 外部链接：系统浏览器打开
-    if (href.startsWith('http://') || href.startsWith('https://')) {
-      e.preventDefault()
-      window.api.openExternal(href)
-      return
-    }
-
-    // v1.5.1: 本地 .md 链接：通过 IPC 打开
-    const decodedHref = decodeURIComponent(href)
-    if (decodedHref.endsWith('.md') || /\.md[#?]/.test(decodedHref)) {
-      e.preventDefault()
-      const cleanHref = decodedHref.split('#')[0].split('?')[0]
-      if (filePath) {
-        window.api.openMdLink(filePath, cleanHref)
-      }
-      return
-    }
-
-    // 其他链接：阻止默认导航，防止白屏
-    e.preventDefault()
-  }, [filePath])
-
   // v1.4.6: 初始化 DOMPurify hooks（仅一次）
   useEffect(() => {
     setupDOMPurifyHooks()
@@ -360,6 +432,25 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
 
     return () => clearTimeout(timer)
   }, [scrollToLine, content, onScrollToLineComplete])
+
+  useEffect(() => {
+    if (typeof scrollToRatio !== 'number' || !content) return
+
+    const timer = setTimeout(() => {
+      const previewContainer = document.querySelector('.preview')
+      if (!previewContainer) return
+
+      const ratio = Math.max(0, Math.min(1, scrollToRatio))
+      const maxScroll = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight)
+      previewContainer.scrollTo({
+        top: maxScroll * ratio,
+        behavior: 'auto'
+      })
+      onScrollToRatioComplete?.()
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [scrollToRatio, content, onScrollToRatioComplete])
 
   // v1.5.1: 高亮清理 ref
   const highlightCleanupRef = useRef<(() => void) | null>(null)
@@ -412,6 +503,9 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
       onImageClick={onImageClick}
       previewEditingEnabled={previewEditingEnabled}
       onPreviewBlockEdit={onPreviewBlockEdit}
+      onSourceEditRequest={onSourceEditRequest}
+      onReadPositionChange={onReadPositionChange}
+      onMarkdownLinkClick={onMarkdownLinkClick}
     />
   )
 }
@@ -431,7 +525,10 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onPreviewKeyDown,
   onImageClick,
   previewEditingEnabled,
-  onPreviewBlockEdit
+  onPreviewBlockEdit,
+  onSourceEditRequest,
+  onReadPositionChange,
+  onMarkdownLinkClick
 }: {
   content: string
   md: MarkdownIt
@@ -443,6 +540,9 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
   previewEditingEnabled: boolean
   onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
+  onSourceEditRequest?: (target: SourceEditRequest) => void
+  onReadPositionChange?: (position: { scrollRatio: number; headingId?: string }) => void
+  onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -500,6 +600,36 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
       }
     })
   }, [filePath])
+
+  useEffect(() => {
+    if (!onReadPositionChange) return
+    const root = containerRef.current
+    if (!root) return
+    const scrollContainer = (root.closest('.preview') || root.parentElement) as HTMLElement | null
+    if (!scrollContainer) return
+
+    const report = debounce(() => {
+      const maxScroll = Math.max(1, scrollContainer.scrollHeight - scrollContainer.clientHeight)
+      const scrollRatio = Math.max(0, Math.min(1, scrollContainer.scrollTop / maxScroll))
+      const containerTop = scrollContainer.getBoundingClientRect().top
+      const headings = Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
+      const activeHeading = headings
+        .map(heading => ({ heading, top: heading.getBoundingClientRect().top - containerTop }))
+        .filter(item => item.top <= scrollContainer.clientHeight * 0.35)
+        .sort((a, b) => b.top - a.top)[0]?.heading
+
+      onReadPositionChange({
+        scrollRatio,
+        ...(activeHeading?.id ? { headingId: activeHeading.id } : {}),
+      })
+    }, 500)
+
+    scrollContainer.addEventListener('scroll', report, { passive: true })
+    return () => {
+      scrollContainer.removeEventListener('scroll', report)
+      report.cancel()
+    }
+  }, [onReadPositionChange, renderVersion])
 
   // v1.4.0: 页面内搜索
   const search = useInPageSearch(containerRef, debouncedContent.length)
@@ -615,6 +745,8 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         onImageClick={onImageClick}
         previewEditingEnabled={previewEditingEnabled}
         onPreviewBlockEdit={onPreviewBlockEdit}
+        onSourceEditRequest={onSourceEditRequest}
+        onMarkdownLinkClick={onMarkdownLinkClick}
       />
     </>
   )
@@ -636,12 +768,20 @@ const MarkdownContent = memo(
     onImageClick?: (data: { src: string; alt: string; images: string[]; currentIndex: number }) => void
     previewEditingEnabled: boolean
     onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
-  }>(function MarkdownContent({ html, className, filePath, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit }, ref) {
+    onSourceEditRequest?: (target: SourceEditRequest) => void
+    onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
+  }>(function MarkdownContent({ html, className, filePath, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit, onSourceEditRequest, onMarkdownLinkClick }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
     const skippedFocusedRenderRef = useRef(false)
     const allowDeferredRenderBlockRef = useRef<HTMLElement | null>(null)
+    const previewInputCommitTimerRef = useRef<number | null>(null)
+    const pendingPreviewEditRef = useRef<{ block: HTMLElement; edit: PreviewBlockEdit } | null>(null)
     const [deferredRenderVersion, setDeferredRenderVersion] = useState(0)
+    const chartRenderKey = useMemo(
+      () => `${deferredRenderVersion}:${html}:${sourceContent}`,
+      [deferredRenderVersion, html, sourceContent]
+    )
 
     // 只在 html 变化时更新 DOM
     useEffect(() => {
@@ -665,6 +805,8 @@ const MarkdownContent = memo(
 
         allowDeferredRenderBlockRef.current = null
         combinedRef.current.innerHTML = html
+        ensureHeadingIds(combinedRef.current)
+        normalizeLocalImageSources(combinedRef.current, filePath)
         const sourceLines = sourceContent.split('\n')
         const fencedCodeRanges = findFencedCodeRanges(sourceLines)
         const elements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,pre,blockquote,table,li')
@@ -720,19 +862,70 @@ const MarkdownContent = memo(
           }
         })
 
+        combinedRef.current.querySelectorAll('.markdown-preview-source-only-hint').forEach(hint => hint.remove())
+
         const editableElements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,li,td,th,pre')
         editableElements.forEach((element) => {
           const editableElement = element as HTMLElement
           const sourceLine = editableElement.dataset.sourceLine
-          const isReadOnlyPreviewBlock = Boolean(editableElement.dataset.previewReadOnlyReason)
+          const sourceLineNumber = sourceLine ? Number(sourceLine) : NaN
+          const sourceEndLine = editableElement.dataset.sourceEndLine ? Number(editableElement.dataset.sourceEndLine) : sourceLineNumber
+          const decision = Number.isFinite(sourceLineNumber)
+            ? createEditableBlockDecision({
+              blockId: `${getEditableBlockKind(editableElement)}:${sourceLine}`,
+              kind: getEditableBlockKind(editableElement),
+              sourceRange: {
+                startLine: sourceLineNumber,
+                endLine: Number.isFinite(sourceEndLine) ? sourceEndLine : sourceLineNumber,
+              },
+              reason: editableElement.dataset.previewReadOnlyReason,
+            })
+            : null
+          if (decision && decision.directEdit !== 'supported') {
+            editableElement.dataset.previewReadOnlyReason = editableElement.dataset.previewReadOnlyReason || 'source-only'
+          }
+          const isReadOnlyPreviewBlock = Boolean(editableElement.dataset.previewReadOnlyReason) || decision?.directEdit === 'unsupported'
           if (!previewEditingEnabled || !sourceLine || !onPreviewBlockEdit || isReadOnlyPreviewBlock) {
             editableElement.removeAttribute('contenteditable')
             editableElement.removeAttribute('spellcheck')
-            editableElement.removeAttribute('aria-label')
             editableElement.classList.remove('markdown-preview-editable-block')
             delete editableElement.dataset.previewOriginalText
+            if (previewEditingEnabled && sourceLine && isReadOnlyPreviewBlock && onSourceEditRequest) {
+              editableElement.classList.add('markdown-preview-source-only-block')
+              editableElement.setAttribute('tabindex', '0')
+              editableElement.setAttribute('aria-label', `第 ${sourceLine} 行需要在源码中编辑`)
+              const hint = document.createElement(editableElement.tagName === 'LI' || editableElement.tagName === 'TD' || editableElement.tagName === 'TH' ? 'span' : 'div')
+              hint.className = 'markdown-preview-source-only-hint no-export'
+              hint.setAttribute('role', 'note')
+              hint.setAttribute('contenteditable', 'false')
+              hint.hidden = true
+              hint.innerHTML = '<span>该内容需要在源码中编辑</span>'
+              const button = document.createElement('button')
+              button.type = 'button'
+              button.className = 'markdown-preview-source-edit-btn'
+              button.textContent = '在源码中编辑'
+              button.dataset.sourceLine = sourceLine
+              if (editableElement.dataset.sourceEndLine) button.dataset.sourceEndLine = editableElement.dataset.sourceEndLine
+              hint.appendChild(button)
+              const helpButton = document.createElement('button')
+              helpButton.type = 'button'
+              helpButton.className = 'markdown-preview-source-help-btn'
+              helpButton.textContent = '查看源码编辑说明'
+              hint.appendChild(helpButton)
+              if (editableElement.tagName === 'LI' || editableElement.tagName === 'TD' || editableElement.tagName === 'TH') {
+                editableElement.appendChild(hint)
+              } else {
+                editableElement.insertAdjacentElement('afterend', hint)
+              }
+            } else {
+              editableElement.classList.remove('markdown-preview-source-only-block')
+              editableElement.removeAttribute('tabindex')
+              editableElement.removeAttribute('aria-label')
+            }
             return
           }
+          editableElement.classList.remove('markdown-preview-source-only-block')
+          editableElement.removeAttribute('tabindex')
           editableElement.setAttribute('contenteditable', 'true')
           editableElement.setAttribute('spellcheck', 'true')
           editableElement.setAttribute('aria-label', `编辑第 ${sourceLine} 行渲染内容`)
@@ -740,7 +933,97 @@ const MarkdownContent = memo(
           editableElement.dataset.previewOriginalText = normalizeRenderedText(editableElement.textContent || '')
         })
       }
-    }, [deferredRenderVersion, html, onPreviewBlockEdit, previewEditingEnabled, renderVersion, sourceContent])
+    }, [deferredRenderVersion, filePath, html, onPreviewBlockEdit, onSourceEditRequest, previewEditingEnabled, sourceContent])
+
+    useEffect(() => {
+      const container = combinedRef.current
+      if (!container || !onSourceEditRequest) return
+
+      const getSourceOnlyHintForBlock = (block: HTMLElement): HTMLElement | null => {
+        const inlineHint = block.querySelector<HTMLElement>(':scope > .markdown-preview-source-only-hint')
+        if (inlineHint) return inlineHint
+        const nextElement = block.nextElementSibling as HTMLElement | null
+        return nextElement?.classList.contains('markdown-preview-source-only-hint') ? nextElement : null
+      }
+
+      const hideSourceOnlyHints = (except?: HTMLElement | null) => {
+        container.querySelectorAll<HTMLElement>('.markdown-preview-source-only-hint').forEach(hint => {
+          if (hint !== except) hint.hidden = true
+        })
+        container.querySelectorAll<HTMLElement>('.markdown-preview-source-only-block.is-source-hint-active').forEach(block => {
+          const hint = getSourceOnlyHintForBlock(block)
+          if (hint !== except) block.classList.remove('is-source-hint-active')
+        })
+      }
+
+      const showSourceOnlyHint = (block: HTMLElement | null) => {
+        if (!block || !container.contains(block)) return
+        const hint = getSourceOnlyHintForBlock(block)
+        if (!hint) return
+        hideSourceOnlyHints(hint)
+        hint.hidden = false
+        block.classList.add('is-source-hint-active')
+      }
+
+      const handleSourceBlockFocusIn = (event: FocusEvent) => {
+        const target = event.target as HTMLElement | null
+        showSourceOnlyHint(target?.closest<HTMLElement>('.markdown-preview-source-only-block') || null)
+      }
+
+      const handleSourceBlockMouseOver = (event: MouseEvent) => {
+        const target = event.target as HTMLElement | null
+        showSourceOnlyHint(target?.closest<HTMLElement>('.markdown-preview-source-only-block') || null)
+      }
+
+      const handleSourceBlockKeyDown = (event: KeyboardEvent) => {
+        const target = event.target as HTMLElement | null
+        const block = target?.closest<HTMLElement>('.markdown-preview-source-only-block') || null
+        if (!block) return
+        if (event.key === 'Escape') {
+          const hint = getSourceOnlyHintForBlock(block)
+          if (hint) hint.hidden = true
+          block.classList.remove('is-source-hint-active')
+          block.blur()
+        }
+      }
+
+      const handleSourceEditClick = (event: MouseEvent) => {
+        const target = event.target as HTMLElement | null
+        const button = target?.closest<HTMLButtonElement>('.markdown-preview-source-edit-btn')
+        if (!button || !container.contains(button)) return
+        const sourceLine = Number(button.dataset.sourceLine)
+        const sourceEndLine = button.dataset.sourceEndLine ? Number(button.dataset.sourceEndLine) : sourceLine
+        if (!Number.isFinite(sourceLine)) return
+        event.preventDefault()
+        event.stopPropagation()
+        onSourceEditRequest({
+          sourceLine,
+          ...(Number.isFinite(sourceEndLine) ? { sourceEndLine } : {}),
+        })
+      }
+
+      const handleSourceHelpClick = (event: MouseEvent) => {
+        const target = event.target as HTMLElement | null
+        const button = target?.closest<HTMLButtonElement>('.markdown-preview-source-help-btn')
+        if (!button || !container.contains(button)) return
+        event.preventDefault()
+        event.stopPropagation()
+        openHelpLink(SOURCE_EDIT_HELP_URL)
+      }
+
+      container.addEventListener('focusin', handleSourceBlockFocusIn)
+      container.addEventListener('mouseover', handleSourceBlockMouseOver)
+      container.addEventListener('keydown', handleSourceBlockKeyDown)
+      container.addEventListener('click', handleSourceEditClick)
+      container.addEventListener('click', handleSourceHelpClick)
+      return () => {
+        container.removeEventListener('focusin', handleSourceBlockFocusIn)
+        container.removeEventListener('mouseover', handleSourceBlockMouseOver)
+        container.removeEventListener('keydown', handleSourceBlockKeyDown)
+        container.removeEventListener('click', handleSourceEditClick)
+        container.removeEventListener('click', handleSourceHelpClick)
+      }
+    }, [combinedRef, onSourceEditRequest])
 
     useEffect(() => {
       const container = combinedRef.current
@@ -753,24 +1036,15 @@ const MarkdownContent = memo(
         setDeferredRenderVersion(version => version + 1)
       }
 
-      const handleBlur = (event: FocusEvent) => {
-        const target = event.target as HTMLElement | null
-        const block = target?.closest('.markdown-preview-editable-block') as HTMLElement | null
-        if (!block || !container.contains(block)) return
+      const buildPreviewEdit = (block: HTMLElement): PreviewBlockEdit | null => {
         const sourceLine = Number(block.dataset.sourceLine)
-        if (!Number.isFinite(sourceLine)) {
-          flushSkippedFocusedRender(block)
-          return
-        }
+        if (!Number.isFinite(sourceLine)) return null
         const sourceEndLine = block.dataset.sourceEndLine ? Number(block.dataset.sourceEndLine) : undefined
         const tableCellIndex = block.dataset.tableCellIndex ? Number(block.dataset.tableCellIndex) : undefined
         const originalText = block.dataset.previewOriginalText || ''
         const nextText = normalizeRenderedText(block.textContent || '')
-        if (nextText === originalText) {
-          flushSkippedFocusedRender(block)
-          return
-        }
-        block.dataset.previewOriginalText = nextText
+        if (nextText === originalText) return null
+
         const edit: PreviewBlockEdit = {
           sourceLine,
           originalText,
@@ -779,6 +1053,57 @@ const MarkdownContent = memo(
         if (Number.isFinite(sourceEndLine)) edit.sourceEndLine = sourceEndLine
         if (block.dataset.previewEditKind) edit.editKind = block.dataset.previewEditKind as PreviewBlockEdit['editKind']
         if (Number.isFinite(tableCellIndex)) edit.tableCellIndex = tableCellIndex
+        return edit
+      }
+
+      const clearPendingPreviewInputTimer = () => {
+        if (previewInputCommitTimerRef.current !== null) {
+          window.clearTimeout(previewInputCommitTimerRef.current)
+          previewInputCommitTimerRef.current = null
+        }
+      }
+
+      const commitPendingPreviewInput = (): boolean => {
+        const pending = pendingPreviewEditRef.current
+        if (!pending) return false
+        clearPendingPreviewInputTimer()
+        pendingPreviewEditRef.current = null
+        pending.block.dataset.previewOriginalText = pending.edit.nextText
+        onPreviewBlockEdit(pending.edit)
+        return true
+      }
+
+      const handleInput = (event: Event) => {
+        const target = event.target as HTMLElement | null
+        const block = target?.closest('.markdown-preview-editable-block') as HTMLElement | null
+        if (!block || !container.contains(block)) return
+
+        const edit = buildPreviewEdit(block)
+        if (!edit) return
+        pendingPreviewEditRef.current = { block, edit }
+        clearPendingPreviewInputTimer()
+        previewInputCommitTimerRef.current = window.setTimeout(() => {
+          commitPendingPreviewInput()
+        }, 160)
+      }
+
+      const handleBlur = (event: FocusEvent) => {
+        const target = event.target as HTMLElement | null
+        const block = target?.closest('.markdown-preview-editable-block') as HTMLElement | null
+        if (!block || !container.contains(block)) return
+
+        if (pendingPreviewEditRef.current?.block === block) {
+          commitPendingPreviewInput()
+          flushSkippedFocusedRender(block)
+          return
+        }
+
+        const edit = buildPreviewEdit(block)
+        if (!edit) {
+          flushSkippedFocusedRender(block)
+          return
+        }
+        block.dataset.previewOriginalText = edit.nextText
         allowDeferredRenderBlockRef.current = block
         onPreviewBlockEdit(edit)
       }
@@ -795,118 +1120,37 @@ const MarkdownContent = memo(
         if (block && container.contains(block)) delete block.dataset.previewComposing
       }
 
+      container.addEventListener('input', handleInput, true)
       container.addEventListener('blur', handleBlur, true)
       container.addEventListener('compositionstart', handleCompositionStart, true)
       container.addEventListener('compositionend', handleCompositionEnd, true)
       return () => {
+        commitPendingPreviewInput()
+        container.removeEventListener('input', handleInput, true)
         container.removeEventListener('blur', handleBlur, true)
         container.removeEventListener('compositionstart', handleCompositionStart, true)
         container.removeEventListener('compositionend', handleCompositionEnd, true)
       }
     }, [combinedRef, onPreviewBlockEdit, previewEditingEnabled])
 
-    // 本地图片路径转换：将相对路径转为 local-image:// 协议
-    useEffect(() => {
-      if (!combinedRef.current || !filePath) return
-
-      const images = combinedRef.current.querySelectorAll('img')
-      images.forEach((img) => {
-        const src = img.getAttribute('src')
-        if (!src) return
-        // 跳过已处理的、网络图片、data URI、blob
-        if (
-          src.startsWith('local-image://') ||
-          src.startsWith('http://') ||
-          src.startsWith('https://') ||
-          src.startsWith('data:') ||
-          src.startsWith('blob:')
-        ) {
-          return
-        }
-        if (/\.excalidraw(?:[?#].*)?$/i.test(src)) {
-          const placeholder = document.createElement('div')
-          placeholder.className = 'excalidraw-file-placeholder'
-          placeholder.dataset.excalidrawSrc = src.split('#')[0].split('?')[0]
-          placeholder.dataset.excalidrawAlt = img.getAttribute('alt') || ''
-          img.replaceWith(placeholder)
-          return
-        }
-        if (/\.bpmn(?:[?#].*)?$/i.test(src)) {
-          const placeholder = document.createElement('div')
-          placeholder.className = 'bpmn-file-placeholder'
-          placeholder.dataset.bpmnSrc = src.split('#')[0].split('?')[0]
-          placeholder.dataset.bpmnAlt = img.getAttribute('alt') || ''
-          img.replaceWith(placeholder)
-          return
-        }
-        // 基于当前 Markdown 文件所在目录解析相对路径
-        const dir = filePath.substring(0, filePath.lastIndexOf('/'))
-        let absolutePath: string
-        if (src.startsWith('/')) {
-          absolutePath = src
-        } else {
-          absolutePath = dir + '/' + src
-        }
-        // 路径规范化（处理 ../ 和 ./）
-        const parts = absolutePath.split('/')
-        const normalized: string[] = []
-        for (const part of parts) {
-          if (part === '..') normalized.pop()
-          else if (part !== '.' && part !== '') normalized.push(part)
-        }
-        absolutePath = '/' + normalized.join('/')
-        img.setAttribute('src', `local-image://${absolutePath}`)
-      })
-    }, [html, filePath])
-
     // v1.6.0: 图表渲染 hooks（从 VirtualizedMarkdown 提取到独立模块）
-    useMermaidChart(combinedRef, html)
-    useEChartsChart(combinedRef, html)
-    useInfographicChart(combinedRef, html)
-    useMarkmapChart(combinedRef, html)
-    useGraphvizChart(combinedRef, html)
-    useDrawIOChart(combinedRef, html)
-    usePlantUMLChart(combinedRef, html)
-    useExcalidrawChart(combinedRef, html, { markdownFilePath: filePath })
-    useVegaLiteChart(combinedRef, html)
-    useD2Chart(combinedRef, html)
-    useBpmnChart(combinedRef, html, { markdownFilePath: filePath })
-    useWaveDromChart(combinedRef, html)
-    useStructurizrChart(combinedRef, html)
-    usePlotlyChart(combinedRef, html)
-    useDbmlChart(combinedRef, html)
-    useAntvG6Chart(combinedRef, html)
-    useKrokiChart(combinedRef, html)
-
-    // 为标题添加 id 属性
-    useEffect(() => {
-      if (!combinedRef.current) return
-
-      const headings = combinedRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
-      const usedIds = new Set<string>()
-
-      headings.forEach((heading) => {
-        if (heading.id) return
-
-        const text = heading.textContent || ''
-        let slug = text
-          .toLowerCase()
-          .trim()
-          .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-          .replace(/\s+/g, '-')
-          .replace(/-+/g, '-')
-          .replace(/^-|-$/g, '')
-
-        let uniqueSlug = slug
-        let counter = 1
-        while (usedIds.has(uniqueSlug)) {
-          uniqueSlug = `${slug}-${counter}`
-          counter++
-        }
-        usedIds.add(uniqueSlug)
-        heading.id = uniqueSlug
-      })
-    }, [html])
+    useMermaidChart(combinedRef, chartRenderKey)
+    useEChartsChart(combinedRef, chartRenderKey)
+    useInfographicChart(combinedRef, chartRenderKey)
+    useMarkmapChart(combinedRef, chartRenderKey)
+    useGraphvizChart(combinedRef, chartRenderKey)
+    useDrawIOChart(combinedRef, chartRenderKey)
+    usePlantUMLChart(combinedRef, chartRenderKey)
+    useExcalidrawChart(combinedRef, chartRenderKey, { markdownFilePath: filePath })
+    useVegaLiteChart(combinedRef, chartRenderKey)
+    useD2Chart(combinedRef, chartRenderKey)
+    useBpmnChart(combinedRef, chartRenderKey, { markdownFilePath: filePath })
+    useWaveDromChart(combinedRef, chartRenderKey)
+    useStructurizrChart(combinedRef, chartRenderKey)
+    usePlotlyChart(combinedRef, chartRenderKey)
+    useDbmlChart(combinedRef, chartRenderKey)
+    useAntvG6Chart(combinedRef, chartRenderKey)
+    useKrokiChart(combinedRef, chartRenderKey)
 
     // 处理锚点链接点击
     useEffect(() => {
@@ -947,21 +1191,7 @@ const MarkdownContent = memo(
         // 1. 锚点链接：页内跳转
         if (href.startsWith('#')) {
           e.preventDefault()
-          const targetId = decodeURIComponent(href.slice(1))
-          // 精确匹配
-          let targetElement = document.getElementById(targetId)
-          // fallback：normalize 后模糊匹配（容忍下划线等 slug 差异）
-          if (!targetElement) {
-            const normalize = (s: string) => s.replace(/[_]/g, '').toLowerCase()
-            const normalizedTarget = normalize(targetId)
-            const headings = document.querySelectorAll('[id]')
-            for (const el of headings) {
-              if (normalize(el.id) === normalizedTarget) {
-                targetElement = el as HTMLElement
-                break
-              }
-            }
-          }
+          const targetElement = findInPageAnchorTarget(combinedRef.current, href)
           if (targetElement) {
             targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
           }
@@ -975,12 +1205,16 @@ const MarkdownContent = memo(
           return
         }
 
-        // 3. v1.5.1: 本地 .md 链接：通过 IPC 打开
-        const decodedHref = decodeURIComponent(href)
+        // 3. v1.5.1: 本地 .md 链接：优先交给上层统一导航，兼容旧调用路径
+        const decodedHref = safeDecodeURIComponent(href)
         if (decodedHref.endsWith('.md') || /\.md[#?]/.test(decodedHref)) {
           e.preventDefault()
-          const cleanHref = decodedHref.split('#')[0].split('?')[0]
           if (filePath) {
+            if (onMarkdownLinkClick) {
+              void onMarkdownLinkClick(decodedHref, filePath)
+              return
+            }
+            const cleanHref = decodedHref.split('#')[0].split('?')[0]
             window.api.openMdLink(filePath, cleanHref).then((result) => {
               if (result && !result.success) {
                 // 通过自定义事件通知 App 显示 Toast
@@ -1003,7 +1237,7 @@ const MarkdownContent = memo(
 
       combinedRef.current.addEventListener('click', handleClick)
       return () => combinedRef.current?.removeEventListener('click', handleClick)
-    }, [html, filePath, onImageClick, previewEditingEnabled])
+    }, [html, filePath, onImageClick, previewEditingEnabled, onMarkdownLinkClick])
 
     // v1.5.2: 为普通代码块添加复制按钮
     useEffect(() => {
@@ -1194,7 +1428,13 @@ const MarkdownContent = memo(
   (prevProps, nextProps) =>
     prevProps.html === nextProps.html &&
     prevProps.className === nextProps.className &&
-    prevProps.sourceContent === nextProps.sourceContent
+    prevProps.filePath === nextProps.filePath &&
+    prevProps.sourceContent === nextProps.sourceContent &&
+    prevProps.previewEditingEnabled === nextProps.previewEditingEnabled &&
+    prevProps.onImageClick === nextProps.onImageClick &&
+    prevProps.onPreviewBlockEdit === nextProps.onPreviewBlockEdit &&
+    prevProps.onSourceEditRequest === nextProps.onSourceEditRequest &&
+    prevProps.onMarkdownLinkClick === nextProps.onMarkdownLinkClick
 )
 
 export default memo(VirtualizedMarkdown)

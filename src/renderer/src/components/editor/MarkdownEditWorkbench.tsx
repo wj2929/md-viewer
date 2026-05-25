@@ -89,6 +89,10 @@ function applyRenderedCodeBlockText(lines: string[], edit: PreviewBlockEdit): bo
   return true
 }
 
+const SOURCE_EDIT_DRAFT_COMMIT_DELAY_MS = 180
+const LARGE_SOURCE_EDIT_DRAFT_COMMIT_DELAY_MS = 360
+const LARGE_SOURCE_EDIT_DRAFT_THRESHOLD = 80_000
+
 export function MarkdownEditWorkbench({
   tab,
   leafId,
@@ -109,8 +113,12 @@ export function MarkdownEditWorkbench({
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const pendingFormatUndoDraftRef = useRef<string | null>(null)
   const pendingRenderedEditScrollTopRef = useRef<number | null>(null)
+  const pendingSourceDraftRef = useRef<string | null>(null)
+  const pendingSourceRecordUndoRef = useRef(false)
+  const sourceDraftCommitTimerRef = useRef<number | null>(null)
   const [previewResetVersion, setPreviewResetVersion] = useState(0)
   const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true)
+  const [hasPendingSourceDraft, setHasPendingSourceDraft] = useState(false)
   const session = useEditSessionStore(state => state.sessions[canonicalPath])
   const updateDraft = useEditSessionStore(state => state.updateDraft)
   const undoDraft = useEditSessionStore(state => state.undoDraft)
@@ -130,7 +138,7 @@ export function MarkdownEditWorkbench({
   const isWriter = !session?.writerId || session.writerId === writerId
   const readOnly = !isWriter
   const content = session?.draft ?? tab.content
-  const dirty = Boolean(session?.dirty)
+  const dirty = Boolean(session?.dirty) || hasPendingSourceDraft
   const hasConflict = Boolean(session?.conflictReason)
   const conflictMessage = getConflictMessage(session?.conflictReason)
   const boundedCompareRatio = Math.min(0.8, Math.max(0.2, compareRatio))
@@ -176,15 +184,76 @@ export function MarkdownEditWorkbench({
     onCompareRatioChange(Math.min(0.8, Math.max(0.2, boundedCompareRatio + delta)))
   }, [boundedCompareRatio, onCompareRatioChange])
 
+  const clearSourceDraftCommitTimer = useCallback(() => {
+    if (sourceDraftCommitTimerRef.current !== null) {
+      window.clearTimeout(sourceDraftCommitTimerRef.current)
+      sourceDraftCommitTimerRef.current = null
+    }
+  }, [])
+
+  const commitSourceDraft = useCallback((nextContent: string, recordUndo = false) => {
+    clearSourceDraftCommitTimer()
+    pendingSourceDraftRef.current = null
+    pendingSourceRecordUndoRef.current = false
+    setHasPendingSourceDraft(false)
+    updateDraft(canonicalPath, nextContent, { writerId, recordUndo })
+    return nextContent
+  }, [canonicalPath, clearSourceDraftCommitTimer, updateDraft, writerId])
+
+  const discardPendingSourceDraft = useCallback(() => {
+    clearSourceDraftCommitTimer()
+    pendingSourceDraftRef.current = null
+    pendingSourceRecordUndoRef.current = false
+    setHasPendingSourceDraft(false)
+  }, [clearSourceDraftCommitTimer])
+
+  const flushPendingSourceDraft = useCallback(() => {
+    const pendingDraft = pendingSourceDraftRef.current
+    if (pendingDraft === null) return editorRef.current?.getCurrentDoc() ?? content
+    return commitSourceDraft(pendingDraft, pendingSourceRecordUndoRef.current)
+  }, [commitSourceDraft, content])
+
+  useEffect(() => {
+    return () => {
+      const pendingDraft = pendingSourceDraftRef.current
+      if (pendingDraft !== null) {
+        updateDraft(canonicalPath, pendingDraft, {
+          writerId,
+          recordUndo: pendingSourceRecordUndoRef.current,
+        })
+      }
+      if (sourceDraftCommitTimerRef.current !== null) {
+        window.clearTimeout(sourceDraftCommitTimerRef.current)
+      }
+      pendingSourceDraftRef.current = null
+      pendingSourceRecordUndoRef.current = false
+      sourceDraftCommitTimerRef.current = null
+    }
+  }, [canonicalPath, updateDraft, writerId])
+
   const handleChange = useCallback((nextContent: string) => {
     const recordUndo = pendingFormatUndoDraftRef.current !== null && pendingFormatUndoDraftRef.current !== nextContent
     pendingFormatUndoDraftRef.current = null
-    updateDraft(canonicalPath, nextContent, { writerId, recordUndo })
-  }, [canonicalPath, updateDraft, writerId])
+    pendingSourceDraftRef.current = nextContent
+    pendingSourceRecordUndoRef.current = pendingSourceRecordUndoRef.current || recordUndo
+    setHasPendingSourceDraft(true)
+    clearSourceDraftCommitTimer()
+
+    const delay = nextContent.length >= LARGE_SOURCE_EDIT_DRAFT_THRESHOLD
+      ? LARGE_SOURCE_EDIT_DRAFT_COMMIT_DELAY_MS
+      : SOURCE_EDIT_DRAFT_COMMIT_DELAY_MS
+    sourceDraftCommitTimerRef.current = window.setTimeout(() => {
+      const pendingDraft = pendingSourceDraftRef.current
+      if (pendingDraft === null) return
+      commitSourceDraft(pendingDraft, pendingSourceRecordUndoRef.current)
+    }, delay)
+  }, [clearSourceDraftCommitTimer, commitSourceDraft])
 
   const handleSave = useCallback(async (contentFromEditor?: string, force = false) => {
     if (!session || readOnly) return
-    const contentToSave = contentFromEditor ?? editorRef.current?.getCurrentDoc() ?? session.draft
+    const contentToSave = contentFromEditor
+      ? commitSourceDraft(contentFromEditor)
+      : flushPendingSourceDraft()
     updateDraft(canonicalPath, contentToSave, { writerId })
     const snapshot = createSaveSnapshot(canonicalPath, contentToSave)
     setSaving(canonicalPath, true)
@@ -195,7 +264,7 @@ export function MarkdownEditWorkbench({
       setError(canonicalPath, error instanceof Error ? error.message : '保存失败')
       setSaving(canonicalPath, false)
     }
-  }, [canonicalPath, createSaveSnapshot, onSave, readOnly, session, setError, setSaving, updateDraft, writerId])
+  }, [canonicalPath, commitSourceDraft, createSaveSnapshot, flushPendingSourceDraft, onSave, readOnly, session, setError, setSaving, updateDraft, writerId])
 
   const handleFormatCommand = useCallback((command: MarkdownFormatCommand) => {
     if (readOnly) return
@@ -234,14 +303,22 @@ export function MarkdownEditWorkbench({
   const handlePreviewBlockEdit = useCallback((edit: PreviewBlockEdit) => {
     if (readOnly || mode === 'preview') return
     const currentContent = editorRef.current?.getCurrentDoc() ?? content
+    discardPendingSourceDraft()
     const lines = currentContent.split('\n')
     const lineIndex = edit.sourceLine - 1
     if (lineIndex < 0 || lineIndex >= lines.length) return
 
     if (edit.editKind === 'code-block') {
       if (!applyRenderedCodeBlockText(lines, edit)) return
+      const nextContent = lines.join('\n')
+      const innerStartLine = edit.sourceLine + 1
+      const innerEndLine = (edit.sourceEndLine ?? edit.sourceLine) - 1
+      const didUpdateEditor = innerStartLine <= innerEndLine
+        ? editorRef.current?.replaceLines(innerStartLine, innerEndLine, edit.nextText)
+        : false
+      if (!didUpdateEditor) editorRef.current?.replaceDocument(nextContent)
       rememberRenderedEditScrollTop()
-      updateDraft(canonicalPath, lines.join('\n'), { writerId, recordUndo: true })
+      updateDraft(canonicalPath, nextContent, { writerId, recordUndo: true })
       return
     }
 
@@ -250,19 +327,44 @@ export function MarkdownEditWorkbench({
       : applyRenderedBlockText(lines[lineIndex], edit.nextText)
     if (nextLine === lines[lineIndex]) return
     lines[lineIndex] = nextLine
+    const nextContent = lines.join('\n')
+    const didUpdateEditor = editorRef.current?.replaceLines(edit.sourceLine, edit.sourceLine, nextLine) ?? false
+    if (!didUpdateEditor) editorRef.current?.replaceDocument(nextContent)
     rememberRenderedEditScrollTop()
-    updateDraft(canonicalPath, lines.join('\n'), { writerId, recordUndo: true })
-  }, [canonicalPath, content, mode, readOnly, rememberRenderedEditScrollTop, updateDraft, writerId])
+    updateDraft(canonicalPath, nextContent, { writerId, recordUndo: true })
+  }, [canonicalPath, content, discardPendingSourceDraft, mode, readOnly, rememberRenderedEditScrollTop, updateDraft, writerId])
+
+  const handleSourceEditRequest = useCallback((target: { sourceLine: number }) => {
+    if (readOnly) return
+    const locate = () => {
+      const located = editorRef.current?.scrollToLine(target.sourceLine, {
+        focus: true,
+        select: true,
+        y: 'center',
+      }) ?? false
+      onLocateComplete(located)
+    }
+
+    if (mode === 'preview') {
+      onModeChange('compare')
+      window.setTimeout(locate, 80)
+      return
+    }
+
+    locate()
+  }, [mode, onLocateComplete, onModeChange, readOnly])
 
   const handleUndo = useCallback(() => {
     if (readOnly) return
+    flushPendingSourceDraft()
     if (undoDraft(canonicalPath)) setPreviewResetVersion(version => version + 1)
-  }, [canonicalPath, readOnly, undoDraft])
+  }, [canonicalPath, flushPendingSourceDraft, readOnly, undoDraft])
 
   const handleRedo = useCallback(() => {
     if (readOnly) return
+    flushPendingSourceDraft()
     if (redoDraft(canonicalPath)) setPreviewResetVersion(version => version + 1)
-  }, [canonicalPath, readOnly, redoDraft])
+  }, [canonicalPath, flushPendingSourceDraft, readOnly, redoDraft])
 
   useEffect(() => {
     if (mode === 'preview' || readOnly) return
@@ -288,18 +390,20 @@ export function MarkdownEditWorkbench({
   }, [canonicalPath, mode, readOnly, redoDraft, undoDraft])
 
   const handleExitEditMode = useCallback(() => {
+    flushPendingSourceDraft()
     window.setTimeout(() => onModeChange('preview'), 0)
-  }, [onModeChange])
+  }, [flushPendingSourceDraft, onModeChange])
 
   const handleDiscardEdit = useCallback(() => {
     if (readOnly) return
     if (!window.confirm('放弃未保存的编辑草稿？此操作不可撤销。')) return
+    discardPendingSourceDraft()
 
     window.setTimeout(() => {
       closeSession(canonicalPath)
       onModeChange('preview')
     }, 0)
-  }, [canonicalPath, closeSession, onModeChange, readOnly])
+  }, [canonicalPath, closeSession, discardPendingSourceDraft, onModeChange, readOnly])
 
   const previewPane = useMemo(() => (
     <div className="markdown-workbench-preview-pane">
@@ -316,6 +420,7 @@ export function MarkdownEditWorkbench({
           renderDebounceMs={getDraftPreviewDebounceMs(content)}
           previewEditingEnabled={mode !== 'preview' && !readOnly}
           onPreviewBlockEdit={handlePreviewBlockEdit}
+          onSourceEditRequest={handleSourceEditRequest}
         />
       </div>
       <FloatingNav containerRef={previewRef} markdown={content} />
@@ -383,7 +488,7 @@ export function MarkdownEditWorkbench({
           <button type="button" onClick={() => handleSave()} disabled={!dirty || session?.saving || readOnly} aria-label="保存修改">
             {session?.saving ? '保存中...' : '保存'}
           </button>
-          <button type="button" onClick={() => onCopyDraft(content)}>复制草稿</button>
+          <button type="button" onClick={() => onCopyDraft(editorRef.current?.getCurrentDoc() ?? pendingSourceDraftRef.current ?? content)}>复制草稿</button>
           {hasConflict && (
             <button type="button" className="danger" onClick={() => handleSave(undefined, true)}>
               保存并覆盖

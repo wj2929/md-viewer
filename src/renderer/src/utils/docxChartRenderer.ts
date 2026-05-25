@@ -79,6 +79,7 @@ const DOCX_CHART_ALPHA_THRESHOLD = 16
 const DOCX_CHART_MAX_MARGIN_RATIO = 0.18
 const DOCX_CHART_MAX_WIDTH_CM = 15.5
 const DOCX_CHART_MAX_HEIGHT_CM = 24
+const LOCAL_MARKDOWN_IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp)(?:[?#].*)?$/i
 
 export interface DocxChartTrimRect {
   x: number
@@ -125,6 +126,15 @@ interface ExcalidrawImageRef {
 }
 
 interface BpmnImageRef {
+  fullMatch: string
+  alt: string
+  refPath: string
+  cleanRefPath: string
+  start: number
+  end: number
+}
+
+interface LocalMarkdownImageRef {
   fullMatch: string
   alt: string
   refPath: string
@@ -382,6 +392,18 @@ function isBpmnRefPath(refPath: string): boolean {
   return /\.bpmn(?:[?#].*)?$/i.test(refPath.trim().replace(/^<|>$/g, ''))
 }
 
+function cleanLocalMarkdownImageRefPath(refPath: string): string {
+  return refPath.trim().replace(/^<|>$/g, '').split(/[?#]/, 1)[0] || refPath
+}
+
+function isLocalMarkdownImageRefPath(refPath: string): boolean {
+  const normalized = refPath.trim().replace(/^<|>$/g, '')
+  if (!normalized) return false
+  if (/^(?:https?:|data:|blob:|local-image:|file:)/i.test(normalized)) return false
+  if (isExcalidrawRefPath(normalized) || isBpmnRefPath(normalized)) return false
+  return LOCAL_MARKDOWN_IMAGE_EXTENSIONS.test(normalized)
+}
+
 function collectFencedBlockRanges(markdown: string): MarkdownRange[] {
   const ranges: MarkdownRange[] = []
   const re = new RegExp(FENCED_BLOCK_RE.source, FENCED_BLOCK_RE.flags)
@@ -436,6 +458,30 @@ function collectBpmnImageRefs(markdown: string, fencedRanges: MarkdownRange[]): 
       alt: imageMatch[1],
       refPath,
       cleanRefPath: cleanBpmnRefPath(refPath),
+      start: imageMatch.index,
+      end: imageMatch.index + imageMatch[0].length,
+    })
+  }
+
+  return refs
+}
+
+function collectLocalMarkdownImageRefs(markdown: string, fencedRanges: MarkdownRange[]): LocalMarkdownImageRef[] {
+  const refs: LocalMarkdownImageRef[] = []
+  const imageRefRe = /!\[([^\]]*)\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g
+  let imageMatch: RegExpExecArray | null
+
+  while ((imageMatch = imageRefRe.exec(markdown)) !== null) {
+    if (isInsideRanges(imageMatch.index, fencedRanges)) continue
+
+    const refPath = imageMatch[2] || imageMatch[3] || ''
+    if (!isLocalMarkdownImageRefPath(refPath)) continue
+
+    refs.push({
+      fullMatch: imageMatch[0],
+      alt: imageMatch[1],
+      refPath,
+      cleanRefPath: cleanLocalMarkdownImageRefPath(refPath),
       start: imageMatch.index,
       end: imageMatch.index + imageMatch[0].length,
     })
@@ -803,7 +849,8 @@ export async function renderChartsForDocx(
 
   const imageRefs = collectExcalidrawImageRefs(markdown, fencedRanges)
   const bpmnImageRefs = collectBpmnImageRefs(markdown, fencedRanges)
-  const totalCharts = blocks.length + imageRefs.length + bpmnImageRefs.length
+  const localImageRefs = collectLocalMarkdownImageRefs(markdown, fencedRanges)
+  const totalCharts = blocks.length + imageRefs.length + bpmnImageRefs.length + localImageRefs.length
   let completedCharts = 0
 
   // 计算每个 block 在同类型中的序号（用于 DOM fallback 索引）
@@ -915,6 +962,40 @@ export async function renderChartsForDocx(
       })
     } catch (error) {
       warnings.push(`BPMN 文件“${imageRef.refPath}”读取失败：${cleanUserFacingError(error)}。已保留原引用。`)
+    }
+  }
+
+  for (const imageRef of localImageRefs) {
+    completedCharts += 1
+    options.onProgress?.(completedCharts, totalCharts, 'image')
+
+    if (!options.markdownFilePath) {
+      warnings.push(`本地图片“${imageRef.refPath}”缺少 Markdown 文件路径，已保留原引用。`)
+      continue
+    }
+    if (!window.api?.readLocalAssetBase64) {
+      warnings.push(`本地图片“${imageRef.refPath}”当前环境不支持读取，已保留原引用。`)
+      continue
+    }
+
+    try {
+      const file = await window.api.readLocalAssetBase64({
+        markdownFilePath: options.markdownFilePath,
+        refPath: imageRef.cleanRefPath,
+      })
+      const placeholderId = generatePlaceholderId()
+      images.push({
+        id: placeholderId,
+        pngBase64: file.base64,
+        widthCm: DOCX_CHART_MAX_WIDTH_CM,
+      })
+      replacements.push({
+        start: imageRef.start,
+        end: imageRef.end,
+        value: `![${imageRef.alt}](${placeholderId})`,
+      })
+    } catch (error) {
+      warnings.push(`本地图片“${imageRef.refPath}”读取失败：${cleanUserFacingError(error)}。已保留原引用。`)
     }
   }
 

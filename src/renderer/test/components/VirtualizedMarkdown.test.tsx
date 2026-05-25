@@ -51,6 +51,8 @@ beforeEach(() => {
     ...global.window.api,
     readFile: vi.fn(),
     readExcalidrawFile: undefined,
+    openExternal: vi.fn().mockResolvedValue({ success: true }),
+    openMdLink: vi.fn().mockResolvedValue({ success: true }),
     showMarkdownContextMenu: mockShowMarkdownContextMenu,
     showPreviewContextMenu: mockShowPreviewContextMenu
   } as typeof window.api
@@ -354,6 +356,48 @@ describe('VirtualizedMarkdown', () => {
       })
       expect(global.window.api.readExcalidrawFile).toHaveBeenCalledTimes(24)
     })
+
+    it('把普通本地图片引用转换为编码后的 local-image 绝对路径', async () => {
+      render(
+        <VirtualizedMarkdown
+          content={'![欢迎图](<./images/user manual/欢迎页.png>)'}
+          filePath="/Users/mac/Documents/test/testmd/md-viewer/docs/user-manual.md"
+          renderDebounceMs={0}
+        />
+      )
+
+      await waitFor(() => {
+        const img = document.querySelector('img[alt="欢迎图"]')
+        expect(img).toBeTruthy()
+        expect(img?.getAttribute('src')).toBe('local-image:///Users/mac/Documents/test/testmd/md-viewer/docs/images/user%20manual/%E6%AC%A2%E8%BF%8E%E9%A1%B5.png')
+      })
+    })
+
+    it('切换文件路径后仍应按新 Markdown 所在目录解析本地图片', async () => {
+      const { rerender } = render(
+        <VirtualizedMarkdown
+          content={'![图](./images/a.png)'}
+          filePath="/docs/old/source.md"
+          renderDebounceMs={0}
+        />
+      )
+
+      await waitFor(() => {
+        expect(document.querySelector('img[alt="图"]')?.getAttribute('src')).toBe('local-image:///docs/old/images/a.png')
+      })
+
+      rerender(
+        <VirtualizedMarkdown
+          content={'![图](./images/a.png)'}
+          filePath="/docs/new/source.md"
+          renderDebounceMs={0}
+        />
+      )
+
+      await waitFor(() => {
+        expect(document.querySelector('img[alt="图"]')?.getAttribute('src')).toBe('local-image:///docs/new/images/a.png')
+      })
+    })
   })
 
   describe('右键菜单 (v1.3.7)', () => {
@@ -633,6 +677,44 @@ fn main() {}
       const link = container.querySelector('a')
       expect(link).toBeInTheDocument()
     })
+
+    it('点击外部链接应该交给系统浏览器打开', () => {
+      render(<VirtualizedMarkdown content={'[官网](https://example.com/docs)'} />)
+
+      fireEvent.click(screen.getByRole('link', { name: '官网' }))
+
+      expect(window.api.openExternal).toHaveBeenCalledWith('https://example.com/docs')
+    })
+
+    it('点击内部 .md 链接应该交给上层统一导航', () => {
+      const onMarkdownLinkClick = vi.fn()
+      render(
+        <VirtualizedMarkdown
+          content={'[目标文档](<./目标 文档.md#二级标题>)'}
+          filePath="/docs/current.md"
+          onMarkdownLinkClick={onMarkdownLinkClick}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('link', { name: '目标文档' }))
+
+      expect(onMarkdownLinkClick).toHaveBeenCalledWith('./目标 文档.md#二级标题', '/docs/current.md')
+      expect(window.api.openMdLink).not.toHaveBeenCalled()
+    })
+
+    it('点击页内锚点应该滚动到目标标题', () => {
+      const scrollIntoView = vi.fn()
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: scrollIntoView,
+      })
+
+      render(<VirtualizedMarkdown content={'# 二级标题\n\n[跳转](#二级标题)'} />)
+
+      fireEvent.click(screen.getByRole('link', { name: '跳转' }))
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    })
   })
 
   describe('渲染区块编辑', () => {
@@ -742,6 +824,85 @@ fn main() {}
         nextText: 'BaseUrl: https://api.polyv.net/',
         editKind: 'code-block',
       })
+    })
+
+    it('图表代码块默认不铺开提示，聚焦后提供不参与导出的源码编辑动作', () => {
+      const onSourceEditRequest = vi.fn()
+      const { container } = render(
+        <VirtualizedMarkdown
+          content={'```mermaid\ngraph TD\n  A --> B\n```'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+          onSourceEditRequest={onSourceEditRequest}
+        />
+      )
+
+      expect(screen.queryByRole('note')).not.toBeInTheDocument()
+
+      const codeBlock = container.querySelector('pre') as HTMLElement
+      fireEvent.focus(codeBlock)
+
+      const hint = screen.getByRole('note')
+      expect(hint).toHaveClass('no-export')
+
+      const button = screen.getByRole('button', { name: /在源码中编辑/ })
+      fireEvent.click(button)
+
+      expect(onSourceEditRequest).toHaveBeenCalledWith({
+        sourceLine: 1,
+        sourceEndLine: 4,
+      })
+      expect(codeBlock).not.toHaveAttribute('contenteditable', 'true')
+    })
+
+    it('不可直接编辑块应该提供源码编辑说明入口', () => {
+      render(
+        <VirtualizedMarkdown
+          content={'```mermaid\ngraph TD\n  A --> B\n```'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+          onSourceEditRequest={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('note')).not.toBeInTheDocument()
+
+      const codeBlock = screen.getByText(/graph TD/).closest('pre') as HTMLElement
+      fireEvent.focus(codeBlock)
+
+      const helpButton = screen.getByRole('button', { name: /查看源码编辑说明/ })
+      expect(helpButton.closest('.markdown-preview-source-only-hint')).toHaveClass('no-export')
+
+      fireEvent.click(helpButton)
+
+      expect(window.api.openExternal).toHaveBeenCalledWith(expect.stringContaining('docs/user-manual.md#源码编辑'))
+    })
+
+    it('不可直接编辑块按 Escape 后应该隐藏提示并释放焦点', () => {
+      const { container } = render(
+        <VirtualizedMarkdown
+          content={'```mermaid\ngraph TD\n  A --> B\n```'}
+          renderDebounceMs={0}
+          previewEditingEnabled
+          onPreviewBlockEdit={vi.fn()}
+          onSourceEditRequest={vi.fn()}
+        />
+      )
+
+      const codeBlock = container.querySelector('pre') as HTMLElement
+      fireEvent.focus(codeBlock)
+
+      const hint = screen.getByRole('note')
+      expect(hint).not.toHaveAttribute('hidden')
+      expect(codeBlock).toHaveClass('is-source-hint-active')
+
+      fireEvent.keyDown(codeBlock, { key: 'Escape' })
+
+      expect(hint).toHaveAttribute('hidden')
+      expect(codeBlock).not.toHaveClass('is-source-hint-active')
+      expect(document.activeElement).not.toBe(codeBlock)
     })
 
     it('开启渲染区块编辑后不直接编辑图表代码块', () => {

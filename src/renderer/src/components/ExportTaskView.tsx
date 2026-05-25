@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useExportTaskStore, type DocxErrorDetail } from '../stores/exportTaskStore'
+import { normalizeExportResult, type ExportResult, type ExportWarning } from '../utils/v24WorkflowContracts'
+import { DOCX_SERVICE_HELP_URL, openHelpLink } from '../utils/helpLinks'
 import './ExportTaskView.css'
 
 const DONE_AUTO_DISMISS_MS = 15000
@@ -19,7 +21,7 @@ export function ExportTaskView({
 }: ExportTaskViewProps): JSX.Element | null {
   const store = useExportTaskStore()
   const { status, minimized, fileName, currentChart, totalCharts, chartType,
-    filePath, imagesFailed, errorMessage, errorDetail, warnings,
+    filePath, imagesFailed, errorMessage, errorDetail, warnings, exportResult,
     toggleMinimize, close, cacheVersionInfo, versionInfo } = store
 
   const panelRef = useRef<HTMLDivElement>(null)
@@ -62,7 +64,7 @@ export function ExportTaskView({
 
   const headerIcon = status === 'done' ? (hasDoneWarnings ? '⚠️' : '✅') : status === 'error' ? '❌' : '📄'
   const headerTitle = status === 'done'
-    ? (hasDoneWarnings ? 'Word 已导出，但有问题' : 'Word 已导出')
+    ? (hasDoneWarnings ? 'Word 已导出，有事项需确认' : 'Word 已导出')
     : status === 'error'
       ? '导出失败'
       : '正在导出 Word 文档'
@@ -82,8 +84,8 @@ export function ExportTaskView({
       <div className="export-task-body">
         {status === 'rendering' && <RenderingView fileName={fileName} current={currentChart} total={totalCharts} chartType={chartType} onCancel={onCancel} />}
         {status === 'generating' && <GeneratingView fileName={fileName} onCancel={onCancel} />}
-        {status === 'done' && <DoneView fileName={fileName} imagesFailed={imagesFailed} warnings={warnings} onShowInFolder={onShowInFolder ? () => onShowInFolder(filePath) : undefined} />}
-        {status === 'error' && <ErrorView errorMessage={errorMessage} errorDetail={errorDetail} versionInfo={versionInfo} onTestConnection={onTestConnection} onOpenSettings={onOpenSettings} />}
+        {status === 'done' && <DoneView fileName={fileName} imagesFailed={imagesFailed} warnings={warnings} exportResult={exportResult} onShowInFolder={onShowInFolder ? () => onShowInFolder(filePath) : undefined} />}
+        {status === 'error' && <ErrorView errorMessage={errorMessage} errorDetail={errorDetail} exportResult={exportResult} versionInfo={versionInfo} onTestConnection={onTestConnection} onOpenSettings={onOpenSettings} />}
       </div>
       {status === 'done' && <div className="export-task-countdown-bar" style={hovered ? { animationPlayState: 'paused' } : undefined} />}
     </div>
@@ -94,7 +96,7 @@ function MinimizedBar({ status, currentChart, totalCharts, hasDoneWarnings, onEx
   status: string; currentChart: number; totalCharts: number; hasDoneWarnings?: boolean; onExpand: () => void; onClose: () => void
 }): JSX.Element {
   const icon = status === 'done' ? (hasDoneWarnings ? '⚠️' : '✅') : status === 'error' ? '❌' : '📄'
-  const text = status === 'done' ? (hasDoneWarnings ? '导出完成，有问题' : '导出完成') : status === 'error' ? '导出失败' : `导出中... ${currentChart}/${totalCharts}`
+  const text = status === 'done' ? (hasDoneWarnings ? '导出完成，有事项需确认' : '导出完成') : status === 'error' ? '导出失败' : `导出中... ${currentChart}/${totalCharts}`
   const percent = totalCharts > 0 ? Math.round((currentChart / totalCharts) * 100) : 0
   return (
     <div className="export-task-minimized">
@@ -152,15 +154,17 @@ function GeneratingView({ fileName, onCancel }: { fileName: string; onCancel?: (
   )
 }
 
-function DoneView({ fileName, imagesFailed, warnings, onShowInFolder }: {
-  fileName: string; imagesFailed: number; warnings: string[]; onShowInFolder?: () => void
+function DoneView({ fileName, imagesFailed, warnings, exportResult, onShowInFolder }: {
+  fileName: string; imagesFailed: number; warnings: string[]; exportResult?: ExportResult | null; onShowInFolder?: () => void
 }): JSX.Element {
-  const hasWarnings = imagesFailed > 0 || warnings.length > 0
+  const normalizedResult = exportResult || normalizeExportResult({ imagesFailed, warnings })
+  const structuredWarnings = normalizedResult.warnings
+  const hasWarnings = imagesFailed > 0 || structuredWarnings.length > 0
   return (
     <>
       <div className="export-task-filename">{fileName}</div>
       {hasWarnings && (
-        <div className="export-task-result warning">文件已生成，但有 {imagesFailed + warnings.length} 项需要确认</div>
+        <div className="export-task-result warning">文件已生成，但有 {imagesFailed + structuredWarnings.length} 项需要确认</div>
       )}
       {!hasWarnings && (
         <div className="export-task-result">导出完成</div>
@@ -168,9 +172,25 @@ function DoneView({ fileName, imagesFailed, warnings, onShowInFolder }: {
       {imagesFailed > 0 && (
         <div className="export-task-warning-item">· {imagesFailed} 个图表以代码形式保留</div>
       )}
-      {warnings.length > 0 && (
+      {structuredWarnings.length > 0 && (
         <div className="export-task-warnings">
-          {warnings.map((w, i) => <div key={i} className="export-task-warning-item">· {w}</div>)}
+          {structuredWarnings.map((warning, i) => (
+            <div key={i} className="export-task-warning-item">
+              <div>· {warning.message}</div>
+              <div className="export-task-warning-detail"><strong>发生了什么</strong>：{warning.message}</div>
+              <div className="export-task-warning-detail"><strong>影响是什么</strong>：{warning.impact}</div>
+              <div className="export-task-warning-detail"><strong>下一步怎么做</strong>：{warning.userAction}</div>
+              {shouldShowDocxHelp(warning) && (
+                <button
+                  type="button"
+                  className="export-task-warning-help"
+                  onClick={() => openHelpLink(DOCX_SERVICE_HELP_URL)}
+                >
+                  查看 DOCX 服务配置说明
+                </button>
+              )}
+            </div>
+          ))}
         </div>
       )}
       <div className="export-task-actions">
@@ -180,6 +200,14 @@ function DoneView({ fileName, imagesFailed, warnings, onShowInFolder }: {
       </div>
     </>
   )
+}
+
+function shouldShowDocxHelp(warning: ExportWarning): boolean {
+  return warning.source === 'docx-service'
+    || warning.category === 'service-unavailable'
+    || warning.category === 'auth'
+    || warning.category === 'version'
+    || warning.category === 'font'
 }
 
 function getHintsForErrorType(errorType: string): { user: string[]; advanced?: string[] } {
@@ -205,8 +233,9 @@ function getHintsForErrorType(errorType: string): { user: string[]; advanced?: s
   }
 }
 
-function ErrorView({ errorMessage, errorDetail, versionInfo, onTestConnection, onOpenSettings }: {
+function ErrorView({ errorMessage, errorDetail, exportResult, versionInfo, onTestConnection, onOpenSettings }: {
   errorMessage: string; errorDetail: DocxErrorDetail | null
+  exportResult?: ExportResult | null
   versionInfo: { version: string; platform: string; arch: string; electron: string } | null
   onTestConnection?: () => void; onOpenSettings?: () => void
 }): JSX.Element {
@@ -214,6 +243,7 @@ function ErrorView({ errorMessage, errorDetail, versionInfo, onTestConnection, o
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const hints = getHintsForErrorType(errorDetail?.errorType || '')
+  const structuredWarnings = exportResult?.warnings || []
 
   const handleCopyReport = useCallback(async () => {
     const lines = [
@@ -253,6 +283,26 @@ function ErrorView({ errorMessage, errorDetail, versionInfo, onTestConnection, o
   return (
     <>
       <div className="export-task-error-msg">{errorMessage}</div>
+      {structuredWarnings.length > 0 && (
+        <div className="export-task-warnings">
+          {structuredWarnings.map((warning, i) => (
+            <div key={i} className="export-task-warning-item">
+              <div className="export-task-warning-detail"><strong>发生了什么</strong>：{warning.message}</div>
+              <div className="export-task-warning-detail"><strong>影响是什么</strong>：{warning.impact}</div>
+              <div className="export-task-warning-detail"><strong>下一步怎么做</strong>：{warning.userAction}</div>
+              {shouldShowDocxHelp(warning) && (
+                <button
+                  type="button"
+                  className="export-task-warning-help"
+                  onClick={() => openHelpLink(DOCX_SERVICE_HELP_URL)}
+                >
+                  查看 DOCX 服务配置说明
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="export-task-error-hints">
         {errorDetail?.errorType === 'timeout' ? '建议：' : '请检查：'}
         <ul>{hints.user.map((h, i) => <li key={i}>{h}</li>)}</ul>

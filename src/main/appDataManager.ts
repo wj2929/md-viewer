@@ -68,6 +68,17 @@ export interface FolderTreeStatesByRoot {
 }
 
 /**
+ * 最近阅读位置
+ */
+export interface ReadPosition {
+  canonicalPath: string
+  scrollRatio?: number
+  headingId?: string
+  updatedAt: number
+  contentHash?: string
+}
+
+/**
  * 旧版固定标签（兼容迁移）
  * @deprecated 使用 PinnedTabsByFolder 替代
  */
@@ -112,6 +123,7 @@ interface AppDataStore {
   pinnedTabs: PinnedTab[]                    // 旧版，保留用于迁移
   pinnedTabsByFolder: PinnedTabsByFolder     // v1.3.6 新版
   folderTreeStates: FolderTreeStatesByRoot
+  readPositions: Record<string, ReadPosition>
   settings: AppSettings
 }
 
@@ -123,6 +135,7 @@ const MAX_PINNED_TABS_PER_FOLDER = 15       // 每个文件夹最多固定标签
 const MAX_FOLDERS_WITH_PINNED = 50          // 最多保留多少个文件夹的固定标签
 const MAX_FOLDERS_WITH_TREE_STATE = 50
 const MAX_COLLAPSED_FOLDERS_PER_ROOT = 1000
+const MAX_READ_POSITIONS = 500
 const VALIDATE_TIMEOUT = 1000 // 路径验证超时（毫秒）
 
 export const DEFAULT_DOCX_EXPORT_SETTINGS = {
@@ -149,6 +162,7 @@ class AppDataManager {
         pinnedTabs: [],              // 旧版，保留用于迁移
         pinnedTabsByFolder: {},      // v1.3.6 新版
         folderTreeStates: {},
+        readPositions: {},
         settings: {
           imageDir: 'assets',
           autoSave: true,
@@ -466,6 +480,80 @@ class AppDataManager {
     const nextStates = { ...states }
     delete nextStates[root]
     this.store.set('folderTreeStates', nextStates)
+  }
+
+  // ============== 阅读位置管理 ==============
+
+  private normalizeReadPositionPath(filePath: string): string {
+    return path.resolve(filePath)
+  }
+
+  private sanitizeReadPosition(input: {
+    canonicalPath: string
+    scrollRatio?: number
+    headingId?: string
+    updatedAt?: number
+    contentHash?: string
+  }): ReadPosition {
+    const canonicalPath = this.normalizeReadPositionPath(input.canonicalPath)
+    const next: ReadPosition = {
+      canonicalPath,
+      updatedAt: Number.isFinite(input.updatedAt) ? Number(input.updatedAt) : Date.now()
+    }
+
+    if (typeof input.scrollRatio === 'number' && input.scrollRatio >= 0 && input.scrollRatio <= 1) {
+      next.scrollRatio = input.scrollRatio
+    }
+
+    const headingId = input.headingId?.trim()
+    if (headingId) next.headingId = headingId
+
+    const contentHash = input.contentHash?.trim()
+    if (contentHash) next.contentHash = contentHash
+
+    return next
+  }
+
+  private pruneReadPositions(positions: Record<string, ReadPosition>): Record<string, ReadPosition> {
+    const entries = Object.entries(positions)
+    if (entries.length <= MAX_READ_POSITIONS) return positions
+
+    return Object.fromEntries(
+      entries
+        .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+        .slice(0, MAX_READ_POSITIONS)
+    )
+  }
+
+  getReadPosition(filePath: string): ReadPosition | null {
+    const canonicalPath = this.normalizeReadPositionPath(filePath)
+    const positions = this.store.get('readPositions', {})
+    return positions[canonicalPath] || null
+  }
+
+  saveReadPosition(position: {
+    canonicalPath: string
+    scrollRatio?: number
+    headingId?: string
+    updatedAt?: number
+    contentHash?: string
+  }): ReadPosition {
+    const next = this.sanitizeReadPosition(position)
+    const positions = this.store.get('readPositions', {})
+    this.store.set('readPositions', this.pruneReadPositions({
+      ...positions,
+      [next.canonicalPath]: next
+    }))
+    return next
+  }
+
+  clearReadPosition(filePath: string): void {
+    const canonicalPath = this.normalizeReadPositionPath(filePath)
+    const positions = this.store.get('readPositions', {})
+    if (!positions[canonicalPath]) return
+    const next = { ...positions }
+    delete next[canonicalPath]
+    this.store.set('readPositions', next)
   }
 
   // ============== 固定标签管理（v1.3.6 增强版：按文件夹分组） ==============

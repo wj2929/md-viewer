@@ -576,18 +576,18 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
           aria-label="文件过滤"
           spellCheck={false}
         />
-        <button
-          type="button"
-          className="file-tree-filter-clear"
-          onClick={handleClearFilter}
-          title="清除文件过滤"
-          aria-label="清除文件过滤"
-        >
-          ×
-        </button>
-      </div>
-      {hasResettableFolderTreeState && (
-        <div className="file-tree-toolbar">
+        {filterQuery.length > 0 && (
+          <button
+            type="button"
+            className="file-tree-filter-clear"
+            onClick={handleClearFilter}
+            title="清除文件过滤"
+            aria-label="清除文件过滤"
+          >
+            ×
+          </button>
+        )}
+        {hasResettableFolderTreeState && (
           <button
             type="button"
             className="file-tree-reset-btn"
@@ -595,10 +595,10 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
             title="重置当前文件夹展开状态"
             aria-label="重置当前文件夹展开状态"
           >
-            重置展开状态
+            ↺
           </button>
-        </div>
-      )}
+        )}
+      </div>
       <div
         className="file-tree"
         role="tree"

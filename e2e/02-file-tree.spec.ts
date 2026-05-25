@@ -188,13 +188,14 @@ test.describe('文件树功能测试', () => {
     expect(Math.abs(after - before)).toBeLessThanOrEqual(80)
   })
 
-  test('鼠标点击 Markdown 预览区不应该出现浏览器默认橙色焦点框', async ({ page, electronApp, testDir }) => {
+  test('鼠标点击或按 Escape 后 Markdown 预览区不应该出现浏览器默认焦点框', async ({ page, electronApp, testDir }) => {
     await openFolderViaIPC(electronApp, testDir)
     await page.waitForSelector('.file-tree-container', { timeout: 10000 })
     await page.click('.file-tree-row.file:has-text("test1.md")')
     await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
     await page.locator('.markdown-body').click()
+    await page.keyboard.press('Escape')
 
     const focusStyle = await page.locator('.markdown-body').evaluate(element => {
       const style = window.getComputedStyle(element)

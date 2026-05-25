@@ -9,9 +9,125 @@ import * as contextMenuManager from '../contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from '../security/pathValidator'
 
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
+const MARKDOWN_LINK_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
 
 function isPreviewableFilePath(filePath: string): boolean {
   return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function splitMarkdownLinkHref(href: string): { cleanHref: string; headingId?: string } {
+  const decoded = safeDecodeURIComponent(href)
+  const hashIndex = decoded.indexOf('#')
+  const beforeHash = hashIndex >= 0 ? decoded.slice(0, hashIndex) : decoded
+  const rawHeading = hashIndex >= 0 ? decoded.slice(hashIndex + 1) : ''
+  const queryIndex = beforeHash.indexOf('?')
+  const cleanHref = (queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash).trim()
+  const headingId = safeDecodeURIComponent(rawHeading).trim()
+  return { cleanHref, headingId: headingId || undefined }
+}
+
+function slugifyHeading(text: string): string {
+  const slug = text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  return slug || 'heading'
+}
+
+function normalizeHeadingText(value: string): string {
+  return value
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .trim()
+}
+
+function findHeadingLine(markdown: string, headingId: string): number | undefined {
+  const normalizedTarget = headingId.replace(/_/g, '').toLowerCase()
+  const usedSlugs = new Map<string, number>()
+  const lines = markdown.split(/\r?\n/)
+  let fence: string | null = null
+
+  for (let index = 0; index < lines.length; index++) {
+    const trimmed = lines[index].trim()
+    const fenceMatch = trimmed.match(/^(```+|~~~+)/)
+    if (fenceMatch) {
+      const marker = fenceMatch[1].startsWith('`') ? '```' : '~~~'
+      if (!fence) {
+        fence = marker
+      } else if (marker === fence) {
+        fence = null
+      }
+      continue
+    }
+
+    if (fence) continue
+
+    const headingMatch = lines[index].match(/^(#{1,6})\s+(.+?)\s*#*\s*$/)
+    if (!headingMatch) continue
+
+    const baseSlug = slugifyHeading(normalizeHeadingText(headingMatch[2]))
+    const count = usedSlugs.get(baseSlug) || 0
+    const slug = count > 0 ? `${baseSlug}-${count}` : baseSlug
+    usedSlugs.set(baseSlug, count + 1)
+
+    if (slug === headingId || slug.replace(/_/g, '').toLowerCase() === normalizedTarget) {
+      return index + 1
+    }
+  }
+
+  return undefined
+}
+
+async function resolveMarkdownLinkTarget(currentFilePath: string, href: string): Promise<{
+  success: boolean
+  targetPath?: string
+  targetLine?: number
+  headingId?: string
+  error?: string
+}> {
+  const { cleanHref, headingId } = splitMarkdownLinkHref(href)
+  if (!cleanHref) return { success: false, error: '链接目标为空' }
+
+  const dir = path.dirname(currentFilePath)
+  const targetPath = path.resolve(dir, cleanHref)
+  if (!MARKDOWN_LINK_EXTENSIONS.has(path.extname(targetPath).toLowerCase())) {
+    return { success: false, error: '目标不是 Markdown 文件' }
+  }
+
+  try {
+    const stat = await fs.stat(targetPath)
+    if (!stat.isFile()) return { success: false, error: '目标不是 Markdown 文件' }
+  } catch {
+    return { success: false, error: '文件不存在' }
+  }
+
+  let targetLine: number | undefined
+  if (headingId) {
+    try {
+      targetLine = findHeadingLine(await fs.readFile(targetPath, 'utf8'), headingId)
+    } catch {
+      targetLine = undefined
+    }
+  }
+
+  return { success: true, targetPath, targetLine, headingId }
 }
 
 function getSenderFolderRoot(ctx: IPCContext, event: Electron.IpcMainInvokeEvent): string {
@@ -263,6 +379,27 @@ ipcMain.handle('folder-tree-state:clear', async (event) => {
   ctx.appDataManager.clearFolderTreeState(root)
 })
 
+ipcMain.handle('read-position:get', async (_, filePath: string) => {
+  validatePath(filePath)
+  return ctx.appDataManager.getReadPosition(filePath)
+})
+
+ipcMain.handle('read-position:save', async (_, position: {
+  canonicalPath: string
+  scrollRatio?: number
+  headingId?: string
+  updatedAt?: number
+  contentHash?: string
+}) => {
+  validatePath(position.canonicalPath)
+  return ctx.appDataManager.saveReadPosition(position)
+})
+
+ipcMain.handle('read-position:clear', async (_, filePath: string) => {
+  validatePath(filePath)
+  ctx.appDataManager.clearReadPosition(filePath)
+})
+
   // ============== 搜索历史管理（原子操作） ==============
 
 ipcMain.handle('search-history:load', async () => {
@@ -394,22 +531,19 @@ ipcMain.handle('drop:openPaths', async (event, paths: string[]) => {
   }
 })
 
+// v2.4.0: 内部 Markdown 链接解析 — 仅返回目标，打开前由渲染进程统一处理脏草稿确认
+ipcMain.handle('navigate:resolveMdLink', async (_, currentFilePath: string, href: string) => {
+  return resolveMarkdownLinkTarget(currentFilePath, href)
+})
+
 // v1.5.1: 内部 .md 链接跳转 — 解析相对路径并打开目标 .md 文件
 ipcMain.handle('navigate:openMdLink', async (event, currentFilePath: string, href: string) => {
-  const dir = path.dirname(currentFilePath)
-  const targetPath = path.resolve(dir, href)
+  const result = await resolveMarkdownLinkTarget(currentFilePath, href)
   const senderWindow = BrowserWindow.fromWebContents(event.sender)
 
-  try {
-    const stat = await fs.stat(targetPath)
-    if (!stat.isFile() || !targetPath.toLowerCase().endsWith('.md')) {
-      return { success: false, error: '目标不是 .md 文件' }
-    }
-  } catch {
-    return { success: false, error: '文件不存在' }
-  }
+  if (!result.success || !result.targetPath) return result
 
-  ctx.openPathInWindow(targetPath, 'md-file', senderWindow || undefined)
+  ctx.openPathInWindow(result.targetPath, 'md-file', senderWindow || undefined)
   return { success: true }
 })
 

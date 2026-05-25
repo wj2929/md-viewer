@@ -26,6 +26,6 @@ describe('preview scroll layout CSS', () => {
     const markdownCss = readProjectFile('src/assets/markdown.css')
 
     expect(markdownCss).toMatch(/\.markdown-body:focus\s*\{[^}]*outline:\s*none;/s)
-    expect(markdownCss).toMatch(/\.markdown-body:focus-visible\s*\{[^}]*outline:\s*2px\s+solid/s)
+    expect(markdownCss).toMatch(/\.markdown-body:focus-visible\s*\{[^}]*outline:\s*none;/s)
   })
 })
