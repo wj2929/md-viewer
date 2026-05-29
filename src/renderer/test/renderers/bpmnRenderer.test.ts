@@ -170,6 +170,28 @@ describe('bpmnRenderer', () => {
     expect(result).toContain('<svg')
   })
 
+  it('replaces BPMN file placeholders in exported html', async () => {
+    const readBpmnFile = vi.fn().mockResolvedValue({ content: VALID_BPMN, resolvedPath: '/docs/flow.bpmn' })
+    global.window.api = {
+      ...global.window.api,
+      readBpmnFile,
+    } as typeof window.api
+
+    const result = await processBpmnInHtml(
+      '<div class="bpmn-file-placeholder" data-bpmn-src="./flow.bpmn" data-bpmn-alt="流程"></div>',
+      { markdownFilePath: '/docs/report.md' }
+    )
+
+    expect(readBpmnFile).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/report.md',
+      refPath: './flow.bpmn',
+    })
+    expect(result).toContain('bpmn-container')
+    expect(result).toContain('<svg')
+    expect(result).not.toContain('bpmn-file-placeholder')
+    expect(result).not.toContain('data-bpmn-src')
+  })
+
   it('falls back to readFile when readBpmnFile is unavailable in older preload environments', async () => {
     const readFile = vi.fn().mockResolvedValue(VALID_BPMN)
     ;(global.window.api as any).readBpmnFile = undefined

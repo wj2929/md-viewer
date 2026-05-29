@@ -599,14 +599,11 @@ export async function processMermaidInHtml(html: string): Promise<string> {
 
   const matches: { match: string; code: string; index: number }[] = []
   let m: RegExpExecArray | null
-  let matchCount = 0
-  const MAX_MATCHES = 100  // 限制数量，防止 DoS
 
-  while ((m = mermaidRegex.exec(html)) !== null && matchCount < MAX_MATCHES) {
+  while ((m = mermaidRegex.exec(html)) !== null) {
     const code = decodeHtmlEntities(m[1])
     if (isMermaidCode(code)) {
       matches.push({ match: m[0], code, index: m.index })
-      matchCount++
     }
   }
 

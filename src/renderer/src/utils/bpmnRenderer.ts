@@ -221,6 +221,28 @@ async function readBpmnForExport(markdownFilePath: string | undefined, refPath: 
   }
 }
 
+async function renderBpmnReferenceForExport(
+  refPath: string,
+  label: string,
+  options: BpmnHtmlOptions
+): Promise<HTMLElement> {
+  const wrapper = document.createElement('div')
+  wrapper.className = 'bpmn-wrapper'
+  wrapper.setAttribute('role', 'group')
+  try {
+    const source = await readBpmnForExport(options.markdownFilePath, refPath)
+    const result = await renderBpmnToSvg(source)
+    wrapper.innerHTML = result.ok
+      ? `<div class="bpmn-container" aria-label="${escapeHtml(label || refPath)}">${result.svg}</div>`
+      : rendererErrorHtml('BPMN 渲染失败', result.message, 'bpmn-error')
+  } catch (error) {
+    wrapper.className = 'bpmn-error'
+    wrapper.setAttribute('role', 'alert')
+    wrapper.innerHTML = rendererErrorHtml('BPMN 渲染失败', cleanUserFacingError(error), 'bpmn-error')
+  }
+  return wrapper
+}
+
 export async function processBpmnInHtml(html: string, options: BpmnHtmlOptions = {}): Promise<string> {
   if (!/\blanguage-bpmn\b/i.test(html) && !BPMN_HTML_REF_RE.test(html)) return html
 
@@ -240,23 +262,18 @@ export async function processBpmnInHtml(html: string, options: BpmnHtmlOptions =
     block.replaceWith(wrapper)
   }
 
+  const placeholders = Array.from(root.querySelectorAll<HTMLElement>('.bpmn-file-placeholder'))
+  for (const placeholder of placeholders) {
+    const src = placeholder.dataset.bpmnSrc || ''
+    const label = placeholder.dataset.bpmnAlt || src
+    const wrapper = await renderBpmnReferenceForExport(src, label, options)
+    placeholder.replaceWith(wrapper)
+  }
+
   const imgs = Array.from(root.querySelectorAll('img')).filter(img => BPMN_EXTENSION_RE.test(img.getAttribute('src') || ''))
   for (const img of imgs) {
     const src = img.getAttribute('src') || ''
-    const wrapper = document.createElement('div')
-    wrapper.className = 'bpmn-wrapper'
-    wrapper.setAttribute('role', 'group')
-    try {
-      const source = await readBpmnForExport(options.markdownFilePath, src)
-      const result = await renderBpmnToSvg(source)
-      wrapper.innerHTML = result.ok
-        ? `<div class="bpmn-container" aria-label="${escapeHtml(img.getAttribute('alt') || src)}">${result.svg}</div>`
-        : rendererErrorHtml('BPMN 渲染失败', result.message, 'bpmn-error')
-    } catch (error) {
-      wrapper.className = 'bpmn-error'
-      wrapper.setAttribute('role', 'alert')
-      wrapper.innerHTML = rendererErrorHtml('BPMN 渲染失败', cleanUserFacingError(error), 'bpmn-error')
-    }
+    const wrapper = await renderBpmnReferenceForExport(src, img.getAttribute('alt') || src, options)
     img.replaceWith(wrapper)
   }
 

@@ -15,7 +15,6 @@ import { Graphviz } from '@hpcc-js/wasm-graphviz'
 
 const GRAPHVIZ_CONFIG = {
   MAX_CODE_SIZE: 100 * 1024, // 100KB
-  MAX_PER_PAGE: 20,
 }
 
 // 单例 WASM 实例（懒加载）
@@ -80,7 +79,7 @@ export async function renderGraphvizToSvg(code: string, _id: string): Promise<st
  */
 export async function processGraphvizInHtml(html: string): Promise<string> {
   const regex =
-    /<pre class="language-graphviz"><code class="language-graphviz">([\s\S]*?)<\/code><\/pre>/g
+    /<pre\b(?=[^>]*\bclass=["'][^"']*\blanguage-(?:graphviz|dot)\b[^"']*["'])[^>]*>\s*<code\b[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/g
   const matches: { fullMatch: string; code: string }[] = []
 
   let match: RegExpExecArray | null
@@ -99,7 +98,7 @@ export async function processGraphvizInHtml(html: string): Promise<string> {
   if (matches.length === 0) return html
 
   let result = html
-  for (let i = 0; i < Math.min(matches.length, GRAPHVIZ_CONFIG.MAX_PER_PAGE); i++) {
+  for (let i = 0; i < matches.length; i++) {
     const { fullMatch, code } = matches[i]
     try {
       const svgString = await renderGraphvizToSvg(code, `export-${i}`)

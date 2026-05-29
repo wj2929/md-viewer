@@ -162,7 +162,7 @@ export async function exportViaRemote(
   const effectiveStyle = compatibility.style
   const footerText = Object.prototype.hasOwnProperty.call(options, 'footerText')
     ? options.footerText
-    : '由 MD Viewer 生成'
+    : '由 MD Viewer 生成 · github.com/wj2929/md-viewer'
 
   const body = JSON.stringify({
     markdown,

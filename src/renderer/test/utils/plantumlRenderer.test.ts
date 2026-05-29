@@ -141,6 +141,34 @@ class User {
       expect(result).not.toContain('language-c4plantuml')
     })
 
+    it('应该处理 puml 别名生成的 plantuml 代码块属性', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve('<svg><text>PUML Chart</text></svg>')
+      })
+
+      const html = '<pre class="language-plantuml" data-renderer-language="puml"><code class="language-plantuml">@startuml\nA -&gt; B\n@enduml</code></pre>'
+      const result = await processPlantUMLInHtml(html)
+
+      expect(result).toContain('plantuml-container')
+      expect(result).not.toContain('data-renderer-language="puml"')
+      expect(result).not.toContain('language-plantuml')
+    })
+
+    it('应该处理 c4 别名生成的 c4plantuml 代码块属性', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve('<svg><text>C4 Alias Chart</text></svg>')
+      })
+
+      const html = '<pre class="language-c4plantuml" data-renderer-language="c4"><code class="language-c4plantuml">@startuml\nPerson(user, "用户")\n@enduml</code></pre>'
+      const result = await processPlantUMLInHtml(html)
+
+      expect(result).toContain('plantuml-container')
+      expect(result).not.toContain('data-renderer-language="c4"')
+      expect(result).not.toContain('language-c4plantuml')
+    })
+
     it('应该处理多个 plantuml 代码块', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
@@ -155,6 +183,22 @@ class User {
       const result = await processPlantUMLInHtml(html)
       expect(result).toContain('中间内容')
       expect(result).not.toContain('language-plantuml')
+    })
+
+    it('应该处理超过 15 个 plantuml 代码块而不残留源码', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve('<svg><text>Chart</text></svg>')
+      })
+      const html = Array.from({ length: 18 }, (_, index) =>
+        `<pre class="language-plantuml"><code class="language-plantuml">@startuml\nA${index} -&gt; B${index}\n@enduml</code></pre>`
+      ).join('\n')
+
+      const result = await processPlantUMLInHtml(html)
+
+      expect((result.match(/plantuml-container/g) || [])).toHaveLength(18)
+      expect(result).not.toContain('language-plantuml')
+      expect(result).not.toContain('A17 -&gt; B17')
     })
 
     it('应该处理 fetch 失败', async () => {

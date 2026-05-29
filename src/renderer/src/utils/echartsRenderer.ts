@@ -85,7 +85,6 @@ echarts.use([
 // 配置常量
 const ECHARTS_CONFIG = {
   MAX_CONFIG_SIZE: 50 * 1024, // 50KB
-  MAX_CHARTS_PER_PAGE: 20,
   // 导出时先用较宽画布完成 ECharts 布局，再等比缩放到 HTML/PDF/DOCX。
   // 不能先用 600px 小画布布局再拉伸，否则饼图外侧标签和左侧图例会先发生碰撞。
   DEFAULT_WIDTH: 960,
@@ -429,16 +428,11 @@ export async function processEChartsInHtml(html: string): Promise<string> {
 
   const matches: { match: string; config: string; index: number }[] = []
   let m: RegExpExecArray | null
-  let count = 0
 
-  while (
-    (m = echartsRegex.exec(html)) !== null &&
-    count < ECHARTS_CONFIG.MAX_CHARTS_PER_PAGE
-  ) {
+  while ((m = echartsRegex.exec(html)) !== null) {
     const config = decodeHtmlEntities(m[1])
     if (isEChartsConfig(config)) {
       matches.push({ match: m[0], config, index: m.index })
-      count++
     }
   }
 

@@ -19,7 +19,6 @@ import plantumlEncoder from 'plantuml-encoder'
 
 const PLANTUML_CONFIG = {
   MAX_CODE_SIZE: 50000, // 50KB
-  MAX_PER_PAGE: 15,
   DEFAULT_SERVER: 'https://www.plantuml.com/plantuml',
   FETCH_TIMEOUT: 8000, // 8s
   MAX_GET_LENGTH: 4000, // 编码后超过此长度改用 POST
@@ -181,7 +180,7 @@ export async function renderPlantUMLToSvg(code: string, diagramType: PlantUMLDia
  */
 export async function processPlantUMLInHtml(html: string): Promise<string> {
   const regex =
-    /<pre class="language-(plantuml|c4plantuml)"><code class="language-\1">([\s\S]*?)<\/code><\/pre>/g
+    /<pre\b(?=[^>]*\bclass=["'][^"']*\blanguage-(plantuml|c4plantuml)\b[^"']*["'])[^>]*>\s*<code\b[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/g
   const matches: { fullMatch: string; code: string; diagramType: PlantUMLDiagramType }[] = []
 
   let match: RegExpExecArray | null
@@ -201,7 +200,7 @@ export async function processPlantUMLInHtml(html: string): Promise<string> {
   if (matches.length === 0) return html
 
   let result = html
-  for (let i = 0; i < Math.min(matches.length, PLANTUML_CONFIG.MAX_PER_PAGE); i++) {
+  for (let i = 0; i < matches.length; i++) {
     const { fullMatch, code, diagramType } = matches[i]
     try {
       const svgString = await renderPlantUMLToSvg(code, diagramType)

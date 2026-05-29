@@ -64,5 +64,17 @@ describe('markmapRenderer', () => {
         // 在测试环境中 DOM 操作可能失败，这是预期的
       }
     })
+
+    it('应该处理超过 20 个 markmap 代码块而不残留源码', async () => {
+      const html = Array.from({ length: 22 }, (_, index) =>
+        `<pre class="language-markmap"><code class="language-markmap"># Root ${index}\n## Branch</code></pre>`
+      ).join('\n')
+
+      const result = await processMarkmapInHtml(html)
+
+      expect(((result.match(/markmap-container/g) || []).length) + ((result.match(/markmap-error/g) || []).length)).toBe(22)
+      expect(result).not.toContain('language-markmap')
+      expect(result).not.toContain('Root 21')
+    })
   })
 })

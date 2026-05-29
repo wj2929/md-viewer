@@ -15,4 +15,12 @@ describe('content security policy', () => {
     expect(policy).toContain('https://assets.antv.antgroup.com')
     expect(policy).not.toContain('style-src *')
   })
+
+  it('allows AntV infographic font CSS fetches without broadening all connections', () => {
+    const policy = createContentSecurityPolicy(false)
+    const connectDirective = policy.split(';').find(part => part.trim().startsWith('connect-src')) || ''
+
+    expect(connectDirective).toContain('https://assets.antv.antgroup.com')
+    expect(connectDirective).not.toContain('connect-src *')
+  })
 })

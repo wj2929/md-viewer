@@ -71,6 +71,15 @@ describe('graphvizRenderer', () => {
       expect(result).not.toContain('language-graphviz')
     })
 
+    it('应该处理 dot 别名生成的 graphviz 代码块属性', async () => {
+      const html = '<pre class="language-graphviz" data-renderer-language="dot"><code class="language-graphviz">digraph G { A -&gt; B }</code></pre>'
+      const result = await processGraphvizInHtml(html)
+
+      expect(result).toContain('graphviz-container')
+      expect(result).not.toContain('data-renderer-language="dot"')
+      expect(result).not.toContain('language-graphviz')
+    })
+
     it('应该处理多个 graphviz 代码块', async () => {
       const html = `
         <pre class="language-graphviz"><code class="language-graphviz">digraph A { X -&gt; Y }</code></pre>
@@ -81,6 +90,18 @@ describe('graphvizRenderer', () => {
       expect(result).toContain('中间内容')
       // 两个代码块都应该被替换
       expect(result).not.toContain('language-graphviz')
+    })
+
+    it('应该处理超过 20 个 graphviz 代码块而不残留源码', async () => {
+      const html = Array.from({ length: 25 }, (_, index) =>
+        `<pre class="language-graphviz"><code class="language-graphviz">digraph G${index} { A${index} -&gt; B${index} }</code></pre>`
+      ).join('\n')
+
+      const result = await processGraphvizInHtml(html)
+
+      expect((result.match(/graphviz-container/g) || [])).toHaveLength(25)
+      expect(result).not.toContain('language-graphviz')
+      expect(result).not.toContain('digraph G24')
     })
 
     it('应该处理渲染错误', async () => {

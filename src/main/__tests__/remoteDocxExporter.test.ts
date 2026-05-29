@@ -156,7 +156,7 @@ describe('remoteDocxExporter output path preflight', () => {
 })
 
 describe('remoteDocxExporter footer branding', () => {
-  it('keeps the default footer when footerText is omitted', async () => {
+  it('keeps the default branding when footerText is omitted', async () => {
     let capturedBody: any
     const serverUrl = await startDocxConvertServer(body => {
       capturedBody = body
@@ -173,7 +173,7 @@ describe('remoteDocxExporter footer branding', () => {
 
     await exportViaRemote('# Report', outputPath, { style: 'standard' })
 
-    expect(capturedBody.footerText).toBe('由 MD Viewer 生成')
+    expect(capturedBody.footerText).toBe('由 MD Viewer 生成 · github.com/wj2929/md-viewer')
   })
 
   it('sends null footerText to disable remote DOCX branding', async () => {

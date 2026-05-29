@@ -1044,7 +1044,7 @@ digraph Chinese {
     root [label="中文测试 🇨🇳", fillcolor="#F44336", fontcolor=white]
 
     // 标点符号
-    punct [label="标点符号\n逗号，句号。\n问号？感叹号！\n引号"双引号"\n括号（圆括号）\n破折号——\n省略号……"]
+    punct [label="标点符号\n逗号，句号。\n问号？感叹号！\n引号\"双引号\"\n括号（圆括号）\n破折号——\n省略号……"]
 
     // Emoji
     emoji [label="Emoji 表情\n🎉🚀⚡🔥\n✅❌⚠️💡\n🎯🏆📊🗺️"]

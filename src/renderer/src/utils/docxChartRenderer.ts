@@ -79,6 +79,13 @@ const DOCX_CHART_ALPHA_THRESHOLD = 16
 const DOCX_CHART_MAX_MARGIN_RATIO = 0.18
 const DOCX_CHART_MAX_WIDTH_CM = 15.5
 const DOCX_CHART_MAX_HEIGHT_CM = 24
+const DOCX_CHART_EXPORT_WIDTH_PX = 1170
+const DOCX_COMPACT_TALL_MAX_HEIGHT_CM = 11.8
+const DOCX_COMPACT_TALL_MAX_PIXELS = 3_200_000
+const DOCX_PREVIEW_MATCH_MIN_WIDTH_CM = 1
+const DOCX_PREVIEW_MATCH_TINY_WIDTH_THRESHOLD_CM = 4
+const DOCX_PREVIEW_MATCH_READABLE_MIN_WIDTH_CM = 6
+const DOCX_READABLE_DIAGRAM_PREVIEW_THRESHOLD_CM = 7
 const LOCAL_MARKDOWN_IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp)(?:[?#].*)?$/i
 
 export interface DocxChartTrimRect {
@@ -265,9 +272,26 @@ export function calculateDocxChartTrimRect(
 
   const topMargin = minY / height
   const bottomMargin = (height - 1 - maxY) / height
-  // 高窄图表（如雷达图、思维导图）常通过左右留白保持页面友好的纵横比，只裁上下同时过大的框式白边。
-  const hasExcessiveVerticalFrame = topMargin > maxMarginRatio && bottomMargin > maxMarginRatio
-  if (!hasExcessiveVerticalFrame) {
+  const verticalMargin = topMargin + bottomMargin
+  const leftMargin = minX / width
+  const rightMargin = (width - 1 - maxX) / width
+  const horizontalImbalance = Math.abs(leftMargin - rightMargin)
+  const sourceAspectRatio = width / height
+  const contentAspectRatio = contentWidth / contentHeight
+  // 高窄图表常通过左右留白保持页面友好的纵横比。
+  // 宽幅图表有时会产生整块画布白边，只看单边阈值会漏裁，
+  // 导致 DOCX 中图表实际内容明显偏小；因此只在存在明显上下画框时裁剪整张图。
+  const hasExcessiveVerticalFrame = (
+    (topMargin > maxMarginRatio && bottomMargin > maxMarginRatio)
+    || verticalMargin > maxMarginRatio * 1.65
+  )
+  const hasAsymmetricLandscapeFrame = (
+    sourceAspectRatio >= 1.1
+    && contentAspectRatio >= 1.1
+    && Math.max(leftMargin, rightMargin) > maxMarginRatio
+    && horizontalImbalance > Math.max(0.08, maxMarginRatio * 0.5)
+  )
+  if (!hasExcessiveVerticalFrame && !hasAsymmetricLandscapeFrame) {
     return null
   }
 
@@ -284,15 +308,89 @@ export function calculateDocxChartTrimRect(
   return { x: cropX, y: cropY, width: cropWidth, height: cropHeight }
 }
 
-export function calculateDocxImageWidthCm(pixelWidth: number, pixelHeight: number): number {
+export function calculateDocxImageWidthCm(
+  pixelWidth: number,
+  pixelHeight: number,
+  maxHeightCm: number = DOCX_CHART_MAX_HEIGHT_CM,
+  preferredWidthCm?: number,
+): number {
   if (!Number.isFinite(pixelWidth) || !Number.isFinite(pixelHeight) || pixelWidth <= 0 || pixelHeight <= 0) {
     return DOCX_CHART_MAX_WIDTH_CM
   }
 
   const heightToWidthRatio = pixelHeight / pixelWidth
-  const widthByHeightBudget = DOCX_CHART_MAX_HEIGHT_CM / heightToWidthRatio
-  const widthCm = Math.min(DOCX_CHART_MAX_WIDTH_CM, widthByHeightBudget)
+  const widthByHeightBudget = maxHeightCm / heightToWidthRatio
+  const hasPreferredWidth = Number.isFinite(preferredWidthCm) && Number(preferredWidthCm) > 0
+  const isReadableLandscapeDiagram = hasPreferredWidth
+    && Number(preferredWidthCm) >= DOCX_READABLE_DIAGRAM_PREVIEW_THRESHOLD_CM
+    && pixelWidth >= 900
+    && pixelHeight >= 300
+    && heightToWidthRatio >= 0.25
+    && heightToWidthRatio <= 1.25
+  const maxWidthCm = hasPreferredWidth
+    ? Math.min(DOCX_CHART_MAX_WIDTH_CM, isReadableLandscapeDiagram ? DOCX_CHART_MAX_WIDTH_CM : Number(preferredWidthCm))
+    : DOCX_CHART_MAX_WIDTH_CM
+  const tinyPreviewWidthFloor = hasPreferredWidth && Number(preferredWidthCm) < DOCX_PREVIEW_MATCH_TINY_WIDTH_THRESHOLD_CM
+    ? Math.min(widthByHeightBudget, DOCX_PREVIEW_MATCH_READABLE_MIN_WIDTH_CM)
+    : DOCX_PREVIEW_MATCH_MIN_WIDTH_CM
+  const widthCm = Math.min(maxWidthCm, widthByHeightBudget)
+  if (hasPreferredWidth) {
+    return Math.max(tinyPreviewWidthFloor, Number(widthCm.toFixed(2)))
+  }
   return Math.max(4, Number(widthCm.toFixed(2)))
+}
+
+function getPreviewMatchedWidthCm(containerClass: string, typeIndex: number): number | undefined {
+  if (typeof document === 'undefined') return undefined
+  const containers = document.querySelectorAll(`.${containerClass}`)
+  const container = containers[typeIndex] as HTMLElement | undefined
+  if (!container) return undefined
+
+  const markdownBody = container.closest('.markdown-body') || document.querySelector('.markdown-body')
+  const bodyRect = markdownBody?.getBoundingClientRect()
+  const target = container.querySelector('svg, canvas, img, .mxgraph') as HTMLElement | SVGElement | null
+  const targetRect = (target || container).getBoundingClientRect()
+  if (!bodyRect || bodyRect.width <= 0 || targetRect.width <= 0) return undefined
+
+  const effectivePreviewWidth = Math.min(bodyRect.width, DOCX_CHART_EXPORT_WIDTH_PX)
+  const relativeWidth = Math.min(1, targetRect.width / effectivePreviewWidth)
+  if (!Number.isFinite(relativeWidth) || relativeWidth <= 0) return undefined
+  return Number((relativeWidth * DOCX_CHART_MAX_WIDTH_CM).toFixed(2))
+}
+
+function getDocxChartMaxHeightCm(pixelWidth: number, pixelHeight: number): number {
+  const pixelCount = pixelWidth * pixelHeight
+  if (
+    Number.isFinite(pixelWidth)
+    && Number.isFinite(pixelHeight)
+    && pixelWidth > 0
+    && pixelHeight > 0
+    && pixelHeight / pixelWidth > 1.25
+    && pixelCount <= DOCX_COMPACT_TALL_MAX_PIXELS
+  ) {
+    return DOCX_COMPACT_TALL_MAX_HEIGHT_CM
+  }
+  return DOCX_CHART_MAX_HEIGHT_CM
+}
+
+function buildChartTypeIndexByStart(
+  blocks: ChartBlock[],
+  imageRefs: ExcalidrawImageRef[],
+  bpmnImageRefs: BpmnImageRef[],
+): Map<number, number> {
+  const items = [
+    ...blocks.map(block => ({ start: block.start, type: normalizeChartType(block.lang) })),
+    ...imageRefs.map(ref => ({ start: ref.start, type: 'excalidraw' as ChartType })),
+    ...bpmnImageRefs.map(ref => ({ start: ref.start, type: 'bpmn' as ChartType })),
+  ].sort((a, b) => a.start - b.start)
+  const counters: Record<string, number> = {}
+  const result = new Map<number, number>()
+  for (const item of items) {
+    const index = counters[item.type] || 0
+    result.set(item.start, index)
+    counters[item.type] = index + 1
+  }
+  return result
 }
 
 function canvasToPngBase64(canvas: HTMLCanvasElement): string {
@@ -690,6 +788,10 @@ async function renderChartCodeToPng(
 ): Promise<{ pngBase64: string; widthCm: number } | null> {
   try {
     let svgString: string | null = null
+    const previewWidthCm = (() => {
+      const containerClass = CONTAINER_CLASS_MAP[type]
+      return containerClass ? getPreviewMatchedWidthCm(containerClass, typeIndex) : undefined
+    })()
 
     // DrawIO 优先复用预览 DOM；长文档/虚拟列表未挂载时，改用离屏容器主动渲染。
     if (type === 'drawio') {
@@ -807,9 +909,21 @@ async function renderChartCodeToPng(
     const pngBase64 = await svgToPng(svgString!, type, globalIndex)
     if (pngBase64) {
       const size = await getPngNaturalSize(pngBase64)
+      const maxHeightCm = size && previewWidthCm
+        ? DOCX_CHART_MAX_HEIGHT_CM
+        : size
+          ? getDocxChartMaxHeightCm(size.width, size.height)
+          : DOCX_CHART_MAX_HEIGHT_CM
       return {
         pngBase64,
-        widthCm: size ? calculateDocxImageWidthCm(size.width, size.height) : DOCX_CHART_MAX_WIDTH_CM,
+        widthCm: size
+          ? calculateDocxImageWidthCm(
+            size.width,
+            size.height,
+            maxHeightCm,
+            previewWidthCm,
+          )
+          : DOCX_CHART_MAX_WIDTH_CM,
       }
     }
 
@@ -853,14 +967,8 @@ export async function renderChartsForDocx(
   const totalCharts = blocks.length + imageRefs.length + bpmnImageRefs.length + localImageRefs.length
   let completedCharts = 0
 
-  // 计算每个 block 在同类型中的序号（用于 DOM fallback 索引）
-  const typeCounters: Record<string, number> = {}
-  const typeIndices: number[] = []
-  for (const block of blocks) {
-    const key = normalizeChartType(block.lang)
-    typeCounters[key] = (typeCounters[key] || 0)
-    typeIndices.push(typeCounters[key]++)
-  }
+  // 按文档顺序计算同类型序号，用于 DOM fallback 和预览尺寸继承。
+  const typeIndexByStart = buildChartTypeIndexByStart(blocks, imageRefs, bpmnImageRefs)
 
   const replacements: MarkdownReplacement[] = []
 
@@ -870,7 +978,8 @@ export async function renderChartsForDocx(
     completedCharts += 1
     options.onProgress?.(completedCharts, totalCharts, type)
 
-    const result = await renderChartCodeToPng(type, block.code, i, typeIndices[i], { sourceLanguage: block.lang })
+    const typeIndex = typeIndexByStart.get(block.start) ?? 0
+    const result = await renderChartCodeToPng(type, block.code, i, typeIndex, { sourceLanguage: block.lang })
 
     if (result) {
       const placeholderId = generatePlaceholderId()
@@ -902,7 +1011,7 @@ export async function renderChartsForDocx(
         markdownFilePath: options.markdownFilePath,
         refPath: imageRef.cleanRefPath,
       })
-      const png = await renderChartCodeToPng('excalidraw', file.content, completedCharts - 1, 0, {
+      const png = await renderChartCodeToPng('excalidraw', file.content, completedCharts - 1, typeIndexByStart.get(imageRef.start) ?? 0, {
         allowDomFallback: false,
         excalidrawSourceKind: 'file-reference',
         excalidrawSourceLabel: imageRef.alt || imageRef.refPath,
@@ -946,7 +1055,7 @@ export async function renderChartsForDocx(
           throw error
         }
       }
-      const png = await renderChartCodeToPng('bpmn', content, completedCharts - 1, 0, {
+      const png = await renderChartCodeToPng('bpmn', content, completedCharts - 1, typeIndexByStart.get(imageRef.start) ?? 0, {
         allowDomFallback: false,
       })
       if (!png) {

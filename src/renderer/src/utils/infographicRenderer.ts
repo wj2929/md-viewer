@@ -12,7 +12,6 @@ import type { InfographicOptions } from '@antv/infographic'
 
 const INFOGRAPHIC_CONFIG = {
   MAX_CONFIG_SIZE: 100 * 1024, // 100KB
-  MAX_PER_PAGE: 10,
   DEFAULT_WIDTH: 800,
   DEFAULT_HEIGHT: 600,
 }
@@ -130,7 +129,7 @@ async function processInfographicInHtml(html: string): Promise<string> {
   if (matches.length === 0) return html
 
   let result = html
-  for (let i = 0; i < Math.min(matches.length, INFOGRAPHIC_CONFIG.MAX_PER_PAGE); i++) {
+  for (let i = 0; i < matches.length; i++) {
     const { fullMatch, config } = matches[i]
     try {
       const svgString = await renderInfographicToSvg(config, `export-${i}`)

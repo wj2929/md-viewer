@@ -108,6 +108,16 @@ describe('drawioRenderer', () => {
       expect(result).not.toContain('language-drawio')
     })
 
+    it('应该处理 dio 别名生成的 drawio 代码块属性', async () => {
+      const html = '<pre class="language-drawio" data-renderer-language="dio"><code class="language-drawio">&lt;mxfile&gt;&lt;/mxfile&gt;</code></pre>'
+      const result = await processDrawioInHtml(html)
+
+      expect(result).toContain('drawio-container')
+      expect(result).toContain('DrawIO 图表')
+      expect(result).not.toContain('data-renderer-language="dio"')
+      expect(result).not.toContain('language-drawio')
+    })
+
     it('应该处理多个 drawio 代码块', async () => {
       const html = `
         <pre class="language-drawio"><code class="language-drawio">&lt;mxfile&gt;first&lt;/mxfile&gt;</code></pre>
@@ -128,19 +138,18 @@ describe('drawioRenderer', () => {
       expect(result).toContain('drawio-container')
     })
 
-    it('应该限制最大处理数量', async () => {
-      // 创建 12 个代码块（超过 MAX_PER_PAGE = 10）
+    it('应该处理超过 10 个 drawio 代码块，避免长文档导出残留源码', async () => {
       let html = ''
       for (let i = 0; i < 12; i++) {
         html += `<pre class="language-drawio"><code class="language-drawio">&lt;mxfile&gt;block${i}&lt;/mxfile&gt;</code></pre>\n`
       }
       const result = await processDrawioInHtml(html)
-      // 前 10 个应该被替换
+
       const containerCount = (result.match(/drawio-container/g) || []).length
-      expect(containerCount).toBe(10)
-      // 后 2 个应该保持原样
+      expect(containerCount).toBe(12)
       const remainingCount = (result.match(/language-drawio/g) || []).length
-      expect(remainingCount).toBeGreaterThan(0)
+      expect(remainingCount).toBe(0)
+      expect(result).not.toContain('&lt;mxfile&gt;block11&lt;/mxfile&gt;')
     })
 
     it('应该保留非 drawio 的 HTML 内容', async () => {

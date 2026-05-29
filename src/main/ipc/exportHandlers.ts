@@ -542,6 +542,74 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
       margin: 0 auto;
     }
 
+    /* 统一 PDF 中图表的打印尺寸，避免导出后整页铺满 */
+    .markdown-body .mermaid-container,
+    .markdown-body .echarts-container,
+    .markdown-body .graphviz-container,
+    .markdown-body .plantuml-container,
+    .markdown-body .c4plantuml-container,
+    .markdown-body .excalidraw-container,
+    .markdown-body .vega-lite-container,
+    .markdown-body .d2-container,
+    .markdown-body .bpmn-container,
+    .markdown-body .wavedrom-container,
+    .markdown-body .structurizr-container,
+    .markdown-body .plotly-container,
+    .markdown-body .dbml-container,
+    .markdown-body .antv-g6-container,
+    .markdown-body .kroki-container,
+    .markdown-body .markmap-container,
+    .markdown-body .infographic-container {
+      display: flex !important;
+      justify-content: center !important;
+      align-items: center !important;
+      text-align: center;
+      width: 100%;
+      max-width: 150mm;
+      margin: 1.5em auto !important;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      overflow: visible;
+    }
+
+    .markdown-body .mermaid-container svg,
+    .markdown-body .echarts-container svg,
+    .markdown-body .echarts-container canvas,
+    .markdown-body .graphviz-container svg,
+    .markdown-body .plantuml-container svg,
+    .markdown-body .c4plantuml-container svg,
+    .markdown-body .excalidraw-container svg,
+    .markdown-body .vega-lite-container svg,
+    .markdown-body .d2-container svg,
+    .markdown-body .bpmn-container svg,
+    .markdown-body .wavedrom-container svg,
+    .markdown-body .structurizr-container svg,
+    .markdown-body .plotly-container svg,
+    .markdown-body .dbml-container svg,
+    .markdown-body .antv-g6-container svg,
+    .markdown-body .kroki-container svg,
+    .markdown-body .markmap-container svg,
+    .markdown-body .infographic-container svg {
+      display: block;
+      max-width: 100% !important;
+      max-height: 180mm;
+      height: auto !important;
+      margin: 0 auto !important;
+      flex: 0 1 auto;
+    }
+
+    .pdf-export-branding {
+      text-align: center;
+      margin: 12px 0 0;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+      font-size: 10px;
+      line-height: 1.2;
+      color: #999;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
     /* ✅ 增强 PDF 打印样式 */
     @media print {
       body {
@@ -588,10 +656,24 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
       }
 
       /* 优化代码块显示 */
-      .markdown-body pre {
+      .markdown-body pre,
+      .markdown-body pre[class*="language-"] {
         white-space: pre-wrap;       /* ✅ 自动换行 */
         word-wrap: break-word;
+        overflow-wrap: anywhere;
+        word-break: break-word;
         overflow-x: visible;
+      }
+
+      .markdown-body pre > code,
+      .markdown-body pre code,
+      .markdown-body pre code[class*="language-"],
+      .markdown-body pre[class*="language-"] > code,
+      .markdown-body pre[class*="language-"] code[class*="language-"] {
+        white-space: pre-wrap !important;
+        word-wrap: break-word;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       /* 表格单元格里内嵌的代码 / 行内代码，同样允许换行 */
@@ -607,7 +689,7 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
   <div class="markdown-body">
     ${content}
   </div>
-  ${showBranding ? `<div style="text-align:center;padding:24px 0 12px;font-size:10px;color:#999;border-top:1px solid #eee;margin-top:40px;">由 MD Viewer 生成 · github.com/wj2929/md-viewer</div>` : ''}
+  ${showBranding ? `<div class="pdf-export-branding">由 MD Viewer 生成 · github.com/wj2929/md-viewer</div>` : ''}
 </body>
 </html>`
 }
@@ -1173,7 +1255,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
           {
             style: effectiveRemoteStyle,
             title: undefined,
-            footerText: showBranding ? '由 MD Viewer 生成' : null,
+            footerText: showBranding ? '由 MD Viewer 生成 · github.com/wj2929/md-viewer' : null,
             images: remoteImages,
             embedFont: docxConfig.embedFont,
           }

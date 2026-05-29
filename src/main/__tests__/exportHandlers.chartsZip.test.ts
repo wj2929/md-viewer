@@ -8,23 +8,39 @@ import * as path from 'path'
 import { registerExportHandlers } from '../ipc/exportHandlers'
 import { resetSecurity, setAllowedBasePath } from '../security'
 
-vi.mock('electron', () => ({
-  BrowserWindow: {
-    fromWebContents: vi.fn(),
-  },
-  dialog: {
-    showSaveDialog: vi.fn(),
-  },
-  ipcMain: {
-    handle: vi.fn(),
-  },
-  app: {
-    getAppPath: vi.fn(() => process.cwd()),
-  },
-  net: {
-    fetch: vi.fn(),
-  },
-}))
+let loadedPdfHtml = ''
+
+vi.mock('electron', () => {
+  const BrowserWindowMock = vi.fn(function BrowserWindowMock() {
+    return {
+      loadFile: vi.fn(async (filePath: string) => {
+        loadedPdfHtml = await fs.readFile(filePath, 'utf-8')
+      }),
+      webContents: {
+        executeJavaScript: vi.fn().mockResolvedValue(true),
+        printToPDF: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7\n')),
+      },
+      close: vi.fn(),
+    }
+  })
+  ;(BrowserWindowMock as any).fromWebContents = vi.fn()
+
+  return {
+    BrowserWindow: BrowserWindowMock,
+    dialog: {
+      showSaveDialog: vi.fn(),
+    },
+    ipcMain: {
+      handle: vi.fn(),
+    },
+    app: {
+      getAppPath: vi.fn(() => process.cwd()),
+    },
+    net: {
+      fetch: vi.fn(),
+    },
+  }
+})
 
 vi.mock('@electron-toolkit/utils', () => ({
   is: { dev: false },
@@ -75,6 +91,7 @@ describe('chart zip export handler', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    loadedPdfHtml = ''
     resetSecurity()
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'md-viewer-chart-zip-'))
     setAllowedBasePath(tmpDir)
@@ -161,5 +178,120 @@ describe('chart zip export handler', () => {
       error: '单次最多打包 200 张图表，请拆分文档后重试',
     })
     expect(dialog.showSaveDialog).not.toHaveBeenCalled()
+  })
+
+  it('adds print sizing constraints for SVG chart containers without forcing DrawIO full width', async () => {
+    const outputPath = path.join(tmpDir, 'charts.pdf')
+    vi.mocked(dialog.showSaveDialog).mockResolvedValue({
+      canceled: false,
+      filePath: outputPath,
+    } as any)
+
+    const exportPdf = handler<(event: any, htmlContent: string, fileName: string) => Promise<string>>('export:pdf')
+
+    await exportPdf({ sender: {} }, [
+      '<div class="drawio-container"><svg style="width:100%" viewBox="0 0 1200 800"></svg></div>',
+      '<div class="kroki-container"><svg style="width:100%" viewBox="0 0 1200 800"></svg></div>',
+    ].join('\n'), 'charts.md')
+
+    expect(loadedPdfHtml).toContain('.kroki-container')
+    expect(loadedPdfHtml).toContain('page-break-inside: avoid')
+    expect(loadedPdfHtml).toContain('justify-content: center !important')
+    expect(loadedPdfHtml).toContain('text-align: center')
+    expect(loadedPdfHtml).toContain('max-width: 150mm')
+    expect(loadedPdfHtml).toContain('max-height: 180mm')
+    expect(loadedPdfHtml).not.toMatch(/\.markdown-body \.drawio-container,\s*\.markdown-body \.plantuml-container/)
+    expect(loadedPdfHtml).not.toContain('.markdown-body .drawio-container svg {\n      width: 100% !important;')
+    expect(loadedPdfHtml).toMatch(/\.markdown-body \.graphviz-container svg,[\s\S]*?max-width: 100% !important;[\s\S]*?max-height: 180mm;/)
+    expect(loadedPdfHtml).not.toMatch(/\.markdown-body \.graphviz-container svg,[\s\S]*?width: auto !important;[\s\S]*?max-height: 180mm;/)
+  })
+
+  it('keeps PDF branding compact to avoid a trailing blank page', async () => {
+    const outputPath = path.join(tmpDir, 'branded.pdf')
+    vi.mocked(dialog.showSaveDialog).mockResolvedValue({
+      canceled: false,
+      filePath: outputPath,
+    } as any)
+
+    const appDataManager = await import('../appDataManager')
+    vi.mocked(appDataManager.appDataManager.getSettings).mockReturnValueOnce({
+      showExportBranding: true,
+      docxExport: {
+        remoteEnabled: false,
+        localFallbackEnabled: false,
+      },
+    } as any)
+
+    const exportPdf = handler<(event: any, htmlContent: string, fileName: string) => Promise<string>>('export:pdf')
+
+    await exportPdf({ sender: {} }, '<h1>Report</h1>', 'report.md')
+
+    expect(loadedPdfHtml).toContain('.pdf-export-branding')
+    expect(loadedPdfHtml).toContain('<div class="pdf-export-branding">由 MD Viewer 生成')
+    expect(loadedPdfHtml).not.toContain('padding:24px 0 12px')
+    expect(loadedPdfHtml).not.toContain('margin-top:40px')
+  })
+
+  it('forces long highlighted code lines to wrap in PDF export', async () => {
+    const outputPath = path.join(tmpDir, 'long-code.pdf')
+    vi.mocked(dialog.showSaveDialog).mockResolvedValue({
+      canceled: false,
+      filePath: outputPath,
+    } as any)
+
+    const exportPdf = handler<(event: any, htmlContent: string, fileName: string) => Promise<string>>('export:pdf')
+
+    await exportPdf({ sender: {} }, [
+      '<pre class="language-bash"><code class="language-bash">',
+      'kubectl exec &lt;apisix-pod&gt; -n ingress-apisix -- curl -s -X PUT http://127.0.0.1:9180/apisix/admin/global_rules/1 -d "{\\"plugins\\":{\\"cors\\":{\\"allow_headers\\":\\"**\\",\\"expose_headers\\":\\"*,X-Session-Id,x-session-id,X-Api-Version,Content-Type,Content-Length\\"}}}"',
+      '</code></pre>',
+    ].join(''), 'long-code.md')
+
+    expect(loadedPdfHtml).toContain('.markdown-body pre code[class*="language-"]')
+    expect(loadedPdfHtml).toContain('white-space: pre-wrap !important')
+    expect(loadedPdfHtml).toContain('overflow-wrap: anywhere')
+    expect(loadedPdfHtml).toContain('word-break: break-word')
+  })
+
+  it('passes generated branding as body text for remote DOCX export', async () => {
+    const outputPath = path.join(tmpDir, 'formal.docx')
+    vi.mocked(dialog.showSaveDialog).mockResolvedValue({
+      canceled: false,
+      filePath: outputPath,
+    } as any)
+
+    const appDataManager = await import('../appDataManager')
+    vi.mocked(appDataManager.appDataManager.getSettings).mockReturnValueOnce({
+      showExportBranding: true,
+      docxExport: {
+        remoteEnabled: true,
+        serverUrl: 'http://127.0.0.1:3179',
+        style: 'official',
+        localFallbackEnabled: false,
+      },
+    } as any)
+    const remote = await import('../remoteDocxExporter')
+    vi.mocked(remote.resolveRemoteDocxStyle).mockResolvedValueOnce({ style: 'official', warnings: [] })
+    vi.mocked(remote.exportViaRemote).mockResolvedValueOnce({
+      filePath: outputPath,
+      warnings: [],
+      serviceVersion: 'test',
+      imagesFailed: 0,
+      mode: 'remote',
+      style: 'official',
+    } as any)
+
+    const exportDocx = handler<(event: any, htmlContent: string, fileName: string, basePath: string, markdown?: string) => Promise<any>>('export:docx')
+
+    await exportDocx({ sender: {} }, '<h1>Report</h1>', 'report.md', tmpDir, '# Report')
+
+    expect(remote.exportViaRemote).toHaveBeenCalledWith(
+      '# Report',
+      outputPath,
+      expect.objectContaining({
+        style: 'official',
+        footerText: '由 MD Viewer 生成 · github.com/wj2929/md-viewer',
+      }),
+    )
   })
 })

@@ -175,6 +175,24 @@ describe('DOCX chart PNG whitespace trimming', () => {
 
     expect(rect).toBeNull()
   })
+
+  it('trims wide chart canvases when combined vertical whitespace makes content look too small', () => {
+    const imageData = makeWhiteImageData(1000, 360)
+    paintRect(imageData, 80, 58, 580, 210, [24, 24, 24])
+
+    const rect = calculateDocxChartTrimRect(imageData, { paddingPx: 30, maxMarginRatio: 0.18 })
+
+    expect(rect).toEqual({ x: 50, y: 28, width: 640, height: 270 })
+  })
+
+  it('trims asymmetric landscape diagrams so the content is visually centered', () => {
+    const imageData = makeWhiteImageData(2348, 1424)
+    paintRect(imageData, 505, 203, 1694, 1034, [24, 24, 24])
+
+    const rect = calculateDocxChartTrimRect(imageData, { paddingPx: 30, maxMarginRatio: 0.18 })
+
+    expect(rect).toEqual({ x: 475, y: 173, width: 1754, height: 1094 })
+  })
 })
 
 describe('DOCX chart image sizing', () => {
@@ -186,6 +204,37 @@ describe('DOCX chart image sizing', () => {
     const widthCm = calculateDocxImageWidthCm(2348, 7790)
     expect(widthCm).toBeCloseTo(7.23, 1)
     expect(widthCm * (7790 / 2348)).toBeLessThanOrEqual(24.1)
+  })
+
+  it('supports a lower height budget for compact tall diagrams', () => {
+    const widthCm = calculateDocxImageWidthCm(1208, 2060, 11.8)
+    expect(widthCm).toBeCloseTo(6.92, 1)
+    expect(widthCm * (2060 / 1208)).toBeLessThanOrEqual(11.9)
+  })
+
+  it('uses a preview-matched width when the chart is visibly narrower in Markdown preview', () => {
+    expect(calculateDocxImageWidthCm(1000, 360, 24, 5.2)).toBe(5.2)
+  })
+
+  it('does not let preview DOM width make readable landscape diagrams tiny', () => {
+    expect(calculateDocxImageWidthCm(2348, 1424, 24, 7.75)).toBe(15.5)
+  })
+
+  it('keeps preview-matched tall charts within the height budget', () => {
+    const widthCm = calculateDocxImageWidthCm(100, 500, 11.8, 8)
+    expect(widthCm).toBeCloseTo(2.36, 2)
+    expect(widthCm * 5).toBeLessThanOrEqual(11.9)
+  })
+
+  it('does not let preview-matched compact diagrams become unreadably small in DOCX', () => {
+    const widthCm = calculateDocxImageWidthCm(600, 360, 24, 1.58)
+    expect(widthCm).toBeGreaterThanOrEqual(6)
+  })
+
+  it('still respects the height budget when enforcing the readable DOCX width floor', () => {
+    const widthCm = calculateDocxImageWidthCm(100, 500, 11.8, 1.58)
+    expect(widthCm).toBeCloseTo(2.36, 2)
+    expect(widthCm * 5).toBeLessThanOrEqual(11.9)
   })
 
   it('does not enlarge tiny charts beyond the normal chart width', () => {
@@ -280,6 +329,43 @@ describe('DOCX Excalidraw chart rendering', () => {
     expect(result.images.length).toBe(1)
     expect(result.modifiedMarkdown).toMatch(/!\[\]\(mdv__chart__/)
     expect(result.modifiedMarkdown).not.toContain('<mxGraphModel')
+  })
+
+  it('DOCX 图表尺寸继承不会因预览窗口过宽而压小整页宽图', async () => {
+    document.body.innerHTML = [
+      '<div class="markdown-body">',
+      '<div class="drawio-container"><svg viewBox="0 0 1170 520"><rect width="1170" height="520"></rect></svg></div>',
+      '</div>',
+    ].join('')
+    const markdownBody = document.querySelector('.markdown-body') as HTMLElement
+    const svg = document.querySelector('svg') as SVGSVGElement
+    vi.spyOn(markdownBody, 'getBoundingClientRect').mockReturnValue({
+      width: 1500,
+      height: 900,
+      top: 0,
+      left: 0,
+      right: 1500,
+      bottom: 900,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+      width: 1170,
+      height: 520,
+      top: 0,
+      left: 0,
+      right: 1170,
+      bottom: 520,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    const result = await renderChartsForDocx('```drawio\n<mxGraphModel><root></root></mxGraphModel>\n```')
+
+    expect(result.images).toHaveLength(1)
+    expect(result.images[0].widthCm).toBe(15.5)
   })
 
   it('DOCX 图表管线识别新增 RendererPlugin 代码块', async () => {

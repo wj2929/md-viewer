@@ -15,6 +15,13 @@ const COMMON_FONT_SOURCES = [
   'https://assets.antv.antgroup.com',
 ]
 
+const COMMON_CONNECT_SOURCES = [
+  "'self'",
+  'https://viewer.diagrams.net',
+  'https://www.plantuml.com',
+  'https://assets.antv.antgroup.com',
+]
+
 function joinDirective(name: string, sources: string[]): string {
   return `${name} ${sources.join(' ')}`
 }
@@ -34,8 +41,8 @@ export function createContentSecurityPolicy(dev: boolean): string {
       : ["'self'", 'data:', 'https:', 'local-image:']),
     joinDirective('font-src', COMMON_FONT_SOURCES),
     joinDirective('connect-src', dev
-      ? ["'self'", 'ws://localhost:*', 'http://localhost:*', 'https://viewer.diagrams.net', 'https://www.plantuml.com']
-      : ["'self'", 'https://viewer.diagrams.net', 'https://www.plantuml.com', 'http://localhost:*', 'http://127.0.0.1:*']),
+      ? [...COMMON_CONNECT_SOURCES, 'ws://localhost:*', 'http://localhost:*']
+      : [...COMMON_CONNECT_SOURCES, 'http://localhost:*', 'http://127.0.0.1:*']),
   ]
 
   if (dev) {

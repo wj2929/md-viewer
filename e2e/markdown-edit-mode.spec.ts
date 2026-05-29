@@ -223,8 +223,8 @@ test.describe('Markdown 编辑模式', () => {
 
     await expect(page.locator('.markdown-workbench-preview-pane pre.language-mermaid.markdown-preview-editable-block')).toHaveCount(0)
     await expect(page.locator('.markdown-workbench-preview-pane .markdown-preview-source-only-hint:visible')).toHaveCount(0)
-    await expect(page.locator('.markdown-workbench-preview-pane .mermaid-wrapper')).toBeVisible()
-    await expect(page.locator('.markdown-workbench-preview-pane .mermaid-action-btn[data-action="toggleCode"]')).toHaveCount(1)
+    await expect(page.locator('.markdown-workbench-preview-pane .mermaid-wrapper').first()).toBeVisible()
+    await expect(page.locator('.markdown-workbench-preview-pane .mermaid-action-btn[data-action="toggleCode"]').first()).toBeVisible()
 
     await page.getByRole('button', { name: '退出编辑模式' }).click()
     await expect(page.getByLabel('editable-blocks.md 编辑工作区')).toBeHidden()

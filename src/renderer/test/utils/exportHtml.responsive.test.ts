@@ -6,10 +6,10 @@
  * 独立 HTML 打开会超出容器裁切，PDF 导出也横向溢出。
  *
  * 不变式：导出 HTML 文本里，上述容器内的 <svg> 开始标签不应再有 width=/height= 硬属性，
- * 且应该有 max-width:100% 的 style
+ * 且应该按自身宽度设置自适应上限，避免小图被撑满整行
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { buildExportHtmlContent } from '../../src/utils/exportHtml'
+import { buildExportHtmlContent, normalizeDrawioSvgForExport } from '../../src/utils/exportHtml'
 
 const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
 
@@ -70,7 +70,7 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
     }
   })
 
-  it('graphviz-container 里的 SVG 剥掉 width/height 并加 max-width:100%', async () => {
+  it('graphviz-container 里的 SVG 剥掉 width/height 并按自身 viewBox 宽度自适应', async () => {
     const input =
       '<div class="graphviz-container" style="width: 100%; text-align: center;">' +
       '<svg width="1800" height="600" viewBox="0 0 1800 600"><g></g></svg>' +
@@ -78,8 +78,18 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
     const out = await buildExportHtmlContent(input)
     expect(out).not.toMatch(/<svg[^>]*\swidth="1800"/)
     expect(out).not.toMatch(/<svg[^>]*\sheight="600"/)
-    expect(out).toMatch(/<svg[^>]*style="[^"]*max-width:\s*100%/)
+    expect(out).toMatch(/<svg[^>]*style="[^"]*width:\s*min\(100%,\s*1800px\)/)
     expect(out).toMatch(/viewBox="0 0 1800 600"/)
+  })
+
+  it('graphviz-container 小图不应在 HTML 导出中被撑满整行', async () => {
+    const input =
+      '<div class="graphviz-container">' +
+      '<svg width="134pt" height="188pt" viewBox="0.00 0.00 134.00 188.00"></svg>' +
+      '</div>'
+    const out = await buildExportHtmlContent(input)
+    expect(out).toMatch(/<svg[^>]*style="[^"]*width:\s*min\(100%,\s*134px\)/)
+    expect(out).not.toMatch(/<svg[^>]*style="[^"]*max-width:\s*100%;\s*height/)
   })
 
   it('plantuml-container 同样处理', async () => {
@@ -89,7 +99,7 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
       '</div>'
     const out = await buildExportHtmlContent(input)
     expect(out).not.toMatch(/<svg[^>]*\swidth="900"/)
-    expect(out).toMatch(/max-width:\s*100%/)
+    expect(out).toMatch(/width:\s*min\(100%,\s*900px\)/)
   })
 
   it('infographic-container 同样处理', async () => {
@@ -107,7 +117,7 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
       '<svg width="1200" height="400" style="background:#fff" viewBox="0 0 1200 400"></svg>' +
       '</div>'
     const out = await buildExportHtmlContent(input)
-    expect(out).toMatch(/style="[^"]*background:#fff[^"]*max-width:\s*100%/)
+    expect(out).toMatch(/style="[^"]*background:#fff[^"]*width:\s*min\(100%,\s*1200px\)/)
   })
 
   it('不影响非目标容器里的 SVG', async () => {
@@ -125,6 +135,84 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
       '</div>'
     const out = await buildExportHtmlContent(input)
     expect(out).toMatch(/preserveAspectRatio="xMidYMid meet"/)
+  })
+
+  it('DrawIO 导出对超高图应限制高度并避免无限放大', () => {
+    document.body.innerHTML = `
+      <svg style="width: 100px; height: 100px;">
+        <rect x="10" y="10" width="220" height="700"></rect>
+      </svg>
+    `
+    const svg = document.querySelector('svg') as SVGSVGElement
+    const rect = svg.querySelector('rect') as SVGRectElement
+
+    const svgMatrix = {
+      a: 1,
+      b: 0,
+      c: 0,
+      d: 1,
+      e: 0,
+      f: 0,
+      inverse: () => svgMatrix,
+    }
+    Object.defineProperty(svg, 'getScreenCTM', {
+      value: () => svgMatrix,
+    })
+    vi.spyOn(rect, 'getBoundingClientRect').mockReturnValue({
+      left: 10,
+      top: 10,
+      right: 230,
+      bottom: 710,
+      width: 220,
+      height: 700,
+      x: 10,
+      y: 10,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    normalizeDrawioSvgForExport(svg, svg)
+
+    expect(svg.getAttribute('style')).toContain('max-height: 680px')
+    expect(svg.getAttribute('style')).toContain('min(100%,')
+  })
+
+  it('DrawIO 导出对普通图应按自身宽度上限展示而不是默认撑满整行', () => {
+    document.body.innerHTML = `
+      <svg style="width: 100px; height: 100px;">
+        <rect x="10" y="10" width="380" height="220"></rect>
+      </svg>
+    `
+    const svg = document.querySelector('svg') as SVGSVGElement
+    const rect = svg.querySelector('rect') as SVGRectElement
+
+    const svgMatrix = {
+      a: 1,
+      b: 0,
+      c: 0,
+      d: 1,
+      e: 0,
+      f: 0,
+      inverse: () => svgMatrix,
+    }
+    Object.defineProperty(svg, 'getScreenCTM', {
+      value: () => svgMatrix,
+    })
+    vi.spyOn(rect, 'getBoundingClientRect').mockReturnValue({
+      left: 10,
+      top: 10,
+      right: 390,
+      bottom: 230,
+      width: 380,
+      height: 220,
+      x: 10,
+      y: 10,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    normalizeDrawioSvgForExport(svg, svg)
+
+    expect(svg.getAttribute('style')).toContain('width: min(100%, 400px)')
+    expect(svg.getAttribute('style')).toContain('max-height: 680px')
   })
 
   it('HTML 导出渲染 excalidraw 代码块为容器 SVG', async () => {
@@ -172,6 +260,35 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
     expect(out).toContain('<svg')
   })
 
+  it('导出 markdown 渲染后的 .excalidraw 占位符时应替换为 SVG', async () => {
+    const rawCode = '{"type":"excalidraw","elements":[]}'
+    const readExcalidrawFile = vi.fn().mockResolvedValue({
+      content: rawCode,
+      resolvedPath: '/docs/a.excalidraw',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readExcalidrawFile,
+    }
+
+    const out = await buildExportHtmlContent(
+      '<div class="excalidraw-file-placeholder" data-excalidraw-src="./a.excalidraw" data-excalidraw-alt="占位图"></div>',
+      { markdownFilePath: '/docs/doc.md' },
+    )
+
+    expect(readExcalidrawFile).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/doc.md',
+      refPath: './a.excalidraw',
+    })
+    expect(mockRenderExcalidrawToSvg).toHaveBeenCalledWith(rawCode, {
+      sourceKind: 'file-reference',
+      sourceLabel: '占位图',
+    })
+    expect(out).toContain('excalidraw-container')
+    expect(out).toContain('<svg')
+    expect(out).not.toContain('excalidraw-file-placeholder')
+  })
+
   it('导出普通本地图片时内嵌为 data URI，避免 PDF 临时目录丢图', async () => {
     const readLocalAssetBase64 = vi.fn().mockResolvedValue({
       base64: 'iVBORw0KGgo=',
@@ -193,5 +310,49 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
     })
     expect(out).toContain('src="data:image/png;base64,iVBORw0KGgo="')
     expect(out).not.toContain('src="./images/welcome.png"')
+  })
+})
+
+describe('normalizeDrawioSvgForExport', () => {
+  it('使用可见图形边界重算 viewBox，避免 DrawIO 导出图表视觉偏右', () => {
+    document.body.innerHTML = `
+      <svg style="width: 100px; height: 100px;">
+        <g transform="translate(-100,0)">
+          <rect x="120" y="20" width="200" height="80"></rect>
+        </g>
+      </svg>
+    `
+    const svg = document.querySelector('svg') as SVGSVGElement
+    const rect = svg.querySelector('rect') as SVGRectElement
+
+    const svgMatrix = {
+      a: 1,
+      b: 0,
+      c: 0,
+      d: 1,
+      e: 0,
+      f: 0,
+      inverse: () => svgMatrix,
+    }
+    Object.defineProperty(svg, 'getScreenCTM', {
+      value: () => svgMatrix,
+    })
+    vi.spyOn(rect, 'getBoundingClientRect').mockReturnValue({
+      left: 20,
+      top: 20,
+      right: 220,
+      bottom: 100,
+      width: 200,
+      height: 80,
+      x: 20,
+      y: 20,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    normalizeDrawioSvgForExport(svg, svg)
+
+    expect(svg.getAttribute('viewBox')).toBe('10 10 220 100')
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet')
+    expect(svg.getAttribute('style')).toContain('width: min(100%, 220px)')
   })
 })

@@ -14,7 +14,6 @@
 
 const DRAWIO_CONFIG = {
   MAX_CODE_SIZE: 500 * 1024, // 500KB
-  MAX_PER_PAGE: 10,
 }
 
 // viewer 实例类型（viewer.min.js 全局对象）
@@ -212,7 +211,7 @@ export async function renderDrawioInElement(
  */
 export async function processDrawioInHtml(html: string): Promise<string> {
   const regex =
-    /<pre class="language-drawio"><code class="language-drawio">([\s\S]*?)<\/code><\/pre>/g
+    /<pre\b(?=[^>]*\bclass=["'][^"']*\blanguage-drawio\b[^"']*["'])[^>]*>\s*<code\b[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/g
   const matches: { fullMatch: string; code: string }[] = []
 
   let match: RegExpExecArray | null
@@ -231,7 +230,7 @@ export async function processDrawioInHtml(html: string): Promise<string> {
   if (matches.length === 0) return html
 
   let result = html
-  for (let i = 0; i < Math.min(matches.length, DRAWIO_CONFIG.MAX_PER_PAGE); i++) {
+  for (let i = 0; i < matches.length; i++) {
     const { fullMatch } = matches[i]
     // 导出时替换为静态提示（viewer.min.js 依赖 DOM 环境，无法离线渲染为 SVG）
     const placeholder = `<div class="drawio-container" style="width: 100%; text-align: center; padding: 20px; border: 1px dashed #ccc; color: #999;">DrawIO 图表（需在应用内查看）</div>`

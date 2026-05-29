@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { renderEChartsToSvg } from '../../src/utils/echartsRenderer'
+import { processEChartsInHtml, renderEChartsToSvg } from '../../src/utils/echartsRenderer'
 
 describe('renderEChartsToSvg export layout', () => {
   beforeAll(() => {
@@ -48,5 +48,20 @@ describe('renderEChartsToSvg export layout', () => {
     expect(viewBox).not.toBeNull()
     expect(Number(viewBox![1])).toBeGreaterThanOrEqual(900)
     expect(Number(viewBox![2])).toBeGreaterThanOrEqual(560)
+  })
+
+  it('处理超过 20 个 ECharts 代码块时不应残留源码', async () => {
+    const blocks = Array.from({ length: 27 }, (_, index) => [
+      '<pre class="language-echarts"><code class="language-echarts">',
+      `{ "title": { "text": "Chart ${index}" }, "series": [{ "type": "gauge", "data": [{ "value": ${index}, "name": "覆盖率" }] }] }`,
+      '</code></pre>',
+    ].join('')).join('\n')
+
+    const result = await processEChartsInHtml(blocks)
+
+    expect((result.match(/echarts-container/g) || [])).toHaveLength(27)
+    expect(result).not.toContain('language-echarts')
+    expect(result).not.toContain('<pre')
+    expect(result).not.toContain('"type": "gauge"')
   })
 })

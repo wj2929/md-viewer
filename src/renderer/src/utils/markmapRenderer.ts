@@ -12,7 +12,6 @@ import { Markmap, deriveOptions } from 'markmap-view'
 
 const MARKMAP_CONFIG = {
   MAX_CODE_SIZE: 50 * 1024, // 50KB
-  MAX_PER_PAGE: 20,
   DEFAULT_WIDTH: 800,
   DEFAULT_HEIGHT: 500,
 }
@@ -137,7 +136,7 @@ export async function processMarkmapInHtml(html: string): Promise<string> {
   if (matches.length === 0) return html
 
   let result = html
-  for (let i = 0; i < Math.min(matches.length, MARKMAP_CONFIG.MAX_PER_PAGE); i++) {
+  for (let i = 0; i < matches.length; i++) {
     const { fullMatch, code } = matches[i]
     try {
       const svgString = await renderMarkmapToSvg(code, `export-${i}`)
