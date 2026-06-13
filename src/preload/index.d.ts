@@ -236,6 +236,32 @@ declare global {
       }>
       installContextMenu: () => Promise<{ success: boolean; error?: string }>
       uninstallContextMenu: () => Promise<{ success: boolean; error?: string }>
+      getCliShimStatus: () => Promise<{
+        supported: boolean
+        installed: boolean
+        platform: 'darwin' | 'win32' | 'linux'
+        path?: string
+        pathInShell?: boolean
+        ownedByMdViewer?: boolean
+        code?: string
+        message?: string
+      }>
+      installCliShim: () => Promise<{
+        ok: boolean
+        path?: string
+        pathInShell?: boolean
+        nextStep?: string
+        code?: string
+        message?: string
+      }>
+      uninstallCliShim: () => Promise<{
+        ok: boolean
+        path?: string
+        pathInShell?: boolean
+        nextStep?: string
+        code?: string
+        message?: string
+      }>
       openSystemSettings: (section: string) => Promise<{ success: boolean; error?: string }>
       confirmContextMenuEnabled: () => Promise<{ success: boolean }>
 
@@ -320,6 +346,7 @@ declare global {
       onShortcutPrevTab: (callback: () => void) => () => void
       onShortcutSwitchTab: (callback: (tabIndex: number) => void) => () => void
       onShortcutAddBookmark: (callback: () => void) => () => void
+      onShortcutSettings: (callback: () => void) => () => void
 
       // v1.3.7：预览区域右键菜单
       showPreviewContextMenu: (params: {

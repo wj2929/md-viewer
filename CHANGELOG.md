@@ -7,6 +7,38 @@
 
 ---
 
+## [2.5.0] - 2026-06-13
+
+> **状态**: ✅ **已完成** | **类型**: CLI 自动化 + AI Agent 调用契约 + 发布回归增强
+
+v2.5.0 聚焦命令行与自动化能力，把打开、预检、结构分析、链接审计、诊断渲染、导出、截图、图表提取、环境诊断和批量回归沉淀为可被脚本、CI 和 AI Agent 稳定调用的 CLI。
+
+### ✨ 新功能
+- 新增 AI-friendly CLI：支持 `capabilities`、`schema`、`help`、`open`、`export`、`preflight`、`doctor`、`screenshot`、`charts`、`batch` 等 P0 命令。
+- 新增 P1a 自动化命令：`inspect` 分析 Markdown 标题、链接、图片、代码块和图表结构；`links` 审计本地 Markdown 链接、锚点、图片资源和外链；`render` 执行诊断渲染并可写出中间 HTML。
+- CLI 默认输出稳定 JSON，包含 `schemaVersion`、`summary`、`artifacts`、`warnings`、`actions` 和 exit code，便于 AI Agent 自动判断下一步。
+- `export` 支持 HTML/PDF headless 渲染导出，DOCX 通过 `md-viewer-docx-service` 的 source 转换接口生成。
+- `screenshot` 支持整页、正文选择器和单图表截图；`charts list/export` 支持列出图表元数据并导出 PNG/ZIP/目录。
+- `batch` 支持 `documents[]` 回归配置，可按文档展开预检、导出、截图、图表检查和图表导出任务。
+- 新增跨平台命令行工具安装入口：macOS、Windows 和 Linux 可在“设置 -> 系统 -> 命令行工具”中安装/卸载 `md-viewer` 命令，也支持通过 `install-cli` / `uninstall-cli` 自动化管理。
+
+### 🔧 改进
+- GUI HTML/PDF 导出复用 CLI export writer，减少预览、GUI 导出和 headless 导出之间的样式分叉。
+- 启动参数解析区分 GUI 打开路径和自动化命令，避免普通文件关联误进入 headless CLI。
+- `release-smoke.sh` 升级为 v2.5 门禁，加入 CLI 单元测试、CLI Headless E2E、核心 E2E 和图表预览 smoke。
+- 新增 `docs/cli-quickstart.md` 和 `docs/cli.md`；使用手册新增“命令行与自动化”章节，补充常用命令、结构/链接/渲染诊断、batch 配置和真实文档回归产物建议。
+- CLI 截图按 `devicePixelRatio` 折算最大捕获尺寸，避免 Retina 屏长文档全页截图超过 Chromium 纹理上限后生成空 PNG。
+- HTML/PDF/截图/图表导出 headless 渲染默认超时提升到 120 秒，并支持 `--timeout-ms` / `--timeout` 覆盖，减少复杂图表文档退化为未完整渲染内容。
+- HTML/PDF 导出自动隐藏 `.no-export` 等预览专用工具栏，避免图表缩放、源码、下载和全屏按钮出现在交付文件中。
+- 最近文件与最近文件夹历史菜单均支持搜索；文件夹或文件较多时可按名称、路径快速过滤。
+- macOS 应用菜单收口为“设置...”入口；CLI 使用指南与命令行工具安装/卸载统一放入设置面板，避免菜单项重复。
+- E2E 临时 Markdown 目录改到仓库 `.tmp/e2e`，避免 macOS `/var/folders` 被生产安全策略识别为受保护路径后影响编辑模式测试。
+
+### 🧪 测试
+- 新增 CLI 单元测试，覆盖参数解析、能力发现、schema/help、open/export/preflight/doctor/screenshot/charts/batch/inspect/links/render 和结果契约。
+- 新增 CLI Headless E2E，覆盖 HTML/PDF/DOCX mock 导出、图表列表、截图、图表导出、batch documents 配置、结构分析、链接审计和诊断渲染。
+- 本地验证：`scripts/release-smoke.sh full` 通过，覆盖 typecheck、lint、全量单元测试、build、DOCX 服务启动、CLI Headless E2E 和核心 Electron E2E。
+
 ## [2.4.0] - 2026-05-30
 
 > **状态**: ✅ **已完成** | **类型**: 文档工作流增强 + 编辑边界收口 + 搜索定位与导出诊断

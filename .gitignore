@@ -90,6 +90,8 @@ screenshot-welcome.js
 
 # Temp test output
 e2e-results.json
+e2e/local-real-docs.json
+e2e/ppt-*.spec.ts
 e2e/test-docx-export-auto.js
 e2e/test-docx-size.js
 e2e/fixtures/*-charts/
@@ -101,6 +103,9 @@ electron/
 # Playwright
 playwright-report/
 test-results/
+test-results/cli-*/
+test-results/cli-*.json
+test-results/cli-*.md
 docs/v2.4.0-roadmap.md
 docs/v2.4.0-completion-audit.md
 docs/v2.5.0-current-state-audit.md

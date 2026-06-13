@@ -9,13 +9,24 @@ import { folderHistoryManager } from './folderHistoryManager'
 import { validateSecurePath as validateLaunchPath } from './security/pathValidator'
 import { appDataManager } from './appDataManager'
 import { installEpipeHandler } from './safeLog'
+import { installApplicationMenu } from './applicationMenu'
 import { windowManager } from './windowManager'
 import { registerAllHandlers, getFileWatcherState } from './ipc'
 import type { AppState } from './ipc'
 import { createContentSecurityPolicy } from './securityPolicy'
+import { isHeadlessCliArgv } from './cli'
+import { runCliOnStartup } from './cli/bootstrap'
+import { extractGuiLaunchPath } from './cli/launchArgs'
 
 // 安装 EPIPE 错误处理器（防止开发模式下终端断开导致应用崩溃）
 installEpipeHandler()
+
+const startupArgv = process.argv.slice(1)
+const isCliStartup = isHeadlessCliArgv(startupArgv)
+
+if (isCliStartup) {
+  runCliOnStartup(startupArgv, { exit: code => app.exit(code) })
+}
 
 // 初始化 electron-store
 const store = new Store<AppState>({
@@ -74,17 +85,9 @@ let pendingLaunchPath: string | null = null
 
 // 处理启动参数
 async function handleLaunchArgs(args: string[]): Promise<void> {
-  const userArgs = args.filter(arg =>
-    !arg.startsWith('--') &&
-    !arg.startsWith('-') &&
-    arg !== '.' &&
-    !arg.toLowerCase().includes('electron') &&
-    !arg.endsWith('.js')
-  )
+  const targetPath = extractGuiLaunchPath(args)
+  if (!targetPath) return
 
-  if (userArgs.length === 0) return
-
-  const targetPath = userArgs[userArgs.length - 1]
   console.log('[Launch] Processing path:', targetPath)
 
   const validation = await validateLaunchPath(targetPath)
@@ -156,89 +159,92 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.mdviewer')
+if (!isCliStartup) {
+  app.whenReady().then(() => {
+    electronApp.setAppUserModelId('com.mdviewer')
+    installApplicationMenu()
 
-  // 注册 local-image 协议处理器
-  protocol.handle('local-image', (request) => {
-    let filePath: string
-    try {
-      const url = new URL(request.url)
-      filePath = decodeURIComponent(url.pathname)
-      if (process.platform === 'win32' && filePath.startsWith('/')) {
-        filePath = filePath.slice(1)
-      }
-    } catch {
-      return new Response('Invalid URL', { status: 400 })
-    }
-
-    if (!isPathAllowed(filePath)) {
-      return new Response('Forbidden', { status: 403 })
-    }
-
-    if (!fs.existsSync(filePath)) {
-      return new Response('Not Found', { status: 404 })
-    }
-
-    return net.fetch(pathToFileURL(filePath).toString())
-  })
-
-  // 设置 Content Security Policy
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const csp = createContentSecurityPolicy(is.dev)
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
-      }
-    })
-  })
-
-  // 窗口关闭时清理文件监听器
-  const fileWatcherState = getFileWatcherState()
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-
-    const windowWebContentsId = window.webContents.id
-    window.on('close', () => {
-      fileWatcherState.cleanup(windowWebContentsId)
-    })
-  })
-
-  createWindow()
-
-  // 注册所有 IPC handlers
-  registerAllHandlers({
-    store,
-    windowManager,
-    folderHistoryManager,
-    appDataManager,
-    openPathInWindow
-  })
-
-  // 后台验证最近文件路径有效性
-  appDataManager.validateRecentFilesInBackground()
-
-  // 处理待处理的启动路径
-  if (pendingLaunchPath) {
-    setTimeout(async () => {
-      if (pendingLaunchPath) {
-        const validation = await validateLaunchPath(pendingLaunchPath)
-        if (validation.valid) {
-          openPathInWindow(validation.normalizedPath, validation.type as 'md-file' | 'directory')
+    // 注册 local-image 协议处理器
+    protocol.handle('local-image', (request) => {
+      let filePath: string
+      try {
+        const url = new URL(request.url)
+        filePath = decodeURIComponent(url.pathname)
+        if (process.platform === 'win32' && filePath.startsWith('/')) {
+          filePath = filePath.slice(1)
         }
-        pendingLaunchPath = null
+      } catch {
+        return new Response('Invalid URL', { status: 400 })
       }
-    }, 1000)
-  }
 
-  handleLaunchArgs(process.argv.slice(1))
+      if (!isPathAllowed(filePath)) {
+        return new Response('Forbidden', { status: 403 })
+      }
 
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (!fs.existsSync(filePath)) {
+        return new Response('Not Found', { status: 404 })
+      }
+
+      return net.fetch(pathToFileURL(filePath).toString())
+    })
+
+    // 设置 Content Security Policy
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      const csp = createContentSecurityPolicy(is.dev)
+
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [csp]
+        }
+      })
+    })
+
+    // 窗口关闭时清理文件监听器
+    const fileWatcherState = getFileWatcherState()
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+
+      const windowWebContentsId = window.webContents.id
+      window.on('close', () => {
+        fileWatcherState.cleanup(windowWebContentsId)
+      })
+    })
+
+    createWindow()
+
+    // 注册所有 IPC handlers
+    registerAllHandlers({
+      store,
+      windowManager,
+      folderHistoryManager,
+      appDataManager,
+      openPathInWindow
+    })
+
+    // 后台验证最近文件路径有效性
+    appDataManager.validateRecentFilesInBackground()
+
+    // 处理待处理的启动路径
+    if (pendingLaunchPath) {
+      setTimeout(async () => {
+        if (pendingLaunchPath) {
+          const validation = await validateLaunchPath(pendingLaunchPath)
+          if (validation.valid) {
+            openPathInWindow(validation.normalizedPath, validation.type as 'md-file' | 'directory')
+          }
+          pendingLaunchPath = null
+        }
+      }, 1000)
+    }
+
+    handleLaunchArgs(startupArgv)
+
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
-})
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

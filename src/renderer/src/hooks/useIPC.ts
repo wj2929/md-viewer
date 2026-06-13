@@ -41,7 +41,7 @@ export function useIPC(options: UseIPCOptions): void {
 
   const { folderPath, setFiles, setSelectedPaths } = useFileStore()
   const { tabs, activeTabId, setTabs, setActiveTabId, setSplitState } = useTabStore()
-  const { setShowShortcutsHelp } = useLayoutStore()
+  const { setShowSettings, setShowShortcutsHelp } = useLayoutStore()
   const { copy, cut, paste } = useClipboardStore()
   const { toggleAlwaysOnTop } = useWindowStore()
   const { increaseFontSize, decreaseFontSize, resetFontSize } = useUIStore()
@@ -362,6 +362,9 @@ export function useIPC(options: UseIPCOptions): void {
     const unsubscribeNextTab = window.api.onShortcutNextTab(handleNextTab)
     const unsubscribePrevTab = window.api.onShortcutPrevTab(handlePrevTab)
     const unsubscribeSwitchTab = window.api.onShortcutSwitchTab(handleSwitchTab)
+    const unsubscribeSettings = window.api.onShortcutSettings
+      ? window.api.onShortcutSettings(() => setShowSettings(true))
+      : () => undefined
 
     return () => {
       unsubscribeOpenFolder()
@@ -373,11 +376,12 @@ export function useIPC(options: UseIPCOptions): void {
       unsubscribeNextTab()
       unsubscribePrevTab()
       unsubscribeSwitchTab()
+      unsubscribeSettings()
     }
   }, [
     handleOpenFolder, handleRefreshFiles, handleTabClose,
     handleExportHTML, handleExportPDF, handleFocusSearch,
-    handleNextTab, handlePrevTab, handleSwitchTab
+    handleNextTab, handlePrevTab, handleSwitchTab, setShowSettings
   ])
 
   // v1.5.1：分屏 IPC 事件（从标签页右键菜单触发）

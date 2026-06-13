@@ -10,6 +10,9 @@ const baseApi = {
   openExternal: vi.fn(),
   openSystemSettings: vi.fn(),
   confirmContextMenuEnabled: vi.fn(),
+  getCliShimStatus: vi.fn(),
+  installCliShim: vi.fn(),
+  uninstallCliShim: vi.fn(),
 }
 
 describe('SettingsPanel DOCX service styles', () => {
@@ -35,6 +38,20 @@ describe('SettingsPanel DOCX service styles', () => {
       checkContextMenuStatus: vi.fn().mockResolvedValue({
         installed: false,
         platform: 'darwin',
+      }),
+      getCliShimStatus: vi.fn().mockResolvedValue({
+        supported: true,
+        installed: false,
+        platform: 'darwin',
+      }),
+      installCliShim: vi.fn().mockResolvedValue({
+        ok: true,
+        path: '/Users/tester/.local/bin/md-viewer',
+        nextStep: '重新打开终端后可直接运行：md-viewer capabilities --json',
+      }),
+      uninstallCliShim: vi.fn().mockResolvedValue({
+        ok: true,
+        nextStep: '重新打开终端后，md-viewer 命令将不再可用。',
       }),
       testDocxConnection: vi.fn().mockResolvedValue({
         ok: true,
@@ -119,5 +136,39 @@ describe('SettingsPanel DOCX service styles', () => {
     fireEvent.click(screen.getByRole('tab', { name: '关于' }))
     expect(screen.getByRole('tabpanel', { name: '关于' })).toBeInTheDocument()
     expect(screen.getByText('版本更新')).toBeInTheDocument()
+  })
+
+  it('在系统设置中按 CLI 安装状态互斥显示安装或卸载入口', async () => {
+    vi.mocked(window.api.getCliShimStatus)
+      .mockResolvedValueOnce({
+        supported: true,
+        installed: false,
+        platform: 'darwin',
+      })
+      .mockResolvedValueOnce({
+        supported: true,
+        installed: true,
+        platform: 'darwin',
+        path: '/Users/tester/.local/bin/md-viewer',
+        pathInShell: true,
+        ownedByMdViewer: true,
+      })
+
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('tab', { name: '系统' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('命令行工具')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '安装命令行工具' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: '卸载命令行工具' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '安装命令行工具' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '卸载命令行工具' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: '安装命令行工具' })).not.toBeInTheDocument()
   })
 })

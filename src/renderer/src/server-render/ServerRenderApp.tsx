@@ -175,7 +175,7 @@ function replaceBpmnImageReferences(root: HTMLElement): void {
 }
 
 export function ServerRenderApp(): React.JSX.Element {
-  const input: ServerRenderInput = window.__MDV_RENDER_INPUT__ || {
+  const input: ServerRenderInput = readServerRenderInput() || {
     schemaVersion: '1.0',
     markdown: '',
     theme: 'light',
@@ -523,4 +523,18 @@ export function ServerRenderApp(): React.JSX.Element {
   return (
     <div className="markdown-body" ref={rootRef} dangerouslySetInnerHTML={{ __html: html }} />
   )
+}
+
+function readServerRenderInput(): ServerRenderInput | undefined {
+  if (window.__MDV_RENDER_INPUT__) {
+    return window.__MDV_RENDER_INPUT__
+  }
+
+  try {
+    const stored = window.sessionStorage.getItem('__MDV_RENDER_INPUT__')
+    if (!stored) return undefined
+    return JSON.parse(stored) as ServerRenderInput
+  } catch {
+    return undefined
+  }
 }

@@ -153,6 +153,13 @@ export function registerWindowShortcuts(window: BrowserWindow): void {
       return
     }
 
+    // Cmd/Ctrl + ,: 打开设置
+    if (cmdOrCtrl && input.key === ',' && !input.shift && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:settings')
+      return
+    }
+
     // v1.4.2: Cmd+Option+T / Ctrl+Alt+T: 切换窗口置顶
     if (cmdOrCtrl && input.alt && input.key.toLowerCase() === 't' && !input.shift) {
       event.preventDefault()
