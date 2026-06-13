@@ -112,6 +112,7 @@ describe('cliShimInstaller', () => {
 
     const result = await uninstallCliShim({
       homeDir: '/Users/tester',
+      platform: 'darwin',
       fs: memory.fs,
     })
 
