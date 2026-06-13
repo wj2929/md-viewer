@@ -3,7 +3,7 @@
  * v1.3.6 新增
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useFilePreview } from '../hooks/useFilePreview'
 import { FilePreviewTooltip } from './FilePreviewTooltip'
 import './RecentFilesDropdown.css'
@@ -22,6 +22,7 @@ interface Props {
 export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [files, setFiles] = useState<RecentFile[]>([])
+  const [query, setQuery] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { tooltipProps, handleMouseEnter, handleMouseLeave } = useFilePreview()
 
@@ -58,6 +59,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
 
   const handleSelect = (file: RecentFile) => {
     onSelectFile(file.path)
+    setQuery('')
     setIsOpen(false)
   }
 
@@ -79,7 +81,18 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
   const handleClearAll = async () => {
     await window.api.clearRecentFiles()
     setFiles([])
+    setQuery('')
   }
+
+  const filteredFiles = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    if (!keyword) return files
+    return files.filter(file => {
+      return [file.name, file.path, file.folderPath].some(value =>
+        value.toLowerCase().includes(keyword)
+      )
+    })
+  }, [files, query])
 
   // 格式化路径显示（缩短为 ~/... 形式）
   const formatPath = (fullPath: string): string => {
@@ -124,6 +137,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
                 className="clear-all-btn"
                 onClick={handleClearAll}
                 title="清空历史"
+                aria-label="清空最近文件"
               >
                 清空
               </button>
@@ -135,37 +149,55 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
               暂无最近打开的文件
             </div>
           ) : (
-            <div className="recent-files-list">
-              {files.map(file => (
-                <div
-                  key={file.path}
-                  className="recent-file-item"
-                  onClick={() => handleSelect(file)}
-                  onContextMenu={(e) => handleContextMenu(e, file)}
-                  onMouseEnter={(e) => handleMouseEnter(file.path, e)}
-                  onMouseLeave={handleMouseLeave}
-                  aria-describedby="file-preview-tooltip"
-                >
-                  <div className="recent-file-info">
-                    <span className="recent-file-icon">📄</span>
-                    <div className="recent-file-details">
-                      <span className="recent-file-name">{file.name}</span>
-                      <span className="recent-file-path">{formatPath(file.folderPath)}</span>
-                    </div>
-                  </div>
-                  <div className="recent-file-actions">
-                    <span className="recent-file-time">{formatTime(file.lastOpened)}</span>
-                    <button
-                      className="recent-file-remove-btn"
-                      onClick={(e) => handleRemove(e, file.path)}
-                      title="从历史中移除"
-                    >
-                      ×
-                    </button>
-                  </div>
+            <>
+              <div className="recent-files-search">
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索最近文件..."
+                  aria-label="搜索最近文件"
+                  autoFocus
+                />
+              </div>
+              {filteredFiles.length === 0 ? (
+                <div className="recent-files-empty">
+                  未找到匹配文件
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div className="recent-files-list">
+                  {filteredFiles.map(file => (
+                    <div
+                      key={file.path}
+                      className="recent-file-item"
+                      onClick={() => handleSelect(file)}
+                      onContextMenu={(e) => handleContextMenu(e, file)}
+                      onMouseEnter={(e) => handleMouseEnter(file.path, e)}
+                      onMouseLeave={handleMouseLeave}
+                      aria-describedby="file-preview-tooltip"
+                    >
+                      <div className="recent-file-info">
+                        <span className="recent-file-icon">📄</span>
+                        <div className="recent-file-details">
+                          <span className="recent-file-name">{file.name}</span>
+                          <span className="recent-file-path">{formatPath(file.folderPath)}</span>
+                        </div>
+                      </div>
+                      <div className="recent-file-actions">
+                        <span className="recent-file-time">{formatTime(file.lastOpened)}</span>
+                        <button
+                          className="recent-file-remove-btn"
+                          onClick={(e) => handleRemove(e, file.path)}
+                          title="从历史中移除"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

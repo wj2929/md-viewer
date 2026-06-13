@@ -24,6 +24,7 @@ MD Viewer 用于浏览本地 Markdown 文档目录。它支持文件树、多标
 - 支持按根目录保存文件树折叠状态，重新打开常用目录时保留用户整理过的展开状态。
 - 支持文件监听，已打开的 Markdown 被外部编辑器修改后会自动刷新预览。
 - 支持 HTML、PDF、DOCX 导出；导出 warning 会说明发生了什么、影响是什么和下一步怎么做。
+- 提供面向脚本、CI 和 AI Agent 的命令行能力，可执行打开、预检、导出、截图、图表提取、环境诊断和批量回归。
 - 支持右键批量打包下载当前文档中的图表 PNG。
 - DOCX 高质量图表导出依赖可选的外部 DOCX 服务。
 - 支持 `.excalidraw` 文件和 Markdown 中的相对路径引用，当前仅用于静态预览和导出，不提供 Excalidraw 编辑能力。
@@ -92,6 +93,27 @@ chmod +x MD-Viewer-*.AppImage
 3. 在左侧文件树中点击 `.md` 文件开始预览。
 4. 使用 `Cmd+K` / `Ctrl+K` 快速搜索文件。
 5. 使用导出菜单将当前文档导出为 HTML、PDF 或 DOCX。
+
+## 命令行与自动化
+
+v2.5.0 起，MD Viewer 提供 CLI 自动化入口。常用命令示例：
+
+```bash
+md-viewer capabilities --json
+md-viewer inspect README.md --json
+md-viewer links README.md --json
+md-viewer render README.md --out render.html --json
+md-viewer export README.md --format pdf --out README.pdf
+md-viewer screenshot README.md --selector ".markdown-body" --out README.png
+md-viewer charts list README.md --json
+md-viewer batch e2e/local-real-docs.json --out test-results/release-report.json
+```
+
+其中 `inspect` 用于分析标题、链接、图片、代码块和图表结构；`links` 用于审计本地 Markdown 链接、锚点和图片资源；`render` 用于诊断图表渲染结果和生成中间 HTML，不替代正式 `export`。
+
+macOS、Windows 和 Linux 用户如果还没有 `md-viewer` 命令，可以先打开应用，在“设置 -> 系统 -> 命令行工具”中安装；也可以用应用完整路径运行 `install-cli --json`。例如 macOS 可执行 `"/Applications/MD Viewer.app/Contents/MacOS/MD Viewer" install-cli --json`，Windows 可执行 `& "C:\Program Files\MD Viewer\MD Viewer.exe" install-cli --json`，Linux AppImage 可执行 `./MD-Viewer-*.AppImage install-cli --json`。
+
+新用户建议先看 [CLI 快速上手](docs/cli-quickstart.md)；完整参数、JSON 契约和 exit code 见 [CLI 使用指南](docs/cli.md)。图形界面说明见 [使用手册的命令行与自动化章节](docs/user-manual.md#10-命令行与自动化)。
 
 ## 使用手册
 

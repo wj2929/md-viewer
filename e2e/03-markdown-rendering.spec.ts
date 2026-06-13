@@ -1,11 +1,14 @@
+import { tmpdir } from 'os'
 import { join } from 'path'
 import { mkdirSync, writeFileSync } from 'fs'
 import { test, expect } from './fixtures/electron'
 import type { ElectronApplication, Page } from '@playwright/test'
 
-const EXCALIDRAW_VISUAL_DIR = join(__dirname, '..', 'test-results', 'excalidraw-visual')
-const CHART_FULLSCREEN_VISUAL_DIR = join(__dirname, '..', 'test-results', 'chart-fullscreen-visual')
-const RENDERER_FIXTURE_VISUAL_DIR = join(__dirname, '..', 'test-results', 'renderer-fixture-visual')
+const VISUAL_RESULT_ROOT = process.env.MD_VIEWER_TEST_RESULTS_DIR
+  || join(tmpdir(), 'md-viewer-e2e-visual-results')
+const EXCALIDRAW_VISUAL_DIR = join(VISUAL_RESULT_ROOT, 'excalidraw-visual')
+const CHART_FULLSCREEN_VISUAL_DIR = join(VISUAL_RESULT_ROOT, 'chart-fullscreen-visual')
+const RENDERER_FIXTURE_VISUAL_DIR = join(VISUAL_RESULT_ROOT, 'renderer-fixture-visual')
 const DIRECT_EXCALIDRAW_SOURCE = `{
   "type": "excalidraw",
   "version": 2,

@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { builtinRendererDefinitions } from '../../src/renderers/builtin'
@@ -58,7 +59,10 @@ describe('renderer capability matrix', () => {
       renderers: builtinRendererDefinitions,
     })
     const matrix = builtinRendererDefinitions.map(createRow)
-    const outputDir = resolve(process.cwd(), 'test-results/renderer-capability-matrix')
+    const outputDir = resolve(
+      process.env.MD_VIEWER_TEST_RESULTS_DIR ?? tmpdir(),
+      'md-viewer-renderer-capability-matrix',
+    )
     const outputPath = resolve(outputDir, 'summary.json')
 
     mkdirSync(outputDir, { recursive: true })

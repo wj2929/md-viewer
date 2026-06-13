@@ -12,6 +12,7 @@ import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
 import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveRemoteDocxStyle } from '../remoteDocxExporter'
 import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
 import { validatePath } from '../security'
+import { writeHtmlExport, writePdfExport } from '../cli/sharedExportWriters'
 
 let lastDocxExportPath: string | null = null
 const EXPORT_SOURCE_EXTENSION_RE = /\.(md|markdown|mdown|mkd|mkdn|excalidraw)$/i
@@ -349,138 +350,6 @@ code[class*="language-"], pre[class*="language-"] {
 `
 }
 
-// HTML 转义（用于标题等用户输入）
-function escapeHtml(text: string): string {
-  const map: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }
-  return text.replace(/[&<>"']/g, c => map[c])
-}
-
-// 生成导出用的完整 HTML 模板（含 CSP 和 Mermaid 支持）
-function generateExportHTML(content: string, title: string, markdownCss: string, prismCss: string, showBranding = true): string {
-  // v1.4.7: 导出 HTML 强制使用亮色主题，移除 dark mode 媒体查询
-  // 恢复 .container 包装器以提供两侧间距
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(title)}</title>
-  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.27/files/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.css'">
-  <style>
-    :root {
-      /* 固定亮色主题变量（不响应系统暗色模式） */
-      --bg-primary: #ffffff;
-      --bg-secondary: #f5f5f5;
-      --text-primary: #333333;
-      --text-secondary: #666666;
-      --text-strong: #000000;
-      --border-color: #e0e0e0;
-      --accent-color: #007aff;
-      /* Markdown 样式变量 */
-      --blockquote-bg: #f6f8fa;
-      --blockquote-border: #dfe2e5;
-      --inline-code-bg: #f6f8fa;
-      --code-block-bg: #f6f8fa;
-      --table-header-bg: #f6f8fa;
-      --heading-border: #eaecef;
-      --hr-color: #eaecef;
-    }
-
-    /* 注意：移除了 @media (prefers-color-scheme: dark) 块，确保导出 HTML 始终为亮色主题 */
-
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    html, body {
-      height: 100%;
-      overflow: auto;
-    }
-
-    body {
-      background: var(--bg-primary);
-      font-family: 'Helvetica Neue', Helvetica, 'Segoe UI', Arial, freesans, sans-serif;
-      color: var(--text-primary);
-    }
-
-    /* 恢复 .container 包装器，提供两侧间距 */
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 40px 20px;
-    }
-
-    /* Mermaid 图表样式 - 固定亮色主题 */
-    .mermaid-container {
-      display: flex;
-      justify-content: center;
-      margin: 1.5em 0;
-      overflow-x: auto;
-    }
-
-    .mermaid-container svg {
-      max-width: 100%;
-      height: auto;
-    }
-
-    .mermaid-error {
-      color: #c53030;
-      background: #fff5f5;
-      border: 1px solid #feb2b2;
-      padding: 12px 16px;
-      border-radius: 6px;
-      margin: 1em 0;
-      font-size: 14px;
-    }
-
-    /* 注意：移除了 .mermaid-error 的 dark mode 样式 */
-
-    /* ECharts 图表样式 - 固定亮色主题 */
-    .echarts-container {
-      width: 100%;
-      max-width: 100%;
-      margin: 1.5em 0;
-      border-radius: 6px;
-      overflow: visible;
-      background: transparent;
-    }
-
-    .echarts-container svg {
-      display: block;
-      width: 100% !important;
-      height: auto;
-      max-width: none;
-    }
-
-    .echarts-error {
-      color: #c53030;
-      background: #fff5f5;
-      border: 1px solid #feb2b2;
-      padding: 12px 16px;
-      border-radius: 6px;
-      margin: 1em 0;
-      font-size: 14px;
-    }
-
-    ${markdownCss}
-    ${prismCss}
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="markdown-body">
-      ${content}
-    </div>
-  </div>
-  ${showBranding ? `<div style="text-align:center;padding:24px 0 12px;font-size:12px;color:#999;border-top:1px solid #eee;margin-top:40px;">由 <a href="https://github.com/wj2929/md-viewer" target="_blank" rel="noopener noreferrer" style="color:#007aff;text-decoration:none;">MD Viewer</a> 生成</div>` : ''}
-</body>
-</html>`
-}
-
 // 生成 PDF 专用的 HTML 模板（用于打印）
 function generatePDFHTML(content: string, markdownCss: string, prismCss: string, showBranding = true): string {
   return `<!DOCTYPE html>
@@ -714,9 +583,14 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
     const settings = appDataManager.getSettings()
     const showBranding = settings.showExportBranding !== false
     const { markdownCss, prismCss } = await getExportStyles()
-    const fullHtml = generateExportHTML(htmlContent, fileName, markdownCss, prismCss, showBranding)
 
-    await fs.writeFile(result.filePath, fullHtml, 'utf-8')
+    await writeHtmlExport(result.filePath, {
+      content: htmlContent,
+      title: fileName,
+      markdownCss,
+      prismCss,
+      showBranding,
+    })
     return result.filePath
   } catch (error) {
     console.error('Failed to export HTML:', error)
@@ -744,92 +618,16 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
       return null
     }
 
-    // 创建一个隐藏的窗口用于打印
-    const printWindow = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true
-      }
-    })
-
-    // 获取样式
     const settings = appDataManager.getSettings()
     const showBranding = settings.showExportBranding !== false
     const { markdownCss, prismCss } = await getExportStyles()
-    const pdfHtml = generatePDFHTML(htmlContent, markdownCss, prismCss, showBranding)
-
-    // 加载 HTML 内容（使用临时文件避免 data URL 长度限制）
-    const tmpPdfPath = path.join(os.tmpdir(), `md-viewer-pdf-${Date.now()}.html`)
-    await fs.writeFile(tmpPdfPath, pdfHtml, 'utf-8')
-    try {
-      await printWindow.loadFile(tmpPdfPath)
-    } finally {
-      fs.remove(tmpPdfPath).catch(() => {})
-    }
-
-    // ✅ 等待 KaTeX 渲染完成（智能检测，而不是硬编码时间）
-    await printWindow.webContents.executeJavaScript(`
-      new Promise((resolve) => {
-        // 检查 KaTeX 是否渲染完成
-        const checkKatex = () => {
-          const katexElements = document.querySelectorAll('.katex')
-
-          // 如果没有 KaTeX 元素，直接完成
-          if (katexElements.length === 0) {
-            resolve(true)
-            return
-          }
-
-          // 检查所有 KaTeX 元素是否都已渲染
-          const allRendered = Array.from(katexElements).every(el => {
-            // KaTeX 渲染完成后会包含 <math> 或 <mrow> 元素
-            return el.querySelector('math') || el.querySelector('mrow') || el.querySelector('span.katex-html')
-          })
-
-          if (allRendered) {
-            resolve(true)
-          } else {
-            // 每 100ms 检查一次
-            setTimeout(checkKatex, 100)
-          }
-        }
-
-        // 最多等待 5 秒，防止无限等待
-        setTimeout(() => resolve(false), 5000)
-
-        // 开始检查
-        if (document.readyState === 'complete') {
-          checkKatex()
-        } else {
-          window.addEventListener('load', checkKatex)
-        }
-      })
-    `)
-
-    // ✅ 额外等待 500ms 确保字体完全加载（CDN 字体可能需要额外时间）
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    // 打印为 PDF
-    // ⚠️ Electron printToPDF margins 单位是英寸（inches）
-    // 10mm ≈ 0.39 inches (10 / 25.4)
-    const marginInInches = 10 / 25.4  // 10mm ≈ 0.39 inches
-    const pdfData = await printWindow.webContents.printToPDF({
-      pageSize: 'A4',
-      margins: {
-        top: marginInInches,     // ✅ 10mm 上边距
-        bottom: marginInInches,  // ✅ 10mm 下边距
-        left: marginInInches,    // ✅ 10mm 左边距
-        right: marginInInches    // ✅ 10mm 右边距
-      },
-      printBackground: true,
-      preferCSSPageSize: false  // ✅ 强制使用 PDF 边距设置
+    await writePdfExport(result.filePath, {
+      content: htmlContent,
+      title: fileName,
+      markdownCss,
+      prismCss,
+      showBranding,
     })
-
-    // 关闭打印窗口
-    printWindow.close()
-
-    await fs.writeFile(result.filePath, pdfData)
     return result.filePath
   } catch (error) {
     console.error('Failed to export PDF:', error)

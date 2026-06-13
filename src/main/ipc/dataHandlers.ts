@@ -7,6 +7,7 @@ import { syncClipboardState, getClipboardState } from '../clipboardState'
 import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from '../clipboardManager'
 import * as contextMenuManager from '../contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from '../security/pathValidator'
+import { getCliShimStatus, installCliShim, uninstallCliShim } from '../cliShimInstaller'
 
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 const MARKDOWN_LINK_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
@@ -254,6 +255,19 @@ ipcMain.handle('context-menu:install', async () => {
 
 ipcMain.handle('context-menu:uninstall', async () => {
   return contextMenuManager.uninstall()
+})
+
+// v2.5：命令行工具安装
+ipcMain.handle('cli-shim:status', async () => {
+  return getCliShimStatus()
+})
+
+ipcMain.handle('cli-shim:install', async () => {
+  return installCliShim()
+})
+
+ipcMain.handle('cli-shim:uninstall', async () => {
+  return uninstallCliShim()
 })
 
 // v1.3.4：打开系统设置

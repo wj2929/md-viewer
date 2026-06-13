@@ -16,7 +16,9 @@ type ElectronFixtures = {
 export const test = base.extend<ElectronFixtures>({
   testDir: async ({}, use) => {
     // 创建临时测试目录
-    const dir = join(tmpdir(), `md-viewer-e2e-${Date.now()}`)
+    const rootDir = join(process.cwd(), '.tmp', 'e2e')
+    mkdirSync(rootDir, { recursive: true })
+    const dir = mkdtempSync(join(rootDir, 'md-viewer-e2e-'))
     mkdirSync(dir, { recursive: true })
 
     // 创建测试文件

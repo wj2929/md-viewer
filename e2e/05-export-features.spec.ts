@@ -1,8 +1,7 @@
 import { test, expect } from './fixtures/electron'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { tmpdir } from 'os'
 import { execFileSync } from 'child_process'
 import AdmZip from 'adm-zip'
 
@@ -12,6 +11,7 @@ import AdmZip from 'adm-zip'
  */
 
 let testDir: string
+const DOCX_SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL || 'http://127.0.0.1:3179'
 const DIRECT_EXCALIDRAW_SOURCE = `{
   "type": "excalidraw",
   "version": 2,
@@ -191,8 +191,9 @@ function expectNoRendererSourceResidue(htmlContent: string): void {
 }
 
 test.beforeEach(() => {
-  testDir = join(tmpdir(), `md-viewer-test-${Date.now()}`)
-  mkdirSync(testDir, { recursive: true })
+  const rootDir = join(process.cwd(), '.tmp', 'e2e-export')
+  mkdirSync(rootDir, { recursive: true })
+  testDir = mkdtempSync(join(rootDir, 'md-viewer-test-'))
 
   // 创建包含各种 Markdown 特性的测试文件
   const markdown = `# Export Test
@@ -537,17 +538,17 @@ test.describe('导出功能测试', () => {
     expect(pdfBuffer.length).toBeGreaterThan(1000)
     expect(pdfBuffer.toString('utf-8', 0, 4)).toBe('%PDF')
 
-    await page.evaluate(() => window.api.updateAppSettings({
+    await page.evaluate((serverUrl) => window.api.updateAppSettings({
       docxExport: {
         remoteEnabled: false,
-        serverUrl: 'http://127.0.0.1:3179',
+        serverUrl,
         style: 'preview',
         styleTouched: true,
         timeoutMs: 180000,
         embedFont: false,
         localFallbackEnabled: true,
       },
-    }))
+    }), DOCX_SERVICE_URL)
 
     const docxPath = join(testDir, 'direct-export.docx')
     await mockSaveDialog(electronApp, docxPath)
@@ -576,17 +577,17 @@ test.describe('导出功能测试', () => {
     ].join('\n'), 'utf8')
 
     await openMarkdownFile(page, markdownPath)
-    await page.evaluate(() => window.api.updateAppSettings({
+    await page.evaluate((serverUrl) => window.api.updateAppSettings({
       docxExport: {
         remoteEnabled: true,
-        serverUrl: 'http://127.0.0.1:3179',
+        serverUrl,
         style: 'preview',
         styleTouched: true,
         timeoutMs: 120000,
         embedFont: false,
         localFallbackEnabled: false,
       },
-    }))
+    }), DOCX_SERVICE_URL)
 
     const docxPath = join(testDir, 'docx-local-image.docx')
     await mockSaveDialog(electronApp, docxPath)
@@ -613,17 +614,17 @@ test.describe('导出功能测试', () => {
     await page.waitForSelector('.markdown-body', { timeout: 10000 })
     await expect(page.locator('.excalidraw-container svg')).toHaveCount(64, { timeout: 120000 })
 
-    await page.evaluate(() => window.api.updateAppSettings({
+    await page.evaluate((serverUrl) => window.api.updateAppSettings({
       docxExport: {
         remoteEnabled: true,
-        serverUrl: 'http://127.0.0.1:3179',
+        serverUrl,
         style: 'preview',
         styleTouched: true,
         timeoutMs: 240000,
         embedFont: false,
         localFallbackEnabled: false,
       },
-    }))
+    }), DOCX_SERVICE_URL)
 
     const docxPath = join(testDir, 'test-excalidraw.docx')
     await mockSaveDialog(electronApp, docxPath)

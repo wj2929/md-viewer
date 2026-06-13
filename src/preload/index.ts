@@ -337,6 +337,35 @@ const api = {
       success: boolean
       error?: string
     }>,
+  getCliShimStatus: () =>
+    ipcRenderer.invoke('cli-shim:status') as Promise<{
+      supported: boolean
+      installed: boolean
+      platform: 'darwin' | 'win32' | 'linux'
+      path?: string
+      pathInShell?: boolean
+      ownedByMdViewer?: boolean
+      code?: string
+      message?: string
+    }>,
+  installCliShim: () =>
+    ipcRenderer.invoke('cli-shim:install') as Promise<{
+      ok: boolean
+      path?: string
+      pathInShell?: boolean
+      nextStep?: string
+      code?: string
+      message?: string
+    }>,
+  uninstallCliShim: () =>
+    ipcRenderer.invoke('cli-shim:uninstall') as Promise<{
+      ok: boolean
+      path?: string
+      pathInShell?: boolean
+      nextStep?: string
+      code?: string
+      message?: string
+    }>,
   openSystemSettings: (section: string) =>
     ipcRenderer.invoke('system:openSettings', section) as Promise<{
       success: boolean
@@ -625,6 +654,12 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('shortcut:add-bookmark', handler)
     return () => ipcRenderer.removeListener('shortcut:add-bookmark', handler)
+  },
+
+  onShortcutSettings: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:settings', handler)
+    return () => ipcRenderer.removeListener('shortcut:settings', handler)
   },
 
   // v1.3.7：预览区域右键菜单事件

@@ -44,6 +44,17 @@ interface ContextMenuStatus {
   userConfirmedEnabled?: boolean
 }
 
+interface CliShimStatus {
+  supported: boolean
+  installed: boolean
+  platform: 'darwin' | 'win32' | 'linux'
+  path?: string
+  pathInShell?: boolean
+  ownedByMdViewer?: boolean
+  code?: string
+  message?: string
+}
+
 interface AppVersionInfo {
   version: string
   electron: string
@@ -147,6 +158,11 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
   const [ctxLoading, setCtxLoading] = useState(false)
   const [showEnableGuide, setShowEnableGuide] = useState(false)
 
+  // CLI 命令行工具状态
+  const [cliStatus, setCliStatus] = useState<CliShimStatus | null>(null)
+  const [cliLoading, setCliLoading] = useState(false)
+  const [cliMessage, setCliMessage] = useState('')
+
   // PlantUML 服务器配置
   const [plantumlServer, setPlantumlServer] = useState('')
   const [plantumlTestStatus, setPlantumlTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
@@ -171,6 +187,7 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
   useEffect(() => {
     loadSettings()
     loadCtxStatus()
+    loadCliStatus()
     // 加载 PlantUML 服务器配置
     try {
       setPlantumlServer(localStorage.getItem('plantuml-server-url') || '')
@@ -203,6 +220,20 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
   const loadCtxStatus = async () => {
     const result = await window.api.checkContextMenuStatus()
     setCtxStatus(result)
+  }
+
+  const loadCliStatus = async () => {
+    try {
+      const result = await window.api.getCliShimStatus()
+      setCliStatus(result)
+    } catch {
+      setCliStatus({
+        supported: false,
+        installed: false,
+        platform: window.api.platform,
+        message: '无法读取命令行工具状态',
+      })
+    }
   }
 
   const updateSetting = useCallback(async (key: string, value: number | boolean) => {
@@ -364,6 +395,61 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
     }
   }
 
+  const handleInstallCli = async () => {
+    setCliLoading(true)
+    setCliMessage('')
+    try {
+      const result = await window.api.installCliShim()
+      if (result.ok) {
+        setCliStatus(prev => ({
+          supported: true,
+          installed: true,
+          platform: prev?.platform ?? window.api.platform,
+          path: result.path,
+          pathInShell: result.pathInShell,
+          ownedByMdViewer: true,
+        }))
+        setCliMessage([result.path ? `已安装：${result.path}` : '命令行工具已安装', result.nextStep].filter(Boolean).join('\n'))
+        await loadCliStatus()
+      } else {
+        setCliMessage(result.message || '安装命令行工具失败')
+        await loadCliStatus()
+      }
+    } finally {
+      setCliLoading(false)
+    }
+  }
+
+  const handleUninstallCli = async () => {
+    setCliLoading(true)
+    setCliMessage('')
+    try {
+      const result = await window.api.uninstallCliShim()
+      if (result.ok) {
+        setCliStatus(prev => ({
+          supported: prev?.supported ?? true,
+          installed: false,
+          platform: prev?.platform ?? window.api.platform,
+        }))
+        setCliMessage(result.nextStep || '命令行工具已卸载')
+        await loadCliStatus()
+      } else {
+        setCliMessage(result.message || '卸载命令行工具失败')
+        await loadCliStatus()
+      }
+    } finally {
+      setCliLoading(false)
+    }
+  }
+
+  const handleOpenCliQuickstart = () => {
+    window.api.openExternal('https://github.com/wj2929/md-viewer/blob/main/docs/cli-quickstart.md')
+  }
+
+  const handleOpenCliGuide = () => {
+    window.api.openExternal('https://github.com/wj2929/md-viewer/blob/main/docs/cli.md')
+  }
+
   const getDisplayStatus = () => {
     if (!ctxStatus?.installed) return { icon: '⚪', text: '未安装', color: 'gray' }
     if (ctxStatus.platform === 'darwin' && !ctxStatus.userConfirmedEnabled) return { icon: '🟡', text: '已安装，待启用', color: 'yellow' }
@@ -371,6 +457,15 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
   }
 
   const displayStatus = getDisplayStatus()
+  const cliDisplayStatus = !cliStatus
+    ? { icon: '⚪', text: '检测中', color: 'gray' }
+    : !cliStatus.supported
+      ? { icon: '⚪', text: '当前系统暂不支持图形化安装', color: 'gray' }
+      : cliStatus.installed
+        ? { icon: '🟢', text: cliStatus.pathInShell === false ? '已安装，需配置 PATH' : '已安装', color: 'green' }
+        : cliStatus.code === 'CLI_SHIM_NOT_OWNED'
+          ? { icon: '🟡', text: '存在非 MD Viewer 生成的同名命令', color: 'yellow' }
+          : { icon: '⚪', text: '未安装', color: 'gray' }
   const isMacOS = ctxStatus?.platform === 'darwin'
   const needsManualEnable = isMacOS && ctxStatus?.installed && !ctxStatus?.userConfirmedEnabled
   const fileManagerName = ctxStatus?.platform === 'darwin' ? 'Finder' : ctxStatus?.platform === 'win32' ? '资源管理器' : '文件管理器'
@@ -834,6 +929,52 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
                 {ctxLoading ? '卸载中...' : '卸载'}
               </button>
             )}
+          </div>
+        </div>
+
+        <div className="setting-item">
+          <div className="setting-info">
+            <h4>命令行工具</h4>
+            <p className="setting-description">
+              安装后可在终端或自动化脚本中使用 <code>md-viewer</code> 打开、截图、导出和检查 Markdown。
+            </p>
+            <div className={`status-indicator ${cliDisplayStatus.color}`}>
+              <span>{cliDisplayStatus.icon}</span>
+              <span>状态：{cliDisplayStatus.text}</span>
+            </div>
+            {cliStatus?.path && (
+              <p className="setting-description">
+                路径：<code>{cliStatus.path}</code>
+              </p>
+            )}
+            {cliStatus?.message && (
+              <div className="warning-message">
+                {cliStatus.message}
+              </div>
+            )}
+            {cliMessage && (
+              <div className="success-message">
+                {cliMessage}
+              </div>
+            )}
+          </div>
+          <div className="setting-actions">
+            {cliStatus?.supported && !cliStatus.installed && cliStatus.code !== 'CLI_SHIM_NOT_OWNED' && (
+              <button onClick={handleInstallCli} disabled={cliLoading} className="btn-primary">
+                {cliLoading ? '安装中...' : '安装命令行工具'}
+              </button>
+            )}
+            {cliStatus?.supported && cliStatus.installed && (
+              <button onClick={handleUninstallCli} disabled={cliLoading} className="btn-danger-outline">
+                {cliLoading ? '卸载中...' : '卸载命令行工具'}
+              </button>
+            )}
+            <button onClick={handleOpenCliQuickstart} className="btn-secondary">
+              快速上手
+            </button>
+            <button onClick={handleOpenCliGuide} className="btn-secondary">
+              使用指南
+            </button>
           </div>
         </div>
       </section>
