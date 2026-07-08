@@ -245,13 +245,32 @@ function App(): React.JSX.Element {
         }
       }
       if (newTabs.length > 0) {
-        setTabs(prev => [...prev, ...newTabs])
-        setActiveTabId(newTabs[0].id)
+        let firstAddedTabId: string | null = null
+        setTabs(prev => {
+          const existingPaths = new Set(prev.map(tab => tab.file.path))
+          const tabsToAdd = newTabs.filter(tab => {
+            if (existingPaths.has(tab.file.path)) return false
+            existingPaths.add(tab.file.path)
+            return true
+          })
+          firstAddedTabId = tabsToAdd[0]?.id ?? null
+          return [...prev, ...tabsToAdd]
+        })
+        if (firstAddedTabId) setActiveTabId(firstAddedTabId)
       }
     } catch (error) {
       console.error('[App] Failed to restore pinned tabs:', error)
     }
   }, [])
+
+  const keepPinnedAndSplitTabsForFolderSwitch = useCallback(() => {
+    const splitTabIds = new Set(
+      splitStateRef.current.root
+        ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
+        : []
+    )
+    setTabs(prev => prev.filter(tab => tab.isPinned || splitTabIds.has(tab.id)))
+  }, [setTabs])
 
   const refreshExistingTabContent = useCallback(async (tab: Tab, loadContent: () => Promise<string>, errorPrefix = '无法打开文件') => {
     const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
@@ -278,33 +297,23 @@ function App(): React.JSX.Element {
       const path = await window.api.openFolder()
       if (path) {
         setFolderPath(path)
-        const splitTabIds = new Set(
-          splitStateRef.current.root
-            ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
-            : []
-        )
-        setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
+        keepPinnedAndSplitTabsForFolderSwitch()
         setActiveTabId(null)
         await restorePinnedTabs(path)
       }
     } catch (error) {
       console.error('Failed to open folder:', error)
     }
-  }, [restorePinnedTabs])
+  }, [keepPinnedAndSplitTabsForFolderSwitch, restorePinnedTabs])
 
   // 从历史选择文件夹
   const handleSelectHistoryFolder = useCallback(async (path: string) => {
     await window.api.setFolderPath(path)
     setFolderPath(path)
-    const splitTabIds = new Set(
-      splitStateRef.current.root
-        ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
-        : []
-    )
-    setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
+    keepPinnedAndSplitTabsForFolderSwitch()
     setActiveTabId(null)
     await restorePinnedTabs(path)
-  }, [restorePinnedTabs])
+  }, [keepPinnedAndSplitTabsForFolderSwitch, restorePinnedTabs])
 
   // v1.3.6：从最近文件选择
   const handleSelectRecentFile = useCallback(async (filePath: string) => {
@@ -315,12 +324,7 @@ function App(): React.JSX.Element {
     if (!folderPath || !filePath.startsWith(folderPath)) {
       await window.api.setFolderPath(fileFolder)
       setFolderPath(fileFolder)
-      const splitTabIds = new Set(
-        splitStateRef.current.root
-          ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
-          : []
-      )
-      setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
+      keepPinnedAndSplitTabsForFolderSwitch()
       setActiveTabId(null)
 
       setTimeout(async () => {
@@ -348,7 +352,15 @@ function App(): React.JSX.Element {
             content,
             isPinned
           }
-          setTabs(prev => [...prev, ...restoredTabs, newTab])
+          setTabs(prev => {
+            const existingPaths = new Set(prev.map(tab => tab.file.path))
+            const tabsToAdd = [...restoredTabs, newTab].filter(tab => {
+              if (existingPaths.has(tab.file.path)) return false
+              existingPaths.add(tab.file.path)
+              return true
+            })
+            return [...prev, ...tabsToAdd]
+          })
           setActiveTabId(newTab.id)
           window.api.addRecentFile({ path: filePath, name: fileName, folderPath: fileFolder }).catch(err => console.error('Failed to add to recent files:', err))
         } catch (error) {
@@ -375,7 +387,7 @@ function App(): React.JSX.Element {
         toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
       }
     }
-  }, [folderPath, refreshExistingTabContent, toast])
+  }, [folderPath, keepPinnedAndSplitTabsForFolderSwitch, refreshExistingTabContent, toast])
 
   // 加载文件列表
   useEffect(() => {
@@ -811,12 +823,7 @@ function App(): React.JSX.Element {
         const newFiles = await window.api.readDir(bookmarkDir)
         setFolderPath(bookmarkDir)
         setFiles(newFiles)
-        const splitTabIds = new Set(
-          splitStateRef.current.root
-            ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
-            : []
-        )
-        setTabs(prev => prev.filter(t => splitTabIds.has(t.id)))
+        keepPinnedAndSplitTabsForFolderSwitch()
         setActiveTabId(null)
 
         setTimeout(async () => {
@@ -827,7 +834,7 @@ function App(): React.JSX.Element {
               file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
               content
             }
-            setTabs(prev => [...prev, newTab])
+            setTabs(prev => prev.some(tab => tab.file.path === newTab.file.path) ? prev : [...prev, newTab])
             setActiveTabId(newTab.id)
             setTimeout(() => navigateToBookmarkPosition(bookmark), 300)
           } catch (error) {
@@ -860,7 +867,7 @@ function App(): React.JSX.Element {
       await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(bookmark.filePath), '无法刷新文件')
       setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
     }
-  }, [folderPath, refreshExistingTabContent, toast])
+  }, [folderPath, keepPinnedAndSplitTabsForFolderSwitch, refreshExistingTabContent, toast])
 
   const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
     if (!previewRef.current) return

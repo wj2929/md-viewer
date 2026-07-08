@@ -317,6 +317,39 @@ describe('App 集成测试', () => {
       })
     })
 
+    it('切换文件夹时应该保留已固定标签', async () => {
+      useTabStore.setState({
+        tabs: [{
+          id: 'pinned-old',
+          file: { name: 'old.md', path: '/old/folder/old.md', isDirectory: false },
+          content: '# Old',
+          isPinned: true
+        }],
+        activeTabId: 'pinned-old',
+        splitState: { root: null, activeLeafId: '' },
+        scrollToLine: undefined,
+        scrollToRatio: undefined,
+        highlightKeyword: undefined
+      })
+      mockApi.openFolder.mockResolvedValue('/new/folder')
+      mockApi.readDir.mockResolvedValue([
+        { name: 'new.md', path: '/new/folder/new.md', isDirectory: false }
+      ])
+      mockApi.getPinnedTabsForFolder.mockResolvedValueOnce([
+        { path: '/new/folder/new.md', order: 0 }
+      ])
+      mockApi.readFile.mockResolvedValueOnce('# New')
+
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+
+      await waitFor(() => {
+        const tabs = useTabStore.getState().tabs
+        expect(tabs.some(tab => tab.file.path === '/old/folder/old.md' && tab.isPinned)).toBe(true)
+        expect(tabs.some(tab => tab.file.path === '/new/folder/new.md' && tab.isPinned)).toBe(true)
+      })
+    })
+
     it('打开文件夹失败时应该处理错误', async () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
       mockApi.openFolder.mockRejectedValue(new Error('打开失败'))

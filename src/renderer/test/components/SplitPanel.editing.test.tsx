@@ -61,7 +61,7 @@ describe('SplitPanel lightweight editing', () => {
     expect(screen.queryByRole('button', { name: '快速编辑 b.md' })).not.toBeInTheDocument()
   })
 
-  it('renders the quick edit drawer inside the matching split panel after a session opens', () => {
+  it('does not render the legacy quick edit drawer from an edit session alone', () => {
     useEditSessionStore.getState().openSession({
       canonicalPath: '/real/docs/b.md',
       displayPath: '/docs/b.md',
@@ -84,6 +84,46 @@ describe('SplitPanel lightweight editing', () => {
         onImageClick={vi.fn()}
         onDropTab={vi.fn()}
         getQuickEditCanonicalPath={(tab) => tab.file.path === '/docs/b.md' ? '/real/docs/b.md' : null}
+        onSaveQuickEdit={vi.fn()}
+        onCloseQuickEdit={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByLabelText('b.md 快速编辑')).not.toBeInTheDocument()
+  })
+
+  it('renders the quick edit drawer only when a split leaf has an explicit placement', () => {
+    useEditSessionStore.getState().openSession({
+      canonicalPath: '/real/docs/b.md',
+      displayPath: '/docs/b.md',
+      fileName: 'b.md',
+      content: '# B',
+      mtimeMs: 1000,
+      size: 3,
+      revisionToken: '1000:3',
+    })
+
+    render(
+      <SplitPanel
+        node={root}
+        tabs={tabs}
+        activeLeafId="leaf-a"
+        onSplitPanel={vi.fn()}
+        onClosePanel={vi.fn()}
+        onResizePanel={vi.fn()}
+        onSetActiveLeaf={vi.fn()}
+        onImageClick={vi.fn()}
+        onDropTab={vi.fn()}
+        getQuickEditTarget={(tab, leafId) => tab.file.path === '/docs/b.md' && leafId === 'leaf-b'
+          ? {
+              filePath: '/docs/b.md',
+              canonicalPath: '/real/docs/b.md',
+              tabId: 'tab-b',
+              leafId: 'leaf-b',
+              mode: 'source-line',
+              sourceLine: 1,
+            }
+          : null}
         onSaveQuickEdit={vi.fn()}
         onCloseQuickEdit={vi.fn()}
       />
@@ -121,10 +161,10 @@ describe('SplitPanel lightweight editing', () => {
       />
     )
 
-    const preview = document.querySelector('.split-panel-content.with-quick-edit .preview')
-    expect(preview).toBeInTheDocument()
-    expect(within(preview as HTMLElement).getByText('# B draft')).toBeInTheDocument()
-    expect(screen.getByText('草稿预览，未保存')).toBeInTheDocument()
+    const banner = screen.getByText('草稿预览，未保存')
+    const content = banner.closest('.split-panel-content') as HTMLElement
+    expect(content).toBeInTheDocument()
+    expect(within(content).getByText('# B draft')).toBeInTheDocument()
   })
 
   it('passes the matching split preview element to the quick edit drawer scroll sync', () => {
@@ -149,7 +189,16 @@ describe('SplitPanel lightweight editing', () => {
         onSetActiveLeaf={vi.fn()}
         onImageClick={vi.fn()}
         onDropTab={vi.fn()}
-        getQuickEditCanonicalPath={(tab) => tab.file.path === '/docs/b.md' ? '/real/docs/b.md' : null}
+        getQuickEditTarget={(tab, leafId) => tab.file.path === '/docs/b.md' && leafId === 'leaf-b'
+          ? {
+              filePath: '/docs/b.md',
+              canonicalPath: '/real/docs/b.md',
+              tabId: 'tab-b',
+              leafId: 'leaf-b',
+              mode: 'source-line',
+              sourceLine: 1,
+            }
+          : null}
         onSaveQuickEdit={vi.fn()}
         onCloseQuickEdit={vi.fn()}
       />

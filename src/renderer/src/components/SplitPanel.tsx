@@ -184,7 +184,7 @@ function LeafPanel({
   const dragClass = dragPos ? `drag-over drag-over-${dragPos}` : ''
   const quickEditSession = useEditSessionStore(state => tab ? findEditSessionForPath(state.sessions, tab.file.path) : undefined)
   const quickEditTarget = tab ? getQuickEditTarget?.(tab, node.id) : null
-  const quickEditCanonicalPath = quickEditTarget?.canonicalPath || (tab ? getQuickEditCanonicalPath?.(tab) : null)
+  const quickEditCanonicalPath = quickEditTarget?.canonicalPath || null
   const previewContent = tab ? quickEditSession?.draft ?? tab.content : ''
   const isDraftPreview = Boolean(quickEditSession?.dirty)
   const documentMode = tab ? getDocumentViewMode?.(node.id, tab.id) ?? 'preview' : 'preview'

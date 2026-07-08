@@ -118,6 +118,28 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
+    "dmg": {
+      "contents": [
+        {
+          "x": 180,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 380,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 280,
+          "y": 320,
+          "type": "file",
+          "path": "resources/mac-first-open-note.txt",
+          "name": "首次打开说明.txt"
+        }
+      ]
+    },
     "win": {
       "icon": "resources/icon.ico",
       "target": [

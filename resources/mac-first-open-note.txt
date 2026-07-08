@@ -1,0 +1,16 @@
+MD Viewer macOS 首次打开说明
+
+如果首次打开提示“已损坏”“无法验证开发者”或“Apple 无法检查其是否包含恶意软件”，通常是因为这是未公证的开源应用。
+
+请先把 MD Viewer 拖入 Applications，然后在终端执行：
+
+APP="/Applications/MD Viewer.app"; if [ -d "$APP" ]; then xattr -dr com.apple.quarantine "$APP" 2>/dev/null || sudo xattr -dr com.apple.quarantine "$APP"; xattr -d com.apple.provenance "$APP" 2>/dev/null || true; else echo "未找到 $APP，请先把 MD Viewer.app 拖到 /Applications"; fi
+
+如果仍无法打开，可继续执行：
+
+APP="/Applications/MD Viewer.app"; xattr -cr "$APP" 2>/dev/null || sudo xattr -cr "$APP"
+
+也可以在“系统设置 -> 隐私与安全性”中选择“仍要打开”。
+
+请确认应用来自官方 Release：
+https://github.com/wj2929/md-viewer/releases
