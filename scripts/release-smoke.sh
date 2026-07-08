@@ -145,6 +145,7 @@ case "$MODE" in
     run_step "图表预览 Smoke" run_core_e2e \
       e2e/03-markdown-rendering.spec.ts \
       -g "Mermaid 图表|DrawIO 应渲染基础图"
+    run_step "导出回归基线(HTML)" node scripts/export-baseline.mjs
     ;;
   full)
     echo "运行 v2.5 完整发版门禁"
@@ -161,6 +162,7 @@ case "$MODE" in
       e2e/markdown-edit-mode.spec.ts \
       e2e/markdown-links.spec.ts \
       e2e/read-position.spec.ts
+    run_step "导出回归基线(含DOCX)" env MD_VIEWER_DOCX_SERVICE_URL="${DOCX_SERVICE_URL}" node scripts/export-baseline.mjs
     ;;
   *)
     echo "未知模式：$MODE"

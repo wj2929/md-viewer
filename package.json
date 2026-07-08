@@ -18,7 +18,8 @@
     "build:mac": "npm run build && electron-builder --mac",
     "build:win": "npm run build && electron-builder --win",
     "build:linux": "npm run build && electron-builder --linux",
-    "release:check": "./scripts/release-check.sh"
+    "release:check": "./scripts/release-check.sh",
+    "baseline": "node scripts/export-baseline.mjs"
   },
   "build": {
     "appId": "com.mdviewer.app",

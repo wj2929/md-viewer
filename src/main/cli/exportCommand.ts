@@ -13,7 +13,7 @@ import { renderMarkdownHeadless, type HeadlessMarkdownRenderer } from './headles
 import { getHeadlessRenderTimeoutMs } from './renderTimeout'
 import { createFailureResult, createSuccessResult } from './result'
 import { writeHtmlExport, writePdfExport, type PdfDocumentOptions } from './sharedExportWriters'
-import type { CliArtifact } from './types'
+import type { CliArtifact, CliWarning } from './types'
 
 const SUPPORTED_FORMATS = new Set(['html', 'pdf', 'docx'])
 const DEFAULT_DOCX_SERVICE_URL = 'http://127.0.0.1:3179'
@@ -81,25 +81,44 @@ export async function buildExportResult(
         embedFont: flags['embed-font'] === true,
       })
 
-      return createSuccessResult('export', {
-        summary: {
-          format,
-          input: validation.normalizedPath,
-          output: out,
-          bytes: docxResult.artifact.bytes,
-          serviceVersion: docxResult.serviceVersion,
-          mode: docxResult.mode,
-          renderStatus: docxResult.renderStatus,
-          totalCharts: undefined,
-          renderedCharts: docxResult.chartsRendered,
-          failedCharts: docxResult.failedBlocks,
-        },
-        artifacts: [docxResult.artifact],
-        warnings: docxResult.warnings.map(message => ({
+      const docxSummary = {
+        format,
+        input: validation.normalizedPath,
+        output: out,
+        bytes: docxResult.artifact.bytes,
+        serviceVersion: docxResult.serviceVersion,
+        mode: docxResult.mode,
+        renderStatus: docxResult.renderStatus,
+        totalCharts: undefined,
+        renderedCharts: docxResult.chartsRendered,
+        failedCharts: docxResult.failedBlocks,
+      }
+      const docxWarnings = ensureDocxFailureWarning(
+        docxResult.warnings.map(message => ({
           code: 'DOCX_SERVICE_WARNING',
           message,
           target: 'docx-service',
         })),
+        docxResult,
+      )
+
+      // 契约诚实化（W1）：DOCX 渲染未完全成功时不得报告 ok:true。
+      if (docxResult.renderStatus !== 'success' || docxResult.failedBlocks > 0) {
+        return createFailureResult('export', {
+          code: 'DOCX_RENDER_PARTIAL',
+          message: `${docxResult.failedBlocks} 个图表在 DOCX 导出中失败，文档可能缺图`,
+          target: 'docx-service',
+          exitCode: 5,
+          summary: docxSummary,
+          artifacts: [docxResult.artifact],
+          warnings: docxWarnings,
+        })
+      }
+
+      return createSuccessResult('export', {
+        summary: docxSummary,
+        artifacts: [docxResult.artifact],
+        warnings: docxWarnings,
       })
     } catch (error) {
       return buildDocxFailure(serviceUrl, error)
@@ -126,21 +145,27 @@ export async function buildExportResult(
     ? await (options.pdfWriter ?? writePdfExport)(out, writerOptions)
     : await writeHtmlExport(out, writerOptions)
 
+  const renderSummary = {
+    format,
+    input: validation.normalizedPath,
+    output: out,
+    bytes: artifact.bytes,
+    ...buildRenderSummary(renderResult),
+  }
+  const renderWarnings = ensureFailureWarning(
+    renderResult.warnings.map(mapRenderWarning),
+    renderResult,
+  )
+
   if (renderResult.status === 'timeout') {
     return createFailureResult('export', {
       code: 'RENDER_TIMEOUT',
       message: `headless 渲染超过 ${renderResult.stats.durationMs}ms 未完成，导出文件可能未完整渲染`,
       target: validation.normalizedPath,
       exitCode: 5,
-      summary: {
-        format,
-        input: validation.normalizedPath,
-        output: out,
-        bytes: artifact.bytes,
-        ...buildRenderSummary(renderResult),
-      },
+      summary: renderSummary,
       artifacts: [artifact],
-      warnings: renderResult.warnings.map(mapRenderWarning),
+      warnings: renderWarnings,
       actions: [
         {
           label: '增大 headless 渲染超时',
@@ -152,16 +177,23 @@ export async function buildExportResult(
     })
   }
 
+  // 契约诚实化（W1）：有图表失败时不得报告 ok:true。文件已写出，但产物可能缺图/残留源码。
+  if (renderResult.status !== 'success' || renderResult.stats.failedBlocks > 0) {
+    return createFailureResult('export', {
+      code: 'RENDER_PARTIAL',
+      message: `${renderResult.stats.failedBlocks} 个图表渲染失败，导出文件可能缺图或残留源码`,
+      target: validation.normalizedPath,
+      exitCode: 5,
+      summary: renderSummary,
+      artifacts: [artifact],
+      warnings: renderWarnings,
+    })
+  }
+
   return createSuccessResult('export', {
-    summary: {
-      format,
-      input: validation.normalizedPath,
-      output: out,
-      bytes: artifact.bytes,
-      ...buildRenderSummary(renderResult),
-    },
+    summary: renderSummary,
     artifacts: [artifact],
-    warnings: renderResult.warnings.map(mapRenderWarning),
+    warnings: renderWarnings,
   })
 }
 
@@ -246,4 +278,33 @@ function mapRenderWarning(warning: RenderWarning) {
         }
       : undefined,
   }
+}
+
+// W1：失败但渲染器没产出任何 warning 时，合成一条，保证“有失败必有 warning”（不静默）。
+function ensureFailureWarning(warnings: CliWarning[], renderResult: BrowserPageRenderResult): CliWarning[] {
+  if (warnings.length > 0) return warnings
+  const failed = renderResult.stats.failedBlocks
+  if (renderResult.status === 'success' && failed === 0) return warnings
+  return [
+    {
+      code: 'CHART_RENDER_FAILED',
+      message:
+        failed > 0
+          ? `${failed} 个图表未渲染成功（status=${renderResult.status}），产物可能缺图或残留源码`
+          : `渲染未完成（status=${renderResult.status}），产物可能不完整`,
+      target: 'renderer',
+    },
+  ]
+}
+
+function ensureDocxFailureWarning(warnings: CliWarning[], docxResult: ConvertSourceDocxResult): CliWarning[] {
+  if (warnings.length > 0) return warnings
+  if (docxResult.renderStatus === 'success' && docxResult.failedBlocks === 0) return warnings
+  return [
+    {
+      code: 'CHART_RENDER_FAILED',
+      message: `${docxResult.failedBlocks} 个图表在 DOCX 导出中失败（status=${docxResult.renderStatus}）`,
+      target: 'docx-service',
+    },
+  ]
 }

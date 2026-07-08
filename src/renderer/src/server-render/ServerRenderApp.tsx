@@ -20,6 +20,7 @@ import { useKrokiChart } from '../components/charts/useKrokiChart'
 import { createBrowserResourceHost } from '../render-core/browserResourceHost'
 import { builtinRendererDefinitions } from '../renderers/builtin'
 import { createRendererRegistry } from '../renderers/registry'
+import { normalizeFailedChartBlocks } from './normalizeFailedCharts'
 import { collectFencedRenderSourceLocators } from '../renderers/sourceIdentity'
 import type { BrowserPageRenderResult, ServerRenderInput } from './contracts'
 import '../assets/main.css'
@@ -349,6 +350,10 @@ export function ServerRenderApp(): React.JSX.Element {
 
       if (finished || elapsed >= timeoutMs) {
         window.clearInterval(timer)
+
+        // W2：在产出 html 前，把失败/未渲染的图表块归一化为中性占位，避免源码漏进交付产物。
+        // 统计已在上方完成，此处仅清理输出，不影响计数。成功渲染的图表及其源码不受影响。
+        if (root instanceof HTMLElement) normalizeFailedChartBlocks(root)
 
         const rootRect = root?.getBoundingClientRect()
         const rootWidth = rootRect?.width || 0
