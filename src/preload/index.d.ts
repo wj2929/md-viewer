@@ -210,6 +210,7 @@ declare global {
         maxRequestSizeMb?: number
         error?: string
       }>
+      runPreflight: (request: { filePath: string; formats: string[]; docxServiceUrl?: string }) => Promise<import('../shared/preflight').PreflightResult>
       selectReferenceDocx: () => Promise<string | null>
 
       getLastDocxExportPath: () => Promise<string | null>

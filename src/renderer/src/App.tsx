@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
 import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
@@ -1228,6 +1228,7 @@ function App(): React.JSX.Element {
         onShowInFolder={async (p) => { try { await window.api.showItemInFolder(p) } catch {} }}
         onOpenSettings={() => setShowSettings(true)}
       />
+      <PreflightPanel />
 
       {isDragOver && (
         <div className="drag-overlay">

@@ -1,0 +1,57 @@
+.preflight-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preflight-panel {
+  width: 540px;
+  max-width: calc(100vw - 48px);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.preflight-panel .export-task-body {
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.preflight-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.preflight-warning-message {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.export-task-warning-item + .export-task-warning-item {
+  margin-top: 10px;
+}
+
+.preflight-sev-action-required {
+  border-left: 3px solid #e5484d;
+  padding-left: 8px;
+}
+.preflight-sev-warning {
+  border-left: 3px solid #f5a623;
+  padding-left: 8px;
+}
+.preflight-sev-info {
+  border-left: 3px solid #8e8e93;
+  padding-left: 8px;
+}

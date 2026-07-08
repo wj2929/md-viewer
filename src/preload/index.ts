@@ -106,6 +106,9 @@ const api = {
       error?: string
     }>,
 
+  runPreflight: (request: { filePath: string; formats: string[]; docxServiceUrl?: string }) =>
+    ipcRenderer.invoke('preflight:run', request) as Promise<import('../shared/preflight').PreflightResult>,
+
   selectReferenceDocx: () =>
     ipcRenderer.invoke('docx:selectReferenceDocx') as Promise<string | null>,
 

@@ -6,6 +6,7 @@ import { renderChartsForDocx } from '../utils/docxChartRenderer'
 import { useExportTaskStore } from '../stores/exportTaskStore'
 import { createExportGuard } from '../utils/exportGuard'
 import { useEditSessionStore } from '../stores/editSessionStore'
+import { usePreflightStore } from '../stores/preflightStore'
 
 interface UseExportParams {
   splitState: SplitState
@@ -51,6 +52,20 @@ function isDocxExportRunning(): boolean {
   return status === 'rendering' || status === 'generating'
 }
 
+/**
+ * 导出前预检闸门：无风险直接放行（静默）；有风险弹面板等用户决策；预检自身异常绝不阻塞导出。
+ * 返回 true = 继续导出，false = 用户取消。
+ */
+async function runPreflightGate(filePath: string, formats: string[], docxServiceUrl?: string): Promise<boolean> {
+  try {
+    const result = await window.api.runPreflight({ filePath, formats, docxServiceUrl })
+    if (result.status === 'ok') return true
+    return await usePreflightStore.getState().request(result)
+  } catch {
+    return true
+  }
+}
+
 export function useExport({ splitState, tabs, activeTabId, folderPath, toast, saveBeforeExport }: UseExportParams): UseExportReturn {
   const cancelledRef = useRef(false)
   const exportGuard = useMemo(() => createExportGuard({ toast, saveBeforeExport }), [toast, saveBeforeExport])
@@ -79,6 +94,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       : activeTab
     if (!exportTab) return
     if (!(await exportGuard(exportTab.file.path))) return
+    if (!(await runPreflightGate(exportTab.file.path, ['html']))) return
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
@@ -106,6 +122,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       : activeTab
     if (!exportTab) return
     if (!(await exportGuard(exportTab.file.path))) return
+    if (!(await runPreflightGate(exportTab.file.path, ['pdf']))) return
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
@@ -133,6 +150,12 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       : activeTab
     if (!exportTab) return
     if (!(await exportGuard(exportTab.file.path))) return
+    let preflightDocxUrl: string | undefined
+    try {
+      const s = await window.api.getAppSettings()
+      if (s.docxExport?.remoteEnabled && s.docxExport?.serverUrl) preflightDocxUrl = s.docxExport.serverUrl
+    } catch { /* 读设置失败则不查 DOCX 服务，预检仍做其余检查 */ }
+    if (!(await runPreflightGate(exportTab.file.path, ['docx'], preflightDocxUrl))) return
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {

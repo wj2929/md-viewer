@@ -13,6 +13,8 @@ import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveR
 import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
 import { validatePath } from '../security'
 import { writeHtmlExport, writePdfExport } from '../cli/sharedExportWriters'
+import { runExportPreflight } from '../exportPreflight'
+import type { PreflightRequest, PreflightResult } from '../../shared/preflight'
 
 let lastDocxExportPath: string | null = null
 const EXPORT_SOURCE_EXTENSION_RE = /\.(md|markdown|mdown|mkd|mkdn|excalidraw)$/i
@@ -1142,6 +1144,18 @@ async function _exportLocalDocx(
 // 测试 DOCX 服务连接
 ipcMain.handle('docx:testConnection', async (_, serverUrl: string, apiKey?: string) => {
   return testConnection(serverUrl, apiKey)
+})
+
+ipcMain.handle('preflight:run', async (_, request: PreflightRequest) => {
+  try {
+    const markdown = await fs.readFile(request.filePath, 'utf8')
+    return await runExportPreflight(markdown, request.filePath, request.formats, {
+      docxServiceUrl: request.docxServiceUrl,
+    })
+  } catch {
+    // 预检自身失败绝不阻塞导出：返回空结果，让导出照常进行
+    return { status: 'ok', warnings: [], blockedFormats: [] } as PreflightResult
+  }
 })
 
 ipcMain.handle('docx:selectReferenceDocx', async (event) => {
