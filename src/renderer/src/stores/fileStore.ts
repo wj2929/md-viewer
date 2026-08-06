@@ -25,7 +25,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   isLoading: false,
   selectedPaths: new Set(),
 
-  setFolderPath: (path) => set({ folderPath: path }),
+  setFolderPath: (path) => set({ folderPath: path, selectedPaths: new Set() }),
   setFiles: (files) => set({ files }),
   setIsLoading: (loading) => set({ isLoading: loading }),
   setSelectedPaths: (paths) => set({ selectedPaths: paths }),

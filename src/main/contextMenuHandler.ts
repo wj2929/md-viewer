@@ -5,10 +5,10 @@
  * v1.3 阶段 3：使用剪贴板状态动态控制粘贴菜单
  */
 
-import { Menu, shell, clipboard, BrowserWindow } from 'electron'
+import { Menu, shell, clipboard, BrowserWindow, dialog } from 'electron'
 import * as path from 'path'
-import { validatePath, validateSecurePath } from './security'
-import { getClipboardState } from './clipboardState'
+import { validateSecurePathInBase } from './security'
+import { getClipboardState, syncClipboardState } from './clipboardState'
 
 /**
  * 文件信息接口
@@ -17,6 +17,27 @@ interface FileInfo {
   name: string
   path: string
   isDirectory: boolean
+}
+
+type FileClipboardAction = 'copy' | 'cut' | 'paste'
+
+export function dispatchFileClipboardAction(
+  window: BrowserWindow,
+  action: FileClipboardAction,
+  target: string | string[]
+): void {
+  if (action === 'paste') {
+    if (typeof target !== 'string') {
+      throw new Error('粘贴目标必须是目录路径')
+    }
+    window.webContents.send('clipboard:paste', target)
+    return
+  }
+
+  if (!Array.isArray(target)) {
+    throw new Error(`${action === 'copy' ? '复制' : '剪切'}目标必须是文件路径数组`)
+  }
+  window.webContents.send(`clipboard:${action}`, target)
 }
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
@@ -55,6 +76,7 @@ export function showContextMenu(
     copyRelativePath: '📎 复制相对路径',
     copy: '📄 复制',
     cut: '✂️ 剪切',
+    duplicate: '📑 创建副本',
     paste: '📥 粘贴',
     rename: '✏️ 重命名',
     delete: '🗑️ 删除',
@@ -63,13 +85,17 @@ export function showContextMenu(
     separator: 'separator' as const
   }
 
+  const clipboardState = getClipboardState(window.webContents.id)
+  const pasteTargetDir = file.isDirectory ? file.path : path.dirname(file.path)
+  const pasteTargetName = path.basename(pasteTargetDir) || pasteTargetDir
+
   const template: Array<Electron.MenuItemConstructorOptions> = [
     // 在文件管理器中显示
     {
       label: i18n.showInFolder,
       click: async () => {
         try {
-          validatePath(file.path)
+          await validateSecurePathInBase(file.path, basePath)
           shell.showItemInFolder(file.path)
         } catch (error) {
           console.error('Failed to show item in folder:', error)
@@ -145,8 +171,10 @@ export function showContextMenu(
       label: i18n.copy,
       accelerator: 'CmdOrCtrl+C',
       enabled: true, // v1.2 阶段 2 已启用
-      click: () => {
-        window.webContents.send('clipboard:copy', [file.path])
+      click: async () => {
+        await validateSecurePathInBase(file.path, basePath)
+        syncClipboardState(window.webContents.id, [file.path], false)
+        dispatchFileClipboardAction(window, 'copy', [file.path])
       }
     },
     // 剪切（应用内剪贴板 - v1.2 阶段 2）
@@ -154,19 +182,26 @@ export function showContextMenu(
       label: i18n.cut,
       accelerator: 'CmdOrCtrl+X',
       enabled: true, // v1.2 阶段 2 已启用
-      click: () => {
-        window.webContents.send('clipboard:cut', [file.path])
+      click: async () => {
+        await validateSecurePathInBase(file.path, basePath)
+        syncClipboardState(window.webContents.id, [file.path], true)
+        dispatchFileClipboardAction(window, 'cut', [file.path])
       }
     },
-    // 粘贴（仅文件夹 + v1.3 剪贴板有内容时启用）
-    ...(file.isDirectory
+    {
+      label: i18n.duplicate,
+      click: () => {
+        window.webContents.send('file:duplicate-request', file.path)
+      }
+    },
+    // 粘贴（仅应用内剪贴板有内容时显示）
+    ...(clipboardState.hasFiles
       ? [
           {
-            label: i18n.paste,
+            label: `${i18n.paste}到“${pasteTargetName}”`,
             accelerator: 'CmdOrCtrl+V' as const,
-            enabled: getClipboardState().hasFiles, // v1.3：动态检查剪贴板状态
             click: () => {
-              window.webContents.send('clipboard:paste', file.path)
+              dispatchFileClipboardAction(window, 'paste', pasteTargetDir)
             }
           }
         ]
@@ -179,7 +214,7 @@ export function showContextMenu(
             label: i18n.exportHTML,
             click: async () => {
               try {
-                validatePath(file.path)
+                await validateSecurePathInBase(file.path, basePath)
                 // 发送事件给渲染进程处理
                 window.webContents.send('file:export-request', {
                   path: file.path,
@@ -197,7 +232,7 @@ export function showContextMenu(
             label: i18n.exportPDF,
             click: async () => {
               try {
-                validatePath(file.path)
+                await validateSecurePathInBase(file.path, basePath)
                 // 发送事件给渲染进程处理
                 window.webContents.send('file:export-request', {
                   path: file.path,
@@ -228,7 +263,18 @@ export function showContextMenu(
       accelerator: platform === 'darwin' ? 'Cmd+Backspace' : 'Delete',
       click: async () => {
         try {
-          validateSecurePath(file.path)
+          const confirmation = await dialog.showMessageBox(window, {
+            type: 'warning',
+            title: '确认删除',
+            message: `确定要删除“${file.name}”吗？`,
+            detail: '项目将移到废纸篓。',
+            buttons: ['删除', '取消'],
+            defaultId: 1,
+            cancelId: 1
+          })
+          if (confirmation.response !== 0) return
+
+          await validateSecurePathInBase(file.path, basePath)
           // 移到回收站
           await shell.trashItem(file.path)
           // 通知渲染进程文件已删除

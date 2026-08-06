@@ -115,6 +115,22 @@ export function useIPC(options: UseIPCOptions): void {
       toast.error(error.message)
     })
 
+    const unsubscribeDuplicate = window.api.onFileDuplicateRequest(async (filePath: string) => {
+      try {
+        const result = await window.api.duplicatePath(filePath)
+        const currentFolderPath = useFileStore.getState().folderPath
+        if (currentFolderPath) {
+          const fileList = await window.api.readDir(currentFolderPath)
+          setFiles(fileList)
+        }
+        const newName = result.newPath.split(/[/\\]/).pop() || result.newPath
+        toast.success(`已创建副本：${newName}`)
+      } catch (error) {
+        console.error('创建副本失败:', error)
+        toast.error(`创建副本失败：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    })
+
     const unsubscribeCopy = window.api.onClipboardCopy((paths: string[]) => {
       const currentSelectedPaths = selectedPathsRef.current
       const pathsToCopy = currentSelectedPaths.size > 0 ? Array.from(currentSelectedPaths) : paths
@@ -133,11 +149,23 @@ export function useIPC(options: UseIPCOptions): void {
 
     const unsubscribePaste = window.api.onClipboardPaste(async (targetDir: string) => {
       try {
-        await paste(targetDir)
-        toast.success('粘贴成功')
-        const currentFolderPath = useFileStore.getState().folderPath
-        if (currentFolderPath) {
-          const fileList = await window.api.readDir(currentFolderPath)
+        const result = await paste(targetDir)
+        if (result.success.length === 0) {
+          const reason = result.failed[0]?.error || '没有可粘贴的项目'
+          toast.error(`粘贴失败：${reason}`)
+          return
+        }
+
+        if (result.failed.length > 0) {
+          toast.warning(`已粘贴 ${result.success.length} 个项目，${result.failed.length} 个失败`)
+        } else {
+          toast.success(`已粘贴 ${result.success.length} 个项目`)
+        }
+
+        if (useFileStore.getState().folderPath !== targetDir) return
+
+        const fileList = await window.api.readDir(targetDir)
+        if (useFileStore.getState().folderPath === targetDir) {
           setFiles(fileList)
         }
       } catch (error) {
@@ -150,6 +178,7 @@ export function useIPC(options: UseIPCOptions): void {
       unsubscribeDeleted()
       unsubscribeExport()
       unsubscribeError()
+      unsubscribeDuplicate()
       unsubscribeCopy()
       unsubscribeCut()
       unsubscribePaste()

@@ -4,8 +4,9 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { Menu, shell, clipboard } from 'electron'
+import { Menu, shell, clipboard, dialog } from 'electron'
 import { showContextMenu } from '../contextMenuHandler'
+import { getClipboardState } from '../clipboardState'
 import * as security from '../security'
 
 // Mock Electron modules
@@ -23,29 +24,47 @@ vi.mock('electron', () => ({
   clipboard: {
     writeText: vi.fn()
   },
+  dialog: {
+    showMessageBox: vi.fn().mockResolvedValue({ response: 1 })
+  },
   BrowserWindow: vi.fn()
 }))
 
 // Mock clipboardState module (v1.3 阶段 3)
 vi.mock('../clipboardState', () => ({
-  getClipboardState: vi.fn(() => ({ files: ['/some/file.md'], isCut: false, hasFiles: true }))
+  getClipboardState: vi.fn((_webContentsId: number) => ({ files: ['/some/file.md'], isCut: false, hasFiles: true })),
+  syncClipboardState: vi.fn()
 }))
 
 // Mock security module
 vi.mock('../security', () => ({
-  validatePath: vi.fn(),
-  validateSecurePath: vi.fn(),
-  setAllowedBasePath: vi.fn(),
+  validateSecurePathInBase: vi.fn(),
+  validateNotProtected: vi.fn(),
+  validateSearchPath: vi.fn(),
+  isProtectedPath: vi.fn(),
   resetSecurity: vi.fn()
 }))
 
 describe('contextMenuHandler', () => {
+  const findMenuItem = (template: any[], text: string) =>
+    template.find((item: any) => {
+      const labels: Record<string, RegExp> = {
+        复制: /^📄 复制$/,
+        剪切: /^✂️ 剪切$/,
+        粘贴: /^📥 粘贴(?:到“.*”)?$/
+      }
+      return labels[text]?.test(item.label ?? '')
+    })
+
   let mockWindow: any
   let mockWebContents: any
 
   beforeEach(() => {
     // 重置所有 mocks
     vi.clearAllMocks()
+    vi.mocked(security.validateSecurePathInBase).mockReset()
+
+    vi.mocked(getClipboardState).mockReturnValue({ files: ['/some/file.md'], isCut: false, hasFiles: true })
 
     // 创建 mock window
     mockWebContents = {
@@ -115,12 +134,12 @@ describe('contextMenuHandler', () => {
       // 文件夹应该有粘贴项，但没有导出项
       const labels = template.map((item: any) => item.label).filter(Boolean)
 
-      expect(labels).toContain('粘贴')
-      expect(labels).not.toContain('导出 HTML')
-      expect(labels).not.toContain('导出 PDF')
+      expect(labels).toContain('📥 粘贴到“subfolder”')
+      expect(labels).not.toContain('📤 导出 HTML')
+      expect(labels).not.toContain('📑 导出 PDF')
     })
 
-    it('应该为文件生成导出菜单项（但不包含粘贴）', () => {
+    it('应该为文件生成导出菜单项，并在有剪贴板内容时显示父目录粘贴', () => {
       const file = {
         name: 'test.md',
         path: '/Users/test/documents/test.md',
@@ -132,11 +151,24 @@ describe('contextMenuHandler', () => {
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
       const labels = template.map((item: any) => item.label).filter(Boolean)
 
-      expect(labels).toContain('导出 HTML')
-      expect(labels).toContain('导出 PDF')
-      expect(labels).not.toContain('粘贴')
+      expect(labels).toContain('📤 导出 HTML')
+      expect(labels).toContain('📑 导出 PDF')
+      expect(labels).toContain('📥 粘贴到“documents”')
     })
   })
+
+    it('无应用内剪贴板内容时不显示粘贴菜单', () => {
+      vi.mocked(getClipboardState).mockReturnValue({ files: [], isCut: false, hasFiles: false })
+
+      showContextMenu(mockWindow, {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }, '/Users/test/documents')
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(template.find((item: any) => item.label?.startsWith('📥 粘贴'))).toBeUndefined()
+    })
 
   describe('跨平台文案', () => {
     it('macOS 应该显示 "在 Finder 中显示"', () => {
@@ -151,10 +183,10 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const showInFolderItem = template.find((item: any) => item.label?.includes('Finder'))
+      const showInFolderItem = template.find((item: any) => item.label?.endsWith('在 Finder 中显示'))
 
       expect(showInFolderItem).toBeDefined()
-      expect(showInFolderItem.label).toBe('在 Finder 中显示')
+      expect(showInFolderItem.label).toBe('📂 在 Finder 中显示')
     })
 
     it('Windows 应该显示 "在资源管理器中显示"', () => {
@@ -169,10 +201,10 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, 'C:\\Users\\test\\documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const showInFolderItem = template.find((item: any) => item.label?.includes('资源管理器'))
+      const showInFolderItem = template.find((item: any) => item.label?.endsWith('在资源管理器中显示'))
 
       expect(showInFolderItem).toBeDefined()
-      expect(showInFolderItem.label).toBe('在资源管理器中显示')
+      expect(showInFolderItem.label).toBe('📂 在资源管理器中显示')
     })
 
     it('Linux 应该显示 "在文件管理器中显示"', () => {
@@ -187,10 +219,10 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/home/user/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const showInFolderItem = template.find((item: any) => item.label?.includes('文件管理器'))
+      const showInFolderItem = template.find((item: any) => item.label?.endsWith('在文件管理器中显示'))
 
       expect(showInFolderItem).toBeDefined()
-      expect(showInFolderItem.label).toBe('在文件管理器中显示')
+      expect(showInFolderItem.label).toBe('📂 在文件管理器中显示')
     })
 
     it('macOS 删除快捷键应该是 Cmd+Backspace', () => {
@@ -205,7 +237,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const deleteItem = template.find((item: any) => item.label === '删除')
+      const deleteItem = template.find((item: any) => item.label?.includes('删除'))
 
       expect(deleteItem).toBeDefined()
       expect(deleteItem.accelerator).toBe('Cmd+Backspace')
@@ -223,7 +255,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, 'C:\\Users\\test\\documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const deleteItem = template.find((item: any) => item.label === '删除')
+      const deleteItem = template.find((item: any) => item.label?.includes('删除'))
 
       expect(deleteItem).toBeDefined()
       expect(deleteItem.accelerator).toBe('Delete')
@@ -246,12 +278,12 @@ describe('contextMenuHandler', () => {
       // 执行 click 回调
       await showInFolderItem.click()
 
-      expect(security.validatePath).toHaveBeenCalledWith(file.path)
+      expect(security.validateSecurePathInBase).toHaveBeenCalledWith(file.path, '/Users/test/documents')
       expect(shell.showItemInFolder).toHaveBeenCalledWith(file.path)
     })
 
     it('应该处理路径校验失败的情况', async () => {
-      vi.mocked(security.validatePath).mockImplementation(() => {
+      vi.mocked(security.validateSecurePathInBase).mockImplementation(() => {
         throw new Error('安全错误：路径不在允许范围内')
       })
 
@@ -289,7 +321,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const copyPathItem = template.find((item: any) => item.label === '复制路径')
+      const copyPathItem = template.find((item: any) => item.label?.includes('复制路径'))
 
       copyPathItem.click()
 
@@ -306,7 +338,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const copyPathItem = template.find((item: any) => item.label === '复制路径')
+      const copyPathItem = template.find((item: any) => item.label?.includes('复制路径'))
 
       expect(copyPathItem.accelerator).toBe('CmdOrCtrl+Alt+C')
     })
@@ -324,7 +356,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, basePath)
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const copyRelativePathItem = template.find((item: any) => item.label === '复制相对路径')
+      const copyRelativePathItem = template.find((item: any) => item.label?.includes('复制相对路径'))
 
       copyRelativePathItem.click()
 
@@ -341,7 +373,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const copyRelativePathItem = template.find((item: any) => item.label === '复制相对路径')
+      const copyRelativePathItem = template.find((item: any) => item.label?.includes('复制相对路径'))
 
       expect(copyRelativePathItem.accelerator).toBe('Shift+Alt+C')
     })
@@ -350,7 +382,7 @@ describe('contextMenuHandler', () => {
   describe('菜单项功能：导出 HTML', () => {
     it('应该发送导出请求到渲染进程', async () => {
       // Mock validatePath 不抛出错误（路径合法）
-      vi.mocked(security.validatePath).mockImplementation(() => {})
+      vi.mocked(security.validateSecurePathInBase).mockResolvedValue('/Users/test/documents/test.md')
 
       const file = {
         name: 'test.md',
@@ -361,11 +393,11 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const exportHTMLItem = template.find((item: any) => item.label === '导出 HTML')
+      const exportHTMLItem = template.find((item: any) => item.label?.includes('导出 HTML'))
 
       await exportHTMLItem.click()
 
-      expect(security.validatePath).toHaveBeenCalledWith(file.path)
+      expect(security.validateSecurePathInBase).toHaveBeenCalledWith(file.path, '/Users/test/documents')
       expect(mockWebContents.send).toHaveBeenCalledWith('file:export-request', {
         path: file.path,
         type: 'html'
@@ -373,7 +405,7 @@ describe('contextMenuHandler', () => {
     })
 
     it('应该处理路径校验失败的情况', async () => {
-      vi.mocked(security.validatePath).mockImplementation(() => {
+      vi.mocked(security.validateSecurePathInBase).mockImplementation(() => {
         throw new Error('安全错误：路径不在允许范围内')
       })
 
@@ -386,7 +418,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const exportHTMLItem = template.find((item: any) => item.label === '导出 HTML')
+      const exportHTMLItem = template.find((item: any) => item.label?.includes('导出 HTML'))
 
       await exportHTMLItem.click()
 
@@ -400,7 +432,7 @@ describe('contextMenuHandler', () => {
   describe('菜单项功能：导出 PDF', () => {
     it('应该发送导出请求到渲染进程', async () => {
       // Mock validatePath 不抛出错误（路径合法）
-      vi.mocked(security.validatePath).mockImplementation(() => {})
+      vi.mocked(security.validateSecurePathInBase).mockResolvedValue('/Users/test/documents/test.md')
 
       const file = {
         name: 'test.md',
@@ -411,11 +443,11 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const exportPDFItem = template.find((item: any) => item.label === '导出 PDF')
+      const exportPDFItem = template.find((item: any) => item.label?.includes('导出 PDF'))
 
       await exportPDFItem.click()
 
-      expect(security.validatePath).toHaveBeenCalledWith(file.path)
+      expect(security.validateSecurePathInBase).toHaveBeenCalledWith(file.path, '/Users/test/documents')
       expect(mockWebContents.send).toHaveBeenCalledWith('file:export-request', {
         path: file.path,
         type: 'pdf'
@@ -434,7 +466,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const renameItem = template.find((item: any) => item.label === '重命名')
+      const renameItem = template.find((item: any) => item.label?.endsWith('重命名'))
 
       renameItem.click()
 
@@ -451,7 +483,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const renameItem = template.find((item: any) => item.label === '重命名')
+      const renameItem = template.find((item: any) => item.label?.endsWith('重命名'))
 
       expect(renameItem.accelerator).toBe('Enter')
     })
@@ -459,6 +491,7 @@ describe('contextMenuHandler', () => {
 
   describe('菜单项功能：删除', () => {
     it('应该调用 shell.trashItem 并发送删除事件', async () => {
+      vi.mocked(dialog.showMessageBox).mockResolvedValue({ response: 0 } as any)
       vi.mocked(shell.trashItem).mockResolvedValue()
 
       const file = {
@@ -470,17 +503,36 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const deleteItem = template.find((item: any) => item.label === '删除')
+      const deleteItem = template.find((item: any) => item.label?.includes('删除'))
 
       await deleteItem.click()
 
-      expect(security.validateSecurePath).toHaveBeenCalledWith(file.path)
+      expect(security.validateSecurePathInBase).toHaveBeenCalledWith(file.path, '/Users/test/documents')
       expect(shell.trashItem).toHaveBeenCalledWith(file.path)
       expect(mockWebContents.send).toHaveBeenCalledWith('file:deleted', file.path)
     })
 
+    it('取消删除时不应触发文件系统操作', async () => {
+      vi.mocked(dialog.showMessageBox).mockResolvedValue({ response: 1 } as any)
+      const file = { name: 'test.md', path: '/Users/test/documents/test.md', isDirectory: false }
+
+      showContextMenu(mockWindow, file, '/Users/test/documents')
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      await template.find((item: any) => item.label?.includes('删除')).click()
+
+      expect(dialog.showMessageBox).toHaveBeenCalledWith(mockWindow, expect.objectContaining({
+        buttons: ['删除', '取消'],
+        defaultId: 1,
+        cancelId: 1,
+        detail: '项目将移到废纸篓。'
+      }))
+      expect(security.validateSecurePathInBase).not.toHaveBeenCalled()
+      expect(shell.trashItem).not.toHaveBeenCalled()
+      expect(mockWebContents.send).not.toHaveBeenCalledWith('file:deleted', file.path)
+    })
     it('应该处理删除失败的情况', async () => {
-      vi.mocked(security.validateSecurePath).mockImplementation(() => {
+      vi.mocked(dialog.showMessageBox).mockResolvedValue({ response: 0 } as any)
+      vi.mocked(security.validateSecurePathInBase).mockImplementation(() => {
         throw new Error('安全错误：无法操作受保护的系统路径')
       })
 
@@ -493,7 +545,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const deleteItem = template.find((item: any) => item.label === '删除')
+      const deleteItem = template.find((item: any) => item.label?.includes('删除'))
 
       await deleteItem.click()
 
@@ -516,8 +568,8 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const copyItem = template.find((item: any) => item.label === '复制')
-      const cutItem = template.find((item: any) => item.label === '剪切')
+      const copyItem = findMenuItem(template, '复制')
+      const cutItem = findMenuItem(template, '剪切')
 
       expect(copyItem.enabled).toBe(true)
       expect(cutItem.enabled).toBe(true)
@@ -533,10 +585,106 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, folder, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const pasteItem = template.find((item: any) => item.label === '粘贴')
+      const pasteItem = findMenuItem(template, '粘贴')
 
       expect(pasteItem).toBeDefined()
-      expect(pasteItem.enabled).toBe(true)
+      expect(pasteItem.enabled ?? true).toBe(true)
+    })
+
+    it('复制和剪切点击应该发送文件路径 IPC', async () => {
+      const file = {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }
+
+      showContextMenu(mockWindow, file, '/Users/test/documents')
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      const copyItem = findMenuItem(template, '复制')
+      const cutItem = findMenuItem(template, '剪切')
+
+      await copyItem.click()
+      await cutItem.click()
+
+      expect(mockWebContents.send).toHaveBeenCalledWith('clipboard:copy', [file.path])
+      expect(mockWebContents.send).toHaveBeenCalledWith('clipboard:cut', [file.path])
+    })
+
+    it('文件夹粘贴点击应该发送目标目录 IPC', () => {
+      const folder = {
+        name: 'subfolder',
+        path: '/Users/test/documents/subfolder',
+        isDirectory: true
+      }
+
+      showContextMenu(mockWindow, folder, '/Users/test/documents')
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      const pasteItem = findMenuItem(template, '粘贴')
+
+      pasteItem.click()
+
+      expect(mockWebContents.send).toHaveBeenCalledWith('clipboard:paste', folder.path)
+    })
+
+    it('文件粘贴点击应该发送父目录 IPC', () => {
+      const file = {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }
+
+      showContextMenu(mockWindow, file, '/Users/test/documents')
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      const pasteItem = findMenuItem(template, '粘贴')
+      pasteItem.click()
+
+      expect(mockWebContents.send).toHaveBeenCalledWith('clipboard:paste', '/Users/test/documents')
+    })
+    it('文件和文件夹应该包含创建副本菜单项', () => {
+      const file = { name: 'test.md', path: '/Users/test/documents/test.md', isDirectory: false }
+      const folder = { name: 'subfolder', path: '/Users/test/documents/subfolder', isDirectory: true }
+
+      showContextMenu(mockWindow, file, '/Users/test/documents')
+      const fileTemplate = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(fileTemplate.find((item: any) => item.label === '📑 创建副本')).toBeDefined()
+
+      vi.clearAllMocks()
+      showContextMenu(mockWindow, folder, '/Users/test/documents')
+      const folderTemplate = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(folderTemplate.find((item: any) => item.label === '📑 创建副本')).toBeDefined()
+    })
+
+    it('文件和文件夹应该包含创建副本菜单项', () => {
+      const file = { name: 'test.md', path: '/Users/test/documents/test.md', isDirectory: false }
+      const folder = { name: 'subfolder', path: '/Users/test/documents/subfolder', isDirectory: true }
+
+      showContextMenu(mockWindow, file, '/Users/test/documents')
+      const fileTemplate = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(fileTemplate.find((item: any) => item.label === '📑 创建副本')).toBeDefined()
+
+      vi.clearAllMocks()
+      showContextMenu(mockWindow, folder, '/Users/test/documents')
+      const folderTemplate = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(folderTemplate.find((item: any) => item.label === '📑 创建副本')).toBeDefined()
+    })
+
+    it('创建副本点击应该发送源路径请求', () => {
+      const file = {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }
+
+      showContextMenu(mockWindow, file, '/Users/test/documents')
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      const duplicateItem = template.find((item: any) => item.label === '📑 创建副本')
+
+      duplicateItem.click()
+
+      expect(mockWebContents.send).toHaveBeenCalledWith('file:duplicate-request', file.path)
+      expect(mockWebContents.send).not.toHaveBeenCalledWith('clipboard:copy', expect.anything())
     })
 
     it('复制菜单项应该有正确的快捷键', () => {
@@ -549,7 +697,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const copyItem = template.find((item: any) => item.label === '复制')
+      const copyItem = findMenuItem(template, '复制')
 
       expect(copyItem.accelerator).toBe('CmdOrCtrl+C')
     })
@@ -564,7 +712,7 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, '/Users/test/documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const cutItem = template.find((item: any) => item.label === '剪切')
+      const cutItem = findMenuItem(template, '剪切')
 
       expect(cutItem.accelerator).toBe('CmdOrCtrl+X')
     })

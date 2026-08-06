@@ -6,16 +6,19 @@ import { FolderHistoryDropdown } from '../../src/components/FolderHistoryDropdow
 
 const mockFolders = [
   {
+    id: 'history-fixtures',
     path: '/Users/mac/Documents/test/testmd/md-viewer/e2e/fixtures',
     name: 'fixtures',
     lastOpened: Date.now() - 5 * 60 * 1000,
   },
   {
+    id: 'history-live',
     path: '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/直播平台',
     name: '直播平台',
     lastOpened: Date.now() - 2 * 60 * 60 * 1000,
   },
   {
+    id: 'history-docs',
     path: '/Users/mac/Documents/github/OUCOnline/lms/identity/docs',
     name: 'docs',
     lastOpened: Date.now() - 3 * 24 * 60 * 60 * 1000,

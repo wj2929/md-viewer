@@ -6,18 +6,21 @@ import { RecentFilesDropdown } from '../../src/components/RecentFilesDropdown'
 
 const mockFiles = [
   {
+    id: 'recent-cli',
     path: '/Users/mac/Documents/test/testmd/md-viewer/docs/cli.md',
     name: 'cli.md',
     folderPath: '/Users/mac/Documents/test/testmd/md-viewer/docs',
     lastOpened: Date.now() - 5 * 60 * 1000,
   },
   {
+    id: 'recent-live',
     path: '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/直播平台/直播说明.md',
     name: '直播说明.md',
     folderPath: '/Users/mac/Documents/SynologyDrive/国开在线/研发中心/专项工作/直播平台',
     lastOpened: Date.now() - 2 * 60 * 60 * 1000,
   },
   {
+    id: 'recent-apisix',
     path: '/Users/mac/Documents/github/OUCOnline/lms/identity/docs/apisix-cors-config.md',
     name: 'apisix-cors-config.md',
     folderPath: '/Users/mac/Documents/github/OUCOnline/lms/identity/docs',

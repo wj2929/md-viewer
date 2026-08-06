@@ -60,6 +60,7 @@ const mockApi = {
   queryClipboardState: vi.fn().mockResolvedValue({ files: [], isCut: false, hasFiles: false }),
   // v1.2 阶段 1：右键菜单事件
   onFileDeleted: vi.fn(() => vi.fn()),
+  onFileDuplicateRequest: vi.fn(() => vi.fn()),
   onFileStartRename: vi.fn(() => vi.fn()),
   onFileExportRequest: vi.fn(() => vi.fn()),
   onError: vi.fn(() => vi.fn()),
@@ -81,7 +82,7 @@ const mockApi = {
   getFolderHistory: vi.fn().mockResolvedValue([]),
   removeFolderFromHistory: vi.fn().mockResolvedValue(undefined),
   clearFolderHistory: vi.fn().mockResolvedValue(undefined),
-  setFolderPath: vi.fn().mockResolvedValue(true),
+  activateHistoryFolder: vi.fn().mockResolvedValue({ id: 'history-test', path: '/test', name: 'test' }),
   getFolderTreeState: vi.fn().mockResolvedValue({}),
   saveFolderTreeState: vi.fn().mockResolvedValue({}),
   clearFolderTreeState: vi.fn().mockResolvedValue(undefined),

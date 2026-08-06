@@ -9,6 +9,7 @@ import { FilePreviewTooltip } from './FilePreviewTooltip'
 import './RecentFilesDropdown.css'
 
 interface RecentFile {
+  id: string
   path: string
   name: string
   folderPath: string
@@ -16,7 +17,7 @@ interface RecentFile {
 }
 
 interface Props {
-  onSelectFile: (path: string) => void
+  onSelectFile: (recentId: string) => void
 }
 
 export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
@@ -58,7 +59,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
   }, [])
 
   const handleSelect = (file: RecentFile) => {
-    onSelectFile(file.path)
+    onSelectFile(file.id)
     setQuery('')
     setIsOpen(false)
   }

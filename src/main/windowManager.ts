@@ -2,6 +2,7 @@ import { BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { registerWindowShortcuts } from './shortcuts'
+import { clearClipboardState } from './clipboardState'
 
 /**
  * 窗口管理器 (v1.6.0)
@@ -59,6 +60,7 @@ class WindowManager {
     })
 
     const winId = win.id
+    const webContentsId = win.webContents.id
     this.windows.set(winId, win)
 
     win.on('ready-to-show', () => {
@@ -101,6 +103,7 @@ class WindowManager {
       this.windows.delete(winId)
       this.windowFolderPaths.delete(winId)
       this.pendingActions.delete(winId)
+      clearClipboardState(webContentsId)
       console.log(`[WindowManager] Window ${winId} closed, remaining: ${this.windows.size}`)
     })
 
@@ -215,6 +218,22 @@ class WindowManager {
    */
   getWindowFolderPath(winId: number): string | undefined {
     return this.windowFolderPaths.get(winId)
+  }
+
+  /**
+   * 获取所有存活窗口已绑定的文件夹根目录（去重）。
+   * 供 local-image 协议按「任一存活窗口根目录内即放行」鉴权，
+   * 因为 protocol.handle 回调拿不到发起请求的 webContents。
+   */
+  getAllWindowFolderRoots(): string[] {
+    const roots = new Set<string>()
+    for (const win of this.getAllWindows()) {
+      const root = this.windowFolderPaths.get(win.id)
+      if (root) {
+        roots.add(root)
+      }
+    }
+    return Array.from(roots)
   }
 }
 

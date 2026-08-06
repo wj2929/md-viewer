@@ -1,8 +1,9 @@
 import { BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, clipboard, shell } from 'electron'
 import * as path from 'path'
 import { IPCContext } from './context'
-import { setAllowedBasePath, getAllowedBasePath, isPathAllowed, validatePath } from '../security'
-import { showContextMenu } from '../contextMenuHandler'
+import { validateSecurePathInBase } from '../security'
+import { validateSenderReadPath } from './senderSecurity'
+import { showContextMenu, dispatchFileClipboardAction } from '../contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from '../markdownMenuHandler'
 import { appDataManager } from '../appDataManager'
@@ -27,42 +28,63 @@ export function registerMenuHandlers(ctx: IPCContext): void {
 // ============== 右键菜单 Handlers ==============
 
 // 显示文件树右键菜单
-ipcMain.handle('context-menu:show', async (event, file: FileInfo, basePath: string) => {
+ipcMain.handle('context-menu:show', async (event, file: FileInfo, _basePath: string) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) {
     throw new Error('无法获取窗口实例')
   }
+
+  const basePath = ctx.windowManager.getWindowFolderPath(window.id)
+  if (!basePath) {
+    throw new Error('当前窗口未绑定文件夹')
+  }
+  await validateSecurePathInBase(file.path, basePath)
+  await validateSecurePathInBase(basePath, basePath)
 
   showContextMenu(window, file, basePath)
   return { success: true }
 })
 
+if (process.env.NODE_ENV === 'test') {
+  ipcMain.handle(
+    'test:file-clipboard-action',
+    (event, action: 'copy' | 'cut' | 'paste', target: string | string[]) => {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      if (!window) {
+        throw new Error('无法获取窗口实例')
+      }
+      dispatchFileClipboardAction(window, action, target)
+      return { success: true }
+    }
+  )
+}
+
 // v1.3 新增：显示 Tab 右键菜单
-ipcMain.handle('tab:show-context-menu', async (event, ctx: TabMenuContext) => {
-  // ⚠️ 安全校验（安全审计师要求）
-  validatePath(ctx.filePath)
-  validatePath(ctx.basePath)
+ipcMain.handle('tab:show-context-menu', async (event, menuCtx: TabMenuContext) => {
+  // ⚠️ 安全校验：按发起窗口根目录校验
+  await validateSenderReadPath(ctx, event, menuCtx.filePath)
+  await validateSenderReadPath(ctx, event, menuCtx.basePath)
 
   const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) {
     throw new Error('无法获取窗口实例')
   }
 
-  showTabContextMenu(window, ctx)
+  showTabContextMenu(window, menuCtx)
   return { success: true }
 })
 
 // v1.3 阶段 2：显示 Markdown 右键菜单
-ipcMain.handle('markdown:show-context-menu', async (event, ctx: MarkdownMenuContext) => {
-  // ⚠️ 安全校验
-  validatePath(ctx.filePath)
+ipcMain.handle('markdown:show-context-menu', async (event, menuCtx: MarkdownMenuContext) => {
+  // ⚠️ 安全校验：按发起窗口根目录校验
+  await validateSenderReadPath(ctx, event, menuCtx.filePath)
 
   const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) {
     throw new Error('无法获取窗口实例')
   }
 
-  showMarkdownContextMenu(window, ctx)
+  showMarkdownContextMenu(window, menuCtx)
   return { success: true }
 })
 
@@ -76,29 +98,6 @@ ipcMain.handle('context-menu:bookmark', (_event, bookmark: {
   const window = BrowserWindow.fromWebContents(_event.sender)
   if (!window) return
 
-  // 书签可能跨文件夹，分屏打开前需要扩展安全路径
-  const ensurePathAllowed = (filePath: string): void => {
-    if (!isPathAllowed(filePath)) {
-      const currentBase = getAllowedBasePath()
-      const fileDir = path.dirname(filePath)
-      if (currentBase) {
-        // 找到公共祖先路径
-        const currentParts = currentBase.split(path.sep)
-        const fileParts = fileDir.split(path.sep)
-        const commonParts: string[] = []
-        for (let i = 0; i < Math.min(currentParts.length, fileParts.length); i++) {
-          if (currentParts[i] === fileParts[i]) {
-            commonParts.push(currentParts[i])
-          } else break
-        }
-        const commonAncestor = commonParts.join(path.sep) || path.sep
-        setAllowedBasePath(commonAncestor)
-      } else {
-        setAllowedBasePath(fileDir)
-      }
-    }
-  }
-
   const menu = Menu.buildFromTemplate([
     {
       label: '📐 在分屏中打开',
@@ -106,7 +105,6 @@ ipcMain.handle('context-menu:bookmark', (_event, bookmark: {
         {
           label: '向右分屏',
           click: () => {
-            ensurePathAllowed(bookmark.filePath)
             window.webContents.send('file:open-in-split', {
               filePath: bookmark.filePath,
               direction: 'horizontal'
@@ -116,7 +114,6 @@ ipcMain.handle('context-menu:bookmark', (_event, bookmark: {
         {
           label: '向下分屏',
           click: () => {
-            ensurePathAllowed(bookmark.filePath)
             window.webContents.send('file:open-in-split', {
               filePath: bookmark.filePath,
               direction: 'vertical'
@@ -143,28 +140,6 @@ ipcMain.handle('context-menu:recent-file', (_event, file: {
   const window = BrowserWindow.fromWebContents(_event.sender)
   if (!window) return
 
-  // 最近文件可能跨文件夹，分屏打开前需要扩展安全路径
-  const ensurePathAllowed = (filePath: string): void => {
-    if (!isPathAllowed(filePath)) {
-      const currentBase = getAllowedBasePath()
-      const fileDir = path.dirname(filePath)
-      if (currentBase) {
-        const currentParts = currentBase.split(path.sep)
-        const fileParts = fileDir.split(path.sep)
-        const commonParts: string[] = []
-        for (let i = 0; i < Math.min(currentParts.length, fileParts.length); i++) {
-          if (currentParts[i] === fileParts[i]) {
-            commonParts.push(currentParts[i])
-          } else break
-        }
-        const commonAncestor = commonParts.join(path.sep) || path.sep
-        setAllowedBasePath(commonAncestor)
-      } else {
-        setAllowedBasePath(fileDir)
-      }
-    }
-  }
-
   const menu = Menu.buildFromTemplate([
     {
       label: '📐 在分屏中打开',
@@ -172,7 +147,6 @@ ipcMain.handle('context-menu:recent-file', (_event, file: {
         {
           label: '向右分屏',
           click: () => {
-            ensurePathAllowed(file.filePath)
             window.webContents.send('file:open-in-split', {
               filePath: file.filePath,
               direction: 'horizontal'
@@ -182,7 +156,6 @@ ipcMain.handle('context-menu:recent-file', (_event, file: {
         {
           label: '向下分屏',
           click: () => {
-            ensurePathAllowed(file.filePath)
             window.webContents.send('file:open-in-split', {
               filePath: file.filePath,
               direction: 'vertical'
@@ -219,27 +192,8 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   linkHref: string | null
   basePath: string | null
 }) => {
-  // ⚠️ 安全校验：分屏场景下文件可能来自不同文件夹，需要扩展安全路径
-  if (!isPathAllowed(params.filePath)) {
-    const currentBase = getAllowedBasePath()
-    const fileDir = path.dirname(params.filePath)
-    if (currentBase) {
-      // 找到公共祖先路径（与书签菜单逻辑一致）
-      const currentParts = currentBase.split(path.sep)
-      const fileParts = fileDir.split(path.sep)
-      const commonParts: string[] = []
-      for (let i = 0; i < Math.min(currentParts.length, fileParts.length); i++) {
-        if (currentParts[i] === fileParts[i]) {
-          commonParts.push(currentParts[i])
-        } else break
-      }
-      const commonAncestor = commonParts.join(path.sep) || path.sep
-      setAllowedBasePath(commonAncestor)
-    } else {
-      setAllowedBasePath(fileDir)
-    }
-  }
-  validatePath(params.filePath)
+  // ⚠️ 安全校验：按发起窗口根目录校验
+  await validateSenderReadPath(ctx, event, params.filePath)
 
   const {
     filePath,

@@ -15,10 +15,11 @@ import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../shared/docxStyles'
  * 最近打开的文件
  */
 export interface RecentFile {
-  path: string           // 文件绝对路径
-  name: string           // 文件名
-  folderPath: string     // 所在文件夹路径
-  lastOpened: number     // 最后打开时间戳
+  id: string            // 主进程持久化的 opaque ID
+  path: string          // 文件绝对路径
+  name: string          // 文件名
+  folderPath: string    // 打开时的根目录路径
+  lastOpened: number    // 最后打开时间戳
 }
 
 /**
@@ -217,13 +218,25 @@ class AppDataManager {
    * 获取最近文件列表
    */
   getRecentFiles(): RecentFile[] {
-    return this.store.get('recentFiles', [])
+    const stored = this.store.get('recentFiles', [])
+    let migrated = false
+    const recentFiles = stored.map(file => {
+      if (file.id) return file
+      migrated = true
+      return { ...file, id: this.generateId() }
+    })
+    if (migrated) this.store.set('recentFiles', recentFiles)
+    return recentFiles
+  }
+
+  getRecentFile(id: string): RecentFile | null {
+    return this.getRecentFiles().find(file => file.id === id) ?? null
   }
 
   /**
    * 添加最近文件（自动去重和排序）
    */
-  async addRecentFile(file: Omit<RecentFile, 'lastOpened'>): Promise<void> {
+  async addRecentFile(file: Omit<RecentFile, 'id' | 'lastOpened'>): Promise<void> {
     const normalizedPath = path.resolve(file.path)
 
     // 验证文件存在
@@ -234,13 +247,14 @@ class AppDataManager {
       return
     }
 
-    const recentFiles = this.store.get('recentFiles', [])
+    const recentFiles = this.getRecentFiles()
 
     // 移除已存在的相同路径
     const filtered = recentFiles.filter(item => item.path !== normalizedPath)
 
     // 添加到开头
     const newFile: RecentFile = {
+      id: this.generateId(),
       path: normalizedPath,
       name: file.name || path.basename(normalizedPath),
       folderPath: file.folderPath || path.dirname(normalizedPath),
@@ -256,7 +270,7 @@ class AppDataManager {
    */
   removeRecentFile(filePath: string): void {
     const normalizedPath = path.resolve(filePath)
-    const recentFiles = this.store.get('recentFiles', [])
+    const recentFiles = this.getRecentFiles()
     const filtered = recentFiles.filter(item => item.path !== normalizedPath)
     this.store.set('recentFiles', filtered)
   }
@@ -272,7 +286,7 @@ class AppDataManager {
    * 后台验证最近文件路径有效性（并行验证，不阻塞）
    */
   async validateRecentFilesInBackground(): Promise<void> {
-    const recentFiles = this.store.get('recentFiles', [])
+    const recentFiles = this.getRecentFiles()
     if (recentFiles.length === 0) return
 
     const validationPromises = recentFiles.map(async (file) => {
@@ -305,6 +319,10 @@ class AppDataManager {
    */
   getBookmarks(): Bookmark[] {
     return this.store.get('bookmarks', [])
+  }
+
+  getBookmark(id: string): Bookmark | null {
+    return this.getBookmarks().find(bookmark => bookmark.id === id) ?? null
   }
 
   /**

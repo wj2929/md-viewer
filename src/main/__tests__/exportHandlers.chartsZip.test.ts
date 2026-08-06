@@ -6,9 +6,29 @@ import * as fs from 'fs-extra'
 import * as os from 'os'
 import * as path from 'path'
 import { registerExportHandlers } from '../ipc/exportHandlers'
-import { resetSecurity, setAllowedBasePath } from '../security'
 
 let loadedPdfHtml = ''
+// 发起窗口根目录，由每个用例的 tmpDir 动态设置
+let senderRoot = ''
+
+// 按窗口根鉴权：轻量实现保留「根内放行 / 越界抛安全错误」语义，
+// 授权逻辑本身由 security.test.ts / security.realpath.test.ts 覆盖。
+vi.mock('../ipc/senderSecurity', () => {
+  const validateInRoot = async (_ctx: unknown, _event: unknown, targetPath: string): Promise<string> => {
+    const path = await import('path')
+    const resolved = path.resolve(targetPath)
+    const rel = path.relative(senderRoot, resolved)
+    if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+      return resolved
+    }
+    throw new Error('安全错误：路径不在允许范围内')
+  }
+  return {
+    getSenderFolderRoot: vi.fn(() => senderRoot),
+    validateSenderPath: vi.fn(validateInRoot),
+    validateSenderReadPath: vi.fn(validateInRoot),
+  }
+})
 
 vi.mock('electron', () => {
   const BrowserWindowMock = vi.fn(function BrowserWindowMock() {
@@ -92,9 +112,8 @@ describe('chart zip export handler', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     loadedPdfHtml = ''
-    resetSecurity()
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'md-viewer-chart-zip-'))
-    setAllowedBasePath(tmpDir)
+    senderRoot = tmpDir
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue({} as BrowserWindow)
     registerExportHandlers({} as any)
   })

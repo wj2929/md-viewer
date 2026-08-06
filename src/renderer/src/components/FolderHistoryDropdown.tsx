@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 
 interface FolderHistoryItem {
+  id: string
   path: string
   name: string
   lastOpened: number
 }
 
 interface Props {
-  onSelectFolder: (path: string) => void
+  onSelectFolder: (historyId: string) => void
   onOpenFolder: () => void
 }
 
@@ -37,16 +38,16 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleSelect = (path: string) => {
-    onSelectFolder(path)
+  const handleSelect = (historyId: string) => {
+    onSelectFolder(historyId)
     setIsOpen(false)
     setQuery('')
   }
 
-  const handleRemove = async (e: React.MouseEvent, path: string) => {
+  const handleRemove = async (e: React.MouseEvent, historyId: string) => {
     e.stopPropagation()
-    await window.api.removeFolderFromHistory(path)
-    setHistory(prev => prev.filter(item => item.path !== path))
+    await window.api.removeFolderFromHistory(historyId)
+    setHistory(prev => prev.filter(item => item.id !== historyId))
   }
 
   const handleOpenClick = () => {
@@ -140,9 +141,9 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
                 <div className="history-list">
                   {filteredHistory.map(item => (
                     <div
-                      key={item.path}
+                      key={item.id}
                       className="history-item"
-                      onClick={() => handleSelect(item.path)}
+                      onClick={() => handleSelect(item.id)}
                     >
                       <div className="history-info">
                         <span className="history-icon">📁</span>
@@ -159,7 +160,7 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
                         <span className="history-time">{formatTime(item.lastOpened)}</span>
                         <button
                           className="history-remove-btn"
-                          onClick={(e) => handleRemove(e, item.path)}
+                          onClick={(e) => handleRemove(e, item.id)}
                           title="从历史中移除"
                           aria-label={`从历史中移除 ${item.name}`}
                         >

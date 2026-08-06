@@ -24,11 +24,6 @@ vi.mock('electron', () => ({
   }
 }))
 
-// Mock security 模块
-vi.mock('../security', () => ({
-  validatePath: vi.fn()
-}))
-
 describe('tabMenuHandler', () => {
   let mockWindow: BrowserWindow
   let mockWebContents: { send: ReturnType<typeof vi.fn> }

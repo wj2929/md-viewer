@@ -11,7 +11,7 @@ import { exportToDocx, ChartImageData, EmbeddedDocxImage } from '../docxExporter
 import { exportWithPandoc, isPandocAvailable } from '../pandocExporter'
 import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveRemoteDocxStyle } from '../remoteDocxExporter'
 import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
-import { validatePath } from '../security'
+import { validateSenderReadPath } from './senderSecurity'
 import { writeHtmlExport, writePdfExport } from '../cli/sharedExportWriters'
 import { runExportPreflight } from '../exportPreflight'
 import type { PreflightRequest, PreflightResult } from '../../shared/preflight'
@@ -22,6 +22,7 @@ const KROKI_ENDPOINT = 'https://kroki.io'
 const KROKI_FORMATS = new Set(['pikchr', 'nomnoml', 'svgbob', 'bytefield', 'tikz', 'plantuml', 'erd', 'graphviz', 'd2'])
 const MAX_KROKI_SOURCE_LENGTH = 128_000
 const MAX_CHART_ZIP_IMAGES = 200
+const MAX_SVG_CAPTURE_DIMENSION = 12000
 
 interface ChartZipImagePayload {
   filename: string
@@ -645,7 +646,7 @@ ipcMain.handle('export:charts-zip', async (event, payload: ExportChartsZipPayloa
     if (!markdownFilePath) {
       return { error: '缺少 Markdown 文件路径' }
     }
-    validatePath(markdownFilePath)
+    await validateSenderReadPath(ctx, event, markdownFilePath)
 
     if (images.length === 0) {
       return { error: '当前文档没有可打包下载的图表' }
@@ -920,8 +921,22 @@ html, body {
       })()
     `)
 
-    const captureWidth = Math.min(bounds.width, 2400)
-    const captureHeight = Math.min(bounds.height, 4000)
+    const captureScale = Math.min(
+      1,
+      MAX_SVG_CAPTURE_DIMENSION / Math.max(bounds.width, bounds.height)
+    )
+    const captureWidth = Math.max(1, Math.floor(bounds.width * captureScale))
+    const captureHeight = Math.max(1, Math.floor(bounds.height * captureScale))
+    if (captureScale < 1) {
+      await renderWindow.webContents.executeJavaScript(`
+        document.querySelector('.svg-container')?.style.setProperty(
+          'transform', 'scale(${captureScale})'
+        )
+        document.querySelector('.svg-container')?.style.setProperty(
+          'transform-origin', 'top left'
+        )
+      `)
+    }
     renderWindow.setContentSize(captureWidth, captureHeight)
     await new Promise(resolve => setTimeout(resolve, 100))
 
@@ -944,7 +959,7 @@ html, body {
       return { success: false, error: 'Screenshot empty' }
     }
 
-    return { success: true, data: pngBuffer.toString('base64'), width: bounds.width, height: bounds.height }
+    return { success: true, data: pngBuffer.toString('base64'), width: captureWidth, height: captureHeight }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }

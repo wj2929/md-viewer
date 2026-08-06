@@ -5,67 +5,7 @@
  */
 
 import * as path from 'path'
-
-/**
- * 当前允许访问的基础路径
- * 用户通过"打开文件夹"操作设置
- */
-let allowedBasePath: string | null = null
-
-/**
- * 设置允许访问的基础路径
- * @param basePath - 用户打开的文件夹路径
- */
-export function setAllowedBasePath(basePath: string): void {
-  allowedBasePath = path.resolve(basePath)
-  console.log(`[SECURITY] Allowed base path set to: ${allowedBasePath}`)
-}
-
-/**
- * 获取当前允许的基础路径
- * @returns 当前允许的基础路径，如果未设置则返回 null
- */
-export function getAllowedBasePath(): string | null {
-  return allowedBasePath
-}
-
-/**
- * 检查路径是否在允许的基础路径内
- * @param targetPath - 要检查的目标路径
- * @returns 如果路径被允许则返回 true
- */
-export function isPathAllowed(targetPath: string): boolean {
-  if (!allowedBasePath) {
-    console.warn('[SECURITY] No allowed base path set')
-    return false
-  }
-
-  const normalized = path.resolve(targetPath)
-  const isAllowed =
-    normalized.startsWith(allowedBasePath + path.sep) ||
-    normalized === allowedBasePath
-
-  if (!isAllowed) {
-    console.warn(`[SECURITY] Path not allowed: ${targetPath}`)
-    console.warn(`[SECURITY] Allowed base: ${allowedBasePath}`)
-  }
-
-  return isAllowed
-}
-
-/**
- * 验证路径是否在允许范围内，不通过则抛出错误
- * @param targetPath - 要验证的目标路径
- * @throws {Error} 如果路径不在允许范围内
- */
-export function validatePath(targetPath: string): void {
-  if (!isPathAllowed(targetPath)) {
-    throw new Error(
-      `安全错误：路径 "${targetPath}" 不在允许范围内。` +
-      `当前允许的基础路径为：${allowedBasePath || '未设置'}`
-    )
-  }
-}
+import * as fs from 'fs-extra'
 
 /**
  * 受保护的系统路径模式
@@ -175,13 +115,74 @@ export function validateNotProtected(targetPath: string): void {
 }
 
 /**
- * 综合验证：检查路径是否在允许范围内且不是受保护路径
- * @param targetPath - 要验证的目标路径
- * @throws {Error} 如果路径验证失败
+ * 异步验证路径在给定根目录内且不是受保护路径。
+ * 已存在路径解析为真实路径；不存在目标则解析最近存在的父目录，
+ * 防止通过中间符号链接越出根目录。
  */
-export function validateSecurePath(targetPath: string): void {
-  validatePath(targetPath)
-  validateNotProtected(targetPath)
+export async function validateSecurePathInBase(
+  targetPath: string,
+  basePath: string
+): Promise<string> {
+  const normalizedTarget = path.resolve(targetPath)
+  const normalizedBase = path.resolve(basePath)
+  const resolvedBase = await fs.realpath(normalizedBase)
+  const baseStats = await fs.stat(resolvedBase)
+  if (!baseStats.isDirectory()) {
+    throw new Error(`安全错误：基础路径 "${basePath}" 不是目录`)
+  }
+  const resolvedTarget = await resolvePathFromNearestExistingAncestor(normalizedTarget)
+
+  if (!isPathWithinBase(resolvedTarget, resolvedBase)) {
+    throw new Error(
+      `安全错误：路径 "${targetPath}" 不在允许范围内。` +
+      `当前允许的基础路径为：${resolvedBase}`
+    )
+  }
+
+  validateNotProtected(resolvedTarget)
+  return resolvedTarget
+}
+
+function isPathWithinBase(targetPath: string, basePath: string): boolean {
+  const relativePath = path.relative(basePath, targetPath)
+  return relativePath === '' || (
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  )
+}
+
+async function resolvePathFromNearestExistingAncestor(targetPath: string): Promise<string> {
+  const missingSegments: string[] = []
+  let candidatePath = targetPath
+
+  while (true) {
+    try {
+      await fs.lstat(candidatePath)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+
+      const parentPath = path.dirname(candidatePath)
+      if (parentPath === candidatePath) {
+        throw new Error(`安全错误：无法解析路径 "${targetPath}"`)
+      }
+      missingSegments.unshift(path.basename(candidatePath))
+      candidatePath = parentPath
+      continue
+    }
+
+    try {
+      return path.join(await fs.realpath(candidatePath), ...missingSegments)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new Error(`安全错误：无法解析路径 "${targetPath}" 中的符号链接`)
+      }
+      throw error
+    }
+  }
 }
 
 /**
@@ -197,8 +198,9 @@ export function validateSearchPath(targetPath: string): void {
 
 /**
  * 重置安全配置（测试用）
+ * @deprecated 全局 allowedBasePath 已移除，鉴权改由各窗口根目录承担；
+ * 保留为空实现以兼容现有测试的 beforeEach 清理调用。
  */
 export function resetSecurity(): void {
-  allowedBasePath = null
-  console.log('[SECURITY] Security configuration reset')
+  // no-op：不再有进程级可变授权状态需要重置
 }

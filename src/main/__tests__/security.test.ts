@@ -3,17 +3,28 @@
  * @description 测试路径校验和受保护路径检测功能
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import * as fs from 'fs-extra'
+import * as os from 'os'
+import * as path from 'path'
 import {
-  setAllowedBasePath,
-  getAllowedBasePath,
-  isPathAllowed,
-  validatePath,
   isProtectedPath,
   validateNotProtected,
-  validateSecurePath,
+  validateSecurePathInBase,
   resetSecurity
 } from '../security'
+
+const temporaryPaths: string[] = []
+
+async function createTemporaryDirectory(): Promise<string> {
+  const directory = await fs.mkdtemp(path.join(os.homedir(), 'md-viewer-security-'))
+  temporaryPaths.push(directory)
+  return directory
+}
+
+afterEach(async () => {
+  await Promise.all(temporaryPaths.splice(0).map(directory => fs.remove(directory)))
+})
 
 describe('Security Module', () => {
   beforeEach(() => {
@@ -21,73 +32,39 @@ describe('Security Module', () => {
     resetSecurity()
   })
 
-  describe('setAllowedBasePath & getAllowedBasePath', () => {
-    it('should set and get allowed base path', () => {
-      const testPath = '/Users/test/documents'
-      setAllowedBasePath(testPath)
-      expect(getAllowedBasePath()).toBe(testPath)
+  describe('validateSecurePathInBase', () => {
+    it('should allow the explicit root and its descendants', async () => {
+      const root = await createTemporaryDirectory()
+      const target = path.join(root, 'file.md')
+      const canonicalRoot = await fs.realpath(root)
+
+      await expect(validateSecurePathInBase(root, root)).resolves.toBe(canonicalRoot)
+      await expect(validateSecurePathInBase(target, root)).resolves.toBe(
+        path.join(canonicalRoot, 'file.md')
+      )
     })
 
-    it('should resolve relative paths to absolute', () => {
-      setAllowedBasePath('./test')
-      const result = getAllowedBasePath()
-      expect(result).toBeTruthy()
-      expect(result).not.toBe('./test')
+    it('should reject traversal and sibling-prefix paths', async () => {
+      const parent = await createTemporaryDirectory()
+      const root = path.join(parent, 'A')
+      const sibling = path.join(parent, 'AB')
+      await fs.ensureDir(root)
+      await fs.ensureDir(sibling)
+
+      await expect(
+        validateSecurePathInBase(path.join(root, '..', 'B', 'file.md'), root)
+      ).rejects.toThrow('安全错误')
+      await expect(
+        validateSecurePathInBase(path.join(sibling, 'file.md'), root)
+      ).rejects.toThrow('安全错误')
     })
 
-    it('should return null when not set', () => {
-      expect(getAllowedBasePath()).toBeNull()
-    })
-  })
+    it('should reject protected paths even inside the explicit root', async () => {
+      const root = await createTemporaryDirectory()
 
-  describe('isPathAllowed', () => {
-    beforeEach(() => {
-      setAllowedBasePath('/Users/test/documents')
-    })
-
-    it('should allow paths within the base path', () => {
-      expect(isPathAllowed('/Users/test/documents/file.md')).toBe(true)
-      expect(isPathAllowed('/Users/test/documents/sub/file.md')).toBe(true)
-    })
-
-    it('should allow the base path itself', () => {
-      expect(isPathAllowed('/Users/test/documents')).toBe(true)
-    })
-
-    it('should reject paths outside the base path', () => {
-      expect(isPathAllowed('/Users/test/other/file.md')).toBe(false)
-      expect(isPathAllowed('/Users/other/documents/file.md')).toBe(false)
-      expect(isPathAllowed('/etc/passwd')).toBe(false)
-    })
-
-    it('should prevent path traversal attacks', () => {
-      // 尝试通过 ../ 穿越到父目录
-      expect(isPathAllowed('/Users/test/documents/../other/file.md')).toBe(false)
-      expect(isPathAllowed('/Users/test/documents/sub/../../other/file.md')).toBe(false)
-    })
-
-    it('should return false when no base path is set', () => {
-      resetSecurity()
-      expect(isPathAllowed('/Users/test/documents/file.md')).toBe(false)
-    })
-  })
-
-  describe('validatePath', () => {
-    beforeEach(() => {
-      setAllowedBasePath('/Users/test/documents')
-    })
-
-    it('should not throw for allowed paths', () => {
-      expect(() => validatePath('/Users/test/documents/file.md')).not.toThrow()
-    })
-
-    it('should throw for disallowed paths', () => {
-      expect(() => validatePath('/etc/passwd')).toThrow('安全错误')
-      expect(() => validatePath('/Users/other/file.md')).toThrow('安全错误')
-    })
-
-    it('should throw with descriptive error message', () => {
-      expect(() => validatePath('/etc/passwd')).toThrow(/不在允许范围内/)
+      await expect(
+        validateSecurePathInBase(path.join(root, '.ssh', 'id_rsa'), root)
+      ).rejects.toThrow('受保护')
     })
   })
 
@@ -232,65 +209,4 @@ describe('Security Module', () => {
     })
   })
 
-  describe('validateSecurePath (综合验证)', () => {
-    beforeEach(() => {
-      setAllowedBasePath('/Users/test/documents')
-    })
-
-    it('should pass for allowed and non-protected paths', () => {
-      expect(() => validateSecurePath('/Users/test/documents/file.md')).not.toThrow()
-    })
-
-    it('should fail for disallowed paths', () => {
-      expect(() => validateSecurePath('/Users/other/file.md')).toThrow()
-    })
-
-    it('should fail for protected paths even if within allowed base', () => {
-      // 假设用户打开了系统目录（不应该发生，但要防御）
-      setAllowedBasePath('/Users/test')
-      expect(() => validateSecurePath('/Users/test/.ssh/id_rsa')).toThrow()
-    })
-
-    it('should prevent path traversal to protected areas', () => {
-      setAllowedBasePath('/Users/test/documents')
-      expect(() => validateSecurePath('/Users/test/documents/../.ssh/id_rsa')).toThrow()
-    })
-  })
-
-  describe('Edge Cases', () => {
-    it('should handle paths with trailing slashes', () => {
-      setAllowedBasePath('/Users/test/documents/')
-      expect(isPathAllowed('/Users/test/documents/file.md')).toBe(true)
-    })
-
-    it('should handle paths with mixed separators (Windows)', () => {
-      // Note: 这个测试只在 Windows 上有效
-      // 在 Unix 系统上，反斜杠不是路径分隔符
-      if (process.platform === 'win32') {
-        setAllowedBasePath('C:\\Users\\test\\documents')
-        // path.resolve 会统一分隔符
-        expect(isPathAllowed('C:\\Users\\test\\documents\\file.md')).toBe(true)
-      } else {
-        // 在非 Windows 平台上，跳过测试
-        expect(true).toBe(true)
-      }
-    })
-
-    it('should handle symlinks correctly', () => {
-      // Note: 这个测试依赖于 path.resolve 的行为
-      // 在实际环境中，symlinks 会被解析为真实路径
-      setAllowedBasePath('/Users/test/documents')
-      expect(() => validatePath('/Users/test/documents/link-to-file.md')).not.toThrow()
-    })
-  })
-
-  describe('resetSecurity', () => {
-    it('should clear allowed base path', () => {
-      setAllowedBasePath('/Users/test/documents')
-      expect(getAllowedBasePath()).not.toBeNull()
-
-      resetSecurity()
-      expect(getAllowedBasePath()).toBeNull()
-    })
-  })
 })

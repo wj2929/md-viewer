@@ -3,14 +3,36 @@ import { ipcMain } from 'electron'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import { registerFileHandlers } from '../ipc/fileHandlers'
-import { resetSecurity, setAllowedBasePath } from '../security'
+
+const ROOT = '/docs'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
-  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  BrowserWindow: {
+    fromWebContents: vi.fn(() => ({ id: 1 })),
+    getAllWindows: vi.fn(() => []),
+  },
   dialog: { showOpenDialog: vi.fn() },
   shell: { openPath: vi.fn() },
 }))
+
+// 按窗口根鉴权：用轻量实现保留「根内放行 / 越界抛安全错误」的原始语义，
+// 授权逻辑本身由 security.test.ts / security.realpath.test.ts 覆盖。
+vi.mock('../ipc/senderSecurity', () => {
+  const validateInRoot = async (_ctx: unknown, _event: unknown, targetPath: string): Promise<string> => {
+    const resolved = path.resolve(targetPath)
+    const rel = path.relative(ROOT, resolved)
+    if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+      return resolved
+    }
+    throw new Error('安全错误：路径不在允许范围内')
+  }
+  return {
+    getSenderFolderRoot: vi.fn(() => ROOT),
+    validateSenderPath: vi.fn(validateInRoot),
+    validateSenderReadPath: vi.fn(validateInRoot),
+  }
+})
 
 vi.mock('chokidar', () => ({
   default: {
@@ -35,6 +57,7 @@ vi.mock('fs-extra', async () => {
 const ctx = {
   store: { set: vi.fn() },
   folderHistoryManager: { addFolder: vi.fn() },
+  windowManager: { getWindowFolderPath: vi.fn(() => ROOT) },
 }
 
 const mockRealpath = vi.mocked(fs.realpath as unknown as (path: string) => Promise<string>)
@@ -58,8 +81,6 @@ function directoryStats(size = 0): fs.Stats {
 describe('Excalidraw file handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    resetSecurity()
-    setAllowedBasePath('/docs')
     registerFileHandlers(ctx as any)
   })
 
@@ -202,8 +223,6 @@ describe('Excalidraw file handlers', () => {
 describe('BPMN file handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    resetSecurity()
-    setAllowedBasePath('/docs')
     registerFileHandlers(ctx as any)
   })
 

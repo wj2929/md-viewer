@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain, dialog } from 'electron'
 import { IPCContext } from './context'
-import { setAllowedBasePath } from '../security'
+import { activateFolderForWindow } from '../folderActivation'
 
 export function registerWindowHandlers(ctx: IPCContext): void {
   // 获取当前窗口 ID
@@ -28,11 +28,9 @@ export function registerWindowHandlers(ctx: IPCContext): void {
     const win = ctx.windowManager.createWindow()
 
     ctx.windowManager.addPendingAction(win.id, () => {
-      setAllowedBasePath(folderPath)
-      ctx.store.set('lastOpenedFolder', folderPath)
-      ctx.windowManager.setWindowFolderPath(win.id, folderPath)
-      ctx.folderHistoryManager.addFolder(folderPath)
-      win.webContents.send('restore-folder', folderPath)
+      activateFolderForWindow(ctx, win, folderPath, { notifyRenderer: true }).catch((error) => {
+        console.error('[newWindowWithFolder] Failed to activate folder:', error)
+      })
     })
 
     return win.id

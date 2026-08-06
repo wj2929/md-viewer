@@ -19,6 +19,10 @@ const api = {
   readFilePreview: (path: string) => ipcRenderer.invoke('fs:readFilePreview', path) as Promise<string>,
   testOpenMarkdownFile: (path: string) =>
     ipcRenderer.invoke('test:openMarkdownFile', path) as Promise<boolean>,
+  testFileClipboardAction: process.env.NODE_ENV === 'test'
+    ? (action: 'copy' | 'cut' | 'paste', target: string | string[]) =>
+        ipcRenderer.invoke('test:file-clipboard-action', action, target) as Promise<{ success: boolean }>
+    : undefined,
   openEditableMarkdown: (filePath: string) =>
     ipcRenderer.invoke('fs:openEditableMarkdown', filePath) as Promise<{
       canonicalPath: string
@@ -122,6 +126,12 @@ const api = {
   showContextMenu: (file: { name: string; path: string; isDirectory: boolean }, basePath: string) =>
     ipcRenderer.invoke('context-menu:show', file, basePath),
   renameFile: (oldPath: string, newName: string) => ipcRenderer.invoke('fs:rename', oldPath, newName),
+  duplicatePath: (sourcePath: string) =>
+    ipcRenderer.invoke('fs:duplicate', sourcePath) as Promise<{
+      sourcePath: string
+      newPath: string
+      isDirectory: boolean
+    }>,
 
   // v1.3 新增：Tab 右键菜单
   showTabContextMenu: (ctx: {
@@ -186,13 +196,17 @@ const api = {
 
   // v1.3.4：历史文件夹
   getFolderHistory: () =>
-    ipcRenderer.invoke('folder-history:get') as Promise<Array<{ path: string; name: string; lastOpened: number }>>,
-  removeFolderFromHistory: (folderPath: string) =>
-    ipcRenderer.invoke('folder-history:remove', folderPath),
+    ipcRenderer.invoke('folder-history:get') as Promise<Array<{ id: string; path: string; name: string; lastOpened: number }>>,
+  removeFolderFromHistory: (historyId: string) =>
+    ipcRenderer.invoke('folder-history:remove', historyId),
   clearFolderHistory: () =>
     ipcRenderer.invoke('folder-history:clear'),
-  setFolderPath: (folderPath: string) =>
-    ipcRenderer.invoke('folder:setPath', folderPath) as Promise<boolean>,
+  activateHistoryFolder: (historyId: string) =>
+    ipcRenderer.invoke('folder-history:activate', historyId) as Promise<{
+      id: string
+      path: string
+      name: string
+    }>,
   getFolderTreeState: () =>
     ipcRenderer.invoke('folder-tree-state:get') as Promise<Record<string, false>>,
   saveFolderTreeState: (folders: Record<string, false>) =>
@@ -231,7 +245,21 @@ const api = {
 
   // v1.3.6：最近文件
   getRecentFiles: () =>
-    ipcRenderer.invoke('recent-files:get') as Promise<Array<{ path: string; name: string; folderPath: string; lastOpened: number }>>,
+    ipcRenderer.invoke('recent-files:get') as Promise<Array<{
+      id: string
+      path: string
+      name: string
+      folderPath: string
+      lastOpened: number
+    }>>,
+  activateRecentFile: (recentId: string) =>
+    ipcRenderer.invoke('recent-files:activate', recentId) as Promise<{
+      id: string
+      path: string
+      name: string
+      filePath: string
+      fileName: string
+    }>,
   addRecentFile: (file: { path: string; name: string; folderPath: string }) =>
     ipcRenderer.invoke('recent-files:add', file),
   removeRecentFile: (filePath: string) =>
@@ -278,6 +306,14 @@ const api = {
       createdAt: number
       order: number
     }>>,
+  activateBookmark: (bookmarkId: string) =>
+    ipcRenderer.invoke('bookmarks:activate', bookmarkId) as Promise<{
+      id: string
+      path: string
+      name: string
+      filePath: string
+      fileName: string
+    }>,
   addBookmark: (bookmark: {
     filePath: string
     fileName: string
@@ -564,6 +600,12 @@ const api = {
     const handler = (_event: unknown, filePath: string) => callback(filePath)
     ipcRenderer.on('file:start-rename', handler)
     return () => ipcRenderer.removeListener('file:start-rename', handler)
+  },
+
+  onFileDuplicateRequest: (callback: (filePath: string) => void) => {
+    const handler = (_event: unknown, filePath: string) => callback(filePath)
+    ipcRenderer.on('file:duplicate-request', handler)
+    return () => ipcRenderer.removeListener('file:duplicate-request', handler)
   },
 
   onFileExportRequest: (callback: (data: { path: string; type: 'html' | 'pdf' }) => void) => {

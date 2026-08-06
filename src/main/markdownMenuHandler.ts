@@ -5,7 +5,6 @@
  */
 
 import { BrowserWindow, Menu } from 'electron'
-import { validatePath } from './security'
 
 /**
  * Markdown 菜单上下文
@@ -21,9 +20,7 @@ export interface MarkdownMenuContext {
  * @param ctx - Markdown 上下文信息
  */
 export function showMarkdownContextMenu(window: BrowserWindow, ctx: MarkdownMenuContext): void {
-  // ⚠️ 安全校验
-  validatePath(ctx.filePath)
-
+  // 路径鉴权已由调用方 markdown:show-context-menu 按发起窗口根完成
   const menuTemplate: Electron.MenuItemConstructorOptions[] = [
     {
       label: '导出 HTML',

@@ -25,10 +25,14 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../security', () => ({
-  setAllowedBasePath: vi.fn(),
-  getAllowedBasePath: vi.fn().mockReturnValue('/docs'),
-  isPathAllowed: vi.fn().mockReturnValue(true),
-  validatePath: vi.fn(),
+  validateSecurePathInBase: vi.fn(async (targetPath: string) => targetPath),
+}))
+
+// 按窗口根鉴权：这些用例的 filePath 均在 /docs 根内，放行即可。
+vi.mock('../ipc/senderSecurity', () => ({
+  getSenderFolderRoot: vi.fn(() => '/docs'),
+  validateSenderPath: vi.fn(async (_ctx: unknown, _event: unknown, targetPath: string) => targetPath),
+  validateSenderReadPath: vi.fn(async (_ctx: unknown, _event: unknown, targetPath: string) => targetPath),
 }))
 
 vi.mock('../contextMenuHandler', () => ({

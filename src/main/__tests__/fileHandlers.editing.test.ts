@@ -4,11 +4,14 @@ import * as fs from 'fs-extra'
 import * as path from 'path'
 import chokidar from 'chokidar'
 import { registerFileHandlers } from '../ipc/fileHandlers'
-import { resetSecurity, setAllowedBasePath } from '../security'
+import { resetSecurity } from '../security'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
-  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  BrowserWindow: {
+    fromWebContents: vi.fn(() => ({ id: 1 })),
+    getAllWindows: vi.fn(() => [])
+  },
   dialog: { showOpenDialog: vi.fn() },
   shell: { openPath: vi.fn() },
 }))
@@ -33,15 +36,18 @@ vi.mock('fs-extra', async () => {
     writeFile: vi.fn(),
     pathExists: vi.fn(),
     realpath: vi.fn(),
+    lstat: vi.fn(),
   }
 })
 
 const ctx = {
   store: { set: vi.fn() },
   folderHistoryManager: { addFolder: vi.fn() },
+  windowManager: { getWindowFolderPath: vi.fn<(id: number) => string | undefined>(() => '/docs') }
 }
 
 const mockRealpath = vi.mocked(fs.realpath as unknown as (path: string) => Promise<string>)
+const mockLstat = vi.mocked(fs.lstat as unknown as (path: string) => Promise<fs.Stats>)
 const mockStat = vi.mocked(fs.stat as unknown as (path: string) => Promise<fs.Stats>)
 const mockReadFile = vi.mocked(fs.readFile as unknown as (path: string, encoding: string) => Promise<string>)
 const mockWriteFile = vi.mocked(fs.writeFile as unknown as (path: string, data: string, encoding: string) => Promise<void>)
@@ -56,17 +62,54 @@ function eventFor(id: number) {
   return { sender: { id } }
 }
 
+// 发起窗口根目录集合：validateSenderPath 会对根做 realpath+stat(isDirectory)
+const ROOT_PATHS = new Set(['/docs', '/Users/test/docs'])
+
+function dirStat(): fs.Stats {
+  return { isFile: () => false, isDirectory: () => true } as fs.Stats
+}
+
+/**
+ * 为「单个文件目标」配置 realpath / stat：
+ * 根目录（授权根）恒定解析为自身且视为目录，其余路径走传入的文件 stat 序列。
+ * 保证 validateSenderPath 对根的校验通过，同时不改变各用例对文件 stat 的原始意图。
+ *
+ * options.realpathRejectsAfter：对非根路径，前 N 次 realpath 正常（供 validateSenderPath
+ * 的包含性校验通过），第 N 次之后开始拒绝——用于模拟「校验通过后规范化再解析时失败」的降级路径。
+ */
+function withRoot(
+  fileStats: fs.Stats[],
+  options: { realpathRejectsAfter?: number } = {}
+): void {
+  let realpathCall = 0
+  mockRealpath.mockImplementation(async (p: string) => {
+    if (ROOT_PATHS.has(p)) return p
+    const n = realpathCall
+    realpathCall += 1
+    if (options.realpathRejectsAfter !== undefined && n >= options.realpathRejectsAfter) {
+      throw new Error('realpath failed')
+    }
+    return p
+  })
+  let call = 0
+  mockStat.mockImplementation(async (p: string) => {
+    if (ROOT_PATHS.has(p)) return dirStat()
+    const stat = fileStats[Math.min(call, fileStats.length - 1)]
+    call += 1
+    return stat
+  })
+}
+
 describe('Markdown editing file handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetSecurity()
-    setAllowedBasePath('/docs')
+    ctx.windowManager.getWindowFolderPath.mockReturnValue('/docs')
     registerFileHandlers(ctx as any)
   })
 
   it('opens an editable Markdown file and authorizes only the sender window', async () => {
-    mockRealpath.mockResolvedValue('/docs/a.md')
-    mockStat.mockResolvedValue({ isFile: () => true, size: 12, mtimeMs: 1000 } as fs.Stats)
+    withRoot([{ isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 1000 } as fs.Stats])
     mockReadFile.mockResolvedValue('# A')
 
     const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
@@ -82,7 +125,7 @@ describe('Markdown editing file handlers', () => {
       revisionToken: '1000:12:327f031b25e00b1a',
     })
 
-    mockStat.mockResolvedValue({ isFile: () => true, size: 18, mtimeMs: 1000 } as fs.Stats)
+    withRoot([{ isFile: () => true, isDirectory: () => false, size: 18, mtimeMs: 1000 } as fs.Stats])
     await expect(saveEditable(eventFor(2), {
       canonicalPath: '/docs/a.md',
       content: '# Changed',
@@ -92,10 +135,10 @@ describe('Markdown editing file handlers', () => {
   })
 
   it('returns conflict when revision token differs before saving', async () => {
-    mockRealpath.mockResolvedValue('/docs/a.md')
-    mockStat
-      .mockResolvedValueOnce({ isFile: () => true, size: 12, mtimeMs: 1000 } as fs.Stats)
-      .mockResolvedValueOnce({ isFile: () => true, size: 20, mtimeMs: 2000 } as fs.Stats)
+    withRoot([
+      { isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 1000 } as fs.Stats,
+      { isFile: () => true, isDirectory: () => false, size: 20, mtimeMs: 2000 } as fs.Stats,
+    ])
     mockReadFile.mockResolvedValue('# A')
 
     const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
@@ -119,11 +162,11 @@ describe('Markdown editing file handlers', () => {
   })
 
   it('allows saving when only file metadata changed but disk content is unchanged', async () => {
-    mockRealpath.mockResolvedValue('/docs/a.md')
-    mockStat
-      .mockResolvedValueOnce({ isFile: () => true, size: 12, mtimeMs: 1000 } as fs.Stats)
-      .mockResolvedValueOnce({ isFile: () => true, size: 12, mtimeMs: 2000 } as fs.Stats)
-      .mockResolvedValueOnce({ isFile: () => true, size: 22, mtimeMs: 3000 } as fs.Stats)
+    withRoot([
+      { isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 1000 } as fs.Stats,
+      { isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 2000 } as fs.Stats,
+      { isFile: () => true, isDirectory: () => false, size: 22, mtimeMs: 3000 } as fs.Stats,
+    ])
     mockReadFile.mockResolvedValue('# A')
 
     const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
@@ -141,11 +184,11 @@ describe('Markdown editing file handlers', () => {
   })
 
   it('saves when authorized and mtime matches', async () => {
-    mockRealpath.mockResolvedValue('/docs/a.md')
-    mockStat
-      .mockResolvedValueOnce({ isFile: () => true, size: 12, mtimeMs: 1000 } as fs.Stats)
-      .mockResolvedValueOnce({ isFile: () => true, size: 20, mtimeMs: 1000 } as fs.Stats)
-      .mockResolvedValueOnce({ isFile: () => true, size: 22, mtimeMs: 3000 } as fs.Stats)
+    withRoot([
+      { isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 1000 } as fs.Stats,
+      { isFile: () => true, isDirectory: () => false, size: 20, mtimeMs: 1000 } as fs.Stats,
+      { isFile: () => true, isDirectory: () => false, size: 22, mtimeMs: 3000 } as fs.Stats,
+    ])
     mockReadFile.mockResolvedValue('# A')
 
     const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
@@ -163,8 +206,11 @@ describe('Markdown editing file handlers', () => {
   })
 
   it('falls back to resolved path when realpath fails', async () => {
-    mockRealpath.mockRejectedValue(new Error('realpath failed'))
-    mockStat.mockResolvedValue({ isFile: () => true, size: 12, mtimeMs: 1000 } as fs.Stats)
+    // 按窗口根校验时 realpath 成功（call 0），随后 getBestEffortCanonicalPath 再次
+    // 解析同一路径时失败（call 1），触发降级为 path.resolve。
+    withRoot([{ isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 1000 } as fs.Stats], {
+      realpathRejectsAfter: 1,
+    })
     mockReadFile.mockResolvedValue('# A')
 
     const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
@@ -176,7 +222,10 @@ describe('Markdown editing file handlers', () => {
   })
 
   it('recreates a directory watcher after the same window unwatches and watches again', async () => {
-    setAllowedBasePath('/Users/test/docs')
+    mockRealpath.mockImplementation(async (p: string) => p)
+    mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    ctx.windowManager.getWindowFolderPath.mockReturnValue('/Users/test/docs')
     const watchFolder = handler<(event: any, folderPath: string) => Promise<any>>('fs:watchFolder')
     const unwatchFolder = handler<(event: any) => Promise<any>>('fs:unwatchFolder')
     const watch = vi.mocked(chokidar.watch)
@@ -194,7 +243,10 @@ describe('Markdown editing file handlers', () => {
   })
 
   it('creates an individual watcher when an opened Markdown file is deeper than the directory watcher depth', async () => {
-    setAllowedBasePath('/Users/test/docs')
+    mockRealpath.mockImplementation(async (p: string) => p)
+    mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    ctx.windowManager.getWindowFolderPath.mockReturnValue('/Users/test/docs')
     const watchFolder = handler<(event: any, folderPath: string) => Promise<any>>('fs:watchFolder')
     const unwatchFolder = handler<(event: any) => Promise<any>>('fs:unwatchFolder')
     const watchFile = handler<(event: any, filePath: string) => Promise<any>>('fs:watchFile')

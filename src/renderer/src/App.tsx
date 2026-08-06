@@ -307,87 +307,36 @@ function App(): React.JSX.Element {
   }, [keepPinnedAndSplitTabsForFolderSwitch, restorePinnedTabs])
 
   // 从历史选择文件夹
-  const handleSelectHistoryFolder = useCallback(async (path: string) => {
-    await window.api.setFolderPath(path)
-    setFolderPath(path)
+  const handleSelectHistoryFolder = useCallback(async (historyId: string) => {
+    const activation = await window.api.activateHistoryFolder(historyId)
+    setFolderPath(activation.path)
     keepPinnedAndSplitTabsForFolderSwitch()
     setActiveTabId(null)
-    await restorePinnedTabs(path)
+    await restorePinnedTabs(activation.path)
   }, [keepPinnedAndSplitTabsForFolderSwitch, restorePinnedTabs])
 
-  // v1.3.6：从最近文件选择
-  const handleSelectRecentFile = useCallback(async (filePath: string) => {
-    const sepIndex = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
-    const fileName = sepIndex >= 0 ? filePath.slice(sepIndex + 1) : filePath
-    const fileFolder = sepIndex >= 0 ? filePath.slice(0, sepIndex) : ''
-
-    if (!folderPath || !filePath.startsWith(folderPath)) {
-      await window.api.setFolderPath(fileFolder)
-      setFolderPath(fileFolder)
+  // 从主进程持有的最近文件记录激活；renderer 不再推导或授权根目录。
+  const handleSelectRecentFile = useCallback(async (recentId: string) => {
+    try {
+      const activation = await window.api.activateRecentFile(recentId)
+      setFolderPath(activation.path)
       keepPinnedAndSplitTabsForFolderSwitch()
       setActiveTabId(null)
 
-      setTimeout(async () => {
-        try {
-          const pinnedTabs = await window.api.getPinnedTabsForFolder(fileFolder)
-          const restoredTabs: Tab[] = []
-          for (const pinned of pinnedTabs) {
-            if (pinned.path === filePath) continue
-            try {
-              const content = await readPreviewContentWithCache(pinned.path)
-              const name = pinned.path.split(/[/\\]/).pop() || ''
-              restoredTabs.push({
-                id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                file: { name, path: pinned.path, isDirectory: false },
-                content,
-                isPinned: true
-              })
-            } catch { /* 忽略无法读取的文件 */ }
-          }
-          const content = await readPreviewContentWithCache(filePath)
-          const isPinned = pinnedTabs.some(t => t.path === filePath)
-          const newTab: Tab = {
-            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            file: { name: fileName, path: filePath, isDirectory: false },
-            content,
-            isPinned
-          }
-          setTabs(prev => {
-            const existingPaths = new Set(prev.map(tab => tab.file.path))
-            const tabsToAdd = [...restoredTabs, newTab].filter(tab => {
-              if (existingPaths.has(tab.file.path)) return false
-              existingPaths.add(tab.file.path)
-              return true
-            })
-            return [...prev, ...tabsToAdd]
-          })
-          setActiveTabId(newTab.id)
-          window.api.addRecentFile({ path: filePath, name: fileName, folderPath: fileFolder }).catch(err => console.error('Failed to add to recent files:', err))
-        } catch (error) {
-          toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
-        }
-      }, 500)
-    } else {
-      const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
-      if (existingTab) {
-        await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(filePath))
-        return
+      const pinnedTabs = await window.api.getPinnedTabsForFolder(activation.path)
+      const content = await readPreviewContentWithCache(activation.filePath)
+      const newTab: Tab = {
+        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file: { name: activation.fileName, path: activation.filePath, isDirectory: false },
+        content,
+        isPinned: pinnedTabs.some(tab => tab.path === activation.filePath)
       }
-      try {
-        const content = await readPreviewContentWithCache(filePath)
-        const newTab: Tab = {
-          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          file: { name: fileName, path: filePath, isDirectory: false },
-          content
-        }
-        setTabs(prev => [...prev, newTab])
-        setActiveTabId(newTab.id)
-        window.api.addRecentFile({ path: filePath, name: fileName, folderPath: folderPath }).catch(err => console.error('Failed to add to recent files:', err))
-      } catch (error) {
-        toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
-      }
+      setTabs(prev => prev.some(tab => tab.file.path === activation.filePath) ? prev : [...prev, newTab])
+      setActiveTabId(newTab.id)
+    } catch (error) {
+      toast.error(`无法打开最近文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [folderPath, keepPinnedAndSplitTabsForFolderSwitch, refreshExistingTabContent, toast])
+  }, [keepPinnedAndSplitTabsForFolderSwitch, toast])
 
   // 加载文件列表
   useEffect(() => {
@@ -813,61 +762,25 @@ function App(): React.JSX.Element {
   }, [bookmarkPanelCollapsed])
 
   const handleSelectBookmark = useCallback(async (bookmark: Bookmark) => {
-    const bookmarkDir = bookmark.filePath.substring(0, bookmark.filePath.lastIndexOf('/'))
-    const needSwitchFolder = folderPath && !bookmark.filePath.startsWith(folderPath)
+    try {
+      const activation = await window.api.activateBookmark(bookmark.id)
+      setFolderPath(activation.path)
+      keepPinnedAndSplitTabsForFolderSwitch()
+      setActiveTabId(null)
 
-    if (needSwitchFolder) {
-      toast.info(`正在切换到：${bookmarkDir.split(/[/\\]/).pop()}`)
-      try {
-        await window.api.setFolderPath(bookmarkDir)
-        const newFiles = await window.api.readDir(bookmarkDir)
-        setFolderPath(bookmarkDir)
-        setFiles(newFiles)
-        keepPinnedAndSplitTabsForFolderSwitch()
-        setActiveTabId(null)
-
-        setTimeout(async () => {
-          try {
-            const content = await readPreviewContentWithCache(bookmark.filePath)
-            const newTab: Tab = {
-              id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
-              content
-            }
-            setTabs(prev => prev.some(tab => tab.file.path === newTab.file.path) ? prev : [...prev, newTab])
-            setActiveTabId(newTab.id)
-            setTimeout(() => navigateToBookmarkPosition(bookmark), 300)
-          } catch (error) {
-            toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
-          }
-        }, 100)
-        return
-      } catch (error) {
-        toast.error(`切换文件夹失败：${error instanceof Error ? error.message : '未知错误'}`)
-        return
+      const content = await readPreviewContentWithCache(activation.filePath)
+      const newTab: Tab = {
+        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file: { name: activation.fileName, path: activation.filePath, isDirectory: false },
+        content
       }
+      setTabs(prev => prev.some(tab => tab.file.path === activation.filePath) ? prev : [...prev, newTab])
+      setActiveTabId(newTab.id)
+      setTimeout(() => navigateToBookmarkPosition(bookmark), 0)
+    } catch (error) {
+      toast.error(`无法打开书签：${error instanceof Error ? error.message : '未知错误'}`)
     }
-
-    const existingTab = tabsRef.current.find(tab => tab.file.path === bookmark.filePath)
-    if (!existingTab) {
-      try {
-        const content = await readPreviewContentWithCache(bookmark.filePath)
-        const newTab: Tab = {
-          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          file: { name: bookmark.fileName, path: bookmark.filePath, isDirectory: false },
-          content
-        }
-        setTabs(prev => [...prev, newTab])
-        setActiveTabId(newTab.id)
-        setTimeout(() => navigateToBookmarkPosition(bookmark), 300)
-      } catch (error) {
-        toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
-      }
-    } else {
-      await refreshExistingTabContent(existingTab, () => readPreviewContentWithCache(bookmark.filePath), '无法刷新文件')
-      setTimeout(() => navigateToBookmarkPosition(bookmark), 100)
-    }
-  }, [folderPath, keepPinnedAndSplitTabsForFolderSwitch, refreshExistingTabContent, toast])
+  }, [keepPinnedAndSplitTabsForFolderSwitch, toast])
 
   const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
     if (!previewRef.current) return

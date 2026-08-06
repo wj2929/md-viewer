@@ -4,9 +4,11 @@ import * as path from 'path'
 import { pathToFileURL } from 'url'
 import * as fs from 'fs-extra'
 import Store from 'electron-store'
-import { setAllowedBasePath, isPathAllowed } from './security'
+import { validateSecurePathInBase } from './security'
 import { folderHistoryManager } from './folderHistoryManager'
+import { activateFolderForWindow } from './folderActivation'
 import { validateSecurePath as validateLaunchPath } from './security/pathValidator'
+import type { IPCContext } from './ipc/context'
 import { appDataManager } from './appDataManager'
 import { installEpipeHandler } from './safeLog'
 import { installApplicationMenu } from './applicationMenu'
@@ -43,6 +45,15 @@ const store = new Store<AppState>({
 // 模块级窗口引用（兼容现有代码，指向最近创建的窗口）
 let mainWindow: BrowserWindow | null = null
 
+// IPC 共享上下文：目录激活、路径鉴权的唯一事实源
+const ipcContext: IPCContext = {
+  store,
+  windowManager,
+  folderHistoryManager,
+  appDataManager,
+  openPathInWindow
+}
+
 function createWindow(): void {
   const savedBounds = store.get('windowBounds')
   const alwaysOnTop = store.get('alwaysOnTop', false)
@@ -72,9 +83,9 @@ function createWindow(): void {
     windowManager.addPendingAction(win.id, () => {
       const lastFolder = store.get('lastOpenedFolder')
       if (lastFolder) {
-        setAllowedBasePath(lastFolder)
-        windowManager.setWindowFolderPath(win.id, lastFolder)
-        win.webContents.send('restore-folder', lastFolder)
+        activateFolderForWindow(ipcContext, win, lastFolder, { notifyRenderer: true }).catch((error) => {
+          console.error('[Restore] Failed to restore last folder:', error)
+        })
       }
     })
   }
@@ -108,25 +119,24 @@ function openPathInWindow(targetPath: string, type: 'md-file' | 'directory', tar
   const win = targetWindow || windowManager.getFocusedWindow() || mainWindow
   if (!win) return
 
-  if (type === 'directory') {
-    setAllowedBasePath(targetPath)
-    store.set('lastOpenedFolder', targetPath)
-    folderHistoryManager.addFolder(targetPath)
-    windowManager.setWindowFolderPath(win.id, targetPath)
-    win.webContents.send('restore-folder', targetPath)
-  } else {
-    const folderPath = path.dirname(targetPath)
-    setAllowedBasePath(folderPath)
-    store.set('lastOpenedFolder', folderPath)
-    folderHistoryManager.addFolder(folderPath)
-    windowManager.setWindowFolderPath(win.id, folderPath)
-    win.webContents.send('restore-folder', folderPath)
-    setTimeout(() => {
-      if (!win.isDestroyed()) {
-        win.webContents.send('open-specific-file', targetPath)
+  const folderPath = type === 'directory' ? targetPath : path.dirname(targetPath)
+
+  activateFolderForWindow(ipcContext, win, folderPath, { notifyRenderer: true })
+    .then((activation) => {
+      if (type === 'md-file') {
+        const filePath = activation.path === folderPath
+          ? targetPath
+          : path.join(activation.path, path.basename(targetPath))
+        setTimeout(() => {
+          if (!win.isDestroyed()) {
+            win.webContents.send('open-specific-file', filePath)
+          }
+        }, 500)
       }
-    }, 500)
-  }
+    })
+    .catch((error) => {
+      console.error('[openPathInWindow] Failed to activate folder:', error)
+    })
 }
 
 // macOS: 处理 open-file 事件
@@ -165,7 +175,9 @@ if (!isCliStartup) {
     installApplicationMenu()
 
     // 注册 local-image 协议处理器
-    protocol.handle('local-image', (request) => {
+    // protocol.handle 回调拿不到发起请求的 webContents，无法按发起窗口鉴权；
+    // 改用「任一存活窗口的已授权根目录内即放行」——所有根都是用户主动打开的文件夹。
+    protocol.handle('local-image', async (request) => {
       let filePath: string
       try {
         const url = new URL(request.url)
@@ -177,15 +189,26 @@ if (!isCliStartup) {
         return new Response('Invalid URL', { status: 400 })
       }
 
-      if (!isPathAllowed(filePath)) {
+      const roots = windowManager.getAllWindowFolderRoots()
+      let canonicalPath: string | null = null
+      for (const root of roots) {
+        try {
+          canonicalPath = await validateSecurePathInBase(filePath, root)
+          break
+        } catch {
+          // 尝试下一个窗口根
+        }
+      }
+
+      if (!canonicalPath) {
         return new Response('Forbidden', { status: 403 })
       }
 
-      if (!fs.existsSync(filePath)) {
+      if (!fs.existsSync(canonicalPath)) {
         return new Response('Not Found', { status: 404 })
       }
 
-      return net.fetch(pathToFileURL(filePath).toString())
+      return net.fetch(pathToFileURL(canonicalPath).toString())
     })
 
     // 设置 Content Security Policy
@@ -214,13 +237,7 @@ if (!isCliStartup) {
     createWindow()
 
     // 注册所有 IPC handlers
-    registerAllHandlers({
-      store,
-      windowManager,
-      folderHistoryManager,
-      appDataManager,
-      openPathInWindow
-    })
+    registerAllHandlers(ipcContext)
 
     // 后台验证最近文件路径有效性
     appDataManager.validateRecentFilesInBackground()

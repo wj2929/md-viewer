@@ -2,7 +2,9 @@ import { BrowserWindow, ipcMain, shell, app, net } from 'electron'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import { IPCContext } from './context'
-import { setAllowedBasePath, getAllowedBasePath, validatePath } from '../security'
+import { validateSecurePathInBase } from '../security'
+import { getSenderFolderRoot, validateSenderPath, validateSenderReadPath } from './senderSecurity'
+import { activateFolderForWindow, activateHistoryFolderForWindow } from '../folderActivation'
 import { syncClipboardState, getClipboardState } from '../clipboardState'
 import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from '../clipboardManager'
 import * as contextMenuManager from '../contextMenuManager'
@@ -131,33 +133,23 @@ async function resolveMarkdownLinkTarget(currentFilePath: string, href: string):
   return { success: true, targetPath, targetLine, headingId }
 }
 
-function getSenderFolderRoot(ctx: IPCContext, event: Electron.IpcMainInvokeEvent): string {
-  const win = BrowserWindow.fromWebContents(event.sender)
-  if (!win) {
-    throw new Error('无法识别当前窗口')
-  }
-
-  const root = ctx.windowManager.getWindowFolderPath(win.id)
-  if (!root) {
-    throw new Error('当前窗口未绑定文件夹')
-  }
-
-  return root
-}
-
 export function registerDataHandlers(ctx: IPCContext): void {
   // ============== 剪贴板 ==============
 
 // ============== v1.3 阶段 3：剪贴板状态同步 ==============
 
 // 同步剪贴板状态
-ipcMain.handle('clipboard:sync-state', async (_, files: string[], isCut: boolean) => {
-  syncClipboardState(files, isCut)
+ipcMain.handle('clipboard:sync-state', async (event, files: string[], isCut: boolean) => {
+  const root = getSenderFolderRoot(ctx, event)
+  for (const filePath of files) {
+    await validateSecurePathInBase(filePath, root)
+  }
+  syncClipboardState(event.sender.id, files, isCut)
 })
 
 // 查询剪贴板状态
-ipcMain.handle('clipboard:query-state', async () => {
-  return getClipboardState()
+ipcMain.handle('clipboard:query-state', async (event) => {
+  return getClipboardState(event.sender.id)
 })
 
 // v1.3 阶段 6：从系统剪贴板读取文件
@@ -220,26 +212,22 @@ ipcMain.handle('folder-history:get', async () => {
   return ctx.folderHistoryManager.getHistory()
 })
 
-ipcMain.handle('folder-history:remove', async (_, folderPath: string) => {
-  ctx.folderHistoryManager.removeFolder(folderPath)
+ipcMain.handle('folder-history:remove', async (_, historyId: string) => {
+  ctx.folderHistoryManager.removeFolder(historyId)
 })
 
 ipcMain.handle('folder-history:clear', async () => {
   ctx.folderHistoryManager.clearHistory()
 })
 
-// v1.3.4：设置当前文件夹（从历史选择时调用）
-ipcMain.handle('folder:setPath', async (event, folderPath: string) => {
-  setAllowedBasePath(folderPath)
-  ctx.store.set('lastOpenedFolder', folderPath)
-  await ctx.folderHistoryManager.addFolder(folderPath)
-
+// 激活主进程持有的历史目录记录；禁止 renderer 提供路径扩大授权根。
+ipcMain.handle('folder-history:activate', async (event, historyId: string) => {
   const win = BrowserWindow.fromWebContents(event.sender)
-  if (win) {
-    ctx.windowManager.setWindowFolderPath(win.id, folderPath)
+  if (!win) {
+    throw new Error('无法识别当前窗口')
   }
 
-  return true
+  return activateHistoryFolderForWindow(ctx, win, historyId)
 })
 
   // ============== 右键菜单安装 ==============
@@ -324,6 +312,25 @@ ipcMain.handle('recent-files:get', async () => {
   return ctx.appDataManager.getRecentFiles()
 })
 
+ipcMain.handle('recent-files:activate', async (event, recentId: string) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const recentFile = ctx.appDataManager.getRecentFile(recentId)
+  if (!win || !recentFile) {
+    throw new Error('安全错误：最近文件不存在或当前窗口无效')
+  }
+
+  let rootPath = recentFile.folderPath
+  try {
+    await validateSecurePathInBase(recentFile.path, rootPath)
+  } catch {
+    rootPath = path.dirname(recentFile.path)
+  }
+
+  const activation = await activateFolderForWindow(ctx, win, rootPath)
+  const canonicalFilePath = await validateSecurePathInBase(recentFile.path, activation.path)
+  return { ...activation, filePath: canonicalFilePath, fileName: path.basename(canonicalFilePath) }
+})
+
 ipcMain.handle('recent-files:add', async (_, file: { path: string; name: string; folderPath: string }) => {
   await ctx.appDataManager.addRecentFile(file)
 })
@@ -344,22 +351,24 @@ ipcMain.handle('pinned-tabs:get-for-folder', async (_, folderPath: string) => {
   return ctx.appDataManager.getPinnedTabsForFolder(folderPath)
 })
 
-ipcMain.handle('pinned-tabs:add', async (_, filePath: string) => {
-  const basePath = getAllowedBasePath()
-  if (!basePath) return false
-  return ctx.appDataManager.addPinnedTabForFolder(filePath, basePath)
+ipcMain.handle('pinned-tabs:add', async (event, filePath: string) => {
+  const root = getSenderFolderRoot(ctx, event)
+  const canonicalPath = await validateSenderPath(ctx, event, filePath)
+  return ctx.appDataManager.addPinnedTabForFolder(canonicalPath, root)
 })
 
-ipcMain.handle('pinned-tabs:remove', async (_, filePath: string) => {
-  const basePath = getAllowedBasePath()
-  if (!basePath) return
-  ctx.appDataManager.removePinnedTabForFolder(filePath, basePath)
+ipcMain.handle('pinned-tabs:remove', async (event, filePath: string) => {
+  const root = getSenderFolderRoot(ctx, event)
+  const canonicalPath = await validateSenderPath(ctx, event, filePath)
+  ctx.appDataManager.removePinnedTabForFolder(canonicalPath, root)
 })
 
-ipcMain.handle('pinned-tabs:is-pinned', async (_, filePath: string) => {
-  const basePath = getAllowedBasePath()
-  if (!basePath) return false
-  return ctx.appDataManager.isTabPinnedInFolder(filePath, basePath)
+ipcMain.handle('pinned-tabs:is-pinned', async (event, filePath: string) => {
+  // 查询类：放宽到任一已授权文件夹，避免跨文件夹分屏时阻断；
+  // 固定分组仍按发起窗口根查询，跨文件夹文件自然返回未固定
+  const root = getSenderFolderRoot(ctx, event)
+  const canonicalPath = await validateSenderReadPath(ctx, event, filePath)
+  return ctx.appDataManager.isTabPinnedInFolder(canonicalPath, root)
 })
 
   // ============== 应用设置管理 ==============
@@ -393,24 +402,24 @@ ipcMain.handle('folder-tree-state:clear', async (event) => {
   ctx.appDataManager.clearFolderTreeState(root)
 })
 
-ipcMain.handle('read-position:get', async (_, filePath: string) => {
-  validatePath(filePath)
+ipcMain.handle('read-position:get', async (event, filePath: string) => {
+  await validateSenderReadPath(ctx, event, filePath)
   return ctx.appDataManager.getReadPosition(filePath)
 })
 
-ipcMain.handle('read-position:save', async (_, position: {
+ipcMain.handle('read-position:save', async (event, position: {
   canonicalPath: string
   scrollRatio?: number
   headingId?: string
   updatedAt?: number
   contentHash?: string
 }) => {
-  validatePath(position.canonicalPath)
+  await validateSenderPath(ctx, event, position.canonicalPath)
   return ctx.appDataManager.saveReadPosition(position)
 })
 
-ipcMain.handle('read-position:clear', async (_, filePath: string) => {
-  validatePath(filePath)
+ipcMain.handle('read-position:clear', async (event, filePath: string) => {
+  await validateSenderPath(ctx, event, filePath)
   ctx.appDataManager.clearReadPosition(filePath)
 })
 
@@ -446,6 +455,20 @@ ipcMain.handle('bookmarks:get', async () => {
   return ctx.appDataManager.getBookmarks()
 })
 
+ipcMain.handle('bookmarks:activate', async (event, bookmarkId: string) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const bookmark = ctx.appDataManager.getBookmark(bookmarkId)
+  if (!win || !bookmark) {
+    throw new Error('安全错误：书签不存在或当前窗口无效')
+  }
+
+  const rootPath = await ctx.folderHistoryManager.findContainingFolder(bookmark.filePath)
+    ?? path.dirname(bookmark.filePath)
+  const activation = await activateFolderForWindow(ctx, win, rootPath)
+  const canonicalFilePath = await validateSecurePathInBase(bookmark.filePath, activation.path)
+  return { ...activation, filePath: canonicalFilePath, fileName: path.basename(canonicalFilePath) }
+})
+
 ipcMain.handle('bookmarks:add', async (event, bookmark: {
   filePath: string
   fileName: string
@@ -454,8 +477,9 @@ ipcMain.handle('bookmarks:add', async (event, bookmark: {
   headingText?: string
   scrollPosition?: number
 }) => {
-  // 安全校验
-  validatePath(bookmark.filePath)
+  // 安全校验：书签只记录路径引用（写的是书签库，非目标文件），
+  // 用读放宽校验——允许给分屏打开的跨文件夹文件加书签，仍受 realpath 边界 + 受保护路径拦截
+  await validateSenderReadPath(ctx, event, bookmark.filePath)
   const result = ctx.appDataManager.addBookmark(bookmark)
   // v1.6.0: 广播书签变更到其他窗口
   const senderWindow = BrowserWindow.fromWebContents(event.sender)

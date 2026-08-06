@@ -52,6 +52,10 @@ declare global {
       }) => Promise<{ content: string; resolvedPath: string }>
       readFilePreview: (path: string) => Promise<string>
       testOpenMarkdownFile?: (path: string) => Promise<boolean>
+      testFileClipboardAction?: (
+        action: 'copy' | 'cut' | 'paste',
+        target: string | string[]
+      ) => Promise<{ success: boolean }>
       openEditableMarkdown: (filePath: string) => Promise<{
         canonicalPath: string
         displayPath: string
@@ -110,6 +114,11 @@ declare global {
         basePath: string
       ) => Promise<{ success: boolean }>
       renameFile: (oldPath: string, newName: string) => Promise<string>
+      duplicatePath: (sourcePath: string) => Promise<{
+        sourcePath: string
+        newPath: string
+        isDirectory: boolean
+      }>
 
       // v1.3 新增：Tab 右键菜单
       showTabContextMenu: (ctx: {
@@ -141,10 +150,10 @@ declare global {
       openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
 
       // v1.3.4：历史文件夹
-      getFolderHistory: () => Promise<Array<{ path: string; name: string; lastOpened: number }>>
-      removeFolderFromHistory: (folderPath: string) => Promise<void>
+      getFolderHistory: () => Promise<Array<{ id: string; path: string; name: string; lastOpened: number }>>
+      removeFolderFromHistory: (historyId: string) => Promise<void>
       clearFolderHistory: () => Promise<void>
-      setFolderPath: (folderPath: string) => Promise<boolean>
+      activateHistoryFolder: (historyId: string) => Promise<{ id: string; path: string; name: string }>
       getFolderTreeState: () => Promise<Record<string, false>>
       saveFolderTreeState: (folders: Record<string, false>) => Promise<Record<string, false>>
       clearFolderTreeState: () => Promise<void>
@@ -171,7 +180,20 @@ declare global {
       clearReadPosition: (filePath: string) => Promise<void>
 
       // v1.3.6：最近文件
-      getRecentFiles: () => Promise<Array<{ path: string; name: string; folderPath: string; lastOpened: number }>>
+      getRecentFiles: () => Promise<Array<{
+        id: string
+        path: string
+        name: string
+        folderPath: string
+        lastOpened: number
+      }>>
+      activateRecentFile: (recentId: string) => Promise<{
+        id: string
+        path: string
+        name: string
+        filePath: string
+        fileName: string
+      }>
       addRecentFile: (file: { path: string; name: string; folderPath: string }) => Promise<void>
       removeRecentFile: (filePath: string) => Promise<void>
       clearRecentFiles: () => Promise<void>
@@ -222,6 +244,13 @@ declare global {
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>
+      activateBookmark: (bookmarkId: string) => Promise<{
+        id: string
+        path: string
+        name: string
+        filePath: string
+        fileName: string
+      }>
       addBookmark: (bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'order'>) => Promise<Bookmark>
       updateBookmark: (id: string, updates: Partial<Omit<Bookmark, 'id' | 'createdAt'>>) => Promise<void>
       removeBookmark: (id: string) => Promise<void>
@@ -320,6 +349,7 @@ declare global {
       // 右键菜单事件 (v1.2 阶段 1)
       onFileDeleted: (callback: (filePath: string) => void) => () => void
       onFileStartRename: (callback: (filePath: string) => void) => () => void
+      onFileDuplicateRequest: (callback: (filePath: string) => void) => () => void
       onFileExportRequest: (
         callback: (data: { path: string; type: 'html' | 'pdf' }) => void
       ) => () => void

@@ -5,7 +5,10 @@ import * as os from 'os'
 import { createHash } from 'crypto'
 import chokidar from 'chokidar'
 import { IPCContext } from './context'
-import { setAllowedBasePath, validateSecurePath, validatePath, validateSearchPath } from '../security'
+import { validateSearchPath, validateNotProtected, validateSecurePathInBase } from '../security'
+import { isClipboardSourceAuthorized } from '../clipboardState'
+import { activateFolderForWindow } from '../folderActivation'
+import { getSenderFolderRoot, validateSenderPath, validateSenderReadPath } from './senderSecurity'
 
 // 文件信息接口
 interface FileInfo {
@@ -32,6 +35,105 @@ const LOCAL_ASSET_MIME_TYPES = new Map<string, string>([
   ['.svg', 'image/svg+xml'],
 ])
 const MAX_LOCAL_ASSET_SIZE = 10 * 1024 * 1024
+const DUPLICATE_SUFFIX_PATTERN = / - 副本(?: [1-9]\d*)?$/
+
+async function validateClipboardSourceOrCurrentRoot(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  sourcePath: string
+): Promise<string> {
+  const root = getSenderFolderRoot(ctx, event)
+  try {
+    return await validateSecurePathInBase(sourcePath, root)
+  } catch {
+    if (!isClipboardSourceAuthorized(event.sender.id, sourcePath)) {
+      throw new Error('安全错误：源路径不在当前文件夹且未被复制授权')
+    }
+
+    const sourceStats = await fs.lstat(sourcePath)
+    if (sourceStats.isSymbolicLink()) {
+      throw new Error('安全错误：不支持通过符号链接复制或移动')
+    }
+    const resolvedSource = await fs.realpath(sourcePath)
+    validateNotProtected(resolvedSource)
+    return resolvedSource
+  }
+}
+
+async function validateDestinationInCurrentRoot(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  destinationPath: string
+): Promise<string> {
+  return validateSecurePathInBase(destinationPath, getSenderFolderRoot(ctx, event))
+}
+
+function isSameOrChildPath(targetPath: string, parentPath: string): boolean {
+  const relativePath = path.relative(path.resolve(parentPath), path.resolve(targetPath))
+  return relativePath === '' || (
+    !relativePath.startsWith(`..${path.sep}`) &&
+    relativePath !== '..' &&
+    !path.isAbsolute(relativePath)
+  )
+}
+
+async function rejectDirectorySymbolicLinks(directoryPath: string): Promise<void> {
+  for (const entry of await fs.readdir(directoryPath)) {
+    const entryPath = path.join(directoryPath, entry)
+    const entryStats = await fs.lstat(entryPath)
+    if (entryStats.isSymbolicLink()) {
+      throw new Error('安全错误：不支持复制或移动包含符号链接的目录')
+    }
+    if (entryStats.isDirectory()) {
+      await rejectDirectorySymbolicLinks(entryPath)
+    }
+  }
+}
+
+function getDuplicateName(sourceName: string, isDirectory: boolean, copyIndex: number): string {
+  const suffix = copyIndex === 1 ? ' - 副本' : ` - 副本 ${copyIndex}`
+  if (isDirectory) {
+    return `${sourceName.replace(DUPLICATE_SUFFIX_PATTERN, '')}${suffix}`
+  }
+
+  const extension = path.extname(sourceName)
+  const isDotfile = sourceName.startsWith('.') && sourceName.lastIndexOf('.') === 0
+  const baseName = (extension && !isDotfile ? sourceName.slice(0, -extension.length) : sourceName)
+    .replace(DUPLICATE_SUFFIX_PATTERN, '')
+  return `${baseName}${suffix}${extension && !isDotfile ? extension : ''}`
+}
+
+async function duplicatePath(
+  sourcePath: string,
+  basePath: string
+): Promise<{ sourcePath: string; newPath: string; isDirectory: boolean }> {
+  const resolvedSource = await validateSecurePathInBase(sourcePath, basePath)
+  const parentPath = path.dirname(resolvedSource)
+  await validateSecurePathInBase(parentPath, basePath)
+
+  const sourceStats = await fs.lstat(resolvedSource)
+  if (sourceStats.isSymbolicLink() || (!sourceStats.isFile() && !sourceStats.isDirectory())) {
+    throw new Error('仅支持复制普通文件或目录')
+  }
+
+  const sourceName = path.basename(sourcePath)
+  for (let copyIndex = 1; ; copyIndex++) {
+    const targetPath = path.join(parentPath, getDuplicateName(sourceName, sourceStats.isDirectory(), copyIndex))
+    await validateSecurePathInBase(targetPath, basePath)
+
+    if (await fs.pathExists(targetPath)) continue
+
+    try {
+      await fs.copy(resolvedSource, targetPath, { overwrite: false, errorOnExist: true, dereference: false })
+      return { sourcePath: resolvedSource, newPath: targetPath, isDirectory: sourceStats.isDirectory() }
+    } catch (error) {
+      const errorCode = (error as NodeJS.ErrnoException).code
+      const errorMessage = error instanceof Error ? error.message : ''
+      if (errorCode === 'EEXIST' || /already exists|已存在/i.test(errorMessage)) continue
+      throw error
+    }
+  }
+}
 
 let watchedWebContentsId: number | null = null
 
@@ -468,13 +570,9 @@ export function registerFileHandlers(ctx: IPCContext): void {
     ipcMain.handle('test:openMarkdownFile', async (event, filePath: string) => {
       const resolvedPath = path.resolve(filePath)
       const folderPath = path.dirname(resolvedPath)
-      setAllowedBasePath(folderPath)
-      ctx.store.set('lastOpenedFolder', folderPath)
-      await ctx.folderHistoryManager.addFolder(folderPath)
       const win = BrowserWindow.fromWebContents(event.sender)
       if (win && !win.isDestroyed()) {
-        ctx.windowManager.setWindowFolderPath(win.id, folderPath)
-        win.webContents.send('restore-folder', folderPath)
+        await activateFolderForWindow(ctx, win, folderPath, { notifyRenderer: true })
         setTimeout(() => {
           if (!win.isDestroyed()) {
             win.webContents.send('open-specific-file', resolvedPath)
@@ -494,26 +592,21 @@ export function registerFileHandlers(ctx: IPCContext): void {
       return null
     }
 
-    const folderPath = result.filePaths[0]
-    ctx.store.set('lastOpenedFolder', folderPath)
-    await ctx.folderHistoryManager.addFolder(folderPath)
-    setAllowedBasePath(folderPath)
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (win) {
-      ctx.windowManager.setWindowFolderPath(win.id, folderPath)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) {
+      throw new Error('无法识别当前窗口')
     }
-    console.log(`[SECURITY] Set allowed base path: ${folderPath}`)
 
-    return folderPath
+    return (await activateFolderForWindow(ctx, window, result.filePaths[0])).path
   })
 
   // 读取目录
-  ipcMain.handle('fs:readDir', async (_, dirPath: string) => {
+  ipcMain.handle('fs:readDir', async (event, dirPath: string) => {
     try {
-      validatePath(dirPath)
+      const resolvedDirectory = await validateSenderReadPath(ctx, event, dirPath)
 
       const startTime = Date.now()
-      const result = await scanPreviewableFiles(dirPath)
+      const result = await scanPreviewableFiles(resolvedDirectory)
       console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
       return result
     } catch (error) {
@@ -526,11 +619,11 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 读取文件内容
-  ipcMain.handle('fs:readFile', async (_, filePath: string) => {
+  ipcMain.handle('fs:readFile', async (event, filePath: string) => {
     try {
-      validatePath(filePath)
+      const resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
 
-      const stats = await fs.stat(filePath)
+      const stats = await fs.stat(resolvedFilePath)
       const MAX_SIZE = 5 * 1024 * 1024
 
       if (stats.size > MAX_SIZE) {
@@ -538,7 +631,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
         throw new Error(`文件过大 (${sizeMB}MB)，请选择小于 5MB 的文件`)
       }
 
-      const content = await fs.readFile(filePath, 'utf-8')
+      const content = await fs.readFile(resolvedFilePath, 'utf-8')
       return content
     } catch (error) {
       if (error instanceof Error) {
@@ -549,7 +642,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
-  ipcMain.handle('fs:readLocalAssetBase64', async (_, payload: {
+  ipcMain.handle('fs:readLocalAssetBase64', async (event, payload: {
     markdownFilePath: string
     refPath: string
   }) => {
@@ -560,9 +653,12 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw new Error('缺少本地图片读取参数')
     }
 
-    validatePath(markdownFilePath)
-    const resolvedPath = resolveMarkdownRelativePath(markdownFilePath, decodeURIComponent(refPath))
-    validatePath(resolvedPath)
+    const canonicalMarkdownPath = await validateSenderReadPath(ctx, event, markdownFilePath)
+    const resolvedPath = await validateSenderReadPath(
+      ctx,
+      event,
+      resolveMarkdownRelativePath(canonicalMarkdownPath, decodeURIComponent(refPath))
+    )
 
     const ext = path.extname(resolvedPath).toLowerCase()
     const mimeType = LOCAL_ASSET_MIME_TYPES.get(ext)
@@ -587,7 +683,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
-  ipcMain.handle('fs:readExcalidrawFile', async (_, payload: {
+  ipcMain.handle('fs:readExcalidrawFile', async (event, payload: {
     markdownFilePath: string
     refPath: string
   }) => {
@@ -603,7 +699,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw new Error('不支持 URL 形式的 .excalidraw 文件')
     }
 
-    validateSecurePath(markdownFilePath)
+    await validateSenderReadPath(ctx, event, markdownFilePath)
 
     const markdownDir = path.dirname(markdownFilePath)
     const candidatePath = path.isAbsolute(refPath)
@@ -618,7 +714,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
     if (path.extname(resolvedPath).toLowerCase() !== '.excalidraw') {
       throw new Error('只能读取 .excalidraw 文件')
     }
-    validateSecurePath(resolvedPath)
+    await validateSenderReadPath(ctx, event, resolvedPath)
 
     const stats = await fs.stat(resolvedPath)
     if (!stats.isFile()) {
@@ -634,7 +730,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
-  ipcMain.handle('fs:readBpmnFile', async (_, payload: {
+  ipcMain.handle('fs:readBpmnFile', async (event, payload: {
     markdownFilePath: string
     refPath: string
   }) => {
@@ -650,7 +746,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw new Error('不支持 URL 形式的 .bpmn 文件')
     }
 
-    validateSecurePath(markdownFilePath)
+    await validateSenderReadPath(ctx, event, markdownFilePath)
 
     const cleanRefPath = refPath.split(/[?#]/, 1)[0] || refPath
     const markdownDir = path.dirname(markdownFilePath)
@@ -666,7 +762,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
     if (path.extname(resolvedPath).toLowerCase() !== '.bpmn') {
       throw new Error('只能读取 .bpmn 文件')
     }
-    validateSecurePath(resolvedPath)
+    await validateSenderReadPath(ctx, event, resolvedPath)
 
     const stats = await fs.stat(resolvedPath)
     if (!stats.isFile()) {
@@ -684,7 +780,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
 
   // 打开可编辑 Markdown：读取内容，返回规范路径和文件版本信息，并授权当前窗口保存
   ipcMain.handle('fs:openEditableMarkdown', async (event, filePath: string) => {
-    validateSecurePath(filePath)
+    await validateSenderReadPath(ctx, event, filePath)
 
     const canonicalPath = await getBestEffortCanonicalPath(filePath)
     if (!canonicalPath.toLowerCase().endsWith('.md')) {
@@ -726,7 +822,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
     force?: boolean
   }) => {
     const { canonicalPath, content, expectedRevisionToken, force = false } = payload
-    validateSecurePath(canonicalPath)
+    await validateSenderPath(ctx, event, canonicalPath)
 
     if (!canonicalPath.toLowerCase().endsWith('.md')) {
       throw new Error('只能保存 Markdown 文件')
@@ -775,7 +871,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
   // 监听文件夹
   ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
     try {
-      validatePath(folderPath)
+      await validateSenderReadPath(ctx, event, folderPath)
 
       const pathCheck = isWatchPathSafe(folderPath)
       if (!pathCheck.safe) {
@@ -811,20 +907,20 @@ export function registerFileHandlers(ctx: IPCContext): void {
 
   // 监听单个文件
   ipcMain.handle('fs:watchFile', async (event, filePath: string) => {
-    validatePath(filePath)
+    const resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
 
-    watchedFiles.add(filePath)
+    watchedFiles.add(resolvedFilePath)
 
     if (!fileWatcher && _baseFolderPath) {
       watchDirectory(_baseFolderPath, event.sender)
     }
 
     const watchedDirectory = windowWatchedDir.get(event.sender.id)
-    if (!watchedDirectory || !isWithinDirectoryWatcherDepth(watchedDirectory, filePath)) {
-      watchOpenedFile(filePath, event.sender)
+    if (!watchedDirectory || !isWithinDirectoryWatcherDepth(watchedDirectory, resolvedFilePath)) {
+      watchOpenedFile(resolvedFilePath, event.sender)
     }
 
-    console.log(`[MAIN] File opened: ${filePath}`)
+    console.log(`[MAIN] File opened: ${resolvedFilePath}`)
     return { success: true }
   })
 
@@ -855,41 +951,55 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 重命名文件/文件夹
-  ipcMain.handle('fs:rename', async (_, oldPath: string, newName: string) => {
+  ipcMain.handle('fs:rename', async (event, oldPath: string, newName: string) => {
     try {
-      validateSecurePath(oldPath)
+      const resolvedOldPath = await validateSenderPath(ctx, event, oldPath)
+      if (!newName || path.basename(newName) !== newName) {
+        throw new Error('安全错误：新名称必须是单个文件或目录名称')
+      }
 
-      const dirName = path.dirname(oldPath)
+      const dirName = path.dirname(resolvedOldPath)
       const newPath = path.join(dirName, newName)
+      const resolvedNewPath = await validateSenderPath(ctx, event, newPath)
 
-      if (await fs.pathExists(newPath)) {
+      if (await fs.pathExists(resolvedNewPath)) {
         throw new Error('目标文件已存在')
       }
 
-      await fs.move(oldPath, newPath)
-      return newPath
+      await fs.move(resolvedOldPath, resolvedNewPath)
+      return resolvedNewPath
     } catch (error) {
       console.error('Failed to rename file:', error)
       throw error
     }
   })
 
-  // 复制文件
-  ipcMain.handle('fs:copyFile', async (_, srcPath: string, destPath: string) => {
+  // 同目录创建不覆盖的副本
+  ipcMain.handle('fs:duplicate', async (event, sourcePath: string) => {
     try {
-      validateSecurePath(srcPath)
-      validateSecurePath(destPath)
+      return await duplicatePath(sourcePath, getSenderFolderRoot(ctx, event))
+    } catch (error) {
+      console.error('Failed to duplicate path:', error)
+      throw error
+    }
+  })
 
-      if (!(await fs.pathExists(srcPath))) {
+  // 复制文件
+  ipcMain.handle('fs:copyFile', async (event, srcPath: string, destPath: string) => {
+    try {
+      const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
+      const resolvedDestination = await validateDestinationInCurrentRoot(ctx, event, destPath)
+
+      if (!(await fs.pathExists(resolvedSource))) {
         throw new Error('源文件不存在')
       }
 
-      if (await fs.pathExists(destPath)) {
-        throw new Error('目标文件已存在')
-      }
-
-      await fs.copy(srcPath, destPath, { overwrite: false })
-      return destPath
+      await fs.copy(resolvedSource, resolvedDestination, {
+        overwrite: false,
+        errorOnExist: true,
+        dereference: false
+      })
+      return resolvedDestination
     } catch (error) {
       console.error('Failed to copy file:', error)
       throw error
@@ -897,21 +1007,31 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 复制目录
-  ipcMain.handle('fs:copyDir', async (_, srcPath: string, destPath: string) => {
+  ipcMain.handle('fs:copyDir', async (event, srcPath: string, destPath: string) => {
     try {
-      validateSecurePath(srcPath)
-      validateSecurePath(destPath)
+      const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
+      const resolvedDestination = await validateDestinationInCurrentRoot(ctx, event, destPath)
 
-      if (!(await fs.pathExists(srcPath))) {
+      if (isSameOrChildPath(resolvedDestination, resolvedSource)) {
+        throw new Error('无法复制目录到自身或子目录')
+      }
+
+      if (!(await fs.pathExists(resolvedSource))) {
         throw new Error('源目录不存在')
       }
 
-      if (await fs.pathExists(destPath)) {
-        throw new Error('目标目录已存在')
+      const sourceStats = await fs.lstat(resolvedSource)
+      if (!sourceStats.isDirectory()) {
+        throw new Error('源路径不是目录')
       }
+      await rejectDirectorySymbolicLinks(resolvedSource)
 
-      await fs.copy(srcPath, destPath, { overwrite: false })
-      return destPath
+      await fs.copy(resolvedSource, resolvedDestination, {
+        overwrite: false,
+        errorOnExist: true,
+        dereference: false
+      })
+      return resolvedDestination
     } catch (error) {
       console.error('Failed to copy directory:', error)
       throw error
@@ -919,21 +1039,30 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 移动文件/文件夹
-  ipcMain.handle('fs:moveFile', async (_, srcPath: string, destPath: string) => {
+  ipcMain.handle('fs:moveFile', async (event, srcPath: string, destPath: string) => {
     try {
-      validateSecurePath(srcPath)
-      validateSecurePath(destPath)
+      const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
+      const resolvedDestination = await validateDestinationInCurrentRoot(ctx, event, destPath)
 
-      if (!(await fs.pathExists(srcPath))) {
+      if (isSameOrChildPath(resolvedDestination, resolvedSource)) {
+        throw new Error('无法移动目录到自身或子目录')
+      }
+
+      if (!(await fs.pathExists(resolvedSource))) {
         throw new Error('源文件不存在')
       }
 
-      if (await fs.pathExists(destPath)) {
+      const sourceStats = await fs.lstat(resolvedSource)
+      if (sourceStats.isDirectory()) {
+        await rejectDirectorySymbolicLinks(resolvedSource)
+      }
+
+      if (await fs.pathExists(resolvedDestination)) {
         throw new Error('目标文件已存在')
       }
 
-      await fs.move(srcPath, destPath)
-      return destPath
+      await fs.move(resolvedSource, resolvedDestination, { overwrite: false })
+      return resolvedDestination
     } catch (error) {
       console.error('Failed to move file:', error)
       throw error
@@ -941,9 +1070,9 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 检查文件是否存在
-  ipcMain.handle('fs:exists', async (_, filePath: string) => {
+  ipcMain.handle('fs:exists', async (event, filePath: string) => {
     try {
-      validatePath(filePath)
+      await validateSenderReadPath(ctx, event, filePath)
       return await fs.pathExists(filePath)
     } catch (error) {
       console.error('Failed to check file existence:', error)
@@ -952,10 +1081,10 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 检查是否为目录
-  ipcMain.handle('fs:isDirectory', async (_, filePath: string) => {
+  ipcMain.handle('fs:isDirectory', async (event, filePath: string) => {
     try {
-      validatePath(filePath)
-      const stats = await fs.stat(filePath)
+      const resolvedPath = await validateSenderReadPath(ctx, event, filePath)
+      const stats = await fs.stat(resolvedPath)
       return stats.isDirectory()
     } catch (error) {
       console.error('Failed to check if directory:', error)
