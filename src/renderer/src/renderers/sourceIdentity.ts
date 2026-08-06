@@ -166,3 +166,16 @@ export function collectFencedRenderSourceLocators(
 }
 
 export const collectRenderSourceLocators = collectFencedRenderSourceLocators
+
+/**
+ * 按 rendererType 统计源码块数量 —— 导出图表计数的权威来源。
+ * 只数「源码块身份」，不数 DOM 渲染产物（pre / wrapper / error），
+ * 因此不会把同一逻辑块的多个 DOM 状态重复计数，也不会漏掉渲染失败的块。
+ */
+export function countSourceChartBlocks(locators: RenderSourceLocator[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const locator of locators) {
+    counts[locator.rendererType] = (counts[locator.rendererType] || 0) + 1
+  }
+  return counts
+}

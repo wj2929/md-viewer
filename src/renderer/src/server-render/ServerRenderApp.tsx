@@ -21,7 +21,7 @@ import { createBrowserResourceHost } from '../render-core/browserResourceHost'
 import { builtinRendererDefinitions } from '../renderers/builtin'
 import { createRendererRegistry } from '../renderers/registry'
 import { normalizeFailedChartBlocks } from './normalizeFailedCharts'
-import { collectFencedRenderSourceLocators } from '../renderers/sourceIdentity'
+import { collectFencedRenderSourceLocators, countSourceChartBlocks } from '../renderers/sourceIdentity'
 import type { BrowserPageRenderResult, ServerRenderInput } from './contracts'
 import '../assets/main.css'
 import '../assets/markdown.css'
@@ -240,7 +240,15 @@ export function ServerRenderApp(): React.JSX.Element {
     let attempts = 0
     const startedAt = Date.now()
     if (input.markdown.trim() && !html) return
-    const expected = applyEnabledRendererFilter(countRenderableBlocks(rootRef.current), input)
+    // 图表计数以源码块为权威（杜绝 pre+wrapper+error 重复/漏计数）；katex 是 $$ 公式而非围栏块，
+    // 源解析器不识别，仍用 DOM 计数。沿用 countRenderableBlocks 的完整键集，保证 finished 判定逐项引用不缺键。
+    const sourceCounts = countSourceChartBlocks(sourceLocators)
+    const expectedTemplate = countRenderableBlocks(rootRef.current)
+    const rawExpected: Record<string, number> = {}
+    for (const type of Object.keys(expectedTemplate)) {
+      rawExpected[type] = type === 'katex' ? expectedTemplate.katex : (sourceCounts[type] || 0)
+    }
+    const expected = applyEnabledRendererFilter(rawExpected, input)
     const totalBlocks = Object.values(expected).reduce((sum, count) => sum + count, 0)
     const timeoutMs = input.timeoutMs ?? 15000
 
