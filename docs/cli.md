@@ -217,7 +217,7 @@ md-viewer export README.md --format pdf --out README.pdf
 md-viewer export README.md --format pdf --out README.pdf --timeout-ms 180000
 ```
 
-HTML/PDF 走 headless renderer 和共享导出 writer，目标是与 GUI 导出保持一致。复杂图表较多时可加 `--timeout-ms`，单位是毫秒；默认 `120000`。如果返回 `renderStatus: "timeout"`，命令会以失败状态退出；此时可能仍有诊断用产物，但不应作为最终交付文件。
+HTML/PDF 走 headless renderer 和共享导出 writer，与 GUI 导出保持一致：含代码高亮样式、markdown 主题样式，并把 `<img>` 引用的本地图片内嵌为 `data:base64`（换机打开不裂图；越界或系统敏感路径的图片保持原样不内嵌）。复杂图表较多时可加 `--timeout-ms`，单位是毫秒；默认 `120000`。如果返回 `renderStatus: "timeout"`，命令会以失败状态退出；此时可能仍有诊断用产物，但不应作为最终交付文件。
 
 ### DOCX
 
