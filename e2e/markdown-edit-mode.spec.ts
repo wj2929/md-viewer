@@ -68,6 +68,7 @@ test.describe('Markdown 编辑模式', () => {
     await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
     await page.click('.file-tree-row.file:has-text("test1.md")')
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 1')
     await openMarkdownEditViaIPC(electronApp, join(testDir, 'test1.md'))
     const workbench = page.getByLabel('test1.md 编辑工作区')
     await expect(workbench).toBeVisible()
@@ -244,6 +245,7 @@ test.describe('Markdown 编辑模式', () => {
     await page.waitForSelector('.file-tree-container', { timeout: 10000 })
 
     await page.click('.file-tree-row.file:has-text("test1.md")')
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 1')
     await openMarkdownEditViaIPC(electronApp, join(testDir, 'test1.md'))
     await expect(page.getByLabel('test1.md 编辑工作区')).toBeVisible()
 
