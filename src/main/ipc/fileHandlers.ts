@@ -228,6 +228,25 @@ const WATCHER_CONFIG = {
     '**/*.tar.gz',
     '**/batch*/**',
   ],
+  // 需从递归监听中整枝剪除的目录名（含隐藏目录）。
+  // glob 的 '**/node_modules/**' 只匹配目录“内部”，不匹配目录本身，
+  // chokidar 仍会进入并铺满监听句柄、阻塞主进程——故按路径段名精确剪枝。
+  IGNORED_DIR_NAMES: new Set([
+    'node_modules', 'vendor', 'target', 'build', 'dist',
+    '__pycache__', 'venv', '.venv', 'env', 'coverage',
+  ]),
+}
+
+// 路径任一段命中忽略目录名（或为隐藏目录 .xxx）即应剪枝
+export function hasIgnoredPathSegment(filePath: string): boolean {
+  const segments = filePath.split(path.sep)
+  for (const seg of segments) {
+    if (!seg) continue
+    if (WATCHER_CONFIG.IGNORED_DIR_NAMES.has(seg)) return true
+    // 隐藏目录（.git/.idea/.vscode 等），但放行 . 与 ..
+    if (seg.length > 1 && seg.startsWith('.') && seg !== '..') return true
+  }
+  return false
 }
 
 function isPreviewableFilePath(filePath: string): boolean {
@@ -293,6 +312,9 @@ function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
     ignored: [
       ...WATCHER_CONFIG.IGNORED_PATTERNS,
       (filePath: string, stats?: fs.Stats) => {
+        // 目录与文件都先按路径段剪枝：命中 node_modules/.git 等直接整枝忽略，
+        // 避免 chokidar 递归进入铺满监听句柄、阻塞主进程（切换文件夹卡顿真因）。
+        if (hasIgnoredPathSegment(filePath)) return true
         if (!stats) return false
         if (stats.isDirectory()) return false
         return !isPreviewableFilePath(filePath)

@@ -14,6 +14,7 @@ export default defineConfig({
       'src/main/__tests__/fileHandlers.editing.test.ts',
       'src/main/__tests__/fileHandlers.excalidraw.test.ts',
       'src/main/__tests__/fileHandlers.copyMove.security.test.ts',
+      'src/main/__tests__/fileHandlers.watcherPrune.test.ts',
       'src/main/__tests__/previewContextMenu.editing.test.ts',
       'src/main/__tests__/docxExporter.embeddedImages.test.ts',
       'src/main/__tests__/exportHandlers.chartsZip.test.ts',
