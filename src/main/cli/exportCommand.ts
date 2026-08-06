@@ -22,6 +22,9 @@ interface BuildExportResultOptions {
   renderer?: HeadlessMarkdownRenderer
   pdfWriter?: (outputPath: string, options: PdfDocumentOptions) => Promise<CliArtifact>
   docxExporter?: (options: ConvertSourceDocxOptions) => Promise<ConvertSourceDocxResult>
+  // 注入点：默认读取与 GUI 一致的导出样式（markdown.css + prism-theme.css）。
+  // 单测在非 electron 环境可传 mock，避免加载依赖 electron app 的 getExportStyles。
+  styleProvider?: () => Promise<{ markdownCss: string; prismCss: string }>
 }
 
 export async function buildExportResult(
@@ -135,11 +138,16 @@ export async function buildExportResult(
     networkPolicy: 'blocked',
     timeoutMs: getHeadlessRenderTimeoutMs(flags),
   })
+  const loadStyles = options.styleProvider ?? (async () => {
+    const { getExportStyles } = await import('../ipc/exportStyles')
+    return getExportStyles()
+  })
+  const { markdownCss, prismCss } = await loadStyles()
   const writerOptions = {
     content: renderResult.html,
     title: path.basename(validation.normalizedPath),
-    markdownCss: '',
-    prismCss: '',
+    markdownCss,
+    prismCss,
     showBranding: true,
   }
   const artifact = format === 'pdf'
