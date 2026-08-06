@@ -641,6 +641,7 @@ test.describe('导出功能测试', () => {
     const docxPath = join(testDir, 'test-excalidraw.docx')
     await mockSaveDialog(electronApp, docxPath)
     await triggerMarkdownExport(electronApp, 'markdown:export-docx')
+    await continuePreflightIfShown(page)
     await waitForFile(docxPath, 240000)
 
     const zip = new AdmZip(docxPath)
