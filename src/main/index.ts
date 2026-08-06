@@ -20,6 +20,13 @@ import { isHeadlessCliArgv } from './cli'
 import { runCliOnStartup } from './cli/bootstrap'
 import { extractGuiLaunchPath } from './cli/launchArgs'
 
+// 扩大 libuv 线程池（默认 4）。文件监听 crawl 与目录扫描 glob 都走线程池，
+// 连续快切多个大目录时二者抢占 4 个线程会造成偶发数百毫秒排队延迟。
+// 须在任何文件 I/O 触发线程池惰性初始化之前设置。仅在未显式配置时兜底设置。
+if (!process.env.UV_THREADPOOL_SIZE) {
+  process.env.UV_THREADPOOL_SIZE = '16'
+}
+
 // 安装 EPIPE 错误处理器（防止开发模式下终端断开导致应用崩溃）
 installEpipeHandler()
 

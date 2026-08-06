@@ -40,6 +40,7 @@ v2.6.0 有三条主线：一是**导出失败「看得见、不谎报、不漏�
 - 修复 CLI `export --format html/pdf` 导出的文件缺少代码高亮样式（`.token`）与部分 markdown-body 样式的问题；将 `getExportStyles` 抽到 `ipc/exportStyles.ts` 供 GUI 与 CLI 共享，CLI 导出样式与 GUI 对齐。
 - 修复 CLI 导出的 HTML/PDF 不内嵌本地图片（`<img src="相对路径">` 换机打开图片断裂）的问题；新增主进程 `localImageEmbed`，以 Markdown 所在目录为根做边界校验（realpath + 受保护路径拦截）后内嵌为 `data:base64`，越界/系统敏感路径图保持原样不阻断导出。
 - **修复切换文件夹卡顿**：文件监听器（chokidar）的忽略函数对目录一律放行，切到含 `node_modules`/`.git` 等深目录时会递归监听成百上千个无关目录（实测某目录铺 2257 个），铺监听句柄阻塞主进程、拖累紧随其后的目录读取与状态恢复，切换可卡 2~2.5 秒。改为按路径段剪枝（`hasIgnoredPathSegment`），使监听器与 glob 扫描共用同一忽略语义。实测同目录监听数 2257→40，切换尖峰 2481ms→11ms。
+- 缓解连续快切多个大目录时的偶发数百毫秒延迟：将 libuv 线程池上限由默认 4 提升至 16（`UV_THREADPOOL_SIZE`），使文件监听 crawl 与目录扫描 glob 不再抢占同一小池；未显式配置时才兜底设置。
 
 ### 🧪 测试
 - 新增路径授权回归覆盖：security 边界（realpath/受保护路径/symlink 逃逸）、按发起窗口根读写校验、读放宽放行集、多窗口读隔离 E2E、跨文件夹分屏 E2E、A→B 复制/剪切 E2E。
