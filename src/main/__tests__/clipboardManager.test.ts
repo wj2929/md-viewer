@@ -29,6 +29,7 @@ vi.mock('../security', () => ({
   })
 }))
 
+
 // 动态导入被测模块
 let clipboardManager: typeof import('../clipboardManager')
 
@@ -209,7 +210,6 @@ describe('clipboardManager', () => {
 
         expect(result).toBe(true)
         expect(clipboard.writeBuffer).toHaveBeenCalled()
-        expect(clipboard.writeText).toHaveBeenCalled()
       })
 
       it('应该写入多个文件路径', () => {
@@ -240,6 +240,18 @@ describe('clipboardManager', () => {
         expect(plistContent).not.toContain('nonexistent.txt')
       })
 
+      it('应该转义和还原 XML 特殊字符路径', () => {
+        const filePath = '/Users/test/A&B<测试>.md'
+        vi.mocked(fs.existsSync).mockReturnValue(true)
+
+        clipboardManager.writeFilesToSystemClipboard([filePath], false)
+        const plistContent = vi.mocked(clipboard.writeBuffer).mock.calls[0][1].toString()
+        expect(plistContent).toContain('/Users/test/A&amp;B&lt;测试&gt;.md')
+
+        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(plistContent))
+        const result = clipboardManager.readFilesFromSystemClipboard()
+        expect(result[0].path).toBe(filePath)
+      })
       it('应该在所有文件都不存在时返回 false', () => {
         vi.mocked(fs.existsSync).mockReturnValue(false)
 
@@ -257,16 +269,11 @@ describe('clipboardManager', () => {
         vi.mocked(os.platform).mockReturnValue('win32')
       })
 
-      it('应该写入文本格式', () => {
+      it('当前环境无法运行 PowerShell 时返回 false', () => {
         vi.mocked(fs.existsSync).mockReturnValue(true)
 
-        const result = clipboardManager.writeFilesToSystemClipboard(
-          ['C:\\Users\\test\\file.txt'],
-          false
-        )
-
-        expect(result).toBe(true)
-        expect(clipboard.writeText).toHaveBeenCalledWith('C:\\Users\\test\\file.txt')
+        expect(clipboardManager.writeFilesToSystemClipboard(['C:\\Users\\test\\file.txt'], false)).toBe(false)
+        expect(clipboard.writeText).not.toHaveBeenCalled()
       })
     })
 
@@ -284,8 +291,8 @@ describe('clipboardManager', () => {
         )
 
         expect(result).toBe(true)
-        expect(clipboard.writeText).toHaveBeenCalled()
-        const writeCall = vi.mocked(clipboard.writeText).mock.calls[0][0]
+        expect(clipboard.writeBuffer).toHaveBeenCalled()
+        const writeCall = vi.mocked(clipboard.writeBuffer).mock.calls[0][1].toString()
         expect(writeCall).toContain('file://')
       })
     })

@@ -8,7 +8,8 @@ const mockApi = {
   copyFile: vi.fn(),
   copyDir: vi.fn(),
   moveFile: vi.fn(),
-  syncClipboardState: vi.fn()  // v1.3 阶段 3 新增
+  syncClipboardState: vi.fn(),  // v1.3 阶段 3 新增
+  writeSystemClipboard: vi.fn().mockResolvedValue(true)
 }
 
 // 设置全局 window.api
@@ -57,7 +58,42 @@ describe('clipboardStore', () => {
       expect(isCut).toBe(false)
     })
 
-    it('应该复制多个文件路径', () => {
+    it('应该同步复制到系统文件剪贴板', () => {
+      const { copy } = useClipboardStore.getState()
+      copy(['/test/file.md'])
+
+      expect(mockApi.writeSystemClipboard).toHaveBeenCalledWith(['/test/file.md'], false)
+    })
+
+    it('系统剪贴板同步失败不应阻断应用内复制', async () => {
+      mockApi.writeSystemClipboard.mockRejectedValueOnce(new Error('系统剪贴板不可用'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      useClipboardStore.getState().copy(['/test/file.md'])
+      await Promise.resolve()
+
+      expect(useClipboardStore.getState().files.has('/test/file.md')).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        '[Clipboard] Failed to sync copy to system clipboard:',
+        expect.any(Error)
+      )
+    })
+
+    it('主进程状态同步失败不应阻断应用内复制', async () => {
+      mockApi.syncClipboardState.mockRejectedValueOnce(new Error('主进程不可用'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      useClipboardStore.getState().copy(['/test/file.md'])
+      await Promise.resolve()
+
+      expect(useClipboardStore.getState().files.has('/test/file.md')).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        '[Clipboard] Failed to sync copy state to main process:',
+        expect.any(Error)
+      )
+    })
+
+    it('应该复制多个文件路径', async () => {
       const { copy } = useClipboardStore.getState()
       copy(['/test/file1.md', '/test/file2.md', '/test/file3.md'])
 
@@ -109,6 +145,43 @@ describe('clipboardStore', () => {
       expect(files.size).toBe(1)
       expect(files.has('/test/file.md')).toBe(true)
       expect(isCut).toBe(true)
+    })
+
+    it('应该同步剪切到系统文件剪贴板', () => {
+      const { cut } = useClipboardStore.getState()
+      cut(['/test/file.md'])
+
+      expect(mockApi.writeSystemClipboard).toHaveBeenCalledWith(['/test/file.md'], true)
+    })
+
+    it('系统剪贴板同步失败不应阻断应用内剪切', async () => {
+      mockApi.writeSystemClipboard.mockRejectedValueOnce(new Error('系统剪贴板不可用'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      useClipboardStore.getState().cut(['/test/file.md'])
+      await Promise.resolve()
+
+      expect(useClipboardStore.getState().files.has('/test/file.md')).toBe(true)
+      expect(useClipboardStore.getState().isCut).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        '[Clipboard] Failed to sync cut to system clipboard:',
+        expect.any(Error)
+      )
+    })
+
+    it('主进程状态同步失败不应阻断应用内剪切', async () => {
+      mockApi.syncClipboardState.mockRejectedValueOnce(new Error('主进程不可用'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      useClipboardStore.getState().cut(['/test/file.md'])
+      await Promise.resolve()
+
+      expect(useClipboardStore.getState().files.has('/test/file.md')).toBe(true)
+      expect(useClipboardStore.getState().isCut).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        '[Clipboard] Failed to sync cut state to main process:',
+        expect.any(Error)
+      )
     })
 
     it('应该剪切多个文件路径', () => {
@@ -298,14 +371,17 @@ describe('clipboardStore', () => {
         expect(result.failed[0].error).toContain('已存在')
       })
 
-      it('粘贴到自身时应该跳过', async () => {
+      it('粘贴到自身时应该返回失败原因', async () => {
         mockApi.fileExists.mockResolvedValue(false)
 
         const { copy, paste } = useClipboardStore.getState()
         copy(['/target/file.md'])
-        await paste('/target')
+        const result = await paste('/target')
 
         expect(mockApi.copyFile).not.toHaveBeenCalled()
+        expect(result.failed).toEqual([
+          { path: '/target/file.md', error: '不能粘贴到原目录' }
+        ])
       })
 
       it('粘贴到子目录时应该记录失败', async () => {

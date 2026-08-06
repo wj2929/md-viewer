@@ -4,9 +4,11 @@
  * @description v1.3 阶段 6 - 系统剪贴板双向同步 + 主进程安全过滤
  */
 
+import { execFileSync } from 'child_process'
 import { clipboard } from 'electron'
 import * as os from 'os'
 import * as fs from 'fs'
+import { pathToFileURL } from 'url'
 import { isProtectedPath } from './security'
 
 /**
@@ -17,6 +19,20 @@ export interface ClipboardFile {
   exists: boolean
   isAllowed: boolean
   reason?: string
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+function unescapeXml(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
 }
 
 /**
@@ -37,7 +53,7 @@ export function readFilesFromSystemClipboard(): ClipboardFile[] {
         const plistStr = buffer.toString('utf8')
         const matches = plistStr.match(/<string>([^<]+)<\/string>/g)
         if (matches) {
-          rawPaths = matches.map(m => m.replace(/<\/?string>/g, ''))
+          rawPaths = matches.map(m => unescapeXml(m.replace(/<\/?string>/g, '')))
         }
       }
 
@@ -109,16 +125,40 @@ export function readFilesFromSystemClipboard(): ClipboardFile[] {
   })
 }
 
+function writeWindowsFilesToSystemClipboard(paths: string[], isCut: boolean): boolean {
+  const script = `
+$paths = @($env:MD_VIEWER_CLIPBOARD_PATHS | ConvertFrom-Json)
+Add-Type -AssemblyName System.Windows.Forms
+$files = New-Object System.Collections.Specialized.StringCollection
+$paths | ForEach-Object { [void]$files.Add($_) }
+$data = New-Object System.Windows.Forms.DataObject
+$data.SetFileDropList($files)
+$effect = [byte[]]@(${isCut ? 2 : 1}, 0, 0, 0)
+$data.SetData('Preferred DropEffect', $effect)
+[System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+`
+
+  try {
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Sta', '-Command', script], {
+      env: { ...process.env, MD_VIEWER_CLIPBOARD_PATHS: JSON.stringify(paths) },
+      stdio: 'ignore'
+    })
+    return true
+  } catch (error) {
+    console.error('[ClipboardManager] Failed to write Windows file clipboard:', error)
+    return false
+  }
+}
+
 /**
  * 将文件路径写入系统剪贴板
  * @param paths - 文件路径列表
  * @param isCut - 是否为剪切操作
  */
-export function writeFilesToSystemClipboard(paths: string[], _isCut: boolean = false): boolean {
+export function writeFilesToSystemClipboard(paths: string[], isCut: boolean = false): boolean {
   const platform = os.platform()
 
   try {
-    // 过滤无效路径
     const validPaths = paths.filter(p => fs.existsSync(p))
     if (validPaths.length === 0) {
       console.warn('[ClipboardManager] No valid paths to write')
@@ -126,36 +166,25 @@ export function writeFilesToSystemClipboard(paths: string[], _isCut: boolean = f
     }
 
     if (platform === 'darwin') {
-      // macOS: 写入 NSFilenamesPboardType 格式
       const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <array>
-${validPaths.map(p => `  <string>${p}</string>`).join('\n')}
+${validPaths.map(p => `  <string>${escapeXml(p)}</string>`).join('\n')}
 </array>
 </plist>`
       clipboard.writeBuffer('NSFilenamesPboardType', Buffer.from(plistContent, 'utf8'))
-
-      // 同时写入 file:// URL 格式作为备选
-      const fileUrls = validPaths.map(p => 'file://' + encodeURIComponent(p).replace(/%2F/g, '/')).join('\n')
-      clipboard.writeText(fileUrls)
-
-      console.log('[ClipboardManager] Wrote', validPaths.length, 'files to macOS clipboard')
-      return true
-    } else if (platform === 'win32') {
-      // Windows: 写入文本格式（已知限制）
-      // Electron clipboard API 不支持写入 CF_HDROP 格式，资源管理器无法识别为"文件复制"
-      // 实现 CF_HDROP 需要 node-ffi 等 native module，当前版本接受此限制
-      clipboard.writeText(validPaths.join('\n'))
-      console.log('[ClipboardManager] Wrote', validPaths.length, 'files to Windows clipboard (text format)')
-      return true
-    } else {
-      // Linux: 写入 file:// URI 格式
-      const fileUrls = validPaths.map(p => 'file://' + encodeURIComponent(p).replace(/%2F/g, '/')).join('\n')
-      clipboard.writeText(fileUrls)
-      console.log('[ClipboardManager] Wrote', validPaths.length, 'files to Linux clipboard')
       return true
     }
+
+    if (platform === 'win32') {
+      return writeWindowsFilesToSystemClipboard(validPaths, isCut)
+    }
+
+    const operation = isCut ? 'cut' : 'copy'
+    const fileUrls = validPaths.map(p => pathToFileURL(p).href).join('\r\n')
+    clipboard.writeBuffer('x-special/gnome-copied-files', Buffer.from(`${operation}\n${fileUrls}\n`, 'utf8'))
+    return true
   } catch (error) {
     console.error('[ClipboardManager] Failed to write to system clipboard:', error)
     return false
