@@ -148,14 +148,29 @@ case "$MODE" in
     run_step "导出回归基线(HTML)" node scripts/export-baseline.mjs
     ;;
   full)
-    echo "运行 v2.5 完整发版门禁"
+    # 纯 headless 门禁：不开任何可见窗口，日常提交前跑，不干扰桌面操作。
+    # CLI Headless E2E 用隐藏窗口（show:false），导出验证走 DOCX 服务 + 基线脚本。
+    # ⚠️ 不含可见窗口交互 E2E（文件树点击 / 编辑模式 / 快捷键 / 导出面板交互）。
+    #    发布前必须另跑一次 full-interactive 覆盖那批。
+    echo "运行 v2.6 完整门禁（纯 headless，不开可见窗口）"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
     run_step "全量单元测试" npm test -- --run
     run_step "构建" npm run build
     run_step "准备 DOCX 服务" ensure_docx_service_for_full
     run_step "CLI Headless E2E" run_cli_e2e
-    run_step "核心 E2E" run_core_e2e \
+    run_step "导出回归基线(含DOCX)" env MD_VIEWER_DOCX_SERVICE_URL="${DOCX_SERVICE_URL}" node scripts/export-baseline.mjs
+    ;;
+  full-interactive)
+    # 发布前门禁：full 的全部 + 可见窗口交互 E2E（会反复开关应用窗口）。
+    echo "运行 v2.6 发布前门禁（含可见窗口交互 E2E）"
+    run_step "类型检查" npm run typecheck
+    run_step "ESLint" npm run lint
+    run_step "全量单元测试" npm test -- --run
+    run_step "构建" npm run build
+    run_step "准备 DOCX 服务" ensure_docx_service_for_full
+    run_step "CLI Headless E2E" run_cli_e2e
+    run_step "核心 E2E（可见窗口）" run_core_e2e \
       e2e/02-file-tree.spec.ts \
       e2e/03-markdown-rendering.spec.ts \
       e2e/05-export-features.spec.ts \
@@ -166,7 +181,7 @@ case "$MODE" in
     ;;
   *)
     echo "未知模式：$MODE"
-    echo "用法：scripts/release-smoke.sh [quick|full]"
+    echo "用法：scripts/release-smoke.sh [quick|full|full-interactive]"
     exit 2
     ;;
 esac
@@ -174,5 +189,10 @@ esac
 cleanup_docx_service
 trap - EXIT
 echo ""
-echo "v2.5 ${MODE} 门禁通过"
+echo "v2.6 ${MODE} 门禁通过"
+if [ "$MODE" = "full" ]; then
+  echo ""
+  echo "⚠️  full 为纯 headless 门禁，未覆盖可见窗口交互 / 导出面板 E2E。"
+  echo "    正式发布前必须再跑一次：scripts/release-smoke.sh full-interactive"
+fi
 print_artifacts_hint
