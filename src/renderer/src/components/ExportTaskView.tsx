@@ -175,21 +175,7 @@ function DoneView({ fileName, imagesFailed, warnings, exportResult, onShowInFold
       {structuredWarnings.length > 0 && (
         <div className="export-task-warnings">
           {structuredWarnings.map((warning, i) => (
-            <div key={i} className="export-task-warning-item">
-              <div>· {warning.message}</div>
-              <div className="export-task-warning-detail"><strong>发生了什么</strong>：{warning.message}</div>
-              <div className="export-task-warning-detail"><strong>影响是什么</strong>：{warning.impact}</div>
-              <div className="export-task-warning-detail"><strong>下一步怎么做</strong>：{warning.userAction}</div>
-              {shouldShowDocxHelp(warning) && (
-                <button
-                  type="button"
-                  className="export-task-warning-help"
-                  onClick={() => openHelpLink(DOCX_SERVICE_HELP_URL)}
-                >
-                  查看 DOCX 服务配置说明
-                </button>
-              )}
-            </div>
+            <WarningItem key={i} warning={warning} />
           ))}
         </div>
       )}
@@ -203,11 +189,51 @@ function DoneView({ fileName, imagesFailed, warnings, exportResult, onShowInFold
 }
 
 function shouldShowDocxHelp(warning: ExportWarning): boolean {
+  // 仅在真正需要用户改配置的场景显示 DOCX 服务配置说明按钮。
+  // 字体近似替代（category==='font'）属于纯告知，不需要跳配置说明，故不在此列。
   return warning.source === 'docx-service'
     || warning.category === 'service-unavailable'
     || warning.category === 'auth'
     || warning.category === 'version'
-    || warning.category === 'font'
+}
+
+/**
+ * 按 severity 分层渲染单条警告：
+ * - info / warning：纯告知，折成一行（message，附一句 impact），不展开三段标签、不重复 message。
+ * - action-required / error：需要引导用户处理，保留「影响是什么 / 下一步怎么做」两段
+ *   （去掉原先与圆点行重复的「发生了什么」），并按需显示 DOCX 配置说明按钮。
+ */
+function WarningItem({ warning }: { warning: ExportWarning }): JSX.Element {
+  const needsAction = warning.severity === 'action-required' || warning.severity === 'error'
+
+  if (!needsAction) {
+    return (
+      <div className="export-task-warning-item">
+        <div>· {warning.message}{warning.impact ? `（${warning.impact}）` : ''}</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="export-task-warning-item">
+      <div>· {warning.message}</div>
+      {warning.impact && (
+        <div className="export-task-warning-detail"><strong>影响是什么</strong>：{warning.impact}</div>
+      )}
+      {warning.userAction && (
+        <div className="export-task-warning-detail"><strong>下一步怎么做</strong>：{warning.userAction}</div>
+      )}
+      {shouldShowDocxHelp(warning) && (
+        <button
+          type="button"
+          className="export-task-warning-help"
+          onClick={() => openHelpLink(DOCX_SERVICE_HELP_URL)}
+        >
+          查看 DOCX 服务配置说明
+        </button>
+      )}
+    </div>
+  )
 }
 
 function getHintsForErrorType(errorType: string): { user: string[]; advanced?: string[] } {
@@ -286,20 +312,7 @@ function ErrorView({ errorMessage, errorDetail, exportResult, versionInfo, onTes
       {structuredWarnings.length > 0 && (
         <div className="export-task-warnings">
           {structuredWarnings.map((warning, i) => (
-            <div key={i} className="export-task-warning-item">
-              <div className="export-task-warning-detail"><strong>发生了什么</strong>：{warning.message}</div>
-              <div className="export-task-warning-detail"><strong>影响是什么</strong>：{warning.impact}</div>
-              <div className="export-task-warning-detail"><strong>下一步怎么做</strong>：{warning.userAction}</div>
-              {shouldShowDocxHelp(warning) && (
-                <button
-                  type="button"
-                  className="export-task-warning-help"
-                  onClick={() => openHelpLink(DOCX_SERVICE_HELP_URL)}
-                >
-                  查看 DOCX 服务配置说明
-                </button>
-              )}
-            </div>
+            <WarningItem key={i} warning={warning} />
           ))}
         </div>
       )}

@@ -37,9 +37,10 @@ describe('ExportTaskView', () => {
     expect(screen.getByText('文件已生成，但有 2 项需要确认')).toBeInTheDocument()
     expect(screen.getByText(/1 个图表以代码形式保留/)).toBeInTheDocument()
     expect(screen.getAllByText(/BPMN 文件渲染失败/).length).toBeGreaterThan(0)
-    expect(screen.getByText('发生了什么')).toBeInTheDocument()
-    expect(screen.getByText('影响是什么')).toBeInTheDocument()
-    expect(screen.getByText('下一步怎么做')).toBeInTheDocument()
+    // warning 级折成一行：只展示 message（附 impact），不再有「发生了什么/影响是什么/下一步怎么做」三段标签
+    expect(screen.queryByText('发生了什么')).not.toBeInTheDocument()
+    expect(screen.queryByText('影响是什么')).not.toBeInTheDocument()
+    expect(screen.queryByText('下一步怎么做')).not.toBeInTheDocument()
     expect(screen.getByText(/部分图表或内容可能以源码、占位或降级形式保留/)).toBeInTheDocument()
   })
 
@@ -58,17 +59,32 @@ describe('ExportTaskView', () => {
     render(<ExportTaskView />)
 
     expect(screen.getByText(/导出失败/)).toBeInTheDocument()
-    expect(screen.getByText('发生了什么')).toBeInTheDocument()
+    // action-required 级保留引导两段（去掉与圆点行重复的「发生了什么」）
+    expect(screen.queryByText('发生了什么')).not.toBeInTheDocument()
     expect(screen.getByText('影响是什么')).toBeInTheDocument()
     expect(screen.getByText('下一步怎么做')).toBeInTheDocument()
     expect(screen.getByText(/DOCX 服务拒绝了本次请求/)).toBeInTheDocument()
     expect(screen.getByText(/检查 API Key/)).toBeInTheDocument()
   })
 
-  it('DOCX warning 提供服务配置说明入口', async () => {
+  it('字体替代警告折成一行且不显示配置说明按钮', () => {
     act(() => {
       useExportTaskStore.getState().startExport('report.md')
       useExportTaskStore.getState().setDone('/tmp/report.docx', 0, ['未找到可嵌入字体，已跳过字体嵌入'])
+    })
+
+    render(<ExportTaskView />)
+
+    // 字体替代为纯告知（warning 级）：一行展示，不再有三段标签或 DOCX 配置说明按钮
+    expect(screen.getByText(/未找到可嵌入字体/)).toBeInTheDocument()
+    expect(screen.queryByText('发生了什么')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /查看 DOCX 服务配置说明/ })).not.toBeInTheDocument()
+  })
+
+  it('DOCX 服务不可用（action-required）保留配置说明入口', async () => {
+    act(() => {
+      useExportTaskStore.getState().startExport('report.md')
+      useExportTaskStore.getState().setError('DOCX 服务连接失败：无法连接到 http://127.0.0.1:3179')
     })
 
     render(<ExportTaskView />)

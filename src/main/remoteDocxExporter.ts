@@ -11,6 +11,7 @@ import * as https from 'https'
 import * as path from 'path'
 import { app } from 'electron'
 import { appDataManager } from './appDataManager'
+import { aggregateDocxWarnings } from './docxWarningAggregator'
 import {
   DEFAULT_DOCX_STYLE,
   DOCX_STYLE_LABELS,
@@ -265,7 +266,8 @@ export async function exportViaRemote(
           }
           resolve({
             filePath: outputPath,
-            warnings,
+            // 合并逐字体近似替代等同源警告，避免面板堆出多条几乎一字不差的提示
+            warnings: aggregateDocxWarnings(warnings),
             serviceVersion: (headers['x-service-version'] as string) || 'unknown',
             imagesFailed: parseInt((headers['x-charts-failed'] as string) || '0', 10),
             mode: (headers['x-service-mode'] as string) || 'unknown',
