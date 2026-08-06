@@ -79,6 +79,7 @@ export async function buildExportResult(
         apiKey: typeof flags['docx-api-key'] === 'string' ? flags['docx-api-key'] : undefined,
         style: typeof flags['docx-style'] === 'string' ? flags['docx-style'] : 'preview',
         embedFont: flags['embed-font'] === true,
+        sourceFilePath: validation.normalizedPath,
       })
 
       const docxSummary = {

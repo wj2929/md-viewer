@@ -757,6 +757,11 @@ async function svgToPng(svgString: string, type: string, index: number): Promise
   try {
     const result = await window.api.renderSvgToPng(paddedSvgString, 1170)
     if (result.success && result.data && result.data.length > 200) {
+      const naturalSize = await getPngNaturalSize(result.data)
+      if (!naturalSize || naturalSize.height < 100) {
+        console.warn(`[DocxChart] ${type} #${index}: BrowserWindow returned invalid PNG dimensions`)
+        return null
+      }
       return await trimPngWhitespaceForDocx(result.data)
     }
     console.warn(`[DocxChart] ${type} #${index}: BrowserWindow failed: ${result.error || 'small output'}`)

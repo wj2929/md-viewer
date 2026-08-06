@@ -1,4 +1,4 @@
-import { access, stat, writeFile } from 'fs/promises'
+import { access, readFile, stat, writeFile } from 'fs/promises'
 import { constants as fsConstants } from 'fs'
 import http from 'http'
 import https from 'https'
@@ -13,6 +13,72 @@ export interface ConvertSourceDocxOptions {
   style?: string
   embedFont?: boolean
   timeoutMs?: number
+  /** 源 md 文件路径；提供时随请求上传本地图片资源（bundle 模式） */
+  sourceFilePath?: string
+}
+
+const RASTER_IMAGE_MEDIA_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+}
+const LOCAL_IMAGE_REF_RE = /!\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^)\s]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g
+// ``` 与 ~~~ 围栏均支持（backreference 配对），与服务端规则一致
+const FENCED_CODE_RE = /^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm
+const LOCAL_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
+interface BundleImageResource {
+  path: string
+  kind: 'binary'
+  base64: string
+  mediaType: string
+  size: number
+}
+
+/**
+ * 收集 markdown 引用的本地光栅图片，作为 bundle 资源上传。
+ * 读不到/越界/超限的引用不上传——服务端会对未解析的本地图片引用产生 warning（不再静默丢图）。
+ */
+async function collectLocalImageResources(
+  markdown: string,
+  sourceFilePath: string,
+): Promise<BundleImageResource[]> {
+  const baseDir = path.dirname(sourceFilePath)
+  const fencedSpans: Array<[number, number]> = []
+  for (const fence of markdown.matchAll(FENCED_CODE_RE)) {
+    fencedSpans.push([fence.index ?? 0, (fence.index ?? 0) + fence[0].length])
+  }
+  const seen = new Set<string>()
+  const resources: BundleImageResource[] = []
+  for (const match of markdown.matchAll(LOCAL_IMAGE_REF_RE)) {
+    const start = match.index ?? 0
+    if (fencedSpans.some(([s, e]) => start >= s && start < e)) continue
+    const ref = (match[1] || match[2] || '').trim()
+    if (!ref || /^(https?:)?\/\//i.test(ref) || ref.startsWith('data:') || ref.includes('mdv__chart__')) continue
+    const clean = ref.split(/[?#]/)[0].replace(/^\.\//, '')
+    const mediaType = RASTER_IMAGE_MEDIA_TYPES[path.extname(clean).toLowerCase()]
+    if (!mediaType) continue
+    if (clean.startsWith('/') || clean.split('/').includes('..')) continue
+    if (seen.has(clean)) continue
+    seen.add(clean)
+    try {
+      const data = await readFile(path.resolve(baseDir, clean))
+      if (data.length === 0 || data.length > LOCAL_IMAGE_MAX_BYTES) continue
+      resources.push({
+        path: clean,
+        kind: 'binary',
+        base64: data.toString('base64'),
+        mediaType,
+        size: data.length,
+      })
+    } catch {
+      // 文件读不到：不上传，服务端会告警"未随请求提供该资源"
+    }
+  }
+  return resources
 }
 
 export interface ConvertSourceDocxResult {
@@ -61,8 +127,17 @@ export async function exportDocxViaConvertSource(
   const serviceUrl = options.serviceUrl.replace(/\/+$/, '')
   await ensureOutputPathWritable(options.outputPath, serviceUrl)
 
+  const localImageResources = options.sourceFilePath
+    ? await collectLocalImageResources(options.markdown, options.sourceFilePath)
+    : []
   const body = JSON.stringify({
-    sourceType: 'markdown',
+    ...(localImageResources.length > 0
+      ? {
+          sourceType: 'bundle',
+          entryPath: path.basename(options.sourceFilePath!),
+          resources: localImageResources,
+        }
+      : { sourceType: 'markdown' }),
     markdown: options.markdown,
     style: options.style || 'preview',
     renderMode: 'fullFidelity',
