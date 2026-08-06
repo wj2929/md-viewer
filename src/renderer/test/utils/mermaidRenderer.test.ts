@@ -131,6 +131,26 @@ describe('mermaidRenderer 工具函数测试', () => {
       const result = await renderMermaidToSvg(maliciousCode, 'test-5')
       expect(result).toContain('mermaid-error')
     })
+
+    it('应该清理 Mermaid 输出中的事件属性和危险 data URL', async () => {
+      const { default: mermaid } = await import('mermaid')
+      vi.mocked(mermaid.render).mockResolvedValueOnce({
+        svg: '<svg><script>alert(1)</script><a onclick="alert(1)" href="data:image/svg+xml,<svg/>">x</a></svg>',
+        diagramType: 'flowchart'
+      })
+
+      const result = await renderMermaidToSvg('graph TD\n  A --> B', 'test-output-sanitize')
+      expect(result).not.toContain('<script')
+      expect(result).not.toContain('onclick=')
+      expect(result).not.toContain('data:image/svg+xml')
+    })
+
+    it('不应把节点文本中的 conf= 误判为事件处理器', async () => {
+      const validCode = 'graph TD\n  A[conf=0.50] --> B[conf≥0.70]'
+      const result = await renderMermaidToSvg(validCode, 'test-conf')
+      expect(result).toContain('<svg>')
+      expect(result).not.toContain('mermaid-error')
+    })
   })
 
   describe('processMermaidInHtml', () => {

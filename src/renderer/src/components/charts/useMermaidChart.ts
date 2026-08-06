@@ -12,6 +12,7 @@
 import { useEffect } from 'react'
 import mermaid from 'mermaid'
 import { downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
+import { sanitizeMermaidSvg, validateMermaidCode } from '../../utils/mermaidRenderer'
 
 // ==================== 模块级状态 ====================
 
@@ -64,9 +65,11 @@ function queueMermaidRender(
 ): Promise<{ svg: string } | null> {
   const task = mermaidRenderQueue.then(async () => {
     if (signal?.aborted) return null
+    const validation = validateMermaidCode(code)
+    if (!validation.valid) return null
     try {
       const result = await mermaid.render(id, code)
-      return result
+      return { ...result, svg: sanitizeMermaidSvg(result.svg) }
     } catch {
       // 渲染失败时重置 Mermaid 状态，防止后续渲染也失败
       mermaidInitialized = false

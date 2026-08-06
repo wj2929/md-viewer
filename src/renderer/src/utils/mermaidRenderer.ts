@@ -447,8 +447,8 @@ function sanitizeSvg(svg: string): string {
     .replace(/j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t\s*:/gi, '')
     // 移除 vbscript: URLs
     .replace(/v\s*b\s*s\s*c\s*r\s*i\s*p\s*t\s*:/gi, '')
-    // 移除 data: URLs（除了图片）
-    .replace(/data\s*:\s*(?!image\/)[^"'\s]*/gi, '')
+    // 移除 data: URL，保留普通图片格式；禁止 image/svg+xml 嵌套活动内容
+    .replace(/data\s*:\s*(?!image\/(?:png|jpe?g|gif|webp);)[^"'\s]*/gi, '')
     // 移除 expression() CSS 表达式（IE 专用但仍需防护）
     .replace(/expression\s*\(/gi, 'blocked(')
     // 移除 -moz-binding CSS（Firefox 特有）
@@ -456,10 +456,19 @@ function sanitizeSvg(svg: string): string {
 }
 
 /**
+ * 清理 Mermaid SVG 输出。预览和导出必须共用这一入口，避免 loose 模式
+ * 下某一路径直接把 mermaid.render() 的结果写入 innerHTML。
+ */
+export function sanitizeMermaidSvg(svg: string): string {
+  return sanitizeSvg(svg)
+}
+
+
+/**
  * 验证 Mermaid 代码安全性
  * 注意：不检查 foreignObject，因为 Mermaid 自己会生成它来渲染文本
  */
-function validateMermaidCode(code: string): { valid: boolean; error?: string } {
+export function validateMermaidCode(code: string): { valid: boolean; error?: string } {
   if (code.length > 50000) {
     return { valid: false, error: '代码长度超出限制' }
   }
@@ -469,7 +478,8 @@ function validateMermaidCode(code: string): { valid: boolean; error?: string } {
     /click\s+\w+\s+["']javascript:/i,
     /click\s+\w+\s+["']data:/i,
     /<script[\s>]/i,
-    /on\w+\s*=/i,
+    // 仅拦截位于标签/属性边界的事件处理器，避免把业务文本中的 `conf=` 误判为 `on...=`。
+    /(?:^|[<\s\[\("'])on[a-z][a-z0-9:-]*\s*=/i,
     /<iframe[\s>]/i,
   ]
 
