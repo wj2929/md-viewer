@@ -1,20 +1,37 @@
-import { installCliShim, uninstallCliShim } from '../cliShimInstaller'
+import { getCliShimStatus, installCliShim, uninstallCliShim } from '../cliShimInstaller'
 import { createFailureResult, createSuccessResult } from './result'
 
 interface CliShimDeps {
   installCliShim: typeof installCliShim
   uninstallCliShim: typeof uninstallCliShim
+  getCliShimStatus?: typeof getCliShimStatus
 }
 
 const defaultDeps: CliShimDeps = {
   installCliShim,
   uninstallCliShim,
+  getCliShimStatus,
 }
 
 export async function buildInstallCliResult(
-  _flags: Record<string, string | boolean> = {},
+  flags: Record<string, string | boolean> = {},
   deps: CliShimDeps = defaultDeps,
 ) {
+  if (flags.status === true || flags['dry-run'] === true) {
+    const status = await (deps.getCliShimStatus ?? getCliShimStatus)()
+    return createSuccessResult('install-cli', {
+      summary: {
+        installed: status.installed,
+        supported: status.supported,
+        pathInShell: status.pathInShell ?? false,
+      },
+      results: { status },
+      warnings: status.message
+        ? [{ code: status.code ?? 'CLI_SHIM_STATUS', message: status.message, target: status.path }]
+        : [],
+    })
+  }
+
   const result = await deps.installCliShim()
   if (!result.ok) {
     return createFailureResult('install-cli', {

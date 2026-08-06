@@ -54,6 +54,10 @@ export function renderHumanHelp(): string {
   return [
     'MD Viewer CLI',
     '',
+    '用法：md-viewer <command> [options]',
+    '  md-viewer --help',
+    '  md-viewer --version',
+    '',
     '常用命令：',
     '  md-viewer capabilities --json',
     '  md-viewer schema export --json',

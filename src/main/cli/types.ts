@@ -63,6 +63,11 @@ export type CliParseResult =
       flags: Record<string, string | boolean>
     }
   | {
+      kind: 'meta'
+      action: 'version'
+      argv: string[]
+    }
+  | {
       kind: 'gui'
       argv: string[]
     }

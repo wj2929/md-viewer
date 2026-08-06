@@ -48,6 +48,8 @@ export interface CliShimStatus {
   path?: string
   pathInShell?: boolean
   ownedByMdViewer?: boolean
+  targetExecutablePath?: string
+  targetExecutableExists?: boolean
   code?: string
   message?: string
 }
@@ -168,6 +170,10 @@ export async function getCliShimStatus(options: CliShimInstallOptions = {}): Pro
     if (content === null) continue
 
     const ownedByMdViewer = isOwnedByMdViewer(content)
+    const targetExecutablePath = ownedByMdViewer ? extractShimTarget(content, platform) : undefined
+    const targetExecutableExists = targetExecutablePath
+      ? await fileExists(fsApi, targetExecutablePath)
+      : undefined
     return {
       supported: true,
       installed: ownedByMdViewer,
@@ -175,9 +181,13 @@ export async function getCliShimStatus(options: CliShimInstallOptions = {}): Pro
       path: candidate,
       pathInShell: isDirInPath(platform, getPathApi(platform).dirname(candidate), envPath),
       ownedByMdViewer,
+      targetExecutablePath,
+      targetExecutableExists,
       code: ownedByMdViewer ? undefined : 'CLI_SHIM_NOT_OWNED',
       message: ownedByMdViewer
-        ? undefined
+        ? targetExecutableExists === false
+          ? `md-viewer shim 已存在，但目标应用不可用：${targetExecutablePath}`
+          : undefined
         : `已存在 ${candidate}，但不是 MD Viewer 生成的命令。`,
     }
   }
@@ -302,6 +312,26 @@ function isOwnedByMdViewer(content: string): boolean {
 
 function escapeDoubleQuotedShell(value: string): string {
   return value.replace(/(["\\$`])/g, '\\$1')
+}
+
+function extractShimTarget(content: string, platform: NodeJS.Platform): string | undefined {
+  if (platform === 'win32') {
+    const match = content.match(/\r?\n"([^"]+)" %\*/)
+    return match?.[1]
+  }
+
+  const match = content.match(/\nexec "((?:\\.|[^"])*)" "\$@"/)
+  if (!match?.[1]) return undefined
+  return match[1].replace(/\\(["\\$`])/g, '$1')
+}
+
+async function fileExists(fsApi: CliShimFs, filePath: string): Promise<boolean> {
+  try {
+    await fsApi.access(filePath)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function readOptionalFile(fsApi: CliShimFs, filePath: string): Promise<string | null> {

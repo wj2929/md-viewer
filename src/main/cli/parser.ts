@@ -28,6 +28,23 @@ export function parseCliArgs(argv: string[]): CliParseResult {
     return { kind: 'gui', argv: args }
   }
 
+  if (commandCandidate === '--help' || commandCandidate === '-h') {
+    return {
+      kind: 'automation',
+      command: 'help',
+      positional: [],
+      flags: {},
+    }
+  }
+
+  if (commandCandidate === '--version' || commandCandidate === '-v') {
+    return {
+      kind: 'meta',
+      action: 'version',
+      argv: args,
+    }
+  }
+
   if (!automationCommands.has(commandCandidate as CliCommandName)) {
     if (previewablePathPattern.test(commandCandidate) || commandCandidate === '.') {
       return { kind: 'gui', argv: args }

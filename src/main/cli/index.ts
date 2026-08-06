@@ -1,4 +1,5 @@
 import { buildBatchResult } from './batchCommand'
+import packageJson from '../../../package.json'
 import { buildCapabilitiesResult } from './capabilitiesCommand'
 import { buildChartsResult } from './chartsCommand'
 import { buildDoctorResult } from './doctorCommand'
@@ -23,12 +24,12 @@ export interface CliIo {
 
 export function isAutomationCliArgv(argv: string[]): boolean {
   const parsed = parseCliArgs(argv)
-  return parsed.kind === 'automation' || parsed.kind === 'invalid'
+  return parsed.kind === 'automation' || parsed.kind === 'invalid' || parsed.kind === 'meta'
 }
 
 export function isHeadlessCliArgv(argv: string[]): boolean {
   const parsed = parseCliArgs(argv)
-  return parsed.kind === 'invalid' || (parsed.kind === 'automation' && parsed.command !== 'open')
+  return parsed.kind === 'invalid' || parsed.kind === 'meta' || (parsed.kind === 'automation' && parsed.command !== 'open')
 }
 
 export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<number> {
@@ -36,6 +37,11 @@ export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<num
 
   if (parsed.kind === 'gui') {
     return -1
+  }
+
+  if (parsed.kind === 'meta') {
+    io.stdout(`${packageJson.version}\n`)
+    return 0
   }
 
   if (parsed.kind === 'invalid') {

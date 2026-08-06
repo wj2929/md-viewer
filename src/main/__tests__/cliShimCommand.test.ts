@@ -31,6 +31,29 @@ describe('CLI shim commands', () => {
     ])
   })
 
+  it('returns read-only shim status without installing', async () => {
+    const getCliShimStatus = vi.fn(async () => ({
+      supported: true,
+      installed: false,
+      platform: 'darwin' as NodeJS.Platform,
+      path: '/Users/tester/.local/bin/md-viewer',
+      pathInShell: false,
+      ownedByMdViewer: undefined,
+      message: '请把命令目录加入 PATH',
+    }))
+
+    const result = await buildInstallCliResult({ status: true }, {
+      installCliShim: vi.fn(),
+      uninstallCliShim: vi.fn(),
+      getCliShimStatus,
+    })
+
+    expect(getCliShimStatus).toHaveBeenCalledOnce()
+    expect(result.ok).toBe(true)
+    expect(result.summary).toMatchObject({ installed: false, pathInShell: false })
+    expect(result.results.status).toMatchObject({ path: '/Users/tester/.local/bin/md-viewer' })
+    expect(result.warnings[0]).toMatchObject({ code: 'CLI_SHIM_STATUS' })
+  })
   it('returns structured failure when uninstall refuses to remove external file', async () => {
     const result = await buildUninstallCliResult({
       installCliShim: vi.fn(),

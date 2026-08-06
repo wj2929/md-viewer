@@ -15,6 +15,16 @@ function createIo() {
 }
 
 describe('runCli', () => {
+  it('supports top-level help and version switches', async () => {
+    const helpIo = createIo()
+    expect(await runCli(['--help'], helpIo.io)).toBe(0)
+    expect(helpIo.stdout.join('')).toContain('用法：md-viewer <command> [options]')
+
+    const versionIo = createIo()
+    expect(await runCli(['--version'], versionIo.io)).toBe(0)
+    expect(versionIo.stdout).toEqual(['2.5.0\n'])
+    expect(versionIo.stderr).toEqual([])
+  })
   it('writes capabilities JSON to stdout only', async () => {
     const { io, stdout, stderr } = createIo()
 

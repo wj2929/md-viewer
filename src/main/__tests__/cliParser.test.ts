@@ -2,6 +2,31 @@ import { describe, expect, it } from 'vitest'
 import { parseCliArgs } from '../cli/parser'
 
 describe('parseCliArgs', () => {
+  it('supports top-level help and version switches', () => {
+    expect(parseCliArgs(['--help'])).toEqual({
+      kind: 'automation',
+      command: 'help',
+      positional: [],
+      flags: {},
+    })
+    expect(parseCliArgs(['-h'])).toEqual({
+      kind: 'automation',
+      command: 'help',
+      positional: [],
+      flags: {},
+    })
+    expect(parseCliArgs(['--version'])).toEqual({
+      kind: 'meta',
+      action: 'version',
+      argv: ['--version'],
+    })
+    expect(parseCliArgs(['-v'])).toEqual({
+      kind: 'meta',
+      action: 'version',
+      argv: ['-v'],
+    })
+  })
+
   it('parses automation commands with boolean and value flags', () => {
     expect(parseCliArgs(['capabilities', '--json'])).toEqual({
       kind: 'automation',

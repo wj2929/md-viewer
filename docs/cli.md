@@ -8,7 +8,7 @@ MD Viewer CLI 面向脚本、CI 和 AI Agent，用于打开 Markdown、导出 HT
 
 ## 1. 调用方式
 
-文档中统一使用 `md-viewer` 表示命令入口。macOS、Windows 和 Linux 用户都可以在“设置 -> 系统 -> 命令行工具”中安装该命令，也可以先用应用完整路径执行一次安装命令。
+文档中统一使用 `md-viewer` 表示命令入口。注意：macOS“设置 -> 系统 -> 命令行工具”提供的是 Apple 的 Command Line Tools（如 git、clang），**不会自动安装 md-viewer 命令**。MD Viewer CLI 需要通过应用内置命令安装 shim，或使用应用完整路径执行一次安装命令。
 
 macOS：
 
@@ -54,8 +54,18 @@ Linux 示例：
 安装命令行工具后，可直接使用：
 
 ```bash
+md-viewer --help
+md-viewer --version
 md-viewer capabilities --json
 ```
+
+如果终端提示 `md-viewer: command not found`，先确认 shim 状态：
+
+```bash
+"/Applications/MD Viewer.app/Contents/MacOS/MD Viewer" install-cli --status --json
+```
+
+该检查不会修改系统，会报告 shim 路径、是否由 MD Viewer 生成、目标应用是否存在以及目录是否在当前 `PATH`。如果目录不在 `PATH`，将 `~/.local/bin` 加入 `~/.zshrc` 后重新打开终端；如果目标应用路径失效，应从当前安装位置重新执行 `install-cli`。
 
 ## 2. 输出契约
 

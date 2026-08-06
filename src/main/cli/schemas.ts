@@ -212,6 +212,8 @@ export const commandSchemas: Partial<Record<CliCommandName | 'result', CliComman
     positional: [],
     flags: {
       json: { type: 'boolean', description: '输出机器可读 JSON。' },
+      status: { type: 'boolean', description: '仅检查 shim、PATH 和目标可执行文件，不修改系统。' },
+      'dry-run': { type: 'boolean', description: '执行安装前的只读状态检查，不写入 shim。' },
     },
   },
   'uninstall-cli': {
