@@ -18,6 +18,7 @@ export default defineConfig({
       'src/main/__tests__/docxExporter.embeddedImages.test.ts',
       'src/main/__tests__/exportHandlers.chartsZip.test.ts',
       'src/main/__tests__/cli*.test.ts',
+      'src/main/__tests__/localImageEmbed.test.ts',
       'src/main/__tests__/pathValidator.previewable.test.ts',
       'src/main/__tests__/remoteDocxExporter.test.ts',
       'src/main/__tests__/contextMenuHandler.test.ts',

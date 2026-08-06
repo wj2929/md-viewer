@@ -22,12 +22,19 @@ afterEach(async () => {
   }
 })
 
+// 注入 stub 绕开依赖 electron 的默认样式/图片内嵌（vitest 非 electron 环境无法 import electron）。
+// styleProvider 返回空样式、imageEmbedder 为 identity，保持既有断言（尤其 PDF content 精确匹配）不变。
+const stubExportDeps = {
+  styleProvider: async () => ({ markdownCss: '', prismCss: '' }),
+  imageEmbedder: async (html: string) => html,
+}
+
 describe('buildExportResult', () => {
   it('exports markdown to an HTML artifact', async () => {
     const input = await createMarkdown('# Report\n\nHello')
     const outputPath = path.join(tempDir!, 'report.html')
 
-    const result = await buildExportResult([input], { format: 'html', out: outputPath })
+    const result = await buildExportResult([input], { format: 'html', out: outputPath }, { ...stubExportDeps })
 
     expect(result).toMatchObject({
       ok: true,
@@ -99,7 +106,7 @@ describe('buildExportResult', () => {
       }
     }
 
-    const result = await buildExportResult([input], { format: 'html', out: outputPath }, { renderer })
+    const result = await buildExportResult([input], { format: 'html', out: outputPath }, { renderer, ...stubExportDeps })
 
     expect(result.ok).toBe(true)
     expect(rendererInput).not.toBeNull()
@@ -143,7 +150,7 @@ describe('buildExportResult', () => {
     const result = await buildExportResult(
       [input],
       { format: 'html', out: outputPath, 'timeout-ms': '180000' },
-      { renderer },
+      { renderer, ...stubExportDeps },
     )
 
     expect(result.ok).toBe(true)
@@ -189,7 +196,7 @@ describe('buildExportResult', () => {
     const result = await buildExportResult(
       [input],
       { format: 'pdf', out: outputPath },
-      { renderer, pdfWriter },
+      { renderer, pdfWriter, ...stubExportDeps },
     )
 
     expect(result).toMatchObject({
@@ -246,7 +253,7 @@ describe('buildExportResult', () => {
     const result = await buildExportResult(
       [input],
       { format: 'html', out: outputPath },
-      { renderer },
+      { renderer, ...stubExportDeps },
     )
 
     expect(result).toMatchObject({
