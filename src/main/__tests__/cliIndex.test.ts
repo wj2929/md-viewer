@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { runCli } from '../cli'
+import packageJson from '../../../package.json'
 
 function createIo() {
   const stdout: string[] = []
@@ -22,7 +23,7 @@ describe('runCli', () => {
 
     const versionIo = createIo()
     expect(await runCli(['--version'], versionIo.io)).toBe(0)
-    expect(versionIo.stdout).toEqual(['2.5.0\n'])
+    expect(versionIo.stdout).toEqual([`${packageJson.version}\n`])
     expect(versionIo.stderr).toEqual([])
   })
   it('writes capabilities JSON to stdout only', async () => {
