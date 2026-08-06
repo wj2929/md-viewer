@@ -78,6 +78,13 @@ test.describe('test-all-charts 非 preview DOCX 格式检查', () => {
           BrowserWindow.getAllWindows()[0]?.webContents.send('markdown:export-docx')
         })
 
+        // v2.6 预检面板：外部服务型图表会弹确认，代替用户点「继续导出」
+        const preflightOverlay = page.locator('.preflight-overlay')
+        if (await preflightOverlay.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false)) {
+          await page.locator('.preflight-actions .export-task-btn-primary').click()
+          await preflightOverlay.waitFor({ state: 'hidden', timeout: 5_000 })
+        }
+
         const target = docxPathFor(style)
         await expect.poll(() => fs.existsSync(target), {
           timeout: 600_000,

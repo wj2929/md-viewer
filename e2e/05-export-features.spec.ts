@@ -116,6 +116,15 @@ async function triggerMarkdownExport(
   }, channel)
 }
 
+// v2.6 导出前预检：含外部服务型图表的文档会弹面板等确认，测试里代替用户点「继续导出」
+async function continuePreflightIfShown(page: Page, timeout = 5000): Promise<void> {
+  const overlay = page.locator('.preflight-overlay')
+  const shown = await overlay.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false)
+  if (!shown) return
+  await page.locator('.preflight-actions .export-task-btn-primary').click()
+  await overlay.waitFor({ state: 'hidden', timeout: 5000 })
+}
+
 async function waitForFile(filePath: string, timeout = 10000): Promise<void> {
   await expect.poll(() => {
     if (!existsSync(filePath)) return false
@@ -329,6 +338,7 @@ test.describe('导出功能测试', () => {
     const htmlPath = join(testDir, 'test-all-charts.html')
     await mockSaveDialog(electronApp, htmlPath)
     await triggerMarkdownExport(electronApp, 'markdown:export-html')
+    await continuePreflightIfShown(page)
     await waitForFile(htmlPath, 180000)
 
     const htmlContent = readFileSync(htmlPath, 'utf-8')
@@ -355,6 +365,7 @@ test.describe('导出功能测试', () => {
     const pdfPath = join(testDir, 'test-all-charts.pdf')
     await mockSaveDialog(electronApp, pdfPath)
     await triggerMarkdownExport(electronApp, 'markdown:export-pdf')
+    await continuePreflightIfShown(page)
     await waitForFile(pdfPath, 180000)
 
     const pdfBuffer = readFileSync(pdfPath)
@@ -405,6 +416,7 @@ test.describe('导出功能测试', () => {
     const exportPath = join(testDir, 'alias-renderers.html')
     await mockSaveDialog(electronApp, exportPath)
     await triggerMarkdownExport(electronApp, 'markdown:export-html')
+    await continuePreflightIfShown(page)
 
     await waitForFile(exportPath)
     const htmlContent = readFileSync(exportPath, 'utf-8')
