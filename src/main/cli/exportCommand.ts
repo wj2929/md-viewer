@@ -25,6 +25,8 @@ interface BuildExportResultOptions {
   // 注入点：默认读取与 GUI 一致的导出样式（markdown.css + prism-theme.css）。
   // 单测在非 electron 环境可传 mock，避免加载依赖 electron app 的 getExportStyles。
   styleProvider?: () => Promise<{ markdownCss: string; prismCss: string }>
+  // 注入点：把 HTML 里的本地图片 <img> 内嵌成 data:base64。默认走主进程实现。
+  imageEmbedder?: (html: string, markdownFilePath: string) => Promise<string>
 }
 
 export async function buildExportResult(
@@ -143,8 +145,17 @@ export async function buildExportResult(
     return getExportStyles()
   })
   const { markdownCss, prismCss } = await loadStyles()
+
+  // 内嵌本地图片：与 GUI 导出一致，把 <img src="相对路径"> 换成 data:base64，
+  // 否则导出的 HTML/PDF 换机打开图片会裂。失败的图保持原样，不阻断导出。
+  const embedImages = options.imageEmbedder ?? (async (html: string, mdPath: string) => {
+    const { embedLocalImagesInExportedHtml } = await import('../localImageEmbed')
+    return embedLocalImagesInExportedHtml(html, mdPath)
+  })
+  const embeddedHtml = await embedImages(renderResult.html, validation.normalizedPath)
+
   const writerOptions = {
-    content: renderResult.html,
+    content: embeddedHtml,
     title: path.basename(validation.normalizedPath),
     markdownCss,
     prismCss,
