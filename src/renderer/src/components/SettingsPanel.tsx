@@ -536,13 +536,13 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
             <input
               type="range"
               min={5}
-              max={100}
+              max={500}
               step={5}
               value={settings.maxRecentFiles}
               onChange={e => updateSetting('maxRecentFiles', Number(e.target.value))}
               className="settings-slider"
             />
-            <span className="slider-label-max">100</span>
+            <span className="slider-label-max">500</span>
             <span className="slider-value">{settings.maxRecentFiles}</span>
           </div>
         </div>
@@ -553,13 +553,13 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> })
             <input
               type="range"
               min={5}
-              max={50}
+              max={300}
               step={5}
               value={settings.maxFolderHistory}
               onChange={e => updateSetting('maxFolderHistory', Number(e.target.value))}
               className="settings-slider"
             />
-            <span className="slider-label-max">50</span>
+            <span className="slider-label-max">300</span>
             <span className="slider-value">{settings.maxFolderHistory}</span>
           </div>
         </div>

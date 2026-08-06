@@ -15,7 +15,7 @@ function getMaxFolderHistory(): number {
     const settingsStore = new Store({ name: 'app-data' })
     const settings = settingsStore.get('settings') as Record<string, unknown> | undefined
     const val = settings?.maxFolderHistory
-    if (typeof val === 'number' && val >= 5 && val <= 50) return val
+    if (typeof val === 'number' && val >= 5 && val <= 300) return val
   } catch { /* ignore */ }
   return DEFAULT_MAX_ITEMS
 }
