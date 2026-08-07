@@ -1263,6 +1263,8 @@ function App(): React.JSX.Element {
                       onFileRenamed={handleFileRenamed}
                       selectedPaths={selectedPaths}
                       onSelectionChange={setSelectedPaths}
+                      onMoveSuccess={(msg) => toast.success(msg)}
+                      onMoveError={(msg) => toast.error(msg)}
                     />
                   )}
                 </div>

@@ -174,6 +174,7 @@ case "$MODE" in
       e2e/02-file-tree.spec.ts \
       e2e/03-markdown-rendering.spec.ts \
       e2e/05-export-features.spec.ts \
+      e2e/file-tree-drag-move.spec.ts \
       e2e/markdown-edit-mode.spec.ts \
       e2e/markdown-links.spec.ts \
       e2e/read-position.spec.ts

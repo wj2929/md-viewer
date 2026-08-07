@@ -598,6 +598,8 @@ body {
   border-radius: 4px;
   margin: 1px 4px;
   transition: background-color 0.15s;
+  /* 显式声明可拖：父级 .file-tree-item 的 user-select:none 会使 HTML5 draggable 失效 */
+  -webkit-user-drag: element;
 }
 
 .file-tree-row:hover {
@@ -616,6 +618,54 @@ body {
 
 .file-tree-row.selected:focus {
   outline-color: white;
+}
+
+/* 拖放移动：目标目录高亮 */
+.file-tree-row.drag-over {
+  background-color: var(--accent-color);
+  outline: 2px dashed white;
+  outline-offset: -2px;
+  opacity: 0.85;
+}
+
+/* 移动进行中：禁止交互并降低透明度 */
+.file-tree-shell.moving {
+  opacity: 0.6;
+  pointer-events: none;
+  cursor: progress;
+}
+
+/* 「拖回根目录」投放条：始终在 DOM，默认隐藏，仅拖动中(.dragging)显示。
+   用 display 显隐而非条件渲染，避免 dragstart 时插入 DOM 节点中止原生拖动。 */
+.file-tree-root-drop {
+  /* 仅拖动中挂载显示（挂载被推迟到 dragstart 的下一帧，避免中止原生拖动）。
+     仅 dragover 时高亮。 */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin: 2px 4px;
+  border: 1px dashed var(--border-color, var(--text-muted));
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  opacity: 0.55;
+  transition: background-color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.file-tree-root-drop-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-root-drop.drag-over-root {
+  opacity: 1;
+  background-color: var(--accent-color);
+  border-color: white;
+  border-style: solid;
+  color: white;
 }
 
 /* 展开图标 */

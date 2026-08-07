@@ -23,7 +23,8 @@ describe('FileTree', () => {
       onFileStartRename: vi.fn(() => vi.fn()),  // v1.2: 重命名事件监听
       getFolderTreeState: vi.fn(() => createImmediateFolderTreeState({})),
       saveFolderTreeState: vi.fn().mockResolvedValue({}),
-      clearFolderTreeState: vi.fn().mockResolvedValue(undefined)
+      clearFolderTreeState: vi.fn().mockResolvedValue(undefined),
+      moveFile: vi.fn().mockResolvedValue('/base/path/docs/moved.md')
     } as any
   })
 
@@ -49,6 +50,8 @@ describe('FileTree', () => {
     window.api.getFolderTreeState.mockImplementation(() => createImmediateFolderTreeState({}))
     window.api.saveFolderTreeState.mockResolvedValue({})
     window.api.clearFolderTreeState.mockResolvedValue(undefined)
+    window.api.moveFile.mockClear()
+    window.api.moveFile.mockResolvedValue('/base/path/docs/moved.md')
   })
 
   afterEach(() => {
@@ -899,6 +902,175 @@ describe('FileTree', () => {
       await userEvent.pointer({ keys: '[MouseRight]', target: fileRow })
 
       expect(mockOnFileSelect).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('拖放移动', () => {
+    // 构造一个可写 dataTransfer 的假对象
+    const makeDataTransfer = () => {
+      const store: Record<string, string> = {}
+      return {
+        setData: (type: string, val: string) => { store[type] = val },
+        getData: (type: string) => store[type] ?? '',
+        effectAllowed: '',
+        dropEffect: '',
+        _store: store
+      }
+    }
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+
+    it('拖文件到目录 → 调用 moveFile(src, 目标目录/basename)', async () => {
+      const file = createMockFile('a.md', '/base/path/a.md')
+      const dir = createMockDirectory('docs', '/base/path/docs', [])
+      const { container } = render(
+        <FileTree files={[file, dir]} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+
+      const rows = container.querySelectorAll('.file-tree-row')
+      const fileRow = rows[0]  // a.md
+      const dirRow = rows[1]   // docs
+      const dt = makeDataTransfer()
+
+      fireEvent.dragStart(fileRow, { dataTransfer: dt })
+      fireEvent.dragOver(dirRow, { dataTransfer: dt })
+      fireEvent.drop(dirRow, { dataTransfer: dt })
+      await act(flush)
+
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md')
+    })
+
+    it('拖目录到其自身/子目录 → 不调用 moveFile', async () => {
+      const child = createMockFile('c.md', '/base/path/parent/c.md')
+      const parent = createMockDirectory('parent', '/base/path/parent', [child])
+      const { container } = render(
+        <FileTree files={[parent]} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+
+      const parentRow = container.querySelector('.file-tree-row')!
+      const dt = makeDataTransfer()
+
+      // 拖 parent 到 parent 自身
+      fireEvent.dragStart(parentRow, { dataTransfer: dt })
+      fireEvent.dragOver(parentRow, { dataTransfer: dt })
+      fireEvent.drop(parentRow, { dataTransfer: dt })
+      await act(flush)
+
+      expect(window.api.moveFile).not.toHaveBeenCalled()
+    })
+
+    it('多选后拖动 → 批量移动选中项', async () => {
+      const f1 = createMockFile('a.md', '/base/path/a.md')
+      const f2 = createMockFile('b.md', '/base/path/b.md')
+      const dir = createMockDirectory('docs', '/base/path/docs', [])
+      const selected = new Set(['/base/path/a.md', '/base/path/b.md'])
+      const { container } = render(
+        <FileTree
+          files={[f1, f2, dir]}
+          onFileSelect={mockOnFileSelect}
+          basePath={basePath}
+          selectedPaths={selected}
+          onSelectionChange={vi.fn()}
+        />
+      )
+
+      const rows = container.querySelectorAll('.file-tree-row')
+      const dirRow = rows[2]
+      const dt = makeDataTransfer()
+
+      fireEvent.dragStart(rows[0], { dataTransfer: dt })
+      fireEvent.dragOver(dirRow, { dataTransfer: dt })
+      fireEvent.drop(dirRow, { dataTransfer: dt })
+      await act(flush)
+
+      expect(window.api.moveFile).toHaveBeenCalledTimes(2)
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md')
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/b.md', '/base/path/docs/b.md')
+    })
+
+    it('移动成功 → 回调 onMoveSuccess', async () => {
+      const file = createMockFile('a.md', '/base/path/a.md')
+      const dir = createMockDirectory('docs', '/base/path/docs', [])
+      const onMoveSuccess = vi.fn()
+      const { container } = render(
+        <FileTree files={[file, dir]} onFileSelect={mockOnFileSelect} basePath={basePath} onMoveSuccess={onMoveSuccess} />
+      )
+
+      const rows = container.querySelectorAll('.file-tree-row')
+      const dt = makeDataTransfer()
+      fireEvent.dragStart(rows[0], { dataTransfer: dt })
+      fireEvent.dragOver(rows[1], { dataTransfer: dt })
+      fireEvent.drop(rows[1], { dataTransfer: dt })
+      await act(flush)
+
+      expect(onMoveSuccess).toHaveBeenCalledWith(expect.stringContaining('已移动'))
+    })
+
+    it('移动失败（目标已存在）→ 回调 onMoveError，源不丢失', async () => {
+      window.api.moveFile.mockRejectedValue(new Error('目标文件已存在'))
+      const file = createMockFile('a.md', '/base/path/a.md')
+      const dir = createMockDirectory('docs', '/base/path/docs', [])
+      const onMoveError = vi.fn()
+      const { container } = render(
+        <FileTree files={[file, dir]} onFileSelect={mockOnFileSelect} basePath={basePath} onMoveError={onMoveError} />
+      )
+
+      const rows = container.querySelectorAll('.file-tree-row')
+      const dt = makeDataTransfer()
+      fireEvent.dragStart(rows[0], { dataTransfer: dt })
+      fireEvent.dragOver(rows[1], { dataTransfer: dt })
+      fireEvent.drop(rows[1], { dataTransfer: dt })
+      await act(flush)
+
+      expect(onMoveError).toHaveBeenCalledWith(expect.stringContaining('目标文件已存在'))
+    })
+
+    it('从子目录拖文件到根容器 → moveFile 到 basePath', async () => {
+      const inner = createMockFile('a.md', '/base/path/docs/a.md')
+      const dir = createMockDirectory('docs', '/base/path/docs', [inner], 'docs')
+      const { container } = render(
+        <FileTree files={[dir]} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+
+      const rows = container.querySelectorAll('.file-tree-row')
+      const fileRow = rows[1]  // docs/a.md
+      const dt = makeDataTransfer()
+
+      // 投放条仅在拖动中渲染，且挂载被推迟到 dragstart 的下一帧（RAF）
+      // ——避免 dragstart 同步重排中止原生拖动。故需等一帧后再取投放条。
+      await act(async () => {
+        fireEvent.dragStart(fileRow, { dataTransfer: dt })
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      })
+      const rootDropBar = container.querySelector('.file-tree-root-drop')!
+      expect(rootDropBar).toBeTruthy()
+      fireEvent.dragOver(rootDropBar, { dataTransfer: dt })
+      fireEvent.drop(rootDropBar, { dataTransfer: dt })
+      await act(flush)
+
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/docs/a.md', '/base/path/a.md')
+    })
+
+    it('拖到源所在的同一目录 → 不调用 moveFile', async () => {
+      // 文件 a.md 在根，拖到根下另一同级……用子目录场景：文件在 docs 内，拖回 docs
+      const inner = createMockFile('a.md', '/base/path/docs/a.md')
+      const dir = createMockDirectory('docs', '/base/path/docs', [inner], 'docs')
+      const { container } = render(
+        <FileTree files={[dir]} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+
+      // 展开后 rows: [docs, a.md]
+      const rows = container.querySelectorAll('.file-tree-row')
+      const dirRow = rows[0]
+      const fileRow = rows[1]
+      const dt = makeDataTransfer()
+
+      fireEvent.dragStart(fileRow, { dataTransfer: dt })  // a.md 源目录就是 docs
+      fireEvent.dragOver(dirRow, { dataTransfer: dt })
+      fireEvent.drop(dirRow, { dataTransfer: dt })
+      await act(flush)
+
+      expect(window.api.moveFile).not.toHaveBeenCalled()
     })
   })
 })

@@ -20,6 +20,9 @@ interface FileTreeProps {
   // v1.3 阶段 5：多选支持
   selectedPaths?: Set<string>
   onSelectionChange?: (paths: Set<string>) => void
+  // 拖放移动结果通知（由 App 转成 toast；FileTree 自身不弹 toast）
+  onMoveSuccess?: (message: string) => void
+  onMoveError?: (message: string) => void
 }
 
 interface FileTreeItemProps {
@@ -42,10 +45,17 @@ interface FileTreeItemProps {
   treeStateLoaded: boolean
   onFolderToggle: (folder: FileInfo, expanded: boolean) => void
   forceExpanded?: boolean
+  // 拖放移动
+  onItemDragStart?: (item: FileInfo, event: React.DragEvent) => void
+  onItemDragEnd?: () => void
+  onItemDrop?: (targetDir: FileInfo, event: React.DragEvent) => void
+  dragOverPath?: string | null
+  onDragOverItem?: (item: FileInfo, event: React.DragEvent) => void
+  onDragLeaveItem?: (item: FileInfo, event: React.DragEvent) => void
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle, forceExpanded = false }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle, forceExpanded = false, onItemDragStart, onItemDragEnd, onItemDrop, dragOverPath, onDragOverItem, onDragLeaveItem }: FileTreeItemProps): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -147,8 +157,14 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   return (
     <div className="file-tree-item">
       <div
-        className={`file-tree-row ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''}`}
+        className={`file-tree-row ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''} ${dragOverPath === item.path ? 'drag-over' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        draggable={isRenaming ? undefined : true}
+        onDragStart={onItemDragStart ? (e) => onItemDragStart(item, e) : undefined}
+        onDragEnd={onItemDragEnd}
+        onDragOver={item.isDirectory && onDragOverItem ? (e) => onDragOverItem(item, e) : undefined}
+        onDragLeave={item.isDirectory && onDragLeaveItem ? (e) => onDragLeaveItem(item, e) : undefined}
+        onDrop={item.isDirectory && onItemDrop ? (e) => onItemDrop(item, e) : undefined}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
@@ -219,6 +235,12 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               treeStateLoaded={treeStateLoaded}
               onFolderToggle={onFolderToggle}
               forceExpanded={forceExpanded}
+              onItemDragStart={onItemDragStart}
+              onItemDragEnd={onItemDragEnd}
+              onItemDrop={onItemDrop}
+              dragOverPath={dragOverPath}
+              onDragOverItem={onDragOverItem}
+              onDragLeaveItem={onDragLeaveItem}
             />
           ))}
         </div>
@@ -245,6 +267,31 @@ function flattenFileTree(files: FileInfo[]): FileInfo[] {
 
   traverse(files)
   return result
+}
+
+// 拖放移动：渲染进程无 node path，按项目惯例用正则分隔符处理
+const DRAG_MIME = 'application/x-md-viewer-paths'
+const ROOT_DROP_KEY = '__filetree_root__'
+
+function pathBasename(p: string): string {
+  return p.split(/[/\\]/).pop() || p
+}
+
+function pathDirname(p: string): string {
+  const parts = p.split(/[/\\]/)
+  parts.pop()
+  return parts.join('/')
+}
+
+function joinDest(dir: string, name: string): string {
+  return `${dir.replace(/[/\\]+$/, '')}/${name}`
+}
+
+// 目标是否为源自身或其子目录（前端预防，后端 isSameOrChildPath 亦兜底）
+function isSameOrChildPath(target: string, source: string): boolean {
+  const t = target.replace(/[/\\]+$/, '')
+  const s = source.replace(/[/\\]+$/, '')
+  return t === s || t.startsWith(`${s}/`)
 }
 
 function fileMatchesFilter(item: FileInfo, query: string): boolean {
@@ -300,7 +347,7 @@ function isReactImeComposingEvent(e: React.KeyboardEvent): boolean {
 }
 
 // 文件树组件
-export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onSelectionChange }: FileTreeProps): JSX.Element {
+export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onSelectionChange, onMoveSuccess, onMoveError }: FileTreeProps): JSX.Element {
   const [filterQuery, setFilterQuery] = useState('')
   const filterInputRef = useRef<HTMLInputElement>(null)
   const trimmedFilterQuery = filterQuery.trim()
@@ -331,6 +378,125 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
 
   // 最后一个选择的路径（用于 Shift 区间选择）
   const lastSelectedRef = useRef<string | null>(null)
+
+  // 拖放移动状态
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+  const [isMoving, setIsMoving] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const draggedPathsRef = useRef<string[]>([])
+  const dragRafRef = useRef<number | null>(null)
+
+  const handleItemDragStart = useCallback((item: FileInfo, event: React.DragEvent) => {
+    // 若被拖项在多选集合内，拖整个选中集；否则只拖当前项
+    const paths = selectedPaths?.has(item.path)
+      ? Array.from(selectedPaths)
+      : [item.path]
+    draggedPathsRef.current = paths
+    event.dataTransfer.setData(DRAG_MIME, JSON.stringify(paths))
+    event.dataTransfer.setData('text/plain', paths.join('\n'))
+    event.dataTransfer.effectAllowed = 'move'
+    // 关键：投放条的挂载/布局重排必须推迟到下一帧。若在 dragstart 同步栈里
+    // setState 触发重排，会中止刚启动的原生拖动（实测真凶）。RAF 回调执行时
+    // 浏览器已完成拖动初始化，此时挂载投放条不再影响拖动。
+    if (dragRafRef.current !== null) cancelAnimationFrame(dragRafRef.current)
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = null
+      setIsDragging(true)
+    })
+  }, [selectedPaths])
+
+  const handleItemDragEnd = useCallback(() => {
+    if (dragRafRef.current !== null) {
+      cancelAnimationFrame(dragRafRef.current)
+      dragRafRef.current = null
+    }
+    setIsDragging(false)
+    setDragOverPath(null)
+  }, [])
+
+  // 目标目录能否接收当前拖动（非源自身/子目录、非源所在目录）
+  const canDropInto = useCallback((targetDir: string): boolean => {
+    const sources = draggedPathsRef.current
+    if (sources.length === 0) return false
+    return sources.every(src =>
+      !isSameOrChildPath(targetDir, src) &&
+      pathDirname(src) !== targetDir.replace(/[/\\]+$/, '')
+    )
+  }, [])
+
+  const handleDragOverItem = useCallback((item: FileInfo, event: React.DragEvent) => {
+    if (!canDropInto(item.path)) {
+      event.dataTransfer.dropEffect = 'none'
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDragOverPath(item.path)
+  }, [canDropInto])
+
+  const handleDragLeaveItem = useCallback((item: FileInfo) => {
+    setDragOverPath(prev => (prev === item.path ? null : prev))
+  }, [])
+
+  const handleItemDrop = useCallback(async (targetDir: FileInfo, event: React.DragEvent) => {
+    event.preventDefault()
+    setDragOverPath(null)
+    if (!canDropInto(targetDir.path)) return
+
+    let sources: string[] = []
+    try {
+      const raw = event.dataTransfer.getData(DRAG_MIME)
+      sources = raw ? JSON.parse(raw) : draggedPathsRef.current
+    } catch {
+      sources = draggedPathsRef.current
+    }
+    if (sources.length === 0) return
+
+    setIsMoving(true)
+    const succeeded: string[] = []
+    const failed: { path: string; error: string }[] = []
+    for (const src of sources) {
+      try {
+        await window.api.moveFile(src, joinDest(targetDir.path, pathBasename(src)))
+        succeeded.push(src)
+      } catch (error) {
+        failed.push({ path: src, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    setIsMoving(false)
+    draggedPathsRef.current = []
+
+    const targetName = pathBasename(targetDir.path)
+    if (failed.length === 0) {
+      onMoveSuccess?.(`已移动 ${succeeded.length} 项到“${targetName}”`)
+    } else if (succeeded.length === 0) {
+      onMoveError?.(`移动失败：${failed[0].error}`)
+    } else {
+      onMoveError?.(`已移动 ${succeeded.length} 项，${failed.length} 项失败：${failed[0].error}`)
+    }
+  }, [canDropInto, onMoveSuccess, onMoveError])
+
+  // 根目录（当前 basePath）作为 drop 目标——从子目录把文件/文件夹拖回根
+  const handleRootDragOver = useCallback((event: React.DragEvent) => {
+    if (!basePath || !canDropInto(basePath)) {
+      setDragOverPath(prev => (prev === ROOT_DROP_KEY ? null : prev))
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDragOverPath(ROOT_DROP_KEY)
+  }, [basePath, canDropInto])
+
+  const handleRootDragLeave = useCallback((event: React.DragEvent) => {
+    if (event.currentTarget === event.target) {
+      setDragOverPath(prev => (prev === ROOT_DROP_KEY ? null : prev))
+    }
+  }, [])
+
+  const handleRootDrop = useCallback((event: React.DragEvent) => {
+    if (!basePath) return
+    handleItemDrop({ name: pathBasename(basePath), path: basePath, isDirectory: true }, event)
+  }, [basePath, handleItemDrop])
 
   useEffect(() => {
     let cancelled = false
@@ -559,7 +725,7 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
   }
 
   return (
-    <div className="file-tree-shell">
+    <div className={`file-tree-shell ${isMoving ? 'moving' : ''}`} aria-busy={isMoving}>
       <div
         className="file-tree-filter-bar"
         role="search"
@@ -599,6 +765,20 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
           </button>
         )}
       </div>
+      {/* 「拖回根目录」投放条：仅拖动中显示。挂载被推迟到 dragstart 的下一帧
+          （见 handleItemDragStart），避免 dragstart 同步重排中止原生拖动。 */}
+      {isDragging && (
+        <div
+          className={`file-tree-root-drop ${dragOverPath === ROOT_DROP_KEY ? 'drag-over-root' : ''}`}
+          onDragOver={handleRootDragOver}
+          onDragLeave={handleRootDragLeave}
+          onDrop={handleRootDrop}
+          title={`拖动到此处移动到根目录：${basePath}`}
+        >
+          <span className="file-tree-root-drop-icon">⤴</span>
+          <span className="file-tree-root-drop-label">拖到此处移动到根目录</span>
+        </div>
+      )}
       <div
         className="file-tree"
         role="tree"
@@ -632,6 +812,12 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
               treeStateLoaded={treeStateLoaded}
               onFolderToggle={handleFolderToggle}
               forceExpanded={isFilteringFileTree}
+              onItemDragStart={handleItemDragStart}
+              onItemDragEnd={handleItemDragEnd}
+              onItemDrop={handleItemDrop}
+              dragOverPath={dragOverPath}
+              onDragOverItem={handleDragOverItem}
+              onDragLeaveItem={handleDragLeaveItem}
             />
           ))
         )}

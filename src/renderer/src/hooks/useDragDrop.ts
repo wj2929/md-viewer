@@ -11,15 +11,15 @@ export function useDragDrop(): void {
 
   useEffect(() => {
     const handleDragEnter = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return
       e.preventDefault()
       e.stopPropagation()
       dragCounterRef.current++
-      if (e.dataTransfer?.types.includes('Files')) {
-        setIsDragOver(true)
-      }
+      setIsDragOver(true)
     }
 
     const handleDragLeave = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return
       e.preventDefault()
       e.stopPropagation()
       dragCounterRef.current--
@@ -28,12 +28,18 @@ export function useDragDrop(): void {
       }
     }
 
+    // 仅处理「从操作系统拖入外部文件」；应用内文件树拖放（自定义 MIME）放行，
+    // 否则 document 级的无条件 preventDefault/stopPropagation 会打乱内部 DnD。
+    const isExternalFileDrag = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files')
+
     const handleDragOver = (e: DragEvent) => {
+      if (!isExternalFileDrag(e)) return
       e.preventDefault()
       e.stopPropagation()
     }
 
     const handleDrop = async (e: DragEvent) => {
+      if (!isExternalFileDrag(e)) return
       e.preventDefault()
       e.stopPropagation()
       dragCounterRef.current = 0
