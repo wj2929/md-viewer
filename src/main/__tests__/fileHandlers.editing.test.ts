@@ -109,7 +109,10 @@ function withRoot(
   })
 }
 
-describe('Markdown editing file handlers', () => {
+// 整套用 Unix 绝对路径（/docs/a.md）+ mock fs 构造，校验 path.resolve/relative 边界。
+// Windows 上 path.resolve('/docs') 会带盘符、语义与 Unix 不同，这些断言在 Windows 无意义
+// （测的不是 Windows 特定行为）。故整套仅在非 Windows 运行。
+describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetSecurity()
