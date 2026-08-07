@@ -78,6 +78,7 @@ export function showContextMenu(
     cut: '✂️ 剪切',
     duplicate: '📑 创建副本',
     paste: '📥 粘贴',
+    moveTo: '📦 移动到…',
     rename: '✏️ 重命名',
     delete: '🗑️ 删除',
     exportHTML: '📤 导出 HTML',
@@ -206,6 +207,13 @@ export function showContextMenu(
           }
         ]
       : []),
+    // 跨根移动：移动到「文件夹历史」里的某个目录（及子目录），走 MoveToDialog 弹窗选目标
+    {
+      label: i18n.moveTo,
+      click: () => {
+        window.webContents.send('file:move-to-request', file)
+      }
+    },
     { type: 'separator' },
     // 导出功能（仅文件）
     ...(!file.isDirectory

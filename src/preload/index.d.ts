@@ -37,6 +37,7 @@ declare global {
       // 文件系统操作
       openFolder: () => Promise<string | null>
       readDir: (path: string) => Promise<FileInfo[]>
+      listChildDirs: (path: string) => Promise<Array<{ name: string; path: string }>>
       readFile: (path: string) => Promise<string>
       readLocalAssetBase64: (payload: {
         markdownFilePath: string
@@ -299,6 +300,7 @@ declare global {
       copyFile: (srcPath: string, destPath: string) => Promise<string>
       copyDir: (srcPath: string, destPath: string) => Promise<string>
       moveFile: (srcPath: string, destPath: string) => Promise<string>
+      moveFileToFolder: (srcPath: string, targetHistoryId: string, subRelPath?: string) => Promise<string>
       fileExists: (filePath: string) => Promise<boolean>
       isDirectory: (filePath: string) => Promise<boolean>
 
@@ -350,6 +352,7 @@ declare global {
       onFileDeleted: (callback: (filePath: string) => void) => () => void
       onFileStartRename: (callback: (filePath: string) => void) => () => void
       onFileDuplicateRequest: (callback: (filePath: string) => void) => () => void
+      onFileMoveToRequest: (callback: (file: { path: string; isDirectory: boolean }) => void) => () => void
       onFileExportRequest: (
         callback: (data: { path: string; type: 'html' | 'pdf' }) => void
       ) => () => void

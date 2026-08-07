@@ -1,0 +1,233 @@
+/* 跨根移动目标选择弹窗样式（阶段 B） */
+
+.move-to-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.move-to-dialog {
+  background-color: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  width: 620px;
+  max-width: 92vw;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.move-to-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.move-to-header h2 {
+  font-size: 15px;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.move-to-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.move-to-close:hover {
+  color: var(--text-primary);
+}
+
+.move-to-summary {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background-color: var(--bg-secondary);
+}
+
+.move-to-section-title {
+  padding: 8px 16px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.move-to-roots {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+
+.move-to-root-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.move-to-root-row:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.move-to-root-row.selected {
+  background-color: var(--accent-color);
+  color: white;
+}
+
+.move-to-root-radio {
+  flex-shrink: 0;
+}
+
+.move-to-root-name {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.move-to-root-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.move-to-tree {
+  flex: 1;
+  min-height: 120px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.move-to-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.move-to-tree-row:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.move-to-tree-row.selected {
+  background-color: var(--accent-color);
+  color: white;
+}
+
+.move-to-tree-row.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.move-to-tree-row.disabled:hover {
+  background-color: transparent;
+}
+
+.move-to-tree-row.root-option {
+  margin-top: 6px;
+  font-style: italic;
+}
+
+.move-to-tree-caret {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.move-to-tree-row.selected .move-to-tree-caret {
+  color: white;
+}
+
+.move-to-tree-icon {
+  flex-shrink: 0;
+}
+
+.move-to-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-to-tree-hint {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.move-to-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.move-to-target {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-to-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.move-to-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.move-to-btn:hover:not(:disabled) {
+  background-color: var(--bg-tertiary);
+}
+
+.move-to-btn.primary {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
+}
+
+.move-to-btn.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.move-to-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

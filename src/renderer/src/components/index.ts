@@ -38,6 +38,7 @@ export type { SplitPanelProps } from './SplitPanel'
 // v1.7.0: DOCX 导出进度面板
 export { ExportTaskView } from './ExportTaskView'
 export { PreflightPanel } from './PreflightPanel'
+export { MoveToDialog } from './MoveToDialog'
 
 // 轻量 Markdown 编辑
 export { QuickEditDrawer } from './QuickEditDrawer'

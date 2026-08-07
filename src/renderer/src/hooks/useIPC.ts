@@ -25,6 +25,7 @@ interface UseIPCOptions {
   handleFileSelect: (file: { name: string; path: string; isDirectory: boolean }, lineNumber?: number, keyword?: string) => Promise<void>
   loadBookmarks: () => Promise<void>
   previewRef: React.RefObject<HTMLDivElement | null>
+  onMoveToRequest: (sources: string[]) => void
 }
 
 /**
@@ -36,7 +37,7 @@ export function useIPC(options: UseIPCOptions): void {
     toast, handleOpenFolder, handleRefreshFiles, handleTabClose,
     handleExportHTML, handleExportPDF, handleExportDOCX,
     handleFocusSearch, handleNextTab, handlePrevTab, handleSwitchTab,
-    handleFileSelect, loadBookmarks, previewRef
+    handleFileSelect, loadBookmarks, previewRef, onMoveToRequest
   } = options
 
   const { folderPath, setFiles, setSelectedPaths } = useFileStore()
@@ -174,6 +175,15 @@ export function useIPC(options: UseIPCOptions): void {
       }
     })
 
+    // 跨根移动：右键「移动到…」→ 打开目标选择弹窗（在多选集内则整批）
+    const unsubscribeMoveTo = window.api.onFileMoveToRequest((file: { path: string; isDirectory: boolean }) => {
+      const currentSelectedPaths = selectedPathsRef.current
+      const sources = currentSelectedPaths.has(file.path)
+        ? Array.from(currentSelectedPaths)
+        : [file.path]
+      onMoveToRequest(sources)
+    })
+
     return () => {
       unsubscribeDeleted()
       unsubscribeExport()
@@ -182,8 +192,9 @@ export function useIPC(options: UseIPCOptions): void {
       unsubscribeCopy()
       unsubscribeCut()
       unsubscribePaste()
+      unsubscribeMoveTo()
     }
-  }, [toast, copy, cut, paste, setTabs, setFiles, setSelectedPaths])
+  }, [toast, copy, cut, paste, setTabs, setFiles, setSelectedPaths, onMoveToRequest])
 
   // v1.3 新增：Tab 右键菜单事件监听
   useEffect(() => {

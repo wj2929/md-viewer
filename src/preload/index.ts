@@ -9,6 +9,8 @@ const api = {
   // 文件系统操作 (v1.0 核心功能)
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
+  listChildDirs: (path: string) =>
+    ipcRenderer.invoke('fs:listChildDirs', path) as Promise<Array<{ name: string; path: string }>>,
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
   readLocalAssetBase64: (payload: { markdownFilePath: string; refPath: string }) =>
     ipcRenderer.invoke('fs:readLocalAssetBase64', payload) as Promise<{ base64: string; mimeType: string; resolvedPath: string }>,
@@ -419,6 +421,8 @@ const api = {
   copyFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyFile', srcPath, destPath),
   copyDir: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:copyDir', srcPath, destPath),
   moveFile: (srcPath: string, destPath: string) => ipcRenderer.invoke('fs:moveFile', srcPath, destPath),
+  moveFileToFolder: (srcPath: string, targetHistoryId: string, subRelPath?: string) =>
+    ipcRenderer.invoke('fs:moveFileToFolder', srcPath, targetHistoryId, subRelPath),
   fileExists: (filePath: string) => ipcRenderer.invoke('fs:exists', filePath),
   isDirectory: (filePath: string) => ipcRenderer.invoke('fs:isDirectory', filePath),
 
@@ -606,6 +610,12 @@ const api = {
     const handler = (_event: unknown, filePath: string) => callback(filePath)
     ipcRenderer.on('file:duplicate-request', handler)
     return () => ipcRenderer.removeListener('file:duplicate-request', handler)
+  },
+
+  onFileMoveToRequest: (callback: (file: { path: string; isDirectory: boolean }) => void) => {
+    const handler = (_event: unknown, file: { path: string; isDirectory: boolean }) => callback(file)
+    ipcRenderer.on('file:move-to-request', handler)
+    return () => ipcRenderer.removeListener('file:move-to-request', handler)
   },
 
   onFileExportRequest: (callback: (data: { path: string; type: 'html' | 'pdf' }) => void) => {

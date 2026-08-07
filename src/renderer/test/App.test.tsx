@@ -61,6 +61,7 @@ const mockApi = {
   // v1.2 阶段 1：右键菜单事件
   onFileDeleted: vi.fn(() => vi.fn()),
   onFileDuplicateRequest: vi.fn(() => vi.fn()),
+  onFileMoveToRequest: vi.fn(() => vi.fn()),
   onFileStartRename: vi.fn(() => vi.fn()),
   onFileExportRequest: vi.fn(() => vi.fn()),
   onError: vi.fn(() => vi.fn()),

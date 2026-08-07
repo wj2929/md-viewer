@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel, MoveToDialog } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
 import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
@@ -89,6 +89,8 @@ function App(): React.JSX.Element {
   const searchBarRef = useRef<SearchBarHandle>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(null)
+  // 跨根移动目标选择弹窗
+  const [moveToSources, setMoveToSources] = useState<string[] | null>(null)
   const dirtyLeaveDecisionRef = useRef<{
     activeTabId: string
     canonicalPath: string
@@ -1130,7 +1132,8 @@ function App(): React.JSX.Element {
     handleSwitchTab,
     handleFileSelect,
     loadBookmarks,
-    previewRef
+    previewRef,
+    onMoveToRequest: setMoveToSources
   })
 
   return (
@@ -1156,6 +1159,14 @@ function App(): React.JSX.Element {
       <ShortcutsHelpDialog
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
+      />
+
+      <MoveToDialog
+        isOpen={moveToSources !== null}
+        sources={moveToSources ?? []}
+        onClose={() => setMoveToSources(null)}
+        onMoveSuccess={(msg) => toast.success(msg)}
+        onMoveError={(msg) => toast.error(msg)}
       />
 
       <main className="main-content">

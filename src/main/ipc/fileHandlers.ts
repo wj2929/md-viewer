@@ -640,6 +640,31 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
+  // 只列出某目录的「直接子目录」（懒加载，供跨根移动的目标子目录树逐层下钻）。
+  // 读类操作走读放宽校验；返回全部子目录（含无 md 的目录），与 fs:readDir 的
+  // 「只反推含 md 的目录」不同——移动目标可能是任意目录。跳过符号链接目录。
+  ipcMain.handle('fs:listChildDirs', async (event, dirPath: string) => {
+    try {
+      const resolvedDirectory = await validateSenderReadPath(ctx, event, dirPath)
+      const entries = await fs.readdir(resolvedDirectory, { withFileTypes: true })
+      const dirs: Array<{ name: string; path: string }> = []
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        if (entry.name.startsWith('.')) continue
+        if (hasIgnoredPathSegment(path.join(resolvedDirectory, entry.name))) continue
+        dirs.push({ name: entry.name, path: path.join(resolvedDirectory, entry.name) })
+      }
+      dirs.sort((a, b) => a.name.localeCompare(b.name))
+      return dirs
+    } catch (error) {
+      console.error('Failed to list child directories:', error)
+      if (error instanceof Error && error.message.includes('安全错误')) {
+        throw error
+      }
+      return []
+    }
+  })
+
   // 读取文件内容
   ipcMain.handle('fs:readFile', async (event, filePath: string) => {
     try {
@@ -1090,6 +1115,56 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw error
     }
   })
+
+  // 跨根移动：把文件/文件夹移动到「文件夹历史」里的某个目录（及其子目录）。
+  // 安全形态（继剪贴板源例外后的第二个刻意跨根写例外）：
+  //   - 渲染进程只传 opaque targetHistoryId + 相对子路径 subRelPath，绝不传目标绝对路径。
+  //   - 目标根由主进程 resolveHistoryFolder(id) 自解析（realpath+stat，失效目录返回 null）。
+  //   - subRelPath 经 validateSecurePathInBase(dest, targetRoot) 锁死在该根内，防 ../ 逃逸。
+  //   - 源、受保护路径、自身/子目录、目录内 symlink、overwrite:false 等不变式与 fs:moveFile 一致。
+  ipcMain.handle(
+    'fs:moveFileToFolder',
+    async (event, srcPath: string, targetHistoryId: string, subRelPath?: string) => {
+      try {
+        const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
+
+        const targetRoot = await ctx.folderHistoryManager.resolveHistoryFolder(targetHistoryId)
+        if (!targetRoot) {
+          throw new Error('安全错误：目标目录无效或已失效')
+        }
+
+        // 目标绝对路径由主进程用「已解析的历史根 + 相对子路径 + 源文件名」构造，
+        // 再经 realpath 边界校验确保没越出该根（validateSecurePathInBase 内含 validateNotProtected）。
+        const normalizedSubRel = subRelPath ? path.normalize(subRelPath) : ''
+        const destinationDir = path.join(targetRoot, normalizedSubRel)
+        const destinationPath = path.join(destinationDir, path.basename(resolvedSource))
+        const resolvedDestination = await validateSecurePathInBase(destinationPath, targetRoot)
+
+        if (isSameOrChildPath(resolvedDestination, resolvedSource)) {
+          throw new Error('无法移动目录到自身或子目录')
+        }
+
+        if (!(await fs.pathExists(resolvedSource))) {
+          throw new Error('源文件不存在')
+        }
+
+        const sourceStats = await fs.lstat(resolvedSource)
+        if (sourceStats.isDirectory()) {
+          await rejectDirectorySymbolicLinks(resolvedSource)
+        }
+
+        if (await fs.pathExists(resolvedDestination)) {
+          throw new Error('目标文件已存在')
+        }
+
+        await fs.move(resolvedSource, resolvedDestination, { overwrite: false })
+        return resolvedDestination
+      } catch (error) {
+        console.error('Failed to move file to folder:', error)
+        throw error
+      }
+    }
+  )
 
   // 检查文件是否存在
   ipcMain.handle('fs:exists', async (event, filePath: string) => {
