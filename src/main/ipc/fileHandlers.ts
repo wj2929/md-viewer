@@ -239,7 +239,9 @@ const WATCHER_CONFIG = {
 
 // 路径任一段命中忽略目录名（或为隐藏目录 .xxx）即应剪枝
 export function hasIgnoredPathSegment(filePath: string): boolean {
-  const segments = filePath.split(path.sep)
+  // 同时按 / 和 \ 拆分：Windows 上 path.sep 为 \，但传入路径可能混用 /，
+  // 只按 path.sep 拆会漏判（跨平台缺陷）。
+  const segments = filePath.split(/[/\\]/)
   for (const seg of segments) {
     if (!seg) continue
     if (WATCHER_CONFIG.IGNORED_DIR_NAMES.has(seg)) return true

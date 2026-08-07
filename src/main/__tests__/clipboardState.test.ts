@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import * as path from 'path'
 import {
   clearClipboardState,
   getClipboardState,
@@ -19,13 +20,14 @@ describe('clipboardState', () => {
     syncClipboardState(firstWindow, ['/folders/A/file.md'], false)
     syncClipboardState(secondWindow, ['/folders/B/file.md'], true)
 
+    // 实现用 path.resolve 归一化存储；用 path.resolve 构造期望值以跨平台（Windows 上会带盘符/反斜杠）
     expect(getClipboardState(firstWindow)).toEqual({
-      files: ['/folders/A/file.md'],
+      files: [path.resolve('/folders/A/file.md')],
       isCut: false,
       hasFiles: true
     })
     expect(getClipboardState(secondWindow)).toEqual({
-      files: ['/folders/B/file.md'],
+      files: [path.resolve('/folders/B/file.md')],
       isCut: true,
       hasFiles: true
     })

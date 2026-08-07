@@ -69,7 +69,9 @@ describe('Security Module', () => {
   })
 
   describe('isProtectedPath', () => {
-    it('should detect Unix system directories', () => {
+    // Unix 绝对根路径（/etc、/usr…）在 Windows 上经 path.resolve 会被加盘符前缀
+    // （C:/etc/…），无法匹配以 / 开头的规则；这些是 Unix 专属系统目录，仅在非 Windows 断言。
+    it.skipIf(process.platform === 'win32')('should detect Unix system directories', () => {
       expect(isProtectedPath('/etc/passwd')).toBe(true)
       expect(isProtectedPath('/usr/bin/sudo')).toBe(true)
       expect(isProtectedPath('/System/Library/file')).toBe(true)

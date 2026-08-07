@@ -90,7 +90,9 @@ const PROTECTED_PATTERNS = [
  * @returns 如果路径受保护则返回 true
  */
 export function isProtectedPath(targetPath: string): boolean {
-  const normalized = path.resolve(targetPath)
+  // 归一化为 / 分隔再匹配：PROTECTED_PATTERNS 用 / 书写，Windows 上 path.resolve
+  // 产出 \ 分隔会导致 .ssh/.aws 等跨平台敏感目录漏判。转成 / 让规则跨平台一致生效。
+  const normalized = path.resolve(targetPath).replace(/\\/g, '/')
   const isProtected = PROTECTED_PATTERNS.some(pattern => pattern.test(normalized))
 
   if (isProtected) {

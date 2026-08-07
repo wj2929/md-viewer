@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as os from 'os'
 import * as fs from 'fs'
+import { execFileSync } from 'child_process'
 import { clipboard } from 'electron'
 
 // Mock 模块
@@ -21,6 +22,14 @@ vi.mock('os', () => ({
 vi.mock('fs', () => ({
   existsSync: vi.fn()
 }))
+
+// mock child_process：execFileSync 默认为普通 stub（不抛错），
+// 具体用例按需覆盖行为。此前"无法运行 PowerShell"用例依赖 macOS/Linux 上
+// powershell.exe 不存在而抛错，Windows CI 上真实存在会成功导致断言失败。
+vi.mock('child_process', () => {
+  const execFileSync = vi.fn()
+  return { execFileSync, default: { execFileSync } }
+})
 
 vi.mock('../security', () => ({
   isProtectedPath: vi.fn((path: string) => {
@@ -271,6 +280,10 @@ describe('clipboardManager', () => {
 
       it('当前环境无法运行 PowerShell 时返回 false', () => {
         vi.mocked(fs.existsSync).mockReturnValue(true)
+        // 显式让 powershell 调用抛错，跨平台确定（Windows CI 上 powershell.exe 真实存在会成功）
+        vi.mocked(execFileSync).mockImplementationOnce(() => {
+          throw new Error('spawnSync powershell.exe ENOENT')
+        })
 
         expect(clipboardManager.writeFilesToSystemClipboard(['C:\\Users\\test\\file.txt'], false)).toBe(false)
         expect(clipboard.writeText).not.toHaveBeenCalled()

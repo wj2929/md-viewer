@@ -43,7 +43,12 @@ vi.mock('fs-extra', async () => {
 const ctx = {
   store: { set: vi.fn() },
   folderHistoryManager: { addFolder: vi.fn() },
-  windowManager: { getWindowFolderPath: vi.fn<(id: number) => string | undefined>(() => '/docs') }
+  windowManager: {
+    getWindowFolderPath: vi.fn<(id: number) => string | undefined>(() => '/docs'),
+    // 读放宽分支（validateSenderReadPath）会遍历所有窗口根；快路径失败时才走到，
+    // 补齐 mock 避免非 macOS 平台落到该分支时崩（getAllWindowFolderRoots is not a function）。
+    getAllWindowFolderRoots: vi.fn<() => string[]>(() => [])
+  }
 }
 
 const mockRealpath = vi.mocked(fs.realpath as unknown as (path: string) => Promise<string>)

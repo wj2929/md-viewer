@@ -162,7 +162,9 @@ export function showContextMenu(
       label: i18n.copyRelativePath,
       accelerator: 'Shift+Alt+C',
       click: () => {
-        const relativePath = path.relative(basePath, file.path)
+        // 归一化为 / 分隔：相对路径用于 Markdown 引用等可移植场景，
+        // Windows 上 path.relative 返回 \ 分隔，统一转成 /。
+        const relativePath = path.relative(basePath, file.path).split(path.sep).join('/')
         clipboard.writeText(relativePath)
       }
     },
