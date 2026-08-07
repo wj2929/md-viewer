@@ -42,11 +42,15 @@ vi.mock('fs-extra', async () => {
 
 const ctx = {
   store: { set: vi.fn() },
-  folderHistoryManager: { addFolder: vi.fn() },
+  // 读放宽分支（validateSenderReadPath）快路径失败时会遍历 所有窗口根 + 文件夹历史
+  // + 最近文件 + 书签；非 macOS 平台易落到该分支，补齐全部被调 mock 避免崩。
+  folderHistoryManager: { addFolder: vi.fn(), getHistory: vi.fn<() => any[]>(() => []) },
+  appDataManager: {
+    getRecentFiles: vi.fn<() => any[]>(() => []),
+    getBookmarks: vi.fn<() => any[]>(() => [])
+  },
   windowManager: {
     getWindowFolderPath: vi.fn<(id: number) => string | undefined>(() => '/docs'),
-    // 读放宽分支（validateSenderReadPath）会遍历所有窗口根；快路径失败时才走到，
-    // 补齐 mock 避免非 macOS 平台落到该分支时崩（getAllWindowFolderRoots is not a function）。
     getAllWindowFolderRoots: vi.fn<() => string[]>(() => [])
   }
 }

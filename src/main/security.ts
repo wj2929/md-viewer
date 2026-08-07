@@ -81,7 +81,11 @@ const PROTECTED_PATTERNS = [
   /\/\.[^/]+\/.*\.pem$/,
   /\/\.[^/]+\/.*credentials/i,
   /\/\.[^/]+\/.*secret/i,
-  /\/\.[^/]+\/.*token/i
+  /\/\.[^/]+\/.*token/i,
+
+  // ========== Windows 系统目录（路径已在 isProtectedPath 内归一化为 / 分隔）==========
+  /^[a-zA-Z]:\/Windows\//i,        // C:/Windows/...
+  /^[a-zA-Z]:\/Program Files/i     // C:/Program Files, C:/Program Files (x86)
 ]
 
 /**

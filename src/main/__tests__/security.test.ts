@@ -202,11 +202,15 @@ describe('Security Module', () => {
     })
 
     it('should throw for protected paths', () => {
-      expect(() => validateNotProtected('/etc/passwd')).toThrow('安全错误')
+      // .ssh 跨平台受保护（归一化后规则生效）；/etc 是 Unix 绝对根，Windows 上经 resolve
+      // 带盘符无法匹配，仅非 Windows 断言。
+      if (process.platform !== 'win32') {
+        expect(() => validateNotProtected('/etc/passwd')).toThrow('安全错误')
+      }
       expect(() => validateNotProtected('/Users/test/.ssh/id_rsa')).toThrow('安全错误')
     })
 
-    it('should throw with descriptive error message', () => {
+    it.skipIf(process.platform === 'win32')('should throw with descriptive error message', () => {
       expect(() => validateNotProtected('/etc/passwd')).toThrow(/受保护的系统路径/)
     })
   })
