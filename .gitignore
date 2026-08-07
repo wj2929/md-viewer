@@ -61,6 +61,11 @@ docs/V1.3.4-*.md
 docs/V1.3.5-*.md
 docs/cross-platform-analysis.md
 docs/testing/
+# 开发过程文档（roadmap/方案/handoff/进度），不进公开仓库
+docs/*-roadmap.md
+docs/*-context-handoff.md
+docs/*-implementation-progress.md
+docs/markdown-edit-mode-design.md
 
 # Internal reports (AI-generated)
 TEST-REPORT-*.md
