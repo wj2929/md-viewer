@@ -115,6 +115,46 @@ const api = {
   runPreflight: (request: { filePath: string; formats: string[]; docxServiceUrl?: string }) =>
     ipcRenderer.invoke('preflight:run', request) as Promise<import('../shared/preflight').PreflightResult>,
 
+  // ===== TTS 朗读 =====
+  ttsSynthesize: (req: {
+    requestId: string
+    providerId: string
+    type: string
+    text: string
+    voice?: string
+    rate?: number
+    baseUrl?: string
+    region?: string
+    model?: string
+  }) =>
+    ipcRenderer.invoke('tts:synthesize', req) as Promise<{
+      ok: boolean
+      kind?: string
+      message?: string
+      audioBase64?: string
+      format?: string
+      boundaries?: Array<{ text: string; offsetMs: number; durationMs: number }>
+    }>,
+  ttsCancel: (requestId: string) =>
+    ipcRenderer.invoke('tts:cancel', requestId) as Promise<{ ok: boolean }>,
+  ttsListVoices: (type: string) =>
+    ipcRenderer.invoke('tts:listVoices', type) as Promise<
+      Array<{ id: string; name: string; lang?: string }>
+    >,
+  ttsTestProvider: (req: {
+    providerId: string
+    type: string
+    text?: string
+    voice?: string
+    baseUrl?: string
+    region?: string
+    model?: string
+  }) => ipcRenderer.invoke('tts:testProvider', req) as Promise<{ ok: boolean; kind?: string; message?: string }>,
+  ttsSetKey: (providerId: string, apiKey: string) =>
+    ipcRenderer.invoke('tts:setKey', providerId, apiKey) as Promise<{ ok: boolean; hasKey?: boolean; message?: string }>,
+  ttsEncryptionAvailable: () =>
+    ipcRenderer.invoke('tts:encryptionAvailable') as Promise<boolean>,
+
   selectReferenceDocx: () =>
     ipcRenderer.invoke('docx:selectReferenceDocx') as Promise<string | null>,
 
@@ -758,6 +798,13 @@ const api = {
     return () => ipcRenderer.removeListener('markdown:quick-edit', handler)
   },
 
+  // v2.7.0: 从当前行朗读
+  onReadAloudFromLine: (callback: (params: { sourceLine: number | null }) => void) => {
+    const handler = (_event: unknown, params: { sourceLine: number | null }) => callback(params)
+    ipcRenderer.on('markdown:read-aloud-from-line', handler)
+    return () => ipcRenderer.removeListener('markdown:read-aloud-from-line', handler)
+  },
+
   onExportChartsZipFromPreview: (callback: (params: {
     filePath: string
     tabId?: string
@@ -828,6 +875,13 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('shortcut:print', handler)
     return () => ipcRenderer.removeListener('shortcut:print', handler)
+  },
+
+  // v2.7.0：朗读播放/暂停
+  onShortcutToggleReadAloud: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('shortcut:toggle-read-aloud', handler)
+    return () => ipcRenderer.removeListener('shortcut:toggle-read-aloud', handler)
   },
 
   // ============== v1.4.2：字体大小调节 ==============

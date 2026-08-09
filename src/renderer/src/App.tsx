@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel, MoveToDialog } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, ReadAloudBar, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel, MoveToDialog } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves } from './utils/splitTree'
 import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
@@ -13,6 +13,7 @@ import { useEditDraftPersistence } from './hooks/useEditDraftPersistence'
 import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore, useDocumentViewModeStore } from './stores'
 import type { DocumentViewMode, EditConflictReason, EditSession } from './stores'
 import { useExportTaskStore } from './stores/exportTaskStore'
+import { useReadAloudStore } from './stores/readAloudStore'
 import type { QuickEditTarget } from './utils/quickEditTarget'
 import type { OpenDocumentCommand } from './utils/v24WorkflowContracts'
 
@@ -166,6 +167,10 @@ function App(): React.JSX.Element {
 
   // 初始加载书签
   useEffect(() => { loadBookmarks() }, [loadBookmarks])
+
+  // v2.7.0:初始加载朗读设置(多 provider)
+  const loadReadAloudSettings = useReadAloudStore((s) => s.loadSettings)
+  useEffect(() => { loadReadAloudSettings() }, [loadReadAloudSettings])
 
   // v1.3.6 Day 7.6：监听书签数量变化，首次添加书签时自动展开 BookmarkPanel
   const hasShownBookmarkPanelRef = useRef(false)
@@ -1373,6 +1378,12 @@ function App(): React.JSX.Element {
                               <FloatingNav
                                 containerRef={previewRef}
                                 markdown={activePreviewContent}
+                              />
+                            )}
+                            {activeTab && isMarkdownFile(activeTab.file.path) && (
+                              <ReadAloudBar
+                                containerRef={previewRef}
+                                filePath={activeTab.file.path}
                               />
                             )}
                           </div>

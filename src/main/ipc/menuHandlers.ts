@@ -267,6 +267,15 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
       click: () => event.sender.send('markdown:quick-edit', quickEditTarget)
     })
 
+    // v2.7.0: 从当前行朗读(传源码行号,渲染层映射到朗读句起点)
+    menuTemplate.push({
+      label: '🔊 从当前行播放',
+      click: () =>
+        event.sender.send('markdown:read-aloud-from-line', {
+          sourceLine: typeof sourceLine === 'number' ? sourceLine : null,
+        })
+    })
+
     menuTemplate.push({ type: 'separator' })
   }
 

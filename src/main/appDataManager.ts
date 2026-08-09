@@ -8,6 +8,7 @@ import Store from 'electron-store'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../shared/docxStyles'
+import type { ReadAloudSettings } from '../shared/ttsProviders'
 
 // ============== 数据接口定义 ==============
 
@@ -113,6 +114,7 @@ export interface AppSettings {
     localFallbackEnabled: boolean
     referenceDocxPath?: string
   }
+  readAloud?: ReadAloudSettings  // v2.7.0：语音朗读设置(多 provider)
 }
 
 /**

@@ -4,6 +4,7 @@ import { registerFileHandlers } from './fileHandlers'
 import { registerExportHandlers } from './exportHandlers'
 import { registerMenuHandlers } from './menuHandlers'
 import { registerDataHandlers } from './dataHandlers'
+import { registerTtsHandlers } from './ttsHandlers'
 
 export type { IPCContext, AppState } from './context'
 export { getFileWatcherState } from './fileHandlers'
@@ -17,4 +18,5 @@ export function registerAllHandlers(ctx: IPCContext): void {
   registerExportHandlers(ctx)
   registerMenuHandlers(ctx)
   registerDataHandlers(ctx)
+  registerTtsHandlers()
 }

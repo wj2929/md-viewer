@@ -1,5 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import { type DocxStyle } from '../shared/docxStyles'
+import { type ReadAloudSettings } from '../shared/ttsProviders'
 
 // v1.7.0：DOCX 导出设置
 interface DocxExportSettings {
@@ -234,14 +235,45 @@ declare global {
         error?: string
       }>
       runPreflight: (request: { filePath: string; formats: string[]; docxServiceUrl?: string }) => Promise<import('../shared/preflight').PreflightResult>
+      ttsSynthesize: (req: {
+        requestId: string
+        providerId: string
+        type: string
+        text: string
+        voice?: string
+        rate?: number
+        baseUrl?: string
+        region?: string
+        model?: string
+      }) => Promise<{
+        ok: boolean
+        kind?: string
+        message?: string
+        audioBase64?: string
+        format?: string
+        boundaries?: Array<{ text: string; offsetMs: number; durationMs: number }>
+      }>
+      ttsCancel: (requestId: string) => Promise<{ ok: boolean }>
+      ttsListVoices: (type: string) => Promise<Array<{ id: string; name: string; lang?: string }>>
+      ttsTestProvider: (req: {
+        providerId: string
+        type: string
+        text?: string
+        voice?: string
+        baseUrl?: string
+        region?: string
+        model?: string
+      }) => Promise<{ ok: boolean; kind?: string; message?: string }>
+      ttsSetKey: (providerId: string, apiKey: string) => Promise<{ ok: boolean; hasKey?: boolean; message?: string }>
+      ttsEncryptionAvailable: () => Promise<boolean>
       selectReferenceDocx: () => Promise<string | null>
 
       getLastDocxExportPath: () => Promise<string | null>
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings; readAloud: ReadAloudSettings }>) => Promise<void>
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>
@@ -414,6 +446,7 @@ declare global {
         scrollRatio?: number
         mode: 'document' | 'selection' | 'source-line' | 'scroll-ratio'
       }) => void) => () => void
+      onReadAloudFromLine: (callback: (params: { sourceLine: number | null }) => void) => () => void
       onExportChartsZipFromPreview: (callback: (params: {
         filePath: string
         tabId?: string
@@ -447,6 +480,7 @@ declare global {
       // v1.4.2：打印
       print: () => Promise<{ success: boolean }>
       onShortcutPrint: (callback: () => void) => () => void
+      onShortcutToggleReadAloud: (callback: () => void) => () => void
 
       // v1.4.2：字体大小调节
       onShortcutFontIncrease: (callback: () => void) => () => void

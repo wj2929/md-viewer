@@ -40,6 +40,9 @@ export function createContentSecurityPolicy(dev: boolean): string {
       ? ["'self'", 'data:', 'blob:', 'https:', 'local-image:']
       : ["'self'", 'data:', 'https:', 'local-image:']),
     joinDirective('font-src', COMMON_FONT_SOURCES),
+    // media-src:供 TTS 朗读播放主进程返回的音频(blob:/data:)。
+    // 第三方 TTS 请求走主进程(不放开 connect-src),故此处只需放行本地音频源。
+    joinDirective('media-src', ["'self'", 'blob:', 'data:']),
     joinDirective('connect-src', dev
       ? [...COMMON_CONNECT_SOURCES, 'ws://localhost:*', 'http://localhost:*']
       : [...COMMON_CONNECT_SOURCES, 'http://localhost:*', 'http://127.0.0.1:*']),

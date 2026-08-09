@@ -106,6 +106,8 @@ const mockApi = {
   updateBookmarkOrder: vi.fn().mockResolvedValue(undefined),
   // v1.3.6：快捷键 - 添加书签
   onShortcutAddBookmark: vi.fn(() => vi.fn()),
+  onShortcutToggleReadAloud: vi.fn(() => vi.fn()),
+  onReadAloudFromLine: vi.fn(() => vi.fn()),
   // v1.3.6：最近文件
   getRecentFiles: vi.fn().mockResolvedValue([]),
   addRecentFile: vi.fn().mockResolvedValue(undefined),
