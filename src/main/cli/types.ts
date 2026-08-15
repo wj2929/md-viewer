@@ -98,6 +98,6 @@ export interface CliCapabilities {
 export interface CliCommandSchema {
   command: CliCommandName | 'result'
   description: string
-  positional: Array<{ name: string; required: boolean; description: string }>
+  positional: Array<{ name: string; required: boolean; description: string; variadic?: boolean }>
   flags: Record<string, { type: string; required?: boolean; enum?: string[]; description: string }>
 }

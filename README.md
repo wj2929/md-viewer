@@ -104,6 +104,7 @@ md-viewer inspect README.md --json
 md-viewer links README.md --json
 md-viewer render README.md --out render.html --json
 md-viewer export README.md --format pdf --out README.pdf
+md-viewer export ch1.md ch2.md ch3.md --format pdf --out book.pdf
 md-viewer screenshot README.md --selector ".markdown-body" --out README.png
 md-viewer charts list README.md --json
 md-viewer batch e2e/local-real-docs.json --out test-results/release-report.json

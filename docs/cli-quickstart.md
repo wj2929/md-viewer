@@ -72,6 +72,12 @@ md-viewer export report.md --format pdf --out report.pdf
 
 成功后会生成 `report.pdf`，JSON 里的 `artifacts[]` 会列出文件路径和大小。
 
+多个文件合并成一份（html/pdf/docx，文件间自动分页）：
+
+```bash
+md-viewer export ch1.md ch2.md ch3.md --format pdf --out book.pdf
+```
+
 复杂图表很多时可以放宽 headless 渲染时间：
 
 ```bash

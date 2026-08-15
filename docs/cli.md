@@ -215,9 +215,12 @@ md-viewer open /path/to/docs
 md-viewer export README.md --format html --out README.html
 md-viewer export README.md --format pdf --out README.pdf
 md-viewer export README.md --format pdf --out README.pdf --timeout-ms 180000
+md-viewer export ch1.md ch2.md ch3.md --format pdf --out book.pdf
 ```
 
 HTML/PDF 走 headless renderer 和共享导出 writer，与 GUI 导出保持一致：含代码高亮样式、markdown 主题样式，并把 `<img>` 引用的本地图片内嵌为 `data:base64`（换机打开不裂图；越界或系统敏感路径的图片保持原样不内嵌）。复杂图表较多时可加 `--timeout-ms`，单位是毫秒；默认 `120000`。如果返回 `renderStatus: "timeout"`，命令会以失败状态退出；此时可能仍有诊断用产物，但不应作为最终交付文件。
+
+**多文件合并**：传入多个 Markdown 路径时，按命令行顺序合并为一份 HTML、PDF 或 DOCX，文件之间自动插入分页符。HTML/PDF 会分别按每个文件的**自身目录**解析并内嵌本地图片；DOCX 会为各文件的本地图片建立独立资源命名空间，避免同名图片冲突，并要求 DOCX 服务支持 `<!-- pagebreak -->` 硬分页标记。可选 `--title` 指定文档标题（默认取第一个文件名）。`summary.inputs` 会列出全部输入文件，图表统计为各文件累加；任一文件渲染超时或有图表失败，整体以失败状态退出。
 
 ### DOCX
 

@@ -112,8 +112,8 @@ export const commandSchemas: Partial<Record<CliCommandName | 'result', CliComman
   },
   export: {
     command: 'export',
-    description: '导出 HTML、PDF 或 DOCX。',
-    positional: [{ name: 'input', required: true, description: 'Markdown 文件路径。' }],
+    description: '导出 HTML、PDF 或 DOCX。传入多个文件时按顺序合并为一份文档,文件间自动分页。',
+    positional: [{ name: 'input', required: true, variadic: true, description: 'Markdown 文件路径;可传多个,按顺序合并为一份 HTML、PDF 或 DOCX。' }],
     flags: {
       format: { type: 'string', required: true, enum: ['html', 'pdf', 'docx'], description: '导出格式。' },
       out: { type: 'string', required: true, description: '输出文件路径。' },
