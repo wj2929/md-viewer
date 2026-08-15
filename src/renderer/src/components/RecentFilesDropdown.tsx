@@ -122,9 +122,10 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
   return (
     <div className="recent-files-dropdown" ref={dropdownRef}>
       <button
-        className="recent-files-btn"
+        className="recent-files-btn nav-instant-tooltip"
         onClick={() => setIsOpen(!isOpen)}
-        title="最近打开的文件"
+        data-tooltip="最近打开的文件"
+        aria-label="最近打开的文件"
       >
         🕐
       </button>

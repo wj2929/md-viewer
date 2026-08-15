@@ -51,6 +51,10 @@ function isPreviewableFileName(fileName: string): boolean {
   return PREVIEWABLE_EXTENSIONS.has(path.extname(fileName).toLowerCase())
 }
 
+interface ContextMenuActions {
+  openMarkdownInNewWindow?: (filePath: string) => void | Promise<void>
+}
+
 /**
  * 显示文件/文件夹的右键菜单
  * @param window - 主窗口实例
@@ -60,7 +64,8 @@ function isPreviewableFileName(fileName: string): boolean {
 export function showContextMenu(
   window: BrowserWindow,
   file: FileInfo,
-  basePath: string
+  basePath: string,
+  actions: ContextMenuActions = {}
 ): void {
   const platform = process.platform
 
@@ -145,6 +150,21 @@ export function showContextMenu(
                 }
               }
             ]
+          }
+        ]
+      : []),
+    ...(!file.isDirectory && isMarkdownFileName(file.name) && actions.openMarkdownInNewWindow
+      ? [
+          {
+            label: '🗔 在新窗口中打开',
+            click: () => {
+              void Promise.resolve(actions.openMarkdownInNewWindow?.(file.path)).catch((error) => {
+                console.error('Failed to open Markdown in new window:', error)
+                window.webContents.send('error:show', {
+                  message: error instanceof Error ? error.message : '无法在新窗口中打开文件'
+                })
+              })
+            }
           }
         ]
       : []),

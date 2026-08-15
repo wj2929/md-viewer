@@ -88,6 +88,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
 .nav-settings-btn,
 .nav-last-export-btn,
 .nav-always-on-top-btn,
+.nav-panel-toggle,
 .recent-files-btn,
 .folder-btn,
 .history-toggle-btn {
@@ -107,6 +108,76 @@ body[data-platform="darwin"] .titlebar-drag-region {
 
 .nav-refresh-btn:hover {
   background: var(--bg-tertiary);
+}
+
+.nav-panel-toggle {
+  position: relative;
+  z-index: 1;
+  width: 32px;
+  min-width: 32px;
+  padding: 6px;
+  color: var(--text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.nav-panel-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-panel-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.nav-panel-toggle.active {
+  color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+
+.nav-instant-tooltip {
+  position: relative;
+}
+
+.nav-instant-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.08s ease;
+}
+
+.nav-instant-tooltip:hover::after,
+.nav-instant-tooltip:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.nav-instant-tooltip.right::after,
+.nav-actions .nav-instant-tooltip::after {
+  left: auto;
+  right: 0;
+  transform: none;
 }
 
 .nav-refresh-btn:disabled {

@@ -119,7 +119,9 @@ const mockApi = {
     autoSave: false,
     bookmarkPanelWidth: 240,
     bookmarkPanelCollapsed: true,
-    bookmarkBarCollapsed: true
+    bookmarkBarCollapsed: true,
+    sidebarWidth: 280,
+    sidebarCollapsed: false
   }),
   updateAppSettings: vi.fn().mockResolvedValue(undefined),
   // v1.3.6：固定标签
@@ -217,7 +219,7 @@ describe('App 集成测试', () => {
     useFileStore.setState({ folderPath: null, files: [], isLoading: false, selectedPaths: new Set() })
     useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
     useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
-    useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
+    useLayoutStore.setState({ sidebarWidth: 280, sidebarCollapsed: false, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
     useEditSessionStore.getState().reset()
     useQuickEditPlacementStore.getState().reset()
     useDocumentViewModeStore.getState().reset()
@@ -247,6 +249,43 @@ describe('App 集成测试', () => {
       expect(screen.getByText('欢迎使用 MD Viewer')).toBeInTheDocument()
       expect(screen.getByText('一个简洁的 Markdown 预览工具')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: '打开文件夹' })).toBeInTheDocument()
+    })
+
+    it('可以收起并恢复文件树侧栏且保留展开宽度', async () => {
+      mockApi.getAppSettings.mockResolvedValue({
+        imageDir: '', autoSave: false, bookmarkPanelWidth: 240,
+        bookmarkPanelCollapsed: true, bookmarkBarCollapsed: true,
+        sidebarWidth: 360, sidebarCollapsed: false
+      })
+      mockApi.readDir.mockResolvedValue([])
+      useFileStore.setState({
+        folderPath: '/test/folder',
+        files: [],
+        isLoading: false,
+        selectedPaths: new Set()
+      })
+      const { container } = render(<App />)
+
+      const collapseButton = await screen.findByRole('button', { name: '隐藏文件树' })
+      await waitFor(() => expect(useLayoutStore.getState().sidebarWidth).toBe(360))
+      let sidebar = document.querySelector('.sidebar') as HTMLElement
+      expect(collapseButton).toHaveAttribute('aria-pressed', 'true')
+      expect(sidebar.style.width).toBe('360px')
+      expect(document.querySelector('#file-tree-panel')).toBeInTheDocument()
+      expect(document.querySelector('.resize-handle')).toBeInTheDocument()
+
+      fireEvent.click(collapseButton)
+      expect(screen.getByRole('button', { name: '显示文件树' })).toHaveAttribute('aria-pressed', 'false')
+      expect(document.querySelector('.sidebar')).not.toBeInTheDocument()
+      expect(document.querySelector('#file-tree-panel')).not.toBeInTheDocument()
+      expect(document.querySelector('.resize-handle')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: '显示文件树' }))
+      sidebar = document.querySelector('.sidebar') as HTMLElement
+      expect(sidebar).toBeInTheDocument()
+      expect(sidebar.style.width).toBe('360px')
+      expect(mockApi.updateAppSettings).toHaveBeenCalledWith({ sidebarCollapsed: true })
+      expect(mockApi.updateAppSettings).toHaveBeenCalledWith({ sidebarCollapsed: false })
     })
 
     it('应该显示应用标题', () => {
@@ -1243,7 +1282,7 @@ describe('App 边界条件测试', () => {
     useFileStore.setState({ folderPath: null, files: [], isLoading: false, selectedPaths: new Set() })
     useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
     useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
-    useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
+    useLayoutStore.setState({ sidebarWidth: 280, sidebarCollapsed: false, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
     useEditSessionStore.getState().reset()
     vi.stubGlobal('confirm', vi.fn(() => false))
   })

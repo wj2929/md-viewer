@@ -54,7 +54,7 @@ function App(): React.JSX.Element {
   const { folderPath, setFolderPath, files, setFiles, isLoading, setIsLoading, selectedPaths, setSelectedPaths } = useFileStore()
   const { tabs, setTabs, activeTabId, setActiveTabId, splitState, setSplitState, scrollToLine, setScrollToLine, scrollToRatio, setScrollToRatio, highlightKeyword, setHighlightKeyword } = useTabStore()
   const { bookmarks, bookmarksLoading, bookmarkPanelCollapsed, setBookmarkPanelCollapsed, bookmarkPanelWidth, setBookmarkPanelWidth, bookmarkBarCollapsed, setBookmarkBarCollapsed, loadBookmarks, loadSettings: loadBookmarkSettings } = useBookmarkStore()
-  const { sidebarWidth, setSidebarWidth, isResizing, setIsResizing, showSettings, setShowSettings, showShortcutsHelp, setShowShortcutsHelp, isFullscreen, isDragOver, lightbox, setLightbox } = useLayoutStore()
+  const { sidebarWidth, setSidebarWidth, sidebarCollapsed, toggleSidebar, loadSettings: loadLayoutSettings, persistSidebarWidth, isResizing, setIsResizing, showSettings, setShowSettings, showShortcutsHelp, setShowShortcutsHelp, isFullscreen, isDragOver, lightbox, setLightbox } = useLayoutStore()
   const editSessions = useEditSessionStore(state => state.sessions)
   const openEditSession = useEditSessionStore(state => state.openSession)
   const markEditSessionSaved = useEditSessionStore(state => state.markSaved)
@@ -153,7 +153,7 @@ function App(): React.JSX.Element {
 
   // v1.3.6：加载书签设置
   useEffect(() => { loadBookmarkSettings() }, [])
-
+  useEffect(() => { loadLayoutSettings() }, [loadLayoutSettings])
 
   // v1.4.2：初始化 Zustand stores
   useEffect(() => {
@@ -221,7 +221,11 @@ function App(): React.JSX.Element {
           }
           if (newTabs.length > 0) {
             setTabs(prev => [...prev, ...newTabs])
-            setActiveTabId(newTabs[0].id)
+            // 新窗口可能同时收到 open-specific-file；目录恢复不能在异步完成后
+            // 抢走已明确打开文件的焦点。普通恢复时 activeTabId 为空，仍激活首个固定标签。
+            if (!useTabStore.getState().activeTabId) {
+              setActiveTabId(newTabs[0].id)
+            }
           }
         }
       } catch (err) {
@@ -1103,9 +1107,10 @@ function App(): React.JSX.Element {
 
   // 侧边栏拖拽调整宽度
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    if (sidebarCollapsed) return
     e.preventDefault()
     setIsResizing(true)
-  }, [])
+  }, [sidebarCollapsed, setIsResizing])
 
   useEffect(() => {
     if (!isResizing) return
@@ -1113,14 +1118,17 @@ function App(): React.JSX.Element {
       const newWidth = Math.min(Math.max(e.clientX, 180), 500)
       setSidebarWidth(newWidth)
     }
-    const handleMouseUp = () => { setIsResizing(false) }
+    const handleMouseUp = () => {
+      setIsResizing(false)
+      void persistSidebarWidth()
+    }
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizing])
+  }, [isResizing, setIsResizing, setSidebarWidth, persistSidebarWidth])
 
   // v1.6.0: IPC 事件监听（集中管理）
   useIPC({
@@ -1195,6 +1203,10 @@ function App(): React.JSX.Element {
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
+                sidebarCollapsed={sidebarCollapsed}
+                onToggleSidebar={toggleSidebar}
+                bookmarkPanelCollapsed={bookmarkPanelCollapsed}
+                onToggleBookmarkPanel={handleBookmarkPanelToggle}
                 lastExportedFilePath={lastExportedFilePath}
                 lastExportedTime={lastExportedTime}
                 onOpenLastExport={handleOpenLastExport}
@@ -1236,6 +1248,10 @@ function App(): React.JSX.Element {
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
+                sidebarCollapsed={sidebarCollapsed}
+                onToggleSidebar={toggleSidebar}
+                bookmarkPanelCollapsed={bookmarkPanelCollapsed}
+                onToggleBookmarkPanel={handleBookmarkPanelToggle}
                 lastExportedFilePath={lastExportedFilePath}
                 lastExportedTime={lastExportedTime}
                 onOpenLastExport={handleOpenLastExport}
@@ -1266,8 +1282,9 @@ function App(): React.JSX.Element {
             </Header>
 
             <div className={`workspace ${isResizing ? 'resizing' : ''}`}>
-              <aside className="sidebar" style={{ width: sidebarWidth }}>
-                <div className="file-tree-container">
+              {sidebarCollapsed ? null : (
+                <aside className="sidebar" style={{ width: sidebarWidth }}>
+                  <div id="file-tree-panel" className="file-tree-container">
                   {isLoading ? (
                     <p className="placeholder">加载中...</p>
                   ) : (
@@ -1283,10 +1300,11 @@ function App(): React.JSX.Element {
                       onMoveError={(msg) => toast.error(msg)}
                     />
                   )}
-                </div>
-              </aside>
+                  </div>
+                </aside>
+              )}
 
-              <div className="resize-handle" onMouseDown={handleResizeStart} />
+              {!sidebarCollapsed && <div className="resize-handle" onMouseDown={handleResizeStart} />}
 
               <section className="content-area">
                 {splitState.root ? (
@@ -1406,17 +1424,19 @@ function App(): React.JSX.Element {
                 )}
               </section>
 
-              <BookmarkPanel
-                bookmarks={bookmarks}
-                isLoading={bookmarksLoading}
-                isCollapsed={bookmarkPanelCollapsed}
-                width={bookmarkPanelWidth}
-                onToggleCollapse={handleBookmarkPanelToggle}
-                onWidthChange={handleBookmarkPanelWidthChange}
-                onSelectBookmark={handleSelectBookmark}
-                onBookmarksChange={loadBookmarks}
-                currentFilePath={activeTab?.file.path}
-              />
+              {!bookmarkPanelCollapsed && (
+                <BookmarkPanel
+                  bookmarks={bookmarks}
+                  isLoading={bookmarksLoading}
+                  isCollapsed={false}
+                  width={bookmarkPanelWidth}
+                  onToggleCollapse={handleBookmarkPanelToggle}
+                  onWidthChange={handleBookmarkPanelWidthChange}
+                  onSelectBookmark={handleSelectBookmark}
+                  onBookmarksChange={loadBookmarks}
+                  currentFilePath={activeTab?.file.path}
+                />
+              )}
             </div>
           </div>
         )}

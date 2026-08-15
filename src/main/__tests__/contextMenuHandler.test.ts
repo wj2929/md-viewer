@@ -120,6 +120,39 @@ describe('contextMenuHandler', () => {
       expect(template.length).toBeGreaterThanOrEqual(10)
     })
 
+    it('Markdown 文件显示“在新窗口中打开”并调用动作', async () => {
+      const openMarkdownInNewWindow = vi.fn()
+      showContextMenu(mockWindow, {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }, '/Users/test/documents', { openMarkdownInNewWindow })
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      const item = template.find((entry: any) => entry.label === '🗔 在新窗口中打开')
+      expect(item).toBeDefined()
+      item.click()
+      await Promise.resolve()
+      expect(openMarkdownInNewWindow).toHaveBeenCalledWith('/Users/test/documents/test.md')
+      expect(mockWebContents.send).not.toHaveBeenCalledWith('open-specific-file', expect.anything())
+    })
+
+    it('目录和非 Markdown 文件不显示“在新窗口中打开”', () => {
+      const openMarkdownInNewWindow = vi.fn()
+      showContextMenu(mockWindow, {
+        name: 'subfolder', path: '/Users/test/documents/subfolder', isDirectory: true
+      }, '/Users/test/documents', { openMarkdownInNewWindow })
+      let template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(template.some((entry: any) => entry.label === '🗔 在新窗口中打开')).toBe(false)
+
+      vi.mocked(Menu.buildFromTemplate).mockClear()
+      showContextMenu(mockWindow, {
+        name: 'drawing.excalidraw', path: '/Users/test/documents/drawing.excalidraw', isDirectory: false
+      }, '/Users/test/documents', { openMarkdownInNewWindow })
+      template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(template.some((entry: any) => entry.label === '🗔 在新窗口中打开')).toBe(false)
+    })
+
     it('应该为文件夹生成正确的菜单项（包含粘贴）', () => {
       const folder = {
         name: 'subfolder',

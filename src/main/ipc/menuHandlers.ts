@@ -8,6 +8,7 @@ import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from '../markdownMenuHandler'
 import { appDataManager } from '../appDataManager'
 import { getLastDocxExportPath } from './exportHandlers'
+import { openMarkdownInNewWindow } from '../openMarkdownInNewWindow'
 import * as fs from 'fs'
 
 // 文件信息接口（与 fileHandlers 共享）
@@ -41,7 +42,9 @@ ipcMain.handle('context-menu:show', async (event, file: FileInfo, _basePath: str
   await validateSecurePathInBase(file.path, basePath)
   await validateSecurePathInBase(basePath, basePath)
 
-  showContextMenu(window, file, basePath)
+  showContextMenu(window, file, basePath, {
+    openMarkdownInNewWindow: filePath => openMarkdownInNewWindow(ctx, filePath, basePath).then(() => undefined)
+  })
   return { success: true }
 })
 

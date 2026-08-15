@@ -26,7 +26,7 @@ class WindowManager {
   // 每个窗口关联的 folderPath（用于文件监听隔离）
   private windowFolderPaths: Map<number, string> = new Map()
   // 窗口创建后需要执行的延迟操作
-  private pendingActions: Map<number, Array<() => void>> = new Map()
+  private pendingActions: Map<number, Array<() => void | Promise<void>>> = new Map()
 
   /**
    * 创建新窗口
@@ -79,7 +79,11 @@ class WindowManager {
       // 执行延迟操作（如恢复文件夹、打开文件）
       const actions = this.pendingActions.get(winId)
       if (actions) {
-        actions.forEach(action => action())
+        actions.forEach(action => {
+          void Promise.resolve(action()).catch(error => {
+            console.error(`[WindowManager] Pending action failed for window ${winId}:`, error)
+          })
+        })
         this.pendingActions.delete(winId)
       }
     })
@@ -121,7 +125,7 @@ class WindowManager {
   /**
    * 添加窗口就绪后的延迟操作
    */
-  addPendingAction(winId: number, action: () => void): void {
+  addPendingAction(winId: number, action: () => void | Promise<void>): void {
     if (!this.pendingActions.has(winId)) {
       this.pendingActions.set(winId, [])
     }

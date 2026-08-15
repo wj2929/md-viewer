@@ -450,6 +450,11 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  transition: width 0.16s ease;
+}
+
+.workspace.resizing .sidebar {
+  transition: none;
 }
 
 /* 可拖拽分隔条 */

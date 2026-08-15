@@ -272,8 +272,8 @@ declare global {
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings; readAloud: ReadAloudSettings }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings; readAloud: ReadAloudSettings }>) => Promise<void>
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>

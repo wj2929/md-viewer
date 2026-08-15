@@ -98,6 +98,8 @@ export interface AppSettings {
   bookmarkPanelWidth: number     // 书签面板宽度
   bookmarkPanelCollapsed: boolean // 书签面板是否折叠
   bookmarkBarCollapsed: boolean   // 书签栏是否折叠（v1.3.6）
+  sidebarWidth?: number           // 左侧文档树展开宽度
+  sidebarCollapsed?: boolean      // 左侧文档树是否收缩
   maxRecentFiles?: number         // 最近文件上限（v1.5.2）
   maxFolderHistory?: number       // 文件夹历史上限（v1.5.2）
   showExportBranding?: boolean    // 导出文件显示署名（v1.5.3），默认 true
@@ -171,7 +173,9 @@ class AppDataManager {
           autoSave: true,
           bookmarkPanelWidth: 240,
           bookmarkPanelCollapsed: true,
-          bookmarkBarCollapsed: true
+          bookmarkBarCollapsed: true,
+          sidebarWidth: 280,
+          sidebarCollapsed: false
         }
       }
     })

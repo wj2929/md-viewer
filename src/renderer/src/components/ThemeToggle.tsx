@@ -22,12 +22,12 @@ export function ThemeToggle({ theme, onThemeChange }: ThemeToggleProps): JSX.Ele
       {themes.map(({ value, label, icon }) => (
         <button
           key={value}
-          className={`theme-toggle-btn ${theme === value ? 'active' : ''}`}
+          className={`theme-toggle-btn nav-instant-tooltip ${theme === value ? 'active' : ''}`}
           onClick={() => onThemeChange(value)}
           role="radio"
           aria-checked={theme === value}
-          aria-label={label}
-          title={label}
+          aria-label={`${label}主题`}
+          data-tooltip={`${label}主题`}
         >
           <span className="theme-icon">{icon}</span>
         </button>
