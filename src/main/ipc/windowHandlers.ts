@@ -217,9 +217,9 @@ export function registerWindowHandlers(ctx: IPCContext): void {
     const target = BrowserWindow.fromWebContents(event.sender)
     if (!target) throw new Error('安全错误：当前窗口无效')
 
-    return ctx.windowManager.getAllWindows()
+    const sources = ctx.windowManager.getAllWindows()
       .filter((window) => window.id !== target.id)
-      .map((window, sourceIndex) => {
+      .map((window) => {
         const activeWorkspaceId = ctx.windowManager.getActiveWorkspaceId(window.id)
         const candidates = ctx.windowManager.listWorkspaces(window.id)
           .map((workspace) => {
@@ -263,12 +263,20 @@ export function registerWindowHandlers(ctx: IPCContext): void {
         if (candidates.some((workspace) => workspace.hasDraft)) states.push('含草稿')
         return {
           windowId: window.id,
-          title: `窗口 ${sourceIndex + 1} · ${activeLabel}`,
-          workspaceCount: workspaces.length,
-          summary: states.join(' · '),
+          activeLabel,
+          states,
           workspaces,
         }
       })
+      .filter((source) => source.workspaces.length > 0)
+
+    return sources.map((source, sourceIndex) => ({
+      windowId: source.windowId,
+      title: `窗口 ${sourceIndex + 1} · ${source.activeLabel}`,
+      workspaceCount: source.workspaces.length,
+      summary: source.states.join(' · '),
+      workspaces: source.workspaces,
+    }))
   })
 
   ipcMain.handle('workspace:splitActive', (event, workspaceId: string) => {

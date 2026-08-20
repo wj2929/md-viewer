@@ -54,25 +54,20 @@ test.describe('Markdown 链接交互', () => {
     const link = page.locator('.preview-pane .markdown-body a', { hasText: '打开目标' })
     await expect(link).toBeVisible()
 
-    let dialogCount = 0
-    page.once('dialog', async dialog => {
-      dialogCount += 1
-      expect(dialog.message()).toContain('当前文档有未保存编辑草稿')
-      await dialog.dismiss()
-    })
+    const firstDialog = page.waitForEvent('dialog')
     await link.click()
+    const dismissedDialog = await firstDialog
+    expect(dismissedDialog.message()).toContain('当前文档有未保存编辑草稿')
+    await dismissedDialog.dismiss()
     await expect(page.locator('.markdown-body h1')).toHaveText('Link Source')
-    expect(dialogCount).toBe(1)
 
-    page.once('dialog', async dialog => {
-      dialogCount += 1
-      expect(dialog.message()).toContain('当前文档有未保存编辑草稿')
-      await dialog.accept()
-    })
+    const secondDialog = page.waitForEvent('dialog')
     await link.click()
+    const acceptedDialog = await secondDialog
+    expect(acceptedDialog.message()).toContain('当前文档有未保存编辑草稿')
+    await acceptedDialog.accept()
     await expect(page.locator('.markdown-body h1')).toHaveText('Link Target')
     await expect(page.locator('.markdown-body h2', { hasText: '目标章节' })).toBeVisible()
-    expect(dialogCount).toBe(2)
   })
 
   test('内部 .md 链接支持中文和空格文件名', async ({ page, electronApp, testDir }) => {

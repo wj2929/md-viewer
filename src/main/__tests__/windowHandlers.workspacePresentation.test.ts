@@ -69,6 +69,35 @@ describe('workspace merge source presentations', () => {
     expect(list[0]).toMatchObject({ workspaceCount: 1, workspaces: [{ id: 'video-b' }] })
   })
 
+  it('排除没有可转移会话的来源窗口并保持窗口序号连续', () => {
+    const emptySource = { id: 2, webContents: { send: vi.fn() } }
+    const meaningfulSource = { id: 3, webContents: { send: vi.fn() } }
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(target as any)
+    windowManager.getAllWindows.mockReturnValue([target, emptySource, meaningfulSource] as any)
+    windowManager.listWorkspaces.mockImplementation((windowId: number) => windowId === 2
+      ? [{ id: 'empty-source', primaryRoot: '/docs/empty', lifecycleEpoch: 1 }]
+      : windowId === 3
+        ? [{ id: 'meaningful-source', primaryRoot: '/docs/kept', lifecycleEpoch: 1 }]
+        : [])
+    windowManager.getActiveWorkspaceId.mockImplementation(((windowId: number) => (
+      windowId === 2 ? 'empty-source' : 'meaningful-source'
+    )) as any)
+    windowManager.getWorkspacePresentation.mockImplementation((_windowId: number, workspaceId: string) => (
+      workspaceId === 'empty-source'
+        ? { label: '空目录', isEmptyPlaceholder: false, hasMeaningfulState: false, tabCount: 0, activeTabName: null, hasSplit: false, hasDraft: false }
+        : workspaceId === 'meaningful-source'
+          ? { label: '有效目录', isEmptyPlaceholder: false, hasMeaningfulState: true, tabCount: 1, activeTabName: 'kept.md', hasSplit: false, hasDraft: false }
+          : undefined
+    ))
+
+    const list = handler<(event: any) => any[]>('workspace:listMergeSources')({ sender: {} })
+    expect(list).toEqual([expect.objectContaining({
+      windowId: 3,
+      title: '窗口 1 · 有效目录',
+      workspaceCount: 1,
+    })])
+  })
+
   it('只允许 sender 更新属于当前窗口的展示摘要', () => {
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(source as any)
     const update = handler<(event: any, payload: any[]) => void>('workspace:updatePresentations')
