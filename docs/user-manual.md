@@ -1,6 +1,6 @@
 # MD Viewer 使用手册
 
-适用版本：MD Viewer v2.7.0（待发布）及以上。v2.7.0 正式发布前，下载用户请以当前 GitHub Release 和应用内实际界面为准。
+适用版本：MD Viewer v2.7.0 及以上。具体能力以当前 GitHub Release 和应用内实际界面为准。
 
 本文档面向日常使用 MD Viewer 的用户，说明如何安装、浏览 Markdown、编辑文档、渲染图表以及导出文件。
 

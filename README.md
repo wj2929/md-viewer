@@ -11,8 +11,6 @@
 
 MD Viewer 用于浏览本地 Markdown 文档目录。它支持文件树、多标签、搜索、书签、分屏、图表渲染和 HTML / PDF / DOCX 导出，适合知识库、技术文档、会议材料、方案文档和图表密集型 Markdown 文件。
 
-> 仓库当前开发版本为 v2.7.0，尚未正式发布；下载用户请以 [GitHub Releases](https://github.com/wj2929/md-viewer/releases/latest) 中的实际版本和功能为准。
-
 ![MD Viewer 欢迎页](docs/images/welcome.png)
 
 ## 功能特性
