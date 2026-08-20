@@ -9,13 +9,16 @@ import type { WorkspacePresentation } from '../windowManager'
 import { windowTransferCoordinator } from '../windowTransferCoordinator'
 
 export function registerWindowHandlers(ctx: IPCContext): void {
+  const notifyTransferCancelled = (transfer: { nonce: string; sourceWindowId: number; targetWindowId: number }, reason: string): void => {
+    const payload = { nonce: transfer.nonce, reason }
+    ctx.windowManager.sendToWindow(transfer.sourceWindowId, 'workspace:transfer-cancelled', payload)
+    ctx.windowManager.sendToWindow(transfer.targetWindowId, 'workspace:transfer-cancelled', payload)
+  }
+
   const cancelTransfer = (nonce: string, reason: string): void => {
     const transfer = workspaceTransferCoordinator.cancel(nonce)
     if (!transfer) return
-    ctx.windowManager.sendToWindow(transfer.targetWindowId, 'workspace:transfer-cancelled', {
-      nonce: transfer.nonce,
-      reason,
-    })
+    notifyTransferCancelled(transfer, reason)
   }
 
   // 获取当前窗口 ID
@@ -190,12 +193,14 @@ export function registerWindowHandlers(ctx: IPCContext): void {
       if (
         !presentation ||
         typeof presentation.workspaceId !== 'string' ||
+        !Number.isInteger(presentation.lifecycleEpoch) || presentation.lifecycleEpoch < 1 ||
         typeof presentation.label !== 'string' ||
         !Number.isInteger(presentation.tabCount) || presentation.tabCount < 0 || presentation.tabCount > 100 ||
         !Array.isArray(presentation.tabNames) || presentation.tabNames.length > 5
       ) throw new Error('安全错误：工作区展示信息无效')
       return {
         workspaceId: presentation.workspaceId,
+        lifecycleEpoch: presentation.lifecycleEpoch,
         label: presentation.label.trim().slice(0, 120) || '空白会话',
         isEmptyPlaceholder: Boolean(presentation.isEmptyPlaceholder),
         hasMeaningfulState: typeof presentation.hasMeaningfulState === 'boolean'
@@ -210,7 +215,8 @@ export function registerWindowHandlers(ctx: IPCContext): void {
         hasDraft: Boolean(presentation.hasDraft),
       }
     })
-    ctx.windowManager.setWorkspacePresentations(win.id, normalized)
+    const applied = ctx.windowManager.setWorkspacePresentations(win.id, normalized)
+    return { applied }
   })
 
   ipcMain.handle('workspace:listMergeSources', (event) => {
@@ -350,7 +356,7 @@ export function registerWindowHandlers(ctx: IPCContext): void {
       ctx.windowManager.sendToWindow(transfer.targetWindowId, 'workspace:window-transfer-ready', { nonce })
     } catch (error) {
       const transfer = windowTransferCoordinator.cancel(nonce)
-      if (transfer) ctx.windowManager.sendToWindow(transfer.targetWindowId, 'workspace:transfer-cancelled', { nonce, reason: error instanceof Error ? error.message : '窗口合并失败' })
+      if (transfer) notifyTransferCancelled(transfer, error instanceof Error ? error.message : '窗口合并失败')
       throw error
     }
   })
@@ -395,7 +401,7 @@ export function registerWindowHandlers(ctx: IPCContext): void {
     const caller = BrowserWindow.fromWebContents(event.sender)
     if (!caller) throw new Error('安全错误：当前窗口无效')
     const transfer = windowTransferCoordinator.cancelForParticipant(nonce, caller.id)
-    if (transfer) ctx.windowManager.sendToWindow(transfer.targetWindowId, 'workspace:transfer-cancelled', { nonce, reason: '已取消窗口合并' })
+    if (transfer) notifyTransferCancelled(transfer, '已取消窗口合并')
   })
 
   ipcMain.handle('workspace:beginTransfer', (event, sourceWindowId: number, workspaceId: string) => {
@@ -514,19 +520,19 @@ export function registerWindowHandlers(ctx: IPCContext): void {
     } else {
       ctx.windowManager.notifyMergeSourcesChanged()
     }
-    return { id: workspace.id, primaryRoot: workspace.primaryRoot, lifecycleEpoch: workspace.lifecycleEpoch }
+    return {
+      id: workspace.id,
+      primaryRoot: workspace.primaryRoot,
+      lifecycleEpoch: workspace.lifecycleEpoch,
+      replacedWorkspaceId: targetReservation?.workspaceId ?? null,
+    }
   })
 
   ipcMain.handle('workspace:cancelTransfer', (event, nonce: string) => {
     const caller = BrowserWindow.fromWebContents(event.sender)
     if (!caller || typeof nonce !== 'string') throw new Error('安全错误：工作区转移取消无效')
     const transfer = workspaceTransferCoordinator.cancelForParticipant(nonce, caller.id)
-    if (transfer) {
-      ctx.windowManager.sendToWindow(transfer.targetWindowId, 'workspace:transfer-cancelled', {
-        nonce: transfer.nonce,
-        reason: '已取消工作区导入',
-      })
-    }
+    if (transfer) notifyTransferCancelled(transfer, '已取消工作区导入')
   })
 
   // 创建新窗口

@@ -885,6 +885,13 @@ body {
 .workspace-merge-dialog h2 { margin: 0 0 16px; font-size: 16px; }
 .workspace-merge-source { display: grid; gap: 8px; margin: 12px 0; }
 .workspace-merge-source button { width: fit-content; }
+.workspace-transfer-guard {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  cursor: progress;
+}
+
 .workspace-transfer-status {
   position: fixed;
   right: 16px;

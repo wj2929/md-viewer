@@ -41,6 +41,7 @@ export interface WorkspaceTransferResult {
 
 export interface WorkspacePresentation {
   workspaceId: string
+  lifecycleEpoch: number
   label: string
   isEmptyPlaceholder: boolean
   hasMeaningfulState: boolean
@@ -163,10 +164,12 @@ export class WindowManager {
       this.workspacePresentations.delete(winId)
       this.broadcastToAll('workspace:merge-sources-changed')
       for (const transfer of [...cancelledTransfers, ...cancelledWindowTransfers]) {
-        if (transfer.sourceWindowId !== winId) continue
-        this.sendToWindow(transfer.targetWindowId, 'workspace:transfer-cancelled', {
+        const otherWindowId = transfer.sourceWindowId === winId
+          ? transfer.targetWindowId
+          : transfer.sourceWindowId
+        this.sendToWindow(otherWindowId, 'workspace:transfer-cancelled', {
           nonce: transfer.nonce,
-          reason: '来源窗口已关闭',
+          reason: transfer.sourceWindowId === winId ? '来源窗口已关闭' : '目标窗口已关闭',
         })
       }
       revokeLocalImageCapabilities(windowSession)
@@ -304,7 +307,7 @@ export class WindowManager {
     else this.windowFolderPaths.delete(winId)
   }
 
-  createWorkspace(winId: number, workspaceId = randomUUID(), primaryRoot: string | null = null, activate = true): MainWorkspaceSession {
+  createWorkspace(winId: number, workspaceId: string = randomUUID(), primaryRoot: string | null = null, activate = true): MainWorkspaceSession {
     const registry = this.getOrCreateWorkspaceRegistry(winId)
     if (registry.workspaces.has(workspaceId)) {
       throw new Error('工作区 ID 已存在')
@@ -323,16 +326,23 @@ export class WindowManager {
     return registry ? Array.from(registry.workspaces.values()) : []
   }
 
-  setWorkspacePresentations(winId: number, presentations: WorkspacePresentation[]): void {
+  setWorkspacePresentations(winId: number, presentations: WorkspacePresentation[]): boolean {
     const registry = this.workspaceRegistries.get(winId)
     if (!registry) throw new Error('窗口工作区不存在')
-    if (presentations.some((presentation) => !registry.workspaces.has(presentation.workspaceId))) {
-      throw new Error('工作区展示信息与窗口不匹配')
-    }
+    const presentationIds = new Set(presentations.map((presentation) => presentation.workspaceId))
+    if (
+      presentations.length !== registry.workspaces.size ||
+      presentationIds.size !== presentations.length ||
+      presentations.some((presentation) => {
+        const workspace = registry.workspaces.get(presentation.workspaceId)
+        return !workspace || workspace.lifecycleEpoch !== presentation.lifecycleEpoch
+      })
+    ) return false
     this.workspacePresentations.set(winId, new Map(
       presentations.map((presentation) => [presentation.workspaceId, presentation])
     ))
     this.broadcastToAll('workspace:merge-sources-changed')
+    return true
   }
 
   getWorkspacePresentation(winId: number, workspaceId: string): WorkspacePresentation | undefined {
@@ -423,6 +433,7 @@ export class WindowManager {
         workspace.lifecycleEpoch !== candidate.lifecycleEpoch ||
         workspace.primaryRoot !== candidate.primaryRoot ||
         !presentation ||
+        presentation.lifecycleEpoch !== workspace.lifecycleEpoch ||
         presentation.hasMeaningfulState
       ) {
         throw new Error('工作区清理条件已变化')
@@ -466,15 +477,26 @@ export class WindowManager {
       targetIds.set(workspace.id, targetId)
     }
 
+    const sourcePresentations = this.workspacePresentations.get(sourceWinId)
+    const targetPresentations = this.workspacePresentations.get(targetWinId) ?? new Map<string, WorkspacePresentation>()
     const sourceActiveTargetId = sourceActiveWorkspaceId ? targetIds.get(sourceActiveWorkspaceId) : undefined
     const results: WorkspaceTransferResult[] = []
     for (const { workspace } of planned) {
       const sourceWorkspaceId = workspace.id
       const targetWorkspaceId = targetIds.get(sourceWorkspaceId)!
+      const sourcePresentation = sourcePresentations?.get(sourceWorkspaceId)
       source.workspaces.delete(sourceWorkspaceId)
+      sourcePresentations?.delete(sourceWorkspaceId)
       workspace.id = targetWorkspaceId
       workspace.lifecycleEpoch += 1
       target.workspaces.set(targetWorkspaceId, workspace)
+      if (sourcePresentation) {
+        targetPresentations.set(targetWorkspaceId, {
+          ...sourcePresentation,
+          workspaceId: targetWorkspaceId,
+          lifecycleEpoch: workspace.lifecycleEpoch,
+        })
+      }
       results.push({
         sourceWorkspaceId,
         targetWorkspaceId,
@@ -482,6 +504,8 @@ export class WindowManager {
         lifecycleEpoch: workspace.lifecycleEpoch,
       })
     }
+    if (sourcePresentations) this.workspacePresentations.set(sourceWinId, sourcePresentations)
+    this.workspacePresentations.set(targetWinId, targetPresentations)
     const activeWorkspaceId = sourceActiveTargetId ?? results[0].targetWorkspaceId
     target.activeWorkspaceId = activeWorkspaceId
     const active = target.workspaces.get(activeWorkspaceId)
@@ -535,7 +559,11 @@ export class WindowManager {
     target.activeWorkspaceId = targetWorkspaceId
     if (sourcePresentation) {
       const presentations = this.workspacePresentations.get(targetWinId) ?? new Map<string, WorkspacePresentation>()
-      presentations.set(targetWorkspaceId, { ...sourcePresentation, workspaceId: targetWorkspaceId })
+      presentations.set(targetWorkspaceId, {
+        ...sourcePresentation,
+        workspaceId: targetWorkspaceId,
+        lifecycleEpoch: workspace.lifecycleEpoch,
+      })
       this.workspacePresentations.set(targetWinId, presentations)
     }
     this.notifyMergeSourcesChanged()

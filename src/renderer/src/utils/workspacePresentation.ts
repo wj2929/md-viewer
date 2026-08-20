@@ -5,6 +5,7 @@ import { getAllLeaves, reconcileSplitState } from './splitTree'
 
 export interface WorkspacePresentationSummary {
   workspaceId: string
+  lifecycleEpoch: number
   label: string
   isEmptyPlaceholder: boolean
   hasMeaningfulState: boolean
@@ -81,6 +82,7 @@ export function createWorkspacePresentation(
   const hasMeaningfulState = hasMeaningfulWorkspaceState(runtime, hasDraft)
   return {
     workspaceId: workspace.id,
+    lifecycleEpoch: workspace.lifecycleEpoch,
     label: getWorkspaceDisplayLabel(workspace, runtime.tabs),
     isEmptyPlaceholder: !workspace.primaryRoot && !hasMeaningfulState,
     hasMeaningfulState,

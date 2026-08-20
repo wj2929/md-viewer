@@ -142,6 +142,18 @@ test.describe('工作区转移', () => {
 
     const sourceBefore = await getBootstrap(source)
     const transferredBefore = activeWorkspace(sourceBefore)
+    const staleSourcePresentations = sourceBefore.workspaces.map((workspace) => ({
+      workspaceId: workspace.id,
+      lifecycleEpoch: workspace.lifecycleEpoch,
+      label: workspace.primaryRoot?.split(/[/\\]/).pop() || '空白会话',
+      isEmptyPlaceholder: workspace.primaryRoot === null,
+      hasMeaningfulState: true,
+      tabCount: 1,
+      activeTabName: workspace.id === transferredBefore?.id ? 'nested.md' : 'test1.md',
+      tabNames: [workspace.id === transferredBefore?.id ? 'nested.md' : 'test1.md'],
+      hasSplit: false,
+      hasDraft: false,
+    }))
     expect(sourceBefore.workspaces.map((workspace) => workspace.primaryRoot).sort()).toEqual([testDir, transferredRoot].sort())
     expect(transferredBefore?.id).toBe(created.id)
     expect(transferredBefore?.primaryRoot).toBe(transferredRoot)
@@ -188,6 +200,15 @@ test.describe('工作区转移', () => {
 
     await expect(target.locator('.tab', { hasText: 'nested.md' })).toBeVisible({ timeout: 10000 })
     await expect(source.locator('.tab', { hasText: 'nested.md' })).toHaveCount(0)
+    const staleResult = await source.evaluate(
+      (payload) => window.api.updateWorkspacePresentations(payload),
+      staleSourcePresentations
+    )
+    expect(staleResult).toEqual({ applied: false })
+    await expect.poll(async () => {
+      const bootstrap = await getBootstrap(source)
+      return bootstrap.workspaces.map((workspace) => workspace.primaryRoot)
+    }).toEqual([testDir])
     await expect.poll(async () => {
       const [sourceCandidates, targetCandidates] = await Promise.all([
         source.evaluate(() => window.api.listWorkspaceMergeSources()),
@@ -270,6 +291,7 @@ test.describe('工作区转移', () => {
     await source.page.evaluate((payload) => window.api.updateWorkspacePresentations(payload), [
       {
         workspaceId: first!.id,
+        lifecycleEpoch: first!.lifecycleEpoch,
         label: 'video',
         isEmptyPlaceholder: false,
         tabCount: 1,
@@ -280,6 +302,7 @@ test.describe('工作区转移', () => {
       },
       {
         workspaceId: second.id,
+        lifecycleEpoch: second.lifecycleEpoch,
         label: 'video',
         isEmptyPlaceholder: false,
         tabCount: 1,
@@ -338,16 +361,18 @@ test.describe('工作区转移', () => {
     const sourceBFile = join(videoRoot, '智能基座平台.md')
     writeFileSync(sourceBFile, '# Platform')
     await openMarkdownFile(sourceB.page, sourceBFile, '智能基座平台.md')
-    const sourceBId = activeWorkspace(await getBootstrap(sourceB.page))!.id
+    const sourceBWorkspace = activeWorkspace(await getBootstrap(sourceB.page))!
+    const sourceBId = sourceBWorkspace.id
     await sourceB.page.evaluate((payload) => window.api.updateWorkspacePresentations(payload), [{
-      workspaceId: sourceBId, label: '视频', isEmptyPlaceholder: false, hasMeaningfulState: true, tabCount: 1,
+      workspaceId: sourceBId, lifecycleEpoch: sourceBWorkspace.lifecycleEpoch, label: '视频', isEmptyPlaceholder: false, hasMeaningfulState: true, tabCount: 1,
       activeTabName: '智能基座平台.md', tabNames: ['智能基座平台.md'], hasSplit: false, hasDraft: false,
     }])
 
     const sourceC = await createAndIdentifyWindow(target, electronApp)
-    const sourceCId = activeWorkspace(await getBootstrap(sourceC.page))!.id
+    const sourceCWorkspace = activeWorkspace(await getBootstrap(sourceC.page))!
+    const sourceCId = sourceCWorkspace.id
     await sourceC.page.evaluate((payload) => window.api.updateWorkspacePresentations(payload), [{
-      workspaceId: sourceCId, label: '00_设定圣经', isEmptyPlaceholder: false, hasMeaningfulState: false, tabCount: 0,
+      workspaceId: sourceCId, lifecycleEpoch: sourceCWorkspace.lifecycleEpoch, label: '00_设定圣经', isEmptyPlaceholder: false, hasMeaningfulState: false, tabCount: 0,
       activeTabName: null, tabNames: [], hasSplit: false, hasDraft: false,
     }])
 

@@ -44,6 +44,11 @@ interface WorkspaceStore {
   runtimes: Record<string, WorkspaceRuntimeSnapshot>
   setWorkspaces: (workspaces: WorkspaceDescriptor[], activeWorkspaceId: string | null) => void
   upsertWorkspace: (workspace: WorkspaceDescriptor) => void
+  replaceWorkspace: (
+    replacedWorkspaceId: string | null,
+    workspace: WorkspaceDescriptor,
+    runtime?: WorkspaceRuntimeSnapshot
+  ) => void
   removeWorkspace: (workspaceId: string) => void
   removeWorkspaces: (workspaceIds: string[]) => void
   setActiveWorkspaceId: (workspaceId: string | null) => void
@@ -126,6 +131,22 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       runtimes: state.runtimes[workspace.id]
         ? state.runtimes
         : { ...state.runtimes, [workspace.id]: cloneRuntime(EMPTY_WORKSPACE_RUNTIME) },
+    }
+  }),
+  replaceWorkspace: (replacedWorkspaceId, workspace, runtime) => set((state) => {
+    const workspaces = state.workspaces
+      .filter((item) => item.id !== replacedWorkspaceId && item.id !== workspace.id)
+      .concat(workspace)
+    const runtimes = { ...state.runtimes }
+    if (replacedWorkspaceId && replacedWorkspaceId !== workspace.id) delete runtimes[replacedWorkspaceId]
+    runtimes[workspace.id] = cloneRuntime(runtime ?? runtimes[workspace.id] ?? EMPTY_WORKSPACE_RUNTIME)
+    return {
+      workspaces,
+      runtimes,
+      activeWorkspaceId:
+        state.activeWorkspaceId === replacedWorkspaceId || state.activeWorkspaceId === null
+          ? workspace.id
+          : state.activeWorkspaceId,
     }
   }),
   removeWorkspace: (workspaceId) => set((state) => {

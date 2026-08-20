@@ -28,7 +28,7 @@ describe('workspace merge source presentations', () => {
     { id: 'video-b', primaryRoot: '/docs/video', lifecycleEpoch: 1 },
   ]
   const windowManager = {
-    setWorkspacePresentations: vi.fn(),
+    setWorkspacePresentations: vi.fn(() => true),
     getAllWindows: vi.fn(() => [target, source]),
     getActiveWorkspaceId: vi.fn(() => 'video-a'),
     listWorkspaces: vi.fn((windowId: number) => windowId === 2 ? workspaces : []),
@@ -101,10 +101,13 @@ describe('workspace merge source presentations', () => {
   it('只允许 sender 更新属于当前窗口的展示摘要', () => {
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(source as any)
     const update = handler<(event: any, payload: any[]) => void>('workspace:updatePresentations')
-    update({ sender: {} }, [{
-      workspaceId: 'video-a', label: 'video', isEmptyPlaceholder: false, hasMeaningfulState: true,
+    const result = update({ sender: {} }, [{
+      workspaceId: 'video-a', lifecycleEpoch: 1, label: 'video', isEmptyPlaceholder: false, hasMeaningfulState: true,
       tabCount: 1, activeTabName: 'a.md', tabNames: ['a.md'], hasSplit: false, hasDraft: false,
     }])
-    expect(windowManager.setWorkspacePresentations).toHaveBeenCalledWith(2, [expect.objectContaining({ workspaceId: 'video-a', label: 'video' })])
+    expect(result).toEqual({ applied: true })
+    expect(windowManager.setWorkspacePresentations).toHaveBeenCalledWith(2, [expect.objectContaining({
+      workspaceId: 'video-a', lifecycleEpoch: 1, label: 'video',
+    })])
   })
 })

@@ -984,6 +984,7 @@ const api = {
   }>,
   updateWorkspacePresentations: (presentations: Array<{
     workspaceId: string
+    lifecycleEpoch: number
     label: string
     isEmptyPlaceholder: boolean
     hasMeaningfulState: boolean
@@ -992,7 +993,7 @@ const api = {
     tabNames: string[]
     hasSplit: boolean
     hasDraft: boolean
-  }>) => ipcRenderer.invoke('workspace:updatePresentations', presentations) as Promise<void>,
+  }>) => ipcRenderer.invoke('workspace:updatePresentations', presentations) as Promise<{ applied: boolean }>,
   listWorkspaceMergeSources: () => ipcRenderer.invoke('workspace:listMergeSources') as Promise<Array<{
     windowId: number
     title: string
@@ -1051,7 +1052,7 @@ const api = {
   }>,
   stageWorkspaceTransfer: (nonce: string) => ipcRenderer.invoke('workspace:stageTransfer', nonce) as Promise<void>,
   completeWorkspaceTransfer: (nonce: string) => ipcRenderer.invoke('workspace:completeTransfer', nonce) as Promise<{
-    id: string; primaryRoot: string | null; lifecycleEpoch: number
+    id: string; primaryRoot: string | null; lifecycleEpoch: number; replacedWorkspaceId: string | null
   }>,
   cancelWorkspaceTransfer: (nonce: string) => ipcRenderer.invoke('workspace:cancelTransfer', nonce) as Promise<void>,
   onWorkspaceRestoreRuntime: (callback: (payload: {

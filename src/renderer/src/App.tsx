@@ -22,6 +22,7 @@ import {
   isActiveWorkspaceLifecycleKey,
 } from './utils/workspaceOperationContext'
 import { createWorkspacePresentation, hasOwnedDraft } from './utils/workspacePresentation'
+import type { WorkspacePresentationSummary } from './utils/workspacePresentation'
 
 function findEditSessionForPath(sessions: Record<string, EditSession>, filePath: string): EditSession | undefined {
   return Object.values(sessions).find(session =>
@@ -88,7 +89,7 @@ function App(): React.JSX.Element {
   const { folderPath, setFolderPath, files, setFiles, isLoading, setIsLoading, selectedPaths, setSelectedPaths } = useFileStore()
   const { tabs, setTabs, activeTabId, setActiveTabId, splitState, setSplitState, scrollToLine, setScrollToLine, scrollToRatio, setScrollToRatio, highlightKeyword, setHighlightKeyword } = useTabStore()
   const workspaceStore = useWorkspaceStore()
-  const { workspaces, activeWorkspaceId, setWorkspaces, upsertWorkspace, removeWorkspace, removeWorkspaces, setActiveWorkspaceId, saveRuntime, getRuntime } = workspaceStore
+  const { workspaces, activeWorkspaceId, setWorkspaces, upsertWorkspace, replaceWorkspace, removeWorkspace, removeWorkspaces, setActiveWorkspaceId, saveRuntime, getRuntime } = workspaceStore
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId),
     [activeWorkspaceId, workspaces]
@@ -153,6 +154,9 @@ function App(): React.JSX.Element {
   const workspaceBootstrapLoadedRef = useRef(false)
   const workspaceTransitionRef = useRef(false)
   const workspacePresentationsSyncedRef = useRef(false)
+  const workspacePresentationTimerRef = useRef<number | null>(null)
+  const workspacePresentationInFlightRef = useRef(false)
+  const workspacePresentationPendingRef = useRef<WorkspacePresentationSummary[] | null>(null)
   const workspacePruneInFlightRef = useRef(false)
 
   const prunableWorkspaceIds = useMemo(() => new Set(
@@ -191,18 +195,42 @@ function App(): React.JSX.Element {
     }
   }, [workspaceBootstrapReady])
 
+  const flushWorkspacePresentations = useCallback(() => {
+    if (workspacePresentationInFlightRef.current || !window.api.updateWorkspacePresentations) return
+    const pending = workspacePresentationPendingRef.current
+    if (!pending) return
+    workspacePresentationPendingRef.current = null
+    workspacePresentationInFlightRef.current = true
+    void window.api.updateWorkspacePresentations(pending).then(({ applied }) => {
+      if (applied && workspacePresentationPendingRef.current === null) {
+        workspacePresentationsSyncedRef.current = true
+      }
+    }).catch((error) => {
+      console.error('[Workspace] Failed to update presentations:', error)
+    }).finally(() => {
+      workspacePresentationInFlightRef.current = false
+      if (workspacePresentationPendingRef.current) flushWorkspacePresentations()
+    })
+  }, [])
+
   useEffect(() => {
     if (!workspaceBootstrapReady || !window.api.updateWorkspacePresentations) return
     workspacePresentationsSyncedRef.current = false
-    const timer = window.setTimeout(() => {
-      void window.api.updateWorkspacePresentations(workspacePresentations).then(() => {
-        workspacePresentationsSyncedRef.current = true
-      }).catch((error) => {
-        console.error('[Workspace] Failed to update presentations:', error)
-      })
+    workspacePresentationPendingRef.current = workspacePresentations
+    if (workspacePresentationTimerRef.current !== null) {
+      window.clearTimeout(workspacePresentationTimerRef.current)
+    }
+    workspacePresentationTimerRef.current = window.setTimeout(() => {
+      workspacePresentationTimerRef.current = null
+      flushWorkspacePresentations()
     }, 100)
-    return () => window.clearTimeout(timer)
-  }, [workspaceBootstrapReady, workspacePresentations])
+    return () => {
+      if (workspacePresentationTimerRef.current !== null) {
+        window.clearTimeout(workspacePresentationTimerRef.current)
+        workspacePresentationTimerRef.current = null
+      }
+    }
+  }, [flushWorkspacePresentations, workspaceBootstrapReady, workspacePresentations])
 
   const captureWorkspaceRuntime = useCallback(() => ({
     folderPath,
@@ -302,7 +330,7 @@ function App(): React.JSX.Element {
       setWorkspaceBootstrapReady(true)
       if (window.api.requestPendingWorkspaceSource) {
         void window.api.requestPendingWorkspaceSource().then((transfer) => {
-          if (transfer) setPendingTransferNonce(transfer.nonce)
+          if (transfer) setPendingWorkspaceTransfer(transfer.nonce)
         }).catch((error) => console.error('[Workspace] Failed to request split source:', error))
       }
     }).catch((error) => {
@@ -356,6 +384,7 @@ function App(): React.JSX.Element {
         void window.api.cancelWindowTransfer(nonce)
         return
       }
+      setPendingWorkspaceTransfer(nonce)
       const snapshots = planned.map((item) => ({
         workspaceId: item!.descriptor.id,
         name: item!.descriptor.name || '未命名工作区',
@@ -366,11 +395,12 @@ function App(): React.JSX.Element {
         splitState: item!.runtime.splitState,
       }))
       void window.api.submitWindowTransferSnapshots(nonce, snapshots).catch((error) => {
+        setPendingWorkspaceTransfer(null)
         console.error('[Workspace] Failed to export window:', error)
         void window.api.cancelWindowTransfer(nonce)
       })
     })
-  }, [activeWorkspaceId, captureWorkspaceRuntime, getRuntime, workspaces])
+  }, [activeWorkspaceId, captureWorkspaceRuntime, getRuntime, setPendingWorkspaceTransfer, workspaces])
 
   useEffect(() => {
     if (!window.api.onWindowTransferReady) return
@@ -443,6 +473,7 @@ function App(): React.JSX.Element {
         void window.api.cancelWorkspaceTransfer(nonce)
         return
       }
+      setPendingWorkspaceTransfer(nonce)
       void window.api.submitWorkspaceTransferSnapshot(nonce, {
         workspaceId,
         name: descriptor.name || '未命名工作区',
@@ -452,11 +483,12 @@ function App(): React.JSX.Element {
         activeTabId: runtime.activeTabId,
         splitState: runtime.splitState,
       }).catch((error) => {
+        setPendingWorkspaceTransfer(null)
         console.error('[Workspace] Failed to export workspace:', error)
         void window.api.cancelWorkspaceTransfer(nonce)
       })
     })
-  }, [activeWorkspaceId, captureWorkspaceRuntime, getRuntime, workspaces])
+  }, [activeWorkspaceId, captureWorkspaceRuntime, getRuntime, setPendingWorkspaceTransfer, workspaces])
 
   useEffect(() => {
     if (!window.api.onWorkspaceTransferReady) return
@@ -486,16 +518,10 @@ function App(): React.JSX.Element {
           const activeTabId = remapped.activeTabId && validTabIds.has(remapped.activeTabId)
             ? remapped.activeTabId
             : tabs[0]?.id ?? null
-          upsertWorkspace({
-            id: imported.id,
-            primaryRoot: imported.primaryRoot,
-            lifecycleEpoch: imported.lifecycleEpoch,
-            name: snapshot.name,
-          })
-          saveRuntime(imported.id, {
+          const importedRuntime = {
             folderPath: imported.primaryRoot,
             files: [],
-            selectedPaths: new Set(),
+            selectedPaths: new Set<string>(),
             tabs,
             activeTabId,
             splitState,
@@ -504,7 +530,13 @@ function App(): React.JSX.Element {
             highlightKeyword: undefined,
             documentViews: {},
             quickEditPlacements: {},
-          })
+          }
+          replaceWorkspace(imported.replacedWorkspaceId, {
+            id: imported.id,
+            primaryRoot: imported.primaryRoot,
+            lifecycleEpoch: imported.lifecycleEpoch,
+            name: snapshot.name,
+          }, importedRuntime)
           setActiveWorkspaceId(imported.id)
           hydrateWorkspaceRuntime(imported.id, imported.primaryRoot)
         } catch (error) {
@@ -515,7 +547,31 @@ function App(): React.JSX.Element {
         }
       })()
     })
-  }, [hydrateWorkspaceRuntime, saveRuntime, setActiveWorkspaceId, upsertWorkspace])
+  }, [hydrateWorkspaceRuntime, replaceWorkspace, setActiveWorkspaceId])
+
+  useEffect(() => {
+    if (!pendingTransferNonce) return
+    const blockRuntimeChanges = (event: Event) => {
+      if (!(event instanceof KeyboardEvent) || event.key !== 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+    document.addEventListener('click', blockRuntimeChanges, true)
+    document.addEventListener('dblclick', blockRuntimeChanges, true)
+    document.addEventListener('contextmenu', blockRuntimeChanges, true)
+    document.addEventListener('dragstart', blockRuntimeChanges, true)
+    document.addEventListener('drop', blockRuntimeChanges, true)
+    document.addEventListener('keydown', blockRuntimeChanges, true)
+    return () => {
+      document.removeEventListener('click', blockRuntimeChanges, true)
+      document.removeEventListener('dblclick', blockRuntimeChanges, true)
+      document.removeEventListener('contextmenu', blockRuntimeChanges, true)
+      document.removeEventListener('dragstart', blockRuntimeChanges, true)
+      document.removeEventListener('drop', blockRuntimeChanges, true)
+      document.removeEventListener('keydown', blockRuntimeChanges, true)
+    }
+  }, [pendingTransferNonce])
 
   useEffect(() => {
     if (!window.api.onWorkspaceTransferredOut) return
@@ -1874,7 +1930,10 @@ function App(): React.JSX.Element {
         onOpenSettings={() => setShowSettings(true)}
       />
       <PreflightPanel />
-      {pendingTransferNonce && <div className="workspace-transfer-status">正在导入工作区…</div>}
+      {pendingTransferNonce && <>
+        <div className="workspace-transfer-guard" aria-hidden="true" />
+        <div className="workspace-transfer-status">正在转移工作区，请稍候…</div>
+      </>}
 
       {isDragOver && (
         <div className="drag-overlay">

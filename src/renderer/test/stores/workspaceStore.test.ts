@@ -84,6 +84,21 @@ describe('workspaceStore runtime isolation', () => {
     expect(persisted.quickEditPlacements['tab-a'].sourceLine).toBe(8)
   })
 
+  it('原子替换转移目标占位工作区及其 runtime', () => {
+    const placeholder = { id: 'placeholder', name: '未命名工作区', primaryRoot: null, lifecycleEpoch: 1 }
+    useWorkspaceStore.getState().setWorkspaces([placeholder], placeholder.id)
+    useWorkspaceStore.getState().saveRuntime(placeholder.id, runtime())
+
+    const imported = { id: 'imported', name: 'Imported', primaryRoot: '/imported', lifecycleEpoch: 2 }
+    useWorkspaceStore.getState().replaceWorkspace(placeholder.id, imported, runtime())
+
+    const state = useWorkspaceStore.getState()
+    expect(state.workspaces).toEqual([imported])
+    expect(state.activeWorkspaceId).toBe(imported.id)
+    expect(state.runtimes).not.toHaveProperty(placeholder.id)
+    expect(state.runtimes[imported.id].tabs).toHaveLength(1)
+  })
+
   it('原子清理多个非活动 workspace 及其 runtime', () => {
     const descriptors = [
       { id: 'workspace-a', name: 'A', primaryRoot: '/workspace-a', lifecycleEpoch: 1 },

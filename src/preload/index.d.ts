@@ -578,6 +578,7 @@ declare global {
       }) => Promise<{ removedWorkspaceIds: string[]; activeWorkspaceId: string | null }>
       updateWorkspacePresentations: (presentations: Array<{
         workspaceId: string
+        lifecycleEpoch: number
         label: string
         isEmptyPlaceholder: boolean
         hasMeaningfulState: boolean
@@ -586,7 +587,7 @@ declare global {
         tabNames: string[]
         hasSplit: boolean
         hasDraft: boolean
-      }>) => Promise<void>
+      }>) => Promise<{ applied: boolean }>
       listWorkspaceMergeSources: () => Promise<Array<{
         windowId: number
         title: string
@@ -648,7 +649,7 @@ declare global {
       }>
       stageWorkspaceTransfer: (nonce: string) => Promise<void>
       completeWorkspaceTransfer: (nonce: string) => Promise<{
-        id: string; primaryRoot: string | null; lifecycleEpoch: number
+        id: string; primaryRoot: string | null; lifecycleEpoch: number; replacedWorkspaceId: string | null
       }>
       cancelWorkspaceTransfer: (nonce: string) => Promise<void>
       onWorkspaceRestoreRuntime: (callback: (payload: {
