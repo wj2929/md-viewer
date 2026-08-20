@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand'
+import { getActiveWorkspaceOperationContext } from '../utils/workspaceOperationContext'
 
 /**
  * 粘贴结果接口
@@ -16,6 +17,17 @@ export interface PasteResult {
 
 let pasteInProgress = false
 
+function syncClipboardState(
+  files: string[],
+  isCut: boolean,
+  operation: ReturnType<typeof getActiveWorkspaceOperationContext>
+): void {
+  if (!operation) return
+  void window.api.syncClipboardState?.(files, isCut, operation)?.catch(error => {
+    console.warn('[Clipboard] Failed to sync state to main process:', error)
+  })
+}
+
 /**
  * 剪贴板状态接口
  */
@@ -24,6 +36,7 @@ interface ClipboardState {
   files: Set<string>
   /** 是否为剪切操作（false = 复制） */
   isCut: boolean
+  operation: ReturnType<typeof getActiveWorkspaceOperationContext>
   /** 复制文件到剪贴板 */
   copy: (paths: string[]) => void
   /** 剪切文件到剪贴板 */
@@ -47,6 +60,7 @@ interface ClipboardState {
 export const useClipboardStore = create<ClipboardState>((set, get) => ({
   files: new Set(),
   isCut: false,
+  operation: undefined,
 
   /**
    * 复制文件到剪贴板
@@ -54,11 +68,10 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
    */
   copy: (paths: string[]) => {
     console.log('[Clipboard] Copy:', paths)
-    set({ files: new Set(paths), isCut: false })
+    const operation = getActiveWorkspaceOperationContext()
+    set({ files: new Set(paths), isCut: false, operation })
     // v1.3：同步状态到主进程（用于右键菜单查询）
-    void window.api.syncClipboardState?.(paths, false)?.catch(error => {
-      console.warn('[Clipboard] Failed to sync copy state to main process:', error)
-    })
+    syncClipboardState(paths, false, operation)
     // 同步到操作系统文件剪贴板；失败不影响应用内复制
     void window.api.writeSystemClipboard?.(paths, false)?.catch(error => {
       console.warn('[Clipboard] Failed to sync copy to system clipboard:', error)
@@ -71,11 +84,10 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
    */
   cut: (paths: string[]) => {
     console.log('[Clipboard] Cut:', paths)
-    set({ files: new Set(paths), isCut: true })
+    const operation = getActiveWorkspaceOperationContext()
+    set({ files: new Set(paths), isCut: true, operation })
     // v1.3：同步状态到主进程
-    void window.api.syncClipboardState?.(paths, true)?.catch(error => {
-      console.warn('[Clipboard] Failed to sync cut state to main process:', error)
-    })
+    syncClipboardState(paths, true, operation)
     // 同步到操作系统文件剪贴板；失败不影响应用内剪切
     void window.api.writeSystemClipboard?.(paths, true)?.catch(error => {
       console.warn('[Clipboard] Failed to sync cut to system clipboard:', error)
@@ -101,6 +113,11 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
       if (files.size === 0) {
         console.warn('[Clipboard] Paste failed: clipboard is empty')
         throw new Error('剪贴板为空')
+      }
+
+      const operation = getActiveWorkspaceOperationContext()
+      if (!operation) {
+        throw new Error('工作区尚未就绪，无法粘贴')
       }
 
       console.log(`[Clipboard] Paste to ${targetDir}, isCut: ${isCut}`)
@@ -139,15 +156,15 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
 
           if (isCut) {
             // 剪切操作：移动文件
-            await window.api.moveFile(srcPath, destPath)
+            await window.api.moveFile(srcPath, destPath, operation)
             console.log(`[Clipboard] Moved: ${srcPath} -> ${destPath}`)
           } else {
             // 复制操作：复制文件或目录
             if (isDirectory) {
-              await window.api.copyDir(srcPath, destPath)
+              await window.api.copyDir(srcPath, destPath, operation)
               console.log(`[Clipboard] Copied directory: ${srcPath} -> ${destPath}`)
             } else {
-              await window.api.copyFile(srcPath, destPath)
+              await window.api.copyFile(srcPath, destPath, operation)
               console.log(`[Clipboard] Copied file: ${srcPath} -> ${destPath}`)
             }
           }
@@ -162,21 +179,17 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
 
       // v1.3 事务性：只有剪切且全部成功才清空剪贴板
       if (isCut && result.failed.length === 0 && result.success.length > 0) {
-        set({ files: new Set(), isCut: false })
+        set({ files: new Set(), isCut: false, operation: undefined })
         console.log('[Clipboard] Cleared after successful cut')
         // 同步空状态到主进程
-        void window.api.syncClipboardState?.([], false)?.catch(error => {
-          console.warn('[Clipboard] Failed to clear copy state in main process:', error)
-        })
+        syncClipboardState([], false, operation)
       } else if (isCut && result.success.length > 0) {
         // 部分成功：只移除成功的文件
         const remainingFiles = new Set(files)
         result.success.forEach(path => remainingFiles.delete(path))
-        set({ files: remainingFiles })
+        set({ files: remainingFiles, operation })
         console.log('[Clipboard] Partial success, remaining:', Array.from(remainingFiles))
-        void window.api.syncClipboardState?.(Array.from(remainingFiles), true)?.catch(error => {
-          console.warn('[Clipboard] Failed to sync remaining cut state to main process:', error)
-        })
+        syncClipboardState(Array.from(remainingFiles), true, operation)
       }
 
       return result
@@ -189,12 +202,11 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
    * 清空剪贴板
    */
   clear: () => {
+    const { operation } = get()
     console.log('[Clipboard] Cleared')
-    set({ files: new Set(), isCut: false })
+    set({ files: new Set(), isCut: false, operation: undefined })
     // 同步到主进程
-    void window.api.syncClipboardState?.([], false)?.catch(error => {
-      console.warn('[Clipboard] Failed to clear copy state in main process:', error)
-    })
+    syncClipboardState([], false, operation)
   },
 
   /**

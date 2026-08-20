@@ -637,37 +637,14 @@ export function setupDOMPurifyHooks(): void {
 /**
  * 导出统一的 HTML 消毒函数
  *
- * KaTeX 生成的 HTML 由 katex.renderToString() 本地产生（非用户输入），
- * 其 style 属性包含精确的 em 定位值（如 top:-3.063em），会被 DOMPurify
- * 的 ALLOWED_STYLES 正则和 DANGEROUS_STYLE_PROPS 过滤掉，导致公式布局崩溃。
- * 因此在 sanitize 前将 KaTeX 块提取为占位符，sanitize 后还原。
+ * KaTeX 块也必须经过 DOMPurify。DOMPurify hook 保留安全的 style 声明；
+ * 不再相信可由 Markdown 伪造的注释标记，避免绕过整个消毒流程。
  *
  * @param html - 原始 HTML 字符串
  * @returns 消毒后的安全 HTML
  * @version v1.4.6
  */
 export function sanitizeHtml(html: string): string {
-  const katexBlocks: string[] = []
-  const KATEX_RE = /<!--KATEX_START-->([\s\S]*?)<!--KATEX_END-->/g
-
-  // 提取 KaTeX 块，用占位符替换
-  const processed = html.replace(KATEX_RE, (_match, content) => {
-    const idx = katexBlocks.length
-    katexBlocks.push(content)
-    return `<span data-katex-placeholder="${idx}"></span>`
-  })
-
-  // 对非 KaTeX 部分进行 sanitize
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let sanitized = String(DOMPurify.sanitize(processed, DOMPURIFY_CONFIG as any))
-
-  // 还原 KaTeX 块
-  for (let i = 0; i < katexBlocks.length; i++) {
-    sanitized = sanitized.replace(
-      `<span data-katex-placeholder="${i}"></span>`,
-      katexBlocks[i]
-    )
-  }
-
-  return sanitized
+  return String(DOMPurify.sanitize(html, DOMPURIFY_CONFIG as any))
 }

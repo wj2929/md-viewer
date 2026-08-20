@@ -1,8 +1,7 @@
 import { BrowserWindow } from 'electron'
-import * as path from 'path'
-import * as fs from 'fs/promises'
 import type { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
+import type { WorkspaceOperationContext } from '../../shared/workspace'
 
 export function getSenderWindow(ctx: IPCContext, event: Electron.IpcMainInvokeEvent): Electron.BrowserWindow {
   const window = BrowserWindow.fromWebContents(event.sender)
@@ -10,6 +9,57 @@ export function getSenderWindow(ctx: IPCContext, event: Electron.IpcMainInvokeEv
     throw new Error('无法识别当前窗口')
   }
   return window
+}
+
+export function getSenderWorkspace(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  workspaceId: string
+) {
+  if (typeof workspaceId !== 'string' || !workspaceId) {
+    throw new Error('安全错误：工作区无效')
+  }
+  const window = getSenderWindow(ctx, event)
+  const workspace = ctx.windowManager.getWorkspace(window.id, workspaceId)
+  if (!workspace) throw new Error('安全错误：工作区不存在或不属于当前窗口')
+  return workspace
+}
+
+export function getSenderWorkspaceForOperation(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  operation: WorkspaceOperationContext
+) {
+  if (!operation || !Number.isInteger(operation.lifecycleEpoch)) {
+    throw new Error('安全错误：写入请求缺少完整工作区上下文')
+  }
+  const workspace = getSenderWorkspace(ctx, event, operation.workspaceId)
+  if (workspace.lifecycleEpoch !== operation.lifecycleEpoch) {
+    throw new Error('安全错误：工作区已失效')
+  }
+  return workspace
+}
+
+export async function validateWorkspaceOperationPath(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  operation: WorkspaceOperationContext,
+  targetPath: string
+): Promise<string> {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  return validateSecurePathInBase(targetPath, workspace.primaryRoot)
+}
+
+export async function validateWorkspaceWritePath(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  workspaceId: string,
+  targetPath: string
+): Promise<string> {
+  const workspace = getSenderWorkspace(ctx, event, workspaceId)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  return validateSecurePathInBase(targetPath, workspace.primaryRoot)
 }
 
 export function getSenderFolderRoot(ctx: IPCContext, event: Electron.IpcMainInvokeEvent): string {
@@ -33,8 +83,8 @@ export async function validateSenderPath(
  * 因此读取（预览、分屏打开、看图等）只要目标落在「任一用户已授权过的根」内即可放行：
  *   - 任一存活窗口当前绑定的根
  *   - 文件夹历史里的根
- *   - 最近文件记录的 folderPath
- * 若目标不在上述任何根内，但它精确等于一条已登记的最近文件/书签路径，则以其父目录为根兜底放行。
+ *
+ * recent、书签等业务记录只能作为导航候选，不能反向成为读授权凭据。
  *
  * 仍然保留两层真正的防护栏（均在 validateSecurePathInBase 内）：
  *   - realpath 边界：阻止通过符号链接逃逸出根
@@ -65,46 +115,11 @@ export async function validateSenderReadPath(
   } catch {
     // 历史不可用时忽略
   }
-  for (const recent of ctx.appDataManager.getRecentFiles()) {
-    if (recent?.folderPath) candidateRoots.add(recent.folderPath)
-  }
-
   for (const root of candidateRoots) {
     try {
       return await validateSecurePathInBase(targetPath, root)
     } catch {
       // 尝试下一个根
-    }
-  }
-
-  // 精确文件白名单兜底：目标本身是一条已登记的最近文件 / 书签
-  const registeredFiles = new Set<string>()
-  for (const recent of ctx.appDataManager.getRecentFiles()) {
-    if (recent?.path) registeredFiles.add(recent.path)
-  }
-  for (const bookmark of ctx.appDataManager.getBookmarks()) {
-    if (bookmark?.filePath) registeredFiles.add(bookmark.filePath)
-  }
-  if (registeredFiles.size > 0) {
-    let canonicalTarget: string | null = null
-    try {
-      canonicalTarget = await fs.realpath(targetPath)
-    } catch {
-      canonicalTarget = null
-    }
-    for (const registered of registeredFiles) {
-      if (registered === targetPath) {
-        return validateSecurePathInBase(targetPath, path.dirname(targetPath))
-      }
-      if (canonicalTarget) {
-        try {
-          if (await fs.realpath(registered) === canonicalTarget) {
-            return validateSecurePathInBase(targetPath, path.dirname(targetPath))
-          }
-        } catch {
-          // 登记文件已失效，跳过
-        }
-      }
     }
   }
 

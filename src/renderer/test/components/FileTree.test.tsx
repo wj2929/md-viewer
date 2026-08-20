@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { act, render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useWorkspaceStore } from '../../src/stores/workspaceStore'
 import { FileTree, FileInfo } from '../../src/components/FileTree'
 
 describe('FileTree', () => {
@@ -24,6 +25,9 @@ describe('FileTree', () => {
       getFolderTreeState: vi.fn(() => createImmediateFolderTreeState({})),
       saveFolderTreeState: vi.fn().mockResolvedValue({}),
       clearFolderTreeState: vi.fn().mockResolvedValue(undefined),
+      getDocumentMarks: vi.fn().mockResolvedValue({}),
+      setDocumentMark: vi.fn().mockResolvedValue({}),
+      onDocumentMarksChanged: vi.fn(() => vi.fn()),
       moveFile: vi.fn().mockResolvedValue('/base/path/docs/moved.md')
     } as any
   })
@@ -47,9 +51,16 @@ describe('FileTree', () => {
     mockOnFileSelect.mockClear()
     mockShowContextMenu.mockClear()
     mockShowContextMenu.mockResolvedValue({ success: true })
+    useWorkspaceStore.setState({
+      workspaces: [{ id: 'test-workspace', name: '测试工作区', primaryRoot: basePath, lifecycleEpoch: 1 }],
+      activeWorkspaceId: 'test-workspace',
+      runtimes: {},
+    })
     window.api.getFolderTreeState.mockImplementation(() => createImmediateFolderTreeState({}))
     window.api.saveFolderTreeState.mockResolvedValue({})
     window.api.clearFolderTreeState.mockResolvedValue(undefined)
+    window.api.getDocumentMarks.mockResolvedValue({})
+    window.api.setDocumentMark.mockResolvedValue({})
     window.api.moveFile.mockClear()
     window.api.moveFile.mockResolvedValue('/base/path/docs/moved.md')
   })
@@ -258,7 +269,10 @@ describe('FileTree', () => {
         vi.advanceTimersByTime(350)
       })
 
-      expect(save).toHaveBeenCalledWith({ docs: false })
+      expect(save).toHaveBeenCalledWith(
+        { docs: false },
+        { workspaceId: 'test-workspace', lifecycleEpoch: 1 }
+      )
       vi.useRealTimers()
     })
 
@@ -842,6 +856,56 @@ describe('FileTree', () => {
   })
 
   // v1.2 阶段 1：右键菜单测试
+  describe('文档背景标记', () => {
+    it('加载标记后为目标 Markdown 行增加固定颜色类', async () => {
+      window.api.getDocumentMarks.mockResolvedValue({ 'docs/plan.md': 'yellow' })
+      const files = [createMockFile('plan.md', '/base/path/docs/plan.md', 'docs/plan.md')]
+
+      const { container } = render(
+        <FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+
+      expect(await screen.findByText('plan.md')).toBeInTheDocument()
+      await act(async () => Promise.resolve())
+      expect(container.querySelector('.file-tree-row')).toHaveClass('marked', 'marked-yellow')
+    })
+
+    it('悬停预览卡片可直接设置背景标记', async () => {
+      vi.useFakeTimers()
+      window.api.readFilePreview = vi.fn().mockResolvedValue('# Plan\n\nSummary')
+      window.api.getDocumentMarks.mockResolvedValue({})
+      window.api.setDocumentMark.mockResolvedValue({ 'plan.md': 'blue' })
+      const files = [createMockFile('plan.md', '/base/path/plan.md', 'plan.md')]
+      const { container } = render(
+        <FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+
+      fireEvent.mouseEnter(container.querySelector('.file-tree-row')!)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500)
+      })
+      expect(screen.getByRole('dialog', { name: 'plan.md预览与背景标记' })).toBeInTheDocument()
+      expect(screen.getAllByRole('radio')).toHaveLength(7)
+
+      fireEvent.mouseLeave(container.querySelector('.file-tree-row')!)
+      fireEvent.mouseEnter(screen.getByRole('dialog', { name: 'plan.md预览与背景标记' }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(160)
+      })
+      expect(screen.getByRole('dialog', { name: 'plan.md预览与背景标记' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('radio', { name: '蓝色' }))
+      await act(async () => Promise.resolve())
+      expect(window.api.setDocumentMark).toHaveBeenCalledWith(
+        '/base/path/plan.md',
+        'blue',
+        { workspaceId: 'test-workspace', lifecycleEpoch: 1 }
+      )
+      expect(container.querySelector('.file-tree-row')).toHaveClass('marked-blue')
+      vi.useRealTimers()
+    })
+  })
+
   describe('右键菜单 (v1.2)', () => {
     it('右键点击文件应该显示上下文菜单', async () => {
       const file = createMockFile('test.md', '/base/path/test.md')
@@ -854,7 +918,8 @@ describe('FileTree', () => {
 
       expect(mockShowContextMenu).toHaveBeenCalledWith(
         { name: 'test.md', path: '/base/path/test.md', isDirectory: false },
-        basePath
+        basePath,
+        { workspaceId: 'test-workspace', lifecycleEpoch: 1 }
       )
       expect(mockShowContextMenu).toHaveBeenCalledTimes(1)
     })
@@ -870,7 +935,8 @@ describe('FileTree', () => {
 
       expect(mockShowContextMenu).toHaveBeenCalledWith(
         { name: 'docs', path: '/base/path/docs', isDirectory: true },
-        basePath
+        basePath,
+        { workspaceId: 'test-workspace', lifecycleEpoch: 1 }
       )
     })
 
@@ -888,7 +954,8 @@ describe('FileTree', () => {
 
       expect(mockShowContextMenu).toHaveBeenCalledWith(
         { name: 'deep.md', path: '/base/path/level1/deep.md', isDirectory: false },
-        basePath
+        basePath,
+        { workspaceId: 'test-workspace', lifecycleEpoch: 1 }
       )
     })
 
@@ -937,7 +1004,7 @@ describe('FileTree', () => {
       fireEvent.drop(dirRow, { dataTransfer: dt })
       await act(flush)
 
-      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md')
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
     })
 
     it('拖目录到其自身/子目录 → 不调用 moveFile', async () => {
@@ -984,8 +1051,8 @@ describe('FileTree', () => {
       await act(flush)
 
       expect(window.api.moveFile).toHaveBeenCalledTimes(2)
-      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md')
-      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/b.md', '/base/path/docs/b.md')
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/b.md', '/base/path/docs/b.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
     })
 
     it('移动成功 → 回调 onMoveSuccess', async () => {
@@ -1048,7 +1115,7 @@ describe('FileTree', () => {
       fireEvent.drop(rootDropBar, { dataTransfer: dt })
       await act(flush)
 
-      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/docs/a.md', '/base/path/a.md')
+      expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/docs/a.md', '/base/path/a.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
     })
 
     it('拖到源所在的同一目录 → 不调用 moveFile', async () => {

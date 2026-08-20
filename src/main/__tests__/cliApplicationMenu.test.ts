@@ -18,6 +18,10 @@ describe('application menu', () => {
       expect.objectContaining({ label: '安装命令行工具 (md-viewer)' }),
       expect.objectContaining({ label: '卸载命令行工具 (md-viewer)' }),
     ]))
+    const windowSubmenu = template.find(item => item.role === 'windowMenu')?.submenu as Electron.MenuItemConstructorOptions[] | undefined
+    expect(windowSubmenu ?? []).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '合并其他窗口到当前窗口…' }),
+    ]))
     expect(helpSubmenu ?? []).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ label: 'CLI 使用指南' }),
     ]))

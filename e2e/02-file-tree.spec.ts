@@ -234,7 +234,8 @@ test.describe('文件树功能测试', () => {
     // 找到切换按钮
     const changeBtn = page.locator('.folder-btn')
     await expect(changeBtn).toBeVisible()
-    await expect(changeBtn).toHaveAttribute('title', '切换文件夹')
+    await expect(changeBtn).toHaveAttribute('aria-label', '切换文件夹')
+    await expect(changeBtn).toHaveAttribute('data-tooltip', '切换文件夹')
   })
 
   test('历史文件夹下拉菜单不应该被导航栏裁剪', async ({ page, electronApp, testDir }) => {

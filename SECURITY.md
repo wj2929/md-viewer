@@ -20,8 +20,9 @@ Security-sensitive areas include:
 - Markdown HTML sanitization
 - exported HTML/PDF/DOCX content
 - Electron main/preload IPC boundaries
+- online TTS service configuration and encrypted API key storage
 - remote DOCX service configuration
 
 ## Secrets
 
-Do not include private documents, API keys, tokens, cookies, or internal URLs in bug reports.
+Do not include private documents, API keys, tokens, cookies, online TTS credentials, or internal URLs in bug reports.

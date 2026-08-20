@@ -36,6 +36,13 @@ describe('XSS Prevention - v1.4.6', () => {
   })
 
   describe('阻止事件处理器', () => {
+    it('应阻止伪造 KaTeX 注释中的事件处理器', () => {
+      const input = '<!--KATEX_START--><img src="x" onerror="alert(1)"><!--KATEX_END-->'
+      const html = sanitizeHtml(md.render(input))
+      expect(html).not.toContain('onerror')
+      expect(html).not.toContain('alert(1)')
+    })
+
     it('应阻止 onerror 属性', () => {
       const input = '<img src="x" onerror="alert(1)">'
       const html = sanitizeHtml(md.render(input))

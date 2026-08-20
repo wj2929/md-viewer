@@ -43,6 +43,21 @@ describe('TabBar 组件测试', () => {
     }
   ]
 
+  it('在空标签与首个标签之间切换时保持 Hook 顺序', () => {
+    const onTabClick = vi.fn()
+    const onTabClose = vi.fn()
+    const { rerender } = render(
+      <TabBar tabs={[]} activeTabId={null} onTabClick={onTabClick} onTabClose={onTabClose} />
+    )
+
+    expect(() => rerender(
+      <TabBar tabs={[mockTabs[0]]} activeTabId={mockTabs[0].id} onTabClick={onTabClick} onTabClose={onTabClose} />
+    )).not.toThrow()
+    expect(() => rerender(
+      <TabBar tabs={[]} activeTabId={null} onTabClick={onTabClick} onTabClose={onTabClose} />
+    )).not.toThrow()
+  })
+
   describe('渲染测试', () => {
     it('应该渲染所有标签', () => {
       const onTabClick = vi.fn()

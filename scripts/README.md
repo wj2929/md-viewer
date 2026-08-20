@@ -78,6 +78,23 @@
 
 ---
 
+## 🚀 发布门禁
+
+`release-smoke.sh` 提供三档本地门禁：
+
+```bash
+# 快速回归：核心单元测试、构建、核心 Electron E2E 和 HTML 导出基线
+scripts/release-smoke.sh quick
+
+# 日常完整检查：纯 headless，不打开可见窗口
+scripts/release-smoke.sh full
+
+# 正式发布前：full 全部内容 + 可见窗口交互 E2E
+scripts/release-smoke.sh full-interactive
+```
+
+`full` 不覆盖文件树点击、编辑模式、快捷键和导出面板等可见窗口交互。正式发布前必须通过 `full-interactive`，只通过 `full` 不能标记为已发布。
+
 ## 🚀 发布流程
 
 **完整发布流程**（见 [README.md](../README.md#发布流程)）：

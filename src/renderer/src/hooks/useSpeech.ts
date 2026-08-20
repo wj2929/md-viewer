@@ -23,6 +23,33 @@ const supportsHighlightAPI =
   typeof Highlight !== 'undefined' &&
   typeof Range !== 'undefined'
 
+export function scrollSentenceIntoView(
+  container: HTMLElement,
+  segment: SpeechSegment
+): void {
+  const range = buildSentenceRange(segment.element, segment.charStart, segment.charEnd)
+  const sentenceRect = range?.getBoundingClientRect() ?? segment.element.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+  const bar = container.parentElement?.querySelector<HTMLElement>('.read-aloud-bar')
+  const barRect = bar?.getBoundingClientRect()
+  const coveredBottom = barRect && barRect.top > containerRect.top && barRect.top < containerRect.bottom
+    ? barRect.top - 16
+    : containerRect.bottom
+  const viewportBottom = coveredBottom - containerRect.top >= 48
+    ? coveredBottom
+    : containerRect.bottom
+  const isVisible = sentenceRect.bottom > containerRect.top && sentenceRect.top < viewportBottom
+  if (isVisible) return
+
+  const viewportHeight = viewportBottom - containerRect.top
+  const targetRatio = sentenceRect.top >= viewportBottom ? 0.6 : 0.35
+  const targetTop = containerRect.top + viewportHeight * targetRatio
+  container.scrollTo({
+    top: Math.max(0, Math.round(container.scrollTop + sentenceRect.top - targetTop)),
+    behavior: 'smooth',
+  })
+}
+
 /**
  * 把"元素内字符偏移区间"映射成 Range(遍历文本节点累加偏移定位)。
  * charStart/charEnd 相对 element.textContent。缺省则整个元素内容。
@@ -125,10 +152,10 @@ export function useSpeech({
     }
     highlightedRef.current = seg.element
     // 未脱离跟随时才自动滚动;block:'nearest' 减少突兀跳动
-    if (!detachedRef.current) {
-      seg.element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    if (!detachedRef.current && containerRef.current) {
+      scrollSentenceIntoView(containerRef.current, seg)
     }
-  }, [clearHighlight])
+  }, [containerRef, clearHighlight])
 
   const destroyEngine = useCallback(() => {
     engineRef.current?.dispose()
@@ -161,13 +188,16 @@ export function useSpeech({
 
   const buildSystemEngine = useCallback((): TtsEngine => {
     return wireEngine(new SystemSpeechEngine(voiceIdRef.current, rateRef.current), (error) => {
+      destroyEngine()
+      clearHighlight()
       dispatch({ type: 'ERROR', error })
     })
-  }, [wireEngine])
+  }, [wireEngine, destroyEngine, clearHighlight])
 
   /** 从指定段开始播放(startIndex 省略则用视口首段) */
   const play = useCallback((startIndex?: number) => {
-    const segments = collectSpeechSegments(containerRef.current)
+    const segmentOptions = providerRef.current.type === 'openai' ? { maxUtf8Bytes: 900 } : undefined
+    const segments = collectSpeechSegments(containerRef.current, segmentOptions)
     if (segments.length === 0) return
     segmentsRef.current = segments
     const start = startIndex ?? findViewportStartIndex(segments, containerRef.current)
@@ -195,7 +225,9 @@ export function useSpeech({
     const engine = wireEngine(new AudioStreamEngine(audioProvider, rateRef.current), (error) => {
       // network 类错误 + 开了 fallback → 退回系统声重读(从当前段);config 类提示改配置
       if (error.kind === 'network' && fallbackRef.current) {
-        const fromIndex = segmentsRef.current.length ? engineCurrentIndexRef.current : start
+        const fromIndex = error.segmentIndex ?? (
+          segmentsRef.current.length ? engineCurrentIndexRef.current : start
+        )
         destroyEngine()
         setFellBackToSystem(true) // 标记已退回系统声,播放条显示橙线提示
         const sys = buildSystemEngine()
@@ -203,6 +235,8 @@ export function useSpeech({
         dispatch({ type: 'PLAY', startIndex: fromIndex, total: segmentsRef.current.length })
         sys.play(segmentsRef.current, fromIndex)
       } else {
+        destroyEngine()
+        clearHighlight()
         dispatch({ type: 'ERROR', error })
       }
     })
@@ -217,7 +251,8 @@ export function useSpeech({
       play()
       return
     }
-    const segments = collectSpeechSegments(containerRef.current)
+    const segmentOptions = providerRef.current.type === 'openai' ? { maxUtf8Bytes: 900 } : undefined
+    const segments = collectSpeechSegments(containerRef.current, segmentOptions)
     if (segments.length === 0) return
     // 找第一个 sourceLine >= 目标行的句子;找不到(超末尾)则用最后一段
     let idx = segments.findIndex((s) => typeof s.sourceLine === 'number' && s.sourceLine >= line)
@@ -251,25 +286,42 @@ export function useSpeech({
     dispatch({ type: 'REATTACH_FOLLOW' })
     // 回到当前朗读段
     const seg = segmentsRef.current[state.currentIndex]
-    seg?.element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [state.currentIndex])
+    if (seg && containerRef.current) {
+      scrollSentenceIntoView(containerRef.current, seg)
+    }
+  }, [containerRef, state.currentIndex])
 
   // 语速变化实时下发给引擎
   useEffect(() => {
     engineRef.current?.setRate(rate)
   }, [rate])
 
-  // 用户主动滚动 → 脱离自动跟随(仅在朗读中)
+  // 用户滚轮、触控、拖滚动条或按滚动键 → 脱离自动跟随(仅在朗读中)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const onWheel = (): void => {
-      if (state.status === 'playing' || state.status === 'paused') {
-        detachFollow()
+    const detachIfActive = (): void => {
+      if (state.status === 'playing' || state.status === 'paused') detachFollow()
+    }
+    const onPointerDown = (event: PointerEvent): void => {
+      const rect = container.getBoundingClientRect()
+      if (event.target === container && event.clientX >= rect.right - 16) detachIfActive()
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+        detachIfActive()
       }
     }
-    container.addEventListener('wheel', onWheel, { passive: true })
-    return () => container.removeEventListener('wheel', onWheel)
+    container.addEventListener('wheel', detachIfActive, { passive: true })
+    container.addEventListener('touchmove', detachIfActive, { passive: true })
+    container.addEventListener('pointerdown', onPointerDown)
+    container.addEventListener('keydown', onKeyDown)
+    return () => {
+      container.removeEventListener('wheel', detachIfActive)
+      container.removeEventListener('touchmove', detachIfActive)
+      container.removeEventListener('pointerdown', onPointerDown)
+      container.removeEventListener('keydown', onKeyDown)
+    }
   }, [containerRef, state.status, detachFollow])
 
   // 卸载时清理

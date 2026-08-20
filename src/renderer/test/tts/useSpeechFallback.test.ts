@@ -5,6 +5,7 @@ import type { TtsEngine, TtsEngineError } from '../../src/tts/types'
 
 // 收集两类引擎的实例,供断言"是否退回系统声"
 const systemEngines: FakeEngine[] = []
+const systemVoiceIds: Array<string | undefined> = []
 const audioEngines: FakeEngine[] = []
 
 class FakeEngine implements TtsEngine {
@@ -39,7 +40,8 @@ class FakeEngine implements TtsEngine {
 
 vi.mock('../../src/tts/engines/SystemSpeechEngine', () => ({
   SystemSpeechEngine: class {
-    constructor() {
+    constructor(voiceId?: string) {
+      systemVoiceIds.push(voiceId)
       const e = new FakeEngine()
       systemEngines.push(e)
       return e as unknown as object
@@ -76,10 +78,44 @@ function makeContainerRef(): React.RefObject<HTMLDivElement> {
 
 beforeEach(() => {
   systemEngines.length = 0
+  systemVoiceIds.length = 0
   audioEngines.length = 0
 })
 
 describe('useSpeech 断网 fallback 决策', () => {
+  it('直接系统朗读使用所选系统音色', () => {
+    const containerRef = makeContainerRef()
+    const { result } = renderHook(() =>
+      useSpeech({
+        containerRef,
+        provider: { id: 'system', type: 'system' },
+        voiceId: 'voice-selected',
+      })
+    )
+
+    act(() => result.current.play(0))
+
+    expect(systemVoiceIds).toEqual(['voice-selected'])
+    expect(systemEngines[0].played).toBe(true)
+  })
+
+  it('edge network 失败后的系统 fallback 使用同一系统音色', () => {
+    const containerRef = makeContainerRef()
+    const { result } = renderHook(() =>
+      useSpeech({
+        containerRef,
+        provider: { id: 'edge', type: 'edge' },
+        voiceId: 'voice-selected',
+        fallbackToSystem: true,
+      })
+    )
+
+    act(() => result.current.play(0))
+    act(() => audioEngines[0].emitError({ kind: 'network', message: '断网' }))
+
+    expect(systemVoiceIds).toEqual(['voice-selected'])
+  })
+
   it('edge network 失败 + fallback 开 → 退回系统声,标记 fellBackToSystem', () => {
     const containerRef = makeContainerRef()
     const { result } = renderHook(() =>
@@ -99,6 +135,20 @@ describe('useSpeech 断网 fallback 决策', () => {
     expect(systemEngines).toHaveLength(1)
     expect(systemEngines[0].played).toBe(true)
     expect(result.current.fellBackToSystem).toBe(true)
+  })
+
+  it('合成失败带段索引时,系统声从失败段精确接管', () => {
+    const containerRef = makeContainerRef()
+    const { result } = renderHook(() =>
+      useSpeech({ containerRef, provider: { id: 'edge', type: 'edge' }, fallbackToSystem: true })
+    )
+    act(() => result.current.play(0))
+    act(() => audioEngines[0].emitError({
+      kind: 'network',
+      message: '第二段失败',
+      segmentIndex: 1,
+    }))
+    expect(systemEngines[0].startIndex).toBe(1)
   })
 
   it('edge network 失败 + fallback 关 → 不退,进 error 状态', () => {

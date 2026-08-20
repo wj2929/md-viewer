@@ -7,6 +7,7 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { VirtualizedMarkdown } from './VirtualizedMarkdown'
 import FloatingNav from './FloatingNav'
+import ReadAloudBar from './ReadAloudBar'
 import { QuickEditDrawer } from './QuickEditDrawer'
 import { MarkdownEditWorkbench } from './editor'
 import { Tab } from './TabBar'
@@ -315,6 +316,13 @@ function LeafPanel({
                   <FloatingNav
                     containerRef={previewRef}
                     markdown={previewContent}
+                  />
+                )}
+                {tab && isActive && (
+                  <ReadAloudBar
+                    containerRef={previewRef}
+                    filePath={tab.file.path}
+                    contentKey={previewContent}
                   />
                 )}
               </div>

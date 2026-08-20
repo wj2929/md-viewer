@@ -35,7 +35,7 @@ describe('openMarkdownInNewWindow', () => {
     }
     vi.mocked(validateSecurePathInBase).mockResolvedValue('/root/docs/chapter.md')
     vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any)
-    vi.mocked(activateFolderForWindow).mockResolvedValue({ id: 'h1', path: '/root/docs', name: 'docs' })
+    vi.mocked(activateFolderForWindow).mockResolvedValue({ id: 'h1', path: '/root/docs', name: 'docs', workspace: { id: 'w1', primaryRoot: '/root/docs', lifecycleEpoch: 2 } })
   })
 
   it('校验文件后创建窗口并注册就绪操作', async () => {

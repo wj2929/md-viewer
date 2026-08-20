@@ -15,7 +15,9 @@
 
 import type { TtsProviderType } from '../../shared/ttsProviders'
 import { synthesizeEdge } from './EdgeAdapter'
+import { decodeOpenAiCompatibleResponse, OpenAiCompatibleResponseError } from './openAiCompatibleResponse'
 import { getProviderKey } from './keyStore'
+import { providerTarget } from './ttsSettings'
 
 export interface SynthesizeRequest {
   providerId: string
@@ -98,7 +100,7 @@ async function synthesizeViaOpenAI(
   req: SynthesizeRequest,
   signal?: AbortSignal
 ): Promise<SynthesizeResult> {
-  const apiKey = getProviderKey(req.providerId)
+  const apiKey = getProviderKey(req.providerId, providerTarget(req))
   if (!apiKey) throw new TtsSynthesisError('config', '未配置 OpenAI API Key')
   const base = (req.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')
   let res: Response
@@ -116,6 +118,7 @@ async function synthesizeViaOpenAI(
         speed: req.rate ?? 1,
         response_format: 'mp3',
       }),
+      redirect: 'error',
       signal,
     })
   } catch (err) {
@@ -123,11 +126,19 @@ async function synthesizeViaOpenAI(
     throw new TtsSynthesisError('network', `OpenAI 请求失败: ${(err as Error).message}`)
   }
   if (!res.ok) {
-    const kind = res.status === 401 || res.status === 403 ? 'config' : 'network'
+    const kind = classifyHttpError(res.status)
     throw new TtsSynthesisError(kind, `OpenAI 返回 ${res.status}`)
   }
-  const buf = Buffer.from(await res.arrayBuffer())
-  return { audioBase64: buf.toString('base64'), format: 'mp3' }
+  try {
+    const result = await decodeOpenAiCompatibleResponse(res, signal)
+    return { audioBase64: result.audio.toString('base64'), format: result.format }
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw new Error('aborted')
+    if (err instanceof OpenAiCompatibleResponseError) {
+      throw new TtsSynthesisError('unsupported', err.message)
+    }
+    throw err
+  }
 }
 
 /** Azure TTS(cognitiveservices,带 region + key)。第 4 步接线 UI 后可用。 */
@@ -135,7 +146,7 @@ async function synthesizeViaAzure(
   req: SynthesizeRequest,
   signal?: AbortSignal
 ): Promise<SynthesizeResult> {
-  const apiKey = getProviderKey(req.providerId)
+  const apiKey = getProviderKey(req.providerId, providerTarget(req))
   if (!apiKey) throw new TtsSynthesisError('config', '未配置 Azure API Key')
   if (!req.region) throw new TtsSynthesisError('config', '未配置 Azure region')
   const voice = req.voice || 'zh-CN-XiaoxiaoNeural'
@@ -165,6 +176,11 @@ async function synthesizeViaAzure(
   }
   const buf = Buffer.from(await res.arrayBuffer())
   return { audioBase64: buf.toString('base64'), format: 'mp3' }
+}
+
+function classifyHttpError(status: number): 'network' | 'config' {
+  if ([400, 401, 403, 404, 405, 422].includes(status)) return 'config'
+  return 'network'
 }
 
 function escapeXml(s: string): string {

@@ -70,4 +70,6 @@ export interface TtsEngineError {
    */
   kind: 'network' | 'config' | 'unsupported' | 'unknown'
   message: string
+  /** 合成失败所对应的段索引，供 fallback 从该段精确接管 */
+  segmentIndex?: number
 }

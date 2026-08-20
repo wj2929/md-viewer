@@ -7,12 +7,30 @@
 
 import type { TtsEngine, TtsEngineError, SpeechSegment } from '../types'
 
+export interface SystemVoiceOption {
+  id: string
+  name: string
+  lang: string
+}
+
+export function toSystemVoiceOptions(voices: SpeechSynthesisVoice[]): SystemVoiceOption[] {
+  const seen = new Set<string>()
+  return voices.flatMap((voice) => {
+    const id = voice.voiceURI || voice.name
+    if (!id || seen.has(id)) return []
+    seen.add(id)
+    return [{ id, name: voice.name, lang: voice.lang }]
+  })
+}
+
 export class SystemSpeechEngine implements TtsEngine {
   private segments: SpeechSegment[] = []
   private index = 0
   private rate = 1
   private voice: SpeechSynthesisVoice | null = null
+  private voiceId?: string
   private disposed = false
+  private playbackToken = 0
   private current: SpeechSynthesisUtterance | null = null
 
   private segmentStartCb: (index: number) => void = () => {}
@@ -21,6 +39,7 @@ export class SystemSpeechEngine implements TtsEngine {
 
   constructor(voiceId?: string, rate?: number) {
     if (rate) this.rate = rate
+    this.voiceId = voiceId
     if (voiceId) this.voice = this.findVoice(voiceId)
   }
 
@@ -36,7 +55,20 @@ export class SystemSpeechEngine implements TtsEngine {
     }
     this.segments = segments
     this.index = Math.max(0, Math.min(startIndex, segments.length - 1))
+    this.playbackToken += 1
+    const playbackToken = this.playbackToken
     window.speechSynthesis.cancel()
+
+    if (this.voiceId && !this.findVoice(this.voiceId)) {
+      void loadSystemVoices(this.voiceId).then(() => {
+        if (this.disposed || this.playbackToken !== playbackToken) return
+        this.voice = this.findVoice(this.voiceId as string)
+        this.speakCurrent()
+      })
+      return
+    }
+
+    if (this.voiceId) this.voice = this.findVoice(this.voiceId)
     this.speakCurrent()
   }
 
@@ -47,6 +79,8 @@ export class SystemSpeechEngine implements TtsEngine {
       return
     }
     const seg = this.segments[this.index]
+    if (this.voiceId) this.voice = this.findVoice(this.voiceId)
+    const playbackToken = this.playbackToken
     const utt = new SpeechSynthesisUtterance(seg.text)
     utt.rate = this.rate
     if (this.voice) {
@@ -54,10 +88,12 @@ export class SystemSpeechEngine implements TtsEngine {
       utt.lang = this.voice.lang
     }
     utt.onstart = () => {
-      if (!this.disposed) this.segmentStartCb(this.index)
+      if (this.disposed || this.playbackToken !== playbackToken) return
+      if (this.current !== utt) return
+      this.segmentStartCb(this.index)
     }
     utt.onend = () => {
-      if (this.disposed) return
+      if (this.disposed || this.playbackToken !== playbackToken) return
       // 只有正常读完(非被 cancel 打断)才推进。cancel 会触发 onend,故用 current 标记区分。
       if (this.current !== utt) return
       this.index += 1
@@ -83,6 +119,7 @@ export class SystemSpeechEngine implements TtsEngine {
   }
 
   stop(): void {
+    this.playbackToken += 1
     this.current = null
     window.speechSynthesis?.cancel()
   }
@@ -93,6 +130,8 @@ export class SystemSpeechEngine implements TtsEngine {
     // speechSynthesis 无法对已 speak 的 utterance 改速,故取消当前句、用新语速从当前句句首重读,
     // 让语速调节立即生效(代价:当前句从头再读)。仅在朗读中重读。
     if (this.current && !this.disposed && window.speechSynthesis) {
+      this.playbackToken += 1
+      this.current = null
       window.speechSynthesis.cancel()
       this.speakCurrent()
     }
@@ -121,26 +160,37 @@ export class SystemSpeechEngine implements TtsEngine {
  * 获取系统可用中文优先的音色列表。
  * 处理 getVoices() 首次返回空的坑:若为空,监听 voiceschanged 后再取。
  */
-export function loadSystemVoices(): Promise<SpeechSynthesisVoice[]> {
+export function loadSystemVoices(voiceId?: string): Promise<SpeechSynthesisVoice[]> {
   return new Promise((resolve) => {
     if (!window.speechSynthesis) {
       resolve([])
       return
     }
+    const hasRequestedVoice = (voices: SpeechSynthesisVoice[]): boolean => (
+      !voiceId || voices.some((voice) => voice.voiceURI === voiceId || voice.name === voiceId)
+    )
     const immediate = window.speechSynthesis.getVoices()
-    if (immediate.length > 0) {
+    if (immediate.length > 0 && hasRequestedVoice(immediate)) {
       resolve(immediate)
       return
     }
     let settled = false
+    let timeoutId: ReturnType<typeof setTimeout>
     const handler = (): void => {
+      if (settled) return
+      const voices = window.speechSynthesis.getVoices()
+      if (!hasRequestedVoice(voices) && voiceId) return
+      settled = true
+      clearTimeout(timeoutId)
+      window.speechSynthesis.removeEventListener('voiceschanged', handler)
+      resolve(voices)
+    }
+    window.speechSynthesis.addEventListener('voiceschanged', handler)
+    timeoutId = setTimeout(() => {
       if (settled) return
       settled = true
       window.speechSynthesis.removeEventListener('voiceschanged', handler)
       resolve(window.speechSynthesis.getVoices())
-    }
-    window.speechSynthesis.addEventListener('voiceschanged', handler)
-    // 兜底:1.5s 后仍无事件则返回当前(可能仍空)
-    setTimeout(handler, 1500)
+    }, 1500)
   })
 }

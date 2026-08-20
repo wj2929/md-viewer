@@ -8,13 +8,66 @@
 
 import React, { useState, useCallback } from 'react'
 import { useReadAloudStore } from '../stores/readAloudStore'
-import type { TtsProviderConfig } from '../../../shared/ttsProviders'
+import {
+  DEFAULT_EDGE_VOICE,
+  EDGE_ZH_VOICES,
+  type TtsProviderConfig,
+  type TtsVoiceProfile,
+} from '../../../shared/ttsProviders'
+import {
+  loadSystemVoices,
+  toSystemVoiceOptions,
+  type SystemVoiceOption,
+} from '../tts/engines/SystemSpeechEngine'
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error'
+
+const VoiceProfileEditor: React.FC<{
+  profile: TtsVoiceProfile
+  index: number
+  isActive: boolean
+  onSave: (patch: Pick<TtsVoiceProfile, 'name' | 'model' | 'voice'>) => Promise<boolean>
+  onRemove: () => Promise<boolean>
+  canRemove: boolean
+}> = ({ profile, index, isActive, onSave, onRemove, canRemove }) => {
+  const [name, setName] = useState(profile.name)
+  const [model, setModel] = useState(profile.model)
+  const [voice, setVoice] = useState(profile.voice)
+  const save = (): void => {
+    const patch = { name: name.trim(), model: model.trim(), voice: voice.trim() }
+    if (!patch.name || !patch.model || !patch.voice) return
+    void onSave(patch)
+  }
+  return <div className="tts-voice-profile" role="group" aria-label={`声音方案 ${index + 1}`}>
+    <div className="tts-voice-profile-title">
+      <strong>声音方案 {index + 1}</strong>
+      {isActive && <span className="tts-voice-profile-active">当前默认</span>}
+      <button className="btn-secondary btn-sm" disabled={!canRemove} onClick={() => void onRemove()}>删除方案</button>
+    </div>
+    <div className="tts-voice-profile-fields">
+      <label>
+        <span>方案名称</span>
+        <input className="settings-input" value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
+      </label>
+      <label>
+        <span>模型</span>
+        <input className="settings-input" value={model} placeholder="tts-1" onChange={(e) => setModel(e.target.value)} onBlur={save} />
+      </label>
+      <label>
+        <span>音色</span>
+        <input className="settings-input" value={voice} placeholder="alloy" onChange={(e) => setVoice(e.target.value)} onBlur={save} />
+      </label>
+    </div>
+  </div>
+}
 
 /** 单个付费 provider 卡片:名称/端点/region/key/测试连接/删除 */
 const PaidProviderCard: React.FC<{ config: TtsProviderConfig }> = ({ config }) => {
   const updateProvider = useReadAloudStore((s) => s.updateProvider)
+  const addVoiceProfile = useReadAloudStore((s) => s.addVoiceProfile)
+  const updateVoiceProfile = useReadAloudStore((s) => s.updateVoiceProfile)
+  const removeVoiceProfile = useReadAloudStore((s) => s.removeVoiceProfile)
+  const setActiveVoiceProfile = useReadAloudStore((s) => s.setActiveVoiceProfile)
   const removeProvider = useReadAloudStore((s) => s.removeProvider)
 
   const [name, setName] = useState(config.name)
@@ -25,33 +78,58 @@ const PaidProviderCard: React.FC<{ config: TtsProviderConfig }> = ({ config }) =
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
   const [testMsg, setTestMsg] = useState('')
 
-  // 保存 key 到主进程钥匙串,更新 hasApiKey 布尔
-  const saveKey = useCallback(async () => {
-    if (!apiKey) return
+  // 先保存当前目标，再将 key 绑定到该目标
+  const saveKey = useCallback(async (): Promise<boolean> => {
+    if (!apiKey) return true
+    const configSaved = await updateProvider(config.id, {
+      baseUrl: baseUrl.trim() || undefined,
+      region: region.trim() || undefined,
+      voice: voice.trim() || undefined,
+    })
+    if (!configSaved) return false
+
     const res = await window.api.ttsSetKey(config.id, apiKey)
-    if (res.ok) {
-      updateProvider(config.id, { hasApiKey: res.hasKey })
-      setApiKey('') // 存完清空输入框,不在渲染进程留存
-    }
-  }, [apiKey, config.id, updateProvider])
+    if (!res.ok) return false
+
+    const keyStateSaved = await updateProvider(config.id, { hasApiKey: res.hasKey })
+    if (keyStateSaved) setApiKey('')
+    return keyStateSaved
+  }, [apiKey, baseUrl, region, voice, config.id, updateProvider])
 
   const handleTest = useCallback(async () => {
     setTestStatus('testing')
     setTestMsg('')
-    // 若刚输了新 key,先存再测
-    if (apiKey) {
-      const setRes = await window.api.ttsSetKey(config.id, apiKey)
-      if (setRes.ok) {
-        updateProvider(config.id, { hasApiKey: setRes.hasKey })
-        setApiKey('')
-      }
-    }
-    const res = await window.api.ttsTestProvider({
-      providerId: config.id,
-      type: config.type,
+    const saved = await updateProvider(config.id, {
       baseUrl: baseUrl.trim() || undefined,
       region: region.trim() || undefined,
       voice: voice.trim() || undefined,
+    })
+    if (!saved) {
+      setTestStatus('error')
+      setTestMsg('朗读配置保存失败')
+      return
+    }
+
+    // 若刚输了新 key,配置落盘后再绑定当前服务目标
+    if (apiKey) {
+      const setRes = await window.api.ttsSetKey(config.id, apiKey)
+      if (!setRes.ok) {
+        setTestStatus('error')
+        setTestMsg(setRes.message || 'API Key 保存失败')
+        return
+      }
+      const saved = await updateProvider(config.id, { hasApiKey: setRes.hasKey })
+      if (!saved) {
+        setTestStatus('error')
+        setTestMsg('朗读配置保存失败')
+        return
+      }
+      setApiKey('')
+    }
+
+    const res = await window.api.ttsTestProvider({
+      providerId: config.id,
+      type: config.type,
     })
     if (res.ok) {
       setTestStatus('success')
@@ -75,7 +153,6 @@ const PaidProviderCard: React.FC<{ config: TtsProviderConfig }> = ({ config }) =
         <button
           className="btn-secondary btn-sm"
           onClick={() => removeProvider(config.id)}
-          title="删除此服务"
         >
           删除
         </button>
@@ -95,6 +172,9 @@ const PaidProviderCard: React.FC<{ config: TtsProviderConfig }> = ({ config }) =
           onBlur={() => updateProvider(config.id, { baseUrl: baseUrl.trim() || undefined })}
         />
       </div>
+      {config.type === 'openai' && (
+        <p className="setting-section-hint">填写 API 前缀，应用会调用 /audio/speech。</p>
+      )}
 
       {config.type === 'azure' && (
         <div className="setting-item setting-row">
@@ -113,17 +193,50 @@ const PaidProviderCard: React.FC<{ config: TtsProviderConfig }> = ({ config }) =
         </div>
       )}
 
-      <div className="setting-item setting-row">
-        <label>音色</label>
-        <input
-          type="text"
-          className="settings-input"
-          value={voice}
-          placeholder={config.type === 'openai' ? 'alloy' : 'zh-CN-XiaoxiaoNeural'}
-          onChange={(e) => setVoice(e.target.value)}
-          onBlur={() => updateProvider(config.id, { voice: voice.trim() || undefined })}
-        />
-      </div>
+      {config.type === 'azure' && (
+        <div className="setting-item setting-row">
+          <label>音色</label>
+          <input
+            type="text"
+            className="settings-input"
+            value={voice}
+            placeholder="zh-CN-XiaoxiaoNeural"
+            onChange={(e) => setVoice(e.target.value)}
+            onBlur={() => updateProvider(config.id, { voice: voice.trim() || undefined })}
+          />
+        </div>
+      )}
+
+      {config.type === 'openai' && (
+        <div className="tts-voice-profiles">
+          <div className="setting-item setting-row">
+            <label>默认方案</label>
+            <select
+              className="settings-input"
+              value={config.activeProfileId}
+              onChange={(event) => void setActiveVoiceProfile(config.id, event.target.value)}
+              aria-label={`${config.name}默认声音方案`}
+            >
+              {config.profiles?.map((profile) => (
+                <option key={profile.id} value={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+            <button className="btn-secondary btn-sm" onClick={() => void addVoiceProfile(config.id)}>+ 添加声音方案</button>
+          </div>
+          {config.profiles?.map((profile, index) => (
+            <VoiceProfileEditor
+              key={profile.id}
+              profile={profile}
+              index={index}
+              isActive={profile.id === config.activeProfileId}
+              canRemove={(config.profiles?.length ?? 0) > 1}
+              onSave={(patch) => updateVoiceProfile(config.id, profile.id, patch)}
+              onRemove={() => removeVoiceProfile(config.id, profile.id)}
+            />
+          ))}
+          <p className="setting-section-hint">模型和音色请按语音服务提供的文档填写。</p>
+        </div>
+      )}
 
       <div className="setting-item setting-row">
         <label>API Key</label>
@@ -137,7 +250,10 @@ const PaidProviderCard: React.FC<{ config: TtsProviderConfig }> = ({ config }) =
             setApiKey(e.target.value)
             setTestStatus('idle')
           }}
-          onBlur={saveKey}
+          onBlur={(event) => {
+            if (event.relatedTarget instanceof HTMLButtonElement) return
+            void saveKey()
+          }}
         />
         <button
           className="btn-secondary btn-sm"
@@ -161,8 +277,36 @@ const ReadAloudSettingsTab: React.FC = () => {
   const setActiveProvider = useReadAloudStore((s) => s.setActiveProvider)
   const setDefaultRate = useReadAloudStore((s) => s.setDefaultRate)
   const setFallbackToSystem = useReadAloudStore((s) => s.setFallbackToSystem)
+  const setSystemVoice = useReadAloudStore((s) => s.setSystemVoice)
+  const setEdgeVoice = useReadAloudStore((s) => s.setEdgeVoice)
   const addProvider = useReadAloudStore((s) => s.addProvider)
+  const [systemVoices, setSystemVoices] = useState<SystemVoiceOption[]>([])
+  const [edgeVoices, setEdgeVoices] = useState<Array<{ id: string; name: string; lang?: string }>>(
+    [...EDGE_ZH_VOICES]
+  )
 
+  React.useEffect(() => {
+    let active = true
+    loadSystemVoices().then((voices) => {
+      if (active) setSystemVoices(toSystemVoiceOptions(voices))
+    })
+    return () => { active = false }
+  }, [])
+
+  React.useEffect(() => {
+    const listVoices = window.api.ttsListVoices
+    if (typeof listVoices !== 'function') return
+    let active = true
+    listVoices('edge')
+      .then((voices) => {
+        if (active && voices.length > 0) setEdgeVoices(voices)
+      })
+      .catch(() => { /* 使用内建声线表 */ })
+    return () => { active = false }
+  }, [])
+
+  const systemProvider = settings.providers.find((provider) => provider.id === 'system')
+  const edgeProvider = settings.providers.find((provider) => provider.id === 'edge')
   const paidProviders = settings.providers.filter((p) => p.type === 'openai' || p.type === 'azure')
 
   return (
@@ -185,6 +329,42 @@ const ReadAloudSettingsTab: React.FC = () => {
               ))}
           </select>
         </div>
+
+        {settings.activeProviderId === 'system' && systemProvider && (
+          <div className="setting-item setting-row">
+            <label>系统音色</label>
+            <select
+              className="settings-input"
+              value={systemProvider.voice || ''}
+              onChange={(e) => setSystemVoice(e.target.value || undefined)}
+              aria-label="系统音色"
+            >
+              <option value="">系统默认音色</option>
+              {systemProvider.voice && !systemVoices.some((voice) => voice.id === systemProvider.voice) && (
+                <option value={systemProvider.voice}>已不可用（将使用系统默认）</option>
+              )}
+              {systemVoices.map((voice) => (
+                <option key={voice.id} value={voice.id}>{voice.name}（{voice.lang}）</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {settings.activeProviderId === 'edge' && edgeProvider && (
+          <div className="setting-item setting-row">
+            <label>Edge 音色</label>
+            <select
+              className="settings-input"
+              value={edgeProvider.voice || DEFAULT_EDGE_VOICE}
+              onChange={(e) => setEdgeVoice(e.target.value)}
+              aria-label="Edge 音色"
+            >
+              {edgeVoices.map((voice) => (
+                <option key={voice.id} value={voice.id}>{voice.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="setting-item setting-row">
           <label>默认语速</label>
@@ -218,7 +398,7 @@ const ReadAloudSettingsTab: React.FC = () => {
       <section className="settings-section">
         <h3>语音服务</h3>
         <p className="setting-section-hint">
-          系统声(离线)与晓晓(edge 免费)为内置服务，不可删除。付费服务的 API Key 经系统钥匙串加密存储，不明文保存。
+          系统声（离线）与 Edge 免费为内置服务，不可删除。付费服务的 API Key 经系统钥匙串加密存储，不明文保存。
         </p>
 
         {paidProviders.map((p) => (

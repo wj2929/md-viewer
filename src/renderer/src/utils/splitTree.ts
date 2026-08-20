@@ -176,6 +176,37 @@ export function swapLeaves(root: PanelNode, leafIdA: string, leafIdB: string): P
   return result
 }
 
+/**
+ * 移除已不存在 tab 的叶子，并修正活动叶子。
+ * Tab 关闭、会话恢复和工作区切换均应使用这一入口，避免分屏树留下悬挂引用。
+ */
+export function reconcileSplitState(
+  state: SplitState,
+  validTabIds: ReadonlySet<string>
+): SplitState {
+  const prune = (node: PanelNode): PanelNode | null => {
+    if (node.type === 'leaf') {
+      return validTabIds.has(node.tabId) ? node : null
+    }
+
+    const first = prune(node.first)
+    const second = prune(node.second)
+    if (!first) return second
+    if (!second) return first
+    return { ...node, first, second }
+  }
+
+  const root = state.root ? prune(state.root) : null
+  if (!root) return { root: null, activeLeafId: '' }
+
+  const leaves = getAllLeaves(root)
+  const activeLeafId = leaves.some((leaf) => leaf.id === state.activeLeafId)
+    ? state.activeLeafId
+    : leaves[0].id
+
+  return { root, activeLeafId }
+}
+
 /** 清空所有叶子节点的 tabId（保留树结构） */
 export function clearAllLeafTabs(root: PanelNode): PanelNode {
   if (root.type === 'leaf') {

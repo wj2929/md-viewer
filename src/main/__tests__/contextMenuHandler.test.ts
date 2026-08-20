@@ -104,6 +104,35 @@ describe('contextMenuHandler', () => {
       expect(menu.popup).toHaveBeenCalledWith({ window: mockWindow })
     })
 
+    it('右键菜单不再包含背景标记入口', () => {
+      showContextMenu(mockWindow, {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }, '/Users/test/documents')
+
+      const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
+      expect(template.some(item => item.label === '🎨 背景标记色…')).toBe(false)
+    })
+
+    it('删除成功后才清理背景标记', async () => {
+      const removeDocumentMarks = vi.fn()
+      vi.mocked(dialog.showMessageBox).mockResolvedValue({ response: 0 } as any)
+      vi.mocked(shell.trashItem).mockResolvedValue(undefined)
+      showContextMenu(mockWindow, {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }, '/Users/test/documents', { removeDocumentMarks })
+
+      const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
+      const deleteItem = template.find(item => item.label === '🗑️ 删除')
+      await deleteItem?.click?.({} as any, mockWindow, {} as any)
+
+      expect(shell.trashItem).toHaveBeenCalled()
+      expect(removeDocumentMarks).toHaveBeenCalledWith('/Users/test/documents/test.md', false)
+    })
+
     it('应该为文件生成正确数量的菜单项', () => {
       const file = {
         name: 'test.md',

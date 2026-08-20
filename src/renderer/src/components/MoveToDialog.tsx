@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './MoveToDialog.css'
+import { getActiveWorkspaceOperationContext } from '../utils/workspaceOperationContext'
 
 interface FolderHistoryItem {
   id: string
@@ -214,11 +215,18 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
     if (!window.confirm(`确定把 ${sources.length} 项移动到「${selectedTarget.displayLabel}」？`)) return
 
     setMoving(true)
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
     const succeeded: string[] = []
     const failed: { path: string; error: string }[] = []
     for (const src of sources) {
       try {
-        await window.api.moveFileToFolder(src, selectedTarget.historyId, selectedTarget.relPath)
+        await window.api.moveFileToFolder(
+          src,
+          selectedTarget.historyId,
+          selectedTarget.relPath,
+          operation
+        )
         succeeded.push(src)
       } catch (error) {
         failed.push({ path: src, error: error instanceof Error ? error.message : String(error) })

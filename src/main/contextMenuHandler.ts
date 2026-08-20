@@ -53,6 +53,7 @@ function isPreviewableFileName(fileName: string): boolean {
 
 interface ContextMenuActions {
   openMarkdownInNewWindow?: (filePath: string) => void | Promise<void>
+  removeDocumentMarks?: (filePath: string, isDirectory: boolean) => void | Promise<void>
 }
 
 /**
@@ -307,6 +308,7 @@ export function showContextMenu(
           await validateSecurePathInBase(file.path, basePath)
           // 移到回收站
           await shell.trashItem(file.path)
+          await actions.removeDocumentMarks?.(file.path, file.isDirectory)
           // 通知渲染进程文件已删除
           window.webContents.send('file:deleted', file.path)
         } catch (error) {

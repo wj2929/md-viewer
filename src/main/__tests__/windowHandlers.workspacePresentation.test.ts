@@ -1,0 +1,81 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { BrowserWindow, ipcMain } from 'electron'
+import { registerWindowHandlers } from '../ipc/windowHandlers'
+
+vi.mock('electron', () => ({
+  ipcMain: { handle: vi.fn() },
+  BrowserWindow: { fromWebContents: vi.fn() },
+  dialog: { showOpenDialog: vi.fn() },
+}))
+vi.mock('../ipc/senderSecurity', () => ({ validateSenderReadPath: vi.fn() }))
+vi.mock('../workspaceSessionStore', () => ({
+  workspaceSessionStore: { takeRestoredRuntime: vi.fn(), load: vi.fn(), save: vi.fn() },
+}))
+
+function handler<T extends (...args: any[]) => any>(channel: string): T {
+  const registered = vi.mocked(ipcMain.handle).mock.calls.find(([name]) => name === channel)
+  if (!registered) throw new Error(`Missing handler: ${channel}`)
+  return registered[1] as T
+}
+
+describe('workspace merge source presentations', () => {
+  const target = { id: 1 }
+  const source = { id: 2, webContents: { send: vi.fn() } }
+  const presentations = new Map<string, any>()
+  const workspaces = [
+    { id: 'empty', primaryRoot: null, lifecycleEpoch: 1 },
+    { id: 'video-a', primaryRoot: '/docs/video', lifecycleEpoch: 1 },
+    { id: 'video-b', primaryRoot: '/docs/video', lifecycleEpoch: 1 },
+  ]
+  const windowManager = {
+    setWorkspacePresentations: vi.fn(),
+    getAllWindows: vi.fn(() => [target, source]),
+    getActiveWorkspaceId: vi.fn(() => 'video-a'),
+    listWorkspaces: vi.fn((windowId: number) => windowId === 2 ? workspaces : []),
+    getWorkspacePresentation: vi.fn((_windowId: number, workspaceId: string) => presentations.get(workspaceId)),
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    presentations.clear()
+    registerWindowHandlers({ windowManager } as any)
+  })
+
+  it('按存活窗口分组、过滤纯空占位并保留同根会话', () => {
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(target as any)
+    presentations.set('empty', { label: '空白会话', isEmptyPlaceholder: true, hasMeaningfulState: false, tabCount: 0, activeTabName: null, hasSplit: false, hasDraft: false })
+    presentations.set('video-a', { label: 'video', isEmptyPlaceholder: false, hasMeaningfulState: true, tabCount: 2, activeTabName: 'a.md', hasSplit: false, hasDraft: false })
+    presentations.set('video-b', { label: 'video', isEmptyPlaceholder: false, hasMeaningfulState: true, tabCount: 1, activeTabName: 'b.md', hasSplit: true, hasDraft: true })
+
+    const list = handler<(event: any) => any[]>('workspace:listMergeSources')({ sender: {} })
+    expect(list).toEqual([{
+      windowId: 2,
+      title: '窗口 1 · video',
+      workspaceCount: 2,
+      summary: '2 个会话 · 3 个标签 · 含分屏 · 含草稿',
+      workspaces: [
+        { id: 'video-a', name: 'video', summary: '当前：a.md · 2 个标签' },
+        { id: 'video-b', name: 'video（会话 2）', summary: '当前：b.md · 1 个标签 · 分屏 · 有草稿' },
+      ],
+    }])
+  })
+
+  it('排除带目录但没有阅读状态的来源会话', () => {
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(target as any)
+    presentations.set('video-a', { label: 'video', isEmptyPlaceholder: false, hasMeaningfulState: false, tabCount: 0, activeTabName: null, hasSplit: false, hasDraft: false })
+    presentations.set('video-b', { label: 'video', isEmptyPlaceholder: false, hasMeaningfulState: true, tabCount: 1, activeTabName: 'b.md', hasSplit: false, hasDraft: false })
+
+    const list = handler<(event: any) => any[]>('workspace:listMergeSources')({ sender: {} })
+    expect(list[0]).toMatchObject({ workspaceCount: 1, workspaces: [{ id: 'video-b' }] })
+  })
+
+  it('只允许 sender 更新属于当前窗口的展示摘要', () => {
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(source as any)
+    const update = handler<(event: any, payload: any[]) => void>('workspace:updatePresentations')
+    update({ sender: {} }, [{
+      workspaceId: 'video-a', label: 'video', isEmptyPlaceholder: false, hasMeaningfulState: true,
+      tabCount: 1, activeTabName: 'a.md', tabNames: ['a.md'], hasSplit: false, hasDraft: false,
+    }])
+    expect(windowManager.setWorkspacePresentations).toHaveBeenCalledWith(2, [expect.objectContaining({ workspaceId: 'video-a', label: 'video' })])
+  })
+})

@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useClipboardStore } from '../stores/clipboardStore'
 import { useFilePreview } from '../hooks/useFilePreview'
 import { FilePreviewTooltip } from './FilePreviewTooltip'
+import { getActiveWorkspaceOperationContext } from '../utils/workspaceOperationContext'
+import { type DocumentMarkColor } from '../../../shared/documentMarks'
 
 interface FileInfo {
   name: string
@@ -50,12 +52,13 @@ interface FileTreeItemProps {
   onItemDragEnd?: () => void
   onItemDrop?: (targetDir: FileInfo, event: React.DragEvent) => void
   dragOverPath?: string | null
+  documentMarks: Record<string, DocumentMarkColor>
   onDragOverItem?: (item: FileInfo, event: React.DragEvent) => void
   onDragLeaveItem?: (item: FileInfo, event: React.DragEvent) => void
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle, forceExpanded = false, onItemDragStart, onItemDragEnd, onItemDrop, dragOverPath, onDragOverItem, onDragLeaveItem }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle, forceExpanded = false, onItemDragStart, onItemDragEnd, onItemDrop, dragOverPath, documentMarks, onDragOverItem, onDragLeaveItem }: FileTreeItemProps): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -65,6 +68,9 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
     : false
   // v1.3 阶段 5：多选状态检查
   const isMultiSelected = selectedPaths?.has(item.path) ?? false
+  const markColor = !item.isDirectory && item.treePath
+    ? documentMarks[item.treePath]
+    : undefined
 
   // 检查是否在剪贴板中（剪切状态）
   const isInClipboard = useClipboardStore(state => state.isInClipboard(item.path))
@@ -124,10 +130,13 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   // 右键菜单
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
-    window.api.showContextMenu(
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
+    void window.api.showContextMenu(
       { name: item.name, path: item.path, isDirectory: item.isDirectory },
-      basePath
-    )
+      basePath,
+      operation
+    ).catch(error => console.error('[FileTree] Failed to show context menu:', error))
   }, [item, basePath])
 
   // 重命名处理
@@ -157,7 +166,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   return (
     <div className="file-tree-item">
       <div
-        className={`file-tree-row ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''} ${dragOverPath === item.path ? 'drag-over' : ''}`}
+        className={`file-tree-row ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''} ${dragOverPath === item.path ? 'drag-over' : ''} ${markColor ? `marked marked-${markColor}` : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         draggable={isRenaming ? undefined : true}
         onDragStart={onItemDragStart ? (e) => onItemDragStart(item, e) : undefined}
@@ -239,6 +248,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               onItemDragEnd={onItemDragEnd}
               onItemDrop={onItemDrop}
               dragOverPath={dragOverPath}
+              documentMarks={documentMarks}
               onDragOverItem={onDragOverItem}
               onDragLeaveItem={onDragLeaveItem}
             />
@@ -360,9 +370,16 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
   const flatFiles = useMemo(() => flattenFileTree(visibleFiles), [visibleFiles])
 
   // 文件预览 tooltip（父组件级别单一实例）
-  const { tooltipProps, handleMouseEnter, handleMouseLeave } = useFilePreview()
+  const {
+    tooltipProps,
+    handleMouseEnter,
+    handleMouseLeave,
+    handleTooltipMouseEnter,
+    handleTooltipMouseLeave,
+  } = useFilePreview()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, false>>({})
+  const [documentMarks, setDocumentMarks] = useState<Record<string, DocumentMarkColor>>({})
   const [treeStateLoaded, setTreeStateLoaded] = useState(false)
   const [loadedBasePath, setLoadedBasePath] = useState<string | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -375,6 +392,41 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
     })
     return cleanup
   }, [])
+
+  const loadDocumentMarks = useCallback(async (): Promise<void> => {
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation || !basePath) {
+      setDocumentMarks({})
+      return
+    }
+    const workspaceId = operation.workspaceId
+    const lifecycleEpoch = operation.lifecycleEpoch
+    try {
+      if (typeof window.api.getDocumentMarks !== 'function') return
+      const marks = await window.api.getDocumentMarks(operation)
+      const current = getActiveWorkspaceOperationContext()
+      if (
+        current?.workspaceId === workspaceId
+        && current.lifecycleEpoch === lifecycleEpoch
+      ) {
+        setDocumentMarks(marks || {})
+      }
+    } catch (error) {
+      console.error('[FileTree] Failed to load document marks:', error)
+    }
+  }, [basePath])
+
+  useEffect(() => {
+    setDocumentMarks({})
+    void loadDocumentMarks()
+  }, [basePath, loadDocumentMarks])
+
+  useEffect(() => {
+    if (typeof window.api.onDocumentMarksChanged !== 'function') return
+    return window.api.onDocumentMarksChanged(() => {
+      void loadDocumentMarks()
+    })
+  }, [loadDocumentMarks])
 
   // 最后一个选择的路径（用于 Shift 区间选择）
   const lastSelectedRef = useRef<string | null>(null)
@@ -453,11 +505,13 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
     if (sources.length === 0) return
 
     setIsMoving(true)
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
     const succeeded: string[] = []
     const failed: { path: string; error: string }[] = []
     for (const src of sources) {
       try {
-        await window.api.moveFile(src, joinDest(targetDir.path, pathBasename(src)))
+        await window.api.moveFile(src, joinDest(targetDir.path, pathBasename(src)), operation)
         succeeded.push(src)
       } catch (error) {
         failed.push({ path: src, error: error instanceof Error ? error.message : String(error) })
@@ -519,7 +573,16 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
       }
     }
 
-    window.api.getFolderTreeState()
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) {
+      setLoadedBasePath(basePath)
+      setTreeStateLoaded(true)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    window.api.getFolderTreeState(operation)
       .then((state) => {
         if (!cancelled) {
           setCollapsedFolders(state || {})
@@ -554,9 +617,11 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
       clearTimeout(saveTimerRef.current)
     }
 
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null
-      window.api.saveFolderTreeState(nextFolders).catch((error) => {
+      window.api.saveFolderTreeState(nextFolders, operation).catch((error) => {
         console.error('[FileTree] Failed to save folder expansion state:', error)
       })
     }, 300)
@@ -587,13 +652,35 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
     setCollapsedFolders({})
 
     try {
-      await window.api.clearFolderTreeState()
+      const operation = getActiveWorkspaceOperationContext()
+      if (!operation) return
+      await window.api.clearFolderTreeState(operation)
     } catch (error) {
       console.error('[FileTree] Failed to clear folder expansion state:', error)
     }
   }, [])
 
   const hasResettableFolderTreeState = Object.keys(collapsedFolders).length > 0
+
+  const tooltipTreePath = useMemo(() => {
+    if (!tooltipProps.filePath) return undefined
+    return flattenFileTree(files).find(file => file.path === tooltipProps.filePath)?.treePath
+  }, [files, tooltipProps.filePath])
+
+  const handleSelectDocumentMark = useCallback(async (
+    filePath: string,
+    color: DocumentMarkColor | null
+  ) => {
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
+    try {
+      const marks = await window.api.setDocumentMark(filePath, color, operation)
+      setDocumentMarks(marks)
+    } catch (error) {
+      console.error('[FileTree] Failed to save document mark:', error)
+      onMoveError?.(error instanceof Error ? error.message : '背景标记保存失败')
+    }
+  }, [onMoveError])
 
   const handleClearFilter = useCallback(() => {
     setFilterQuery('')
@@ -816,13 +903,20 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
               onItemDragEnd={handleItemDragEnd}
               onItemDrop={handleItemDrop}
               dragOverPath={dragOverPath}
+              documentMarks={documentMarks}
               onDragOverItem={handleDragOverItem}
               onDragLeaveItem={handleDragLeaveItem}
             />
           ))
         )}
       </div>
-      <FilePreviewTooltip {...tooltipProps} />
+      <FilePreviewTooltip
+        {...tooltipProps}
+        markColor={tooltipTreePath ? documentMarks[tooltipTreePath] : undefined}
+        onMarkChange={(filePath, color) => void handleSelectDocumentMark(filePath, color)}
+        onMouseEnter={handleTooltipMouseEnter}
+        onMouseLeave={handleTooltipMouseLeave}
+      />
     </div>
   )
 }

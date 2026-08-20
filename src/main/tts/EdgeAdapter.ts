@@ -6,6 +6,9 @@
  */
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts'
+import { DEFAULT_EDGE_VOICE, EDGE_ZH_VOICES } from '../../shared/ttsProviders'
+
+export { EDGE_ZH_VOICES }
 
 export interface EdgeSynthesisResult {
   /** mp3 音频字节 */
@@ -15,17 +18,7 @@ export interface EdgeSynthesisResult {
   boundaries: Array<{ text: string; offsetMs: number; durationMs: number }>
 }
 
-/** edge 中文语音(内建可选) */
-export const EDGE_ZH_VOICES = [
-  { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓（女）', lang: 'zh-CN' },
-  { id: 'zh-CN-YunxiNeural', name: '云希（男）', lang: 'zh-CN' },
-  { id: 'zh-CN-YunjianNeural', name: '云健（男）', lang: 'zh-CN' },
-  { id: 'zh-CN-XiaoyiNeural', name: '晓伊（女）', lang: 'zh-CN' },
-  { id: 'zh-CN-YunyangNeural', name: '云扬（男）', lang: 'zh-CN' },
-  { id: 'zh-CN-YunxiaNeural', name: '云夏（男童）', lang: 'zh-CN' },
-]
-
-const DEFAULT_VOICE = 'zh-CN-XiaoxiaoNeural'
+const DEFAULT_VOICE = DEFAULT_EDGE_VOICE
 /** 100 纳秒 → 毫秒 */
 const HNS_TO_MS = 10000
 
@@ -42,18 +35,42 @@ export async function synthesizeEdge(
   rate = 1,
   signal?: AbortSignal
 ): Promise<EdgeSynthesisResult> {
+  if (signal?.aborted) throw new Error('aborted')
   const tts = new MsEdgeTTS()
-  await tts.setMetadata(voice || DEFAULT_VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {
-    wordBoundaryEnabled: true,
-  })
+  let closed = false
+  const closeTts = (): void => {
+    if (closed) return
+    closed = true
+    tts.close()
+  }
+  try {
+    await waitForMetadata(
+      tts.setMetadata(voice || DEFAULT_VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {
+        wordBoundaryEnabled: true,
+      }),
+      signal,
+      closeTts
+    )
+  } catch (error) {
+    closeTts()
+    throw error
+  }
 
   // 语速转 edge prosody 百分比:1→+0%, 1.5→+50%, 0.5→-50%
   const ratePct = Math.round((rate - 1) * 100)
   const prosody = ratePct === 0 ? undefined : { rate: `${ratePct > 0 ? '+' : ''}${ratePct}%` }
 
-  const { audioStream, metadataStream } = prosody
-    ? tts.toStream(text, prosody)
-    : tts.toStream(text)
+  const safeText = escapeXml(text)
+  let streams: ReturnType<MsEdgeTTS['toStream']>
+  try {
+    streams = prosody
+      ? tts.toStream(safeText, prosody)
+      : tts.toStream(safeText)
+  } catch (error) {
+    closeTts()
+    throw error
+  }
+  const { audioStream, metadataStream } = streams
 
   const chunks: Buffer[] = []
   const boundaries: EdgeSynthesisResult['boundaries'] = []
@@ -78,26 +95,76 @@ export async function synthesizeEdge(
   }
 
   return new Promise<EdgeSynthesisResult>((resolve, reject) => {
+    let settled = false
+    const cleanup = (): void => {
+      signal?.removeEventListener('abort', onAbort)
+      metadataStream?.destroy()
+      closeTts()
+    }
+    const finish = (result?: EdgeSynthesisResult, error?: Error): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error) reject(error)
+      else resolve(result as EdgeSynthesisResult)
+    }
     const onAbort = (): void => {
+      finish(undefined, new Error('aborted'))
       audioStream.destroy()
-      reject(new Error('aborted'))
     }
     if (signal) {
-      if (signal.aborted) return onAbort()
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
       signal.addEventListener('abort', onAbort, { once: true })
     }
     audioStream.on('data', (c: Buffer) => chunks.push(c))
     audioStream.on('close', () => {
-      signal?.removeEventListener('abort', onAbort)
       if (chunks.length === 0) {
-        reject(new Error('edge-tts 未返回音频'))
+        finish(undefined, new Error('edge-tts 未返回音频'))
         return
       }
-      resolve({ audio: Buffer.concat(chunks), format: 'mp3', boundaries })
+      finish({ audio: Buffer.concat(chunks), format: 'mp3', boundaries })
     })
-    audioStream.on('error', (err: Error) => {
-      signal?.removeEventListener('abort', onAbort)
-      reject(err)
-    })
+    audioStream.on('error', (err: Error) => finish(undefined, err))
   })
+}
+
+function waitForMetadata(
+  metadata: Promise<unknown>,
+  signal: AbortSignal | undefined,
+  closeTts: () => void
+): Promise<void> {
+  if (!signal) return metadata.then(() => undefined)
+  if (signal.aborted) {
+    closeTts()
+    return Promise.reject(new Error('aborted'))
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: unknown): void => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', onAbort)
+      if (error) reject(error)
+      else resolve()
+    }
+    const onAbort = (): void => {
+      closeTts()
+      finish(new Error('aborted'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    metadata.then(() => finish(), (error) => finish(error))
+  })
+}
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 }

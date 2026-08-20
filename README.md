@@ -11,16 +11,20 @@
 
 MD Viewer 用于浏览本地 Markdown 文档目录。它支持文件树、多标签、搜索、书签、分屏、图表渲染和 HTML / PDF / DOCX 导出，适合知识库、技术文档、会议材料、方案文档和图表密集型 Markdown 文件。
 
+> 仓库当前开发版本为 v2.7.0，尚未正式发布；下载用户请以 [GitHub Releases](https://github.com/wj2929/md-viewer/releases/latest) 中的实际版本和功能为准。
+
 ![MD Viewer 欢迎页](docs/images/welcome.png)
 
 ## 功能特性
 
-- 本地 Markdown 文件夹浏览，支持文件树、多标签、最近文件和书签。
+- 本地 Markdown 文件夹浏览，支持文件树、多标签、最近文件和书签；文件较多时可在悬停预览卡片中查看最多 500 个字符的正文摘要，并用六种背景色标记重点文档。
+- 支持窗口内工作区、多窗口拆分与合并、应用重启后的窗口恢复，以及文件树右键“在新窗口中打开”。
+- 支持 Markdown 正文语音朗读，提供系统离线声、Edge 免费语音、OpenAI 兼容服务和 Azure；支持逐句高亮、阅读跟随、睡眠定时，以及同一 OpenAI 服务下的多个“模型 + 音色”声音方案。
 - 默认预览优先，可切换到 Markdown 编辑模式；段落、标题、引用、列表、表格单元格和普通代码块支持渲染区直接编辑，图表和复杂嵌入通过源码编辑处理。
 - 实时预览 Markdown，支持表格、任务列表、代码高亮、数学公式、图片预览和图表密集型文档。
 - 支持 Mermaid、ECharts、Markmap、Graphviz、PlantUML、DrawIO、Infographic、KaTeX、Excalidraw、Vega-Lite、D2、BPMN、WaveDrom、C4-PlantUML、Structurizr、Plotly、DBML、AntV G6、Kroki 等图表或公式渲染。
 - 支持文件名搜索、全文搜索和页面内搜索。
-- 支持多窗口、递归分屏、目录导航、字体大小调节、窗口置顶和全屏阅读。
+- 支持递归分屏、目录导航、字体大小调节、窗口置顶和全屏阅读。
 - 支持按根目录保存文件树折叠状态，重新打开常用目录时保留用户整理过的展开状态。
 - 支持文件监听，已打开的 Markdown 被外部编辑器修改后会自动刷新预览。
 - 支持 HTML、PDF、DOCX 导出；导出 warning 会说明发生了什么、影响是什么和下一步怎么做。
@@ -204,9 +208,11 @@ npm run test:e2e
 # 构建渲染进程与主进程产物
 npm run build
 
-# v2.4 发布门禁
+# 本地发布门禁
 scripts/release-smoke.sh quick
 scripts/release-smoke.sh full
+# 正式发布前：包含可见窗口交互 E2E
+scripts/release-smoke.sh full-interactive
 
 # 打包桌面应用
 npm run build:mac

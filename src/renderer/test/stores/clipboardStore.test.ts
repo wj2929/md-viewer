@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useClipboardStore } from '../../src/stores/clipboardStore'
+import { useWorkspaceStore } from '../../src/stores/workspaceStore'
 
 // Mock window.api
 const mockApi = {
@@ -20,8 +21,14 @@ Object.defineProperty(global, 'window', {
 
 describe('clipboardStore', () => {
   beforeEach(() => {
+    const operation = { workspaceId: 'workspace-a', lifecycleEpoch: 1 }
+    useWorkspaceStore.setState({
+      workspaces: [{ id: operation.workspaceId, name: '测试工作区', primaryRoot: '/test', lifecycleEpoch: operation.lifecycleEpoch }],
+      activeWorkspaceId: operation.workspaceId,
+      runtimes: {},
+    })
     // 重置 store 状态
-    useClipboardStore.setState({ files: new Set(), isCut: false })
+    useClipboardStore.setState({ files: new Set(), isCut: false, operation })
     // 重置所有 mock
     vi.clearAllMocks()
   })
@@ -88,7 +95,7 @@ describe('clipboardStore', () => {
 
       expect(useClipboardStore.getState().files.has('/test/file.md')).toBe(true)
       expect(warn).toHaveBeenCalledWith(
-        '[Clipboard] Failed to sync copy state to main process:',
+        '[Clipboard] Failed to sync state to main process:',
         expect.any(Error)
       )
     })
@@ -179,7 +186,7 @@ describe('clipboardStore', () => {
       expect(useClipboardStore.getState().files.has('/test/file.md')).toBe(true)
       expect(useClipboardStore.getState().isCut).toBe(true)
       expect(warn).toHaveBeenCalledWith(
-        '[Clipboard] Failed to sync cut state to main process:',
+        '[Clipboard] Failed to sync state to main process:',
         expect.any(Error)
       )
     })
@@ -291,7 +298,7 @@ describe('clipboardStore', () => {
 
         expect(mockApi.fileExists).toHaveBeenCalledWith('/target/file.md')
         expect(mockApi.isDirectory).toHaveBeenCalledWith('/source/file.md')
-        expect(mockApi.copyFile).toHaveBeenCalledWith('/source/file.md', '/target/file.md')
+        expect(mockApi.copyFile).toHaveBeenCalledWith('/source/file.md', '/target/file.md', { workspaceId: 'workspace-a', lifecycleEpoch: 1 })
       })
 
       it('应该复制目录到目标目录', async () => {
@@ -303,7 +310,7 @@ describe('clipboardStore', () => {
         copy(['/source/folder'])
         await paste('/target')
 
-        expect(mockApi.copyDir).toHaveBeenCalledWith('/source/folder', '/target/folder')
+        expect(mockApi.copyDir).toHaveBeenCalledWith('/source/folder', '/target/folder', { workspaceId: 'workspace-a', lifecycleEpoch: 1 })
       })
 
       it('复制后剪贴板应该保留', async () => {
@@ -341,7 +348,7 @@ describe('clipboardStore', () => {
         cut(['/source/file.md'])
         await paste('/target')
 
-        expect(mockApi.moveFile).toHaveBeenCalledWith('/source/file.md', '/target/file.md')
+        expect(mockApi.moveFile).toHaveBeenCalledWith('/source/file.md', '/target/file.md', { workspaceId: 'workspace-a', lifecycleEpoch: 1 })
         expect(mockApi.copyFile).not.toHaveBeenCalled()
       })
 
@@ -441,7 +448,8 @@ describe('clipboardStore', () => {
 
         expect(mockApi.copyFile).toHaveBeenCalledWith(
           '/home/user/documents/file.md',
-          '/home/user/backup/file.md'
+          '/home/user/backup/file.md',
+          { workspaceId: 'workspace-a', lifecycleEpoch: 1 }
         )
       })
 

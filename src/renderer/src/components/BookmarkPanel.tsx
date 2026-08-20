@@ -121,7 +121,7 @@ export function BookmarkPanel({
     newBookmarks.splice(targetIndex, 0, removed)
 
     // 更新 order
-    const reordered = newBookmarks.map((b, i) => ({ ...b, order: i }))
+    const reordered = newBookmarks.map((b, i) => ({ id: b.id, order: i }))
 
     // 保存到存储
     try {

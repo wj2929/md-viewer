@@ -263,20 +263,6 @@ function findFencedCodeRanges(lines: string[]): FencedCodeRange[] {
   return ranges
 }
 
-function resolveLocalMarkdownResource(markdownFilePath: string, src: string): string {
-  const decodedSrc = safeDecodeURIComponent(src)
-  const dir = markdownFilePath.substring(0, markdownFilePath.lastIndexOf('/'))
-  let absolutePath = decodedSrc.startsWith('/') ? decodedSrc : `${dir}/${decodedSrc}`
-  const parts = absolutePath.split('/')
-  const normalized: string[] = []
-  for (const part of parts) {
-    if (part === '..') normalized.pop()
-    else if (part !== '.' && part !== '') normalized.push(part)
-  }
-  absolutePath = `/${normalized.join('/')}`
-  return `local-image://${encodeURI(absolutePath)}`
-}
-
 function normalizeLocalImageSources(root: HTMLElement, markdownFilePath?: string): void {
   if (!markdownFilePath) return
 
@@ -284,13 +270,11 @@ function normalizeLocalImageSources(root: HTMLElement, markdownFilePath?: string
     const rawSrc = img.getAttribute('src')
     if (!rawSrc) return
     const src = safeDecodeURIComponent(rawSrc)
-    if (
-      src.startsWith('local-image://') ||
-      src.startsWith('http://') ||
-      src.startsWith('https://') ||
-      src.startsWith('data:') ||
-      src.startsWith('blob:')
-    ) {
+    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:') || src.startsWith('blob:')) {
+      return
+    }
+    if (src.startsWith('local-image:') || src.startsWith('/') || !window.api.issueLocalImageUrl) {
+      img.removeAttribute('src')
       return
     }
     if (/\.excalidraw(?:[?#].*)?$/i.test(src)) {
@@ -309,7 +293,15 @@ function normalizeLocalImageSources(root: HTMLElement, markdownFilePath?: string
       img.replaceWith(placeholder)
       return
     }
-    img.setAttribute('src', resolveLocalMarkdownResource(markdownFilePath, src))
+    const requestedSrc = src
+    img.removeAttribute('src')
+    void window.api.issueLocalImageUrl(markdownFilePath, requestedSrc)
+      .then((url) => {
+        if (img.isConnected) img.setAttribute('src', url)
+      })
+      .catch(() => {
+        // 无法签发 capability 时保持图片为空，绝不降级回裸绝对路径。
+      })
   })
 }
 

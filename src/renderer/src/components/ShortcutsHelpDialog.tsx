@@ -44,6 +44,12 @@ const SHORTCUTS_DATA = [
     ]
   },
   {
+    group: '朗读',
+    items: [
+      { label: '播放或暂停朗读', accelerator: 'CmdOrCtrl+Shift+Space' }
+    ]
+  },
+  {
     group: '视图',
     items: [
       { label: '放大字体', accelerator: 'CmdOrCtrl+=' },

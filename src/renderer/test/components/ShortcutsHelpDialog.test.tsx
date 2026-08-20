@@ -13,6 +13,14 @@ describe('ShortcutsHelpDialog', () => {
     }
   })
 
+  it('显示 macOS 朗读播放或暂停快捷键', () => {
+    render(<ShortcutsHelpDialog isOpen onClose={vi.fn()} />)
+
+    expect(screen.getByText('朗读')).toBeInTheDocument()
+    expect(screen.getByText('播放或暂停朗读')).toBeInTheDocument()
+    expect(screen.getByText('⌘⇧Space')).toBeInTheDocument()
+  })
+
   it('提供使用手册入口', async () => {
     render(<ShortcutsHelpDialog isOpen onClose={vi.fn()} />)
 

@@ -1,10 +1,9 @@
-import { app, BrowserWindow, session, protocol, net } from 'electron'
+import { app, BrowserWindow, protocol } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as path from 'path'
-import { pathToFileURL } from 'url'
 import * as fs from 'fs-extra'
 import Store from 'electron-store'
-import { validateSecurePathInBase } from './security'
+import { validateNotProtected } from './security'
 import { folderHistoryManager } from './folderHistoryManager'
 import { activateFolderForWindow } from './folderActivation'
 import { validateSecurePath as validateLaunchPath } from './security/pathValidator'
@@ -19,6 +18,7 @@ import { createContentSecurityPolicy } from './securityPolicy'
 import { isHeadlessCliArgv } from './cli'
 import { runCliOnStartup } from './cli/bootstrap'
 import { extractGuiLaunchPath } from './cli/launchArgs'
+import { workspaceSessionStore, type DesktopSessionV1 } from './workspaceSessionStore'
 
 // 扩大 libuv 线程池（默认 4）。文件监听 crawl 与目录扫描 glob 都走线程池，
 // 连续快切多个大目录时二者抢占 4 个线程会造成偶发数百毫秒排队延迟。
@@ -51,6 +51,8 @@ const store = new Store<AppState>({
 
 // 模块级窗口引用（兼容现有代码，指向最近创建的窗口）
 let mainWindow: BrowserWindow | null = null
+let isQuitting = false
+app.on('before-quit', () => { isQuitting = true })
 
 // IPC 共享上下文：目录激活、路径鉴权的唯一事实源
 const ipcContext: IPCContext = {
@@ -61,9 +63,54 @@ const ipcContext: IPCContext = {
   openPathInWindow
 }
 
-function createWindow(): void {
-  const savedBounds = store.get('windowBounds')
-  const alwaysOnTop = store.get('alwaysOnTop', false)
+function sanitizeRestoredWorkspace(workspace: DesktopSessionV1['windows'][number]['workspaces'][number]) {
+  const tabs = workspace.tabs.filter((tab) =>
+    typeof tab?.id === 'string' &&
+    typeof tab.relativePath === 'string' &&
+    tab.id.length > 0 &&
+    tab.id.length <= 200 &&
+    tab.relativePath.length > 0 &&
+    tab.relativePath.length <= 4096 &&
+    !path.isAbsolute(tab.relativePath) &&
+    !tab.relativePath.split(/[\\/]+/).includes('..')
+  ).slice(0, 100)
+  const tabIds = new Set(tabs.map((tab) => tab.id))
+  const nodeIds = new Set<string>()
+  const normalizeNode = (node: unknown, depth: number): unknown => {
+    if (!node || typeof node !== 'object' || depth > 4) return null
+    const value = node as Record<string, unknown>
+    if (typeof value.id !== 'string' || !value.id || nodeIds.has(value.id)) return null
+    nodeIds.add(value.id)
+    if (value.type === 'leaf') {
+      return typeof value.tabId === 'string' && tabIds.has(value.tabId)
+        ? { type: 'leaf', id: value.id, tabId: value.tabId }
+        : null
+    }
+    if (
+      value.type !== 'split' ||
+      (value.direction !== 'horizontal' && value.direction !== 'vertical') ||
+      typeof value.ratio !== 'number' || value.ratio < 0.15 || value.ratio > 0.85
+    ) return null
+    const first = normalizeNode(value.first, depth + 1)
+    const second = normalizeNode(value.second, depth + 1)
+    if (!first) return second
+    if (!second) return first
+    return { type: 'split', id: value.id, direction: value.direction, ratio: value.ratio, first, second }
+  }
+  const root = normalizeNode(workspace.splitState && typeof workspace.splitState === 'object'
+    ? (workspace.splitState as Record<string, unknown>).root
+    : null, 1)
+  return {
+    ...workspace,
+    tabs,
+    activeTabId: workspace.activeTabId && tabIds.has(workspace.activeTabId) ? workspace.activeTabId : tabs[0]?.id ?? null,
+    splitState: { root, activeLeafId: '' },
+  }
+}
+
+function createWindow(restored?: DesktopSessionV1['windows'][number]): void {
+  const savedBounds = restored?.bounds || store.get('windowBounds')
+  const alwaysOnTop = restored?.alwaysOnTop ?? store.get('alwaysOnTop', false)
 
   const win = windowManager.createWindow({
     bounds: savedBounds,
@@ -71,6 +118,31 @@ function createWindow(): void {
   })
 
   mainWindow = win
+
+  if (restored) {
+    workspaceSessionStore.bindRestoredWindow(win.id, restored.id)
+    const restoredWorkspaces = restored.workspaces.flatMap((workspace) => {
+      if (!workspace.primaryRoot) return []
+      try {
+        const primaryRoot = fs.realpathSync(workspace.primaryRoot)
+        if (!fs.statSync(primaryRoot).isDirectory()) return []
+        validateNotProtected(primaryRoot)
+        return [{ id: workspace.id, primaryRoot }]
+      } catch {
+        return []
+      }
+    })
+    if (restoredWorkspaces.length > 0) {
+      windowManager.replaceWindowWorkspaces(win.id, restoredWorkspaces, restored.activeWorkspaceId)
+      workspaceSessionStore.rememberRestoredRuntime(win.id, {
+        ...restored,
+        workspaces: restored.workspaces
+          .filter((workspace) => restoredWorkspaces.some((item) => item.id === workspace.id))
+          .map(sanitizeRestoredWorkspace),
+      })
+    }
+    if (restored.isMaximized) win.once('ready-to-show', () => win.maximize())
+  }
 
   win.on('close', () => {
     if (!win.isDestroyed()) {
@@ -80,13 +152,14 @@ function createWindow(): void {
   })
 
   win.on('closed', () => {
+    if (!isQuitting) workspaceSessionStore.forgetWindow(win.id)
     if (mainWindow === win) {
       const remaining = windowManager.getAllWindows()
-      mainWindow = remaining.length > 0 ? remaining[0] : null
+      mainWindow = remaining[0] ?? null
     }
   })
 
-  if (windowManager.getWindowCount() === 1 && process.env.MD_VIEWER_SKIP_RESTORE !== '1') {
+  if (!restored && windowManager.getWindowCount() === 1 && process.env.MD_VIEWER_SKIP_RESTORE !== '1') {
     windowManager.addPendingAction(win.id, () => {
       const lastFolder = store.get('lastOpenedFolder')
       if (lastFolder) {
@@ -181,55 +254,6 @@ if (!isCliStartup) {
     electronApp.setAppUserModelId('com.mdviewer')
     installApplicationMenu()
 
-    // 注册 local-image 协议处理器
-    // protocol.handle 回调拿不到发起请求的 webContents，无法按发起窗口鉴权；
-    // 改用「任一存活窗口的已授权根目录内即放行」——所有根都是用户主动打开的文件夹。
-    protocol.handle('local-image', async (request) => {
-      let filePath: string
-      try {
-        const url = new URL(request.url)
-        filePath = decodeURIComponent(url.pathname)
-        if (process.platform === 'win32' && filePath.startsWith('/')) {
-          filePath = filePath.slice(1)
-        }
-      } catch {
-        return new Response('Invalid URL', { status: 400 })
-      }
-
-      const roots = windowManager.getAllWindowFolderRoots()
-      let canonicalPath: string | null = null
-      for (const root of roots) {
-        try {
-          canonicalPath = await validateSecurePathInBase(filePath, root)
-          break
-        } catch {
-          // 尝试下一个窗口根
-        }
-      }
-
-      if (!canonicalPath) {
-        return new Response('Forbidden', { status: 403 })
-      }
-
-      if (!fs.existsSync(canonicalPath)) {
-        return new Response('Not Found', { status: 404 })
-      }
-
-      return net.fetch(pathToFileURL(canonicalPath).toString())
-    })
-
-    // 设置 Content Security Policy
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      const csp = createContentSecurityPolicy(is.dev)
-
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Content-Security-Policy': [csp]
-        }
-      })
-    })
-
     // 窗口关闭时清理文件监听器
     const fileWatcherState = getFileWatcherState()
     app.on('browser-window-created', (_, window) => {
@@ -241,10 +265,19 @@ if (!isCliStartup) {
       })
     })
 
-    createWindow()
-
-    // 注册所有 IPC handlers
+    // 注册所有 IPC handlers，必须早于窗口创建：renderer bootstrap 会在首次 effect 拉取工作区。
     registerAllHandlers(ipcContext)
+
+    const migratedLegacyWindows = workspaceSessionStore.migrateLegacyWindowLifecycle()
+    if (migratedLegacyWindows) {
+      console.warn('[Workspace] Cleared legacy desktop window snapshot without close lifecycle metadata')
+    }
+    const desktopSession = process.env.MD_VIEWER_SKIP_RESTORE === '1' ? null : workspaceSessionStore.load()
+    if (desktopSession?.windows.length) {
+      desktopSession.windows.forEach((restored) => createWindow(restored))
+    } else {
+      createWindow()
+    }
 
     // 后台验证最近文件路径有效性
     appDataManager.validateRecentFilesInBackground()

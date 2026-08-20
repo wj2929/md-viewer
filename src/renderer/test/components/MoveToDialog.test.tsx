@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent } from '@testing-library/react'
 import { MoveToDialog } from '../../src/components/MoveToDialog'
+import { useWorkspaceStore } from '../../src/stores/workspaceStore'
 
 describe('MoveToDialog', () => {
   const history = [
@@ -10,6 +11,11 @@ describe('MoveToDialog', () => {
   ]
 
   beforeEach(() => {
+    useWorkspaceStore.setState({
+      workspaces: [{ id: 'workspace-a', name: '测试工作区', primaryRoot: '/src', lifecycleEpoch: 1 }],
+      activeWorkspaceId: 'workspace-a',
+      runtimes: {},
+    })
     window.api = {
       getFolderHistory: vi.fn().mockResolvedValue(history),
       listChildDirs: vi.fn().mockResolvedValue([
@@ -51,7 +57,7 @@ describe('MoveToDialog', () => {
     // 默认目标 = 根本身
     await act(async () => { fireEvent.click(screen.getByText('移动')) })
 
-    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', '')
+    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', '', { workspaceId: 'workspace-a', lifecycleEpoch: 1 })
     expect(onSuccess).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })
@@ -64,7 +70,7 @@ describe('MoveToDialog', () => {
     await act(async () => { fireEvent.click(sub1) })
     await act(async () => { fireEvent.click(screen.getByText('移动')) })
 
-    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', 'sub1')
+    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', 'sub1', { workspaceId: 'workspace-a', lifecycleEpoch: 1 })
   })
 
   it('源已在目标目录（同目录）→ 该根禁选', async () => {

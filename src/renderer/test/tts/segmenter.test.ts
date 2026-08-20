@@ -87,6 +87,18 @@ describe('splitSentences', () => {
     }
   })
 
+  it('按 UTF-8 字节上限切分长句且保留偏移和 emoji', () => {
+    const raw = `${'中文，'.repeat(180)}🙂结尾`
+    const c = makeContainer(`<p>${raw}</p>`)
+    const segs = collectSpeechSegments(c, { maxUtf8Bytes: 120 })
+    const encoder = new TextEncoder()
+
+    expect(segs.length).toBeGreaterThan(1)
+    expect(segs.every((segment) => encoder.encode(segment.text).byteLength <= 120)).toBe(true)
+    expect(segs.map((segment) => raw.slice(segment.charStart, segment.charEnd)).join('')).toBe(raw)
+    expect(segs.at(-1)?.text).toContain('🙂结尾')
+  })
+
   it('无句末标点整体作一句', () => {
     const r = splitSentences('没有标点的一段话')
     expect(r).toHaveLength(1)
