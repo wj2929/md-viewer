@@ -201,8 +201,8 @@ function App(): React.JSX.Element {
     if (!pending) return
     workspacePresentationPendingRef.current = null
     workspacePresentationInFlightRef.current = true
-    void window.api.updateWorkspacePresentations(pending).then(({ applied }) => {
-      if (applied && workspacePresentationPendingRef.current === null) {
+    void window.api.updateWorkspacePresentations(pending).then((result) => {
+      if (result?.applied && workspacePresentationPendingRef.current === null) {
         workspacePresentationsSyncedRef.current = true
       }
     }).catch((error) => {
