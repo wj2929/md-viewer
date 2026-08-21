@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MD Viewer v2.5 local smoke gates.
+# MD Viewer local smoke gates.
 
 set -euo pipefail
 
@@ -118,12 +118,13 @@ print_artifacts_hint() {
 }
 
 ensure_project_root
+APP_VERSION="$(node -p "require('./package.json').version")"
 trap 'cleanup_docx_service; print_artifacts_hint' EXIT
 
 case "$MODE" in
   quick)
-    echo "运行 v2.5 快速门禁"
-    echo "可用模式：quick | full"
+    echo "运行 v${APP_VERSION} 快速门禁"
+    echo "可用模式：quick | full | full-interactive"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
     run_step "CLI 单元测试" npm test -- --run src/main/__tests__/cli*.test.ts
@@ -152,7 +153,7 @@ case "$MODE" in
     # CLI Headless E2E 用隐藏窗口（show:false），导出验证走 DOCX 服务 + 基线脚本。
     # ⚠️ 不含可见窗口交互 E2E（文件树点击 / 编辑模式 / 快捷键 / 导出面板交互）。
     #    发布前必须另跑一次 full-interactive 覆盖那批。
-    echo "运行 v2.6 完整门禁（纯 headless，不开可见窗口）"
+    echo "运行 v${APP_VERSION} 完整门禁（纯 headless，不开可见窗口）"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
     run_step "全量单元测试" npm test -- --run
@@ -163,7 +164,7 @@ case "$MODE" in
     ;;
   full-interactive)
     # 发布前门禁：full 的全部 + 可见窗口交互 E2E（会反复开关应用窗口）。
-    echo "运行 v2.6 发布前门禁（含可见窗口交互 E2E）"
+    echo "运行 v${APP_VERSION} 发布前门禁（含可见窗口交互 E2E）"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
     run_step "全量单元测试" npm test -- --run
@@ -175,6 +176,7 @@ case "$MODE" in
       e2e/03-markdown-rendering.spec.ts \
       e2e/05-export-features.spec.ts \
       e2e/file-tree-drag-move.spec.ts \
+      e2e/workspace-transfer.spec.ts \
       e2e/markdown-edit-mode.spec.ts \
       e2e/markdown-links.spec.ts \
       e2e/read-position.spec.ts
@@ -190,7 +192,7 @@ esac
 cleanup_docx_service
 trap - EXIT
 echo ""
-echo "v2.6 ${MODE} 门禁通过"
+echo "v${APP_VERSION} ${MODE} 门禁通过"
 if [ "$MODE" = "full" ]; then
   echo ""
   echo "⚠️  full 为纯 headless 门禁，未覆盖可见窗口交互 / 导出面板 E2E。"

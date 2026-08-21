@@ -6,6 +6,19 @@
 }
 
 :root {
+  --document-mark-red: #ff6b6b;
+  --document-mark-green: #8bd450;
+  --document-mark-yellow: #ffe066;
+  --document-mark-blue: #74b9ff;
+  --document-mark-cyan: #45d9d0;
+  --document-mark-purple: #b197fc;
+  --document-mark-red-bg: #ffe3e3;
+  --document-mark-green-bg: #e8f7dc;
+  --document-mark-yellow-bg: #fff7cc;
+  --document-mark-blue-bg: #deefff;
+  --document-mark-cyan-bg: #d9f8f5;
+  --document-mark-purple-bg: #eee7ff;
+
   /* 亮色主题（默认） */
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f5;
@@ -55,7 +68,12 @@
   --accent-hover: #409cff;
   --accent-color-alpha: rgba(10, 132, 255, 0.2);
   --accent-color-alpha-hover: rgba(10, 132, 255, 0.3);
-  /* Markdown 样式变量 - MPE GitHub 主题 (暗色) */
+  --document-mark-red-bg: #4a292c;
+  --document-mark-green-bg: #293d27;
+  --document-mark-yellow-bg: #463e22;
+  --document-mark-blue-bg: #243b50;
+  --document-mark-cyan-bg: #203f3d;
+  --document-mark-purple-bg: #382e50;
   --blockquote-bg: #2d333b;
   --blockquote-border: #444c56;
   --inline-code-bg: #2d333b;
@@ -450,6 +468,11 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  transition: width 0.16s ease;
+}
+
+.workspace.resizing .sidebar {
+  transition: none;
 }
 
 /* 可拖拽分隔条 */
@@ -604,6 +627,69 @@ body {
 
 .file-tree-row:hover {
   background-color: var(--bg-tertiary);
+}
+
+.file-tree-row.marked-red { background-color: var(--document-mark-red-bg); }
+.file-tree-row.marked-green { background-color: var(--document-mark-green-bg); }
+.file-tree-row.marked-yellow { background-color: var(--document-mark-yellow-bg); }
+.file-tree-row.marked-blue { background-color: var(--document-mark-blue-bg); }
+.file-tree-row.marked-cyan { background-color: var(--document-mark-cyan-bg); }
+.file-tree-row.marked-purple { background-color: var(--document-mark-purple-bg); }
+
+.file-tree-row.marked:hover {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.06));
+}
+
+.file-tree-row.marked.selected,
+.file-tree-row.marked.drag-over {
+  background-color: var(--accent-color);
+  background-image: none;
+}
+
+.file-tree-row.marked.multi-selected:not(.selected):not(.drag-over) {
+  background-color: var(--accent-color-alpha);
+  background-image: none;
+}
+
+.document-mark-option {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  padding: 2px;
+  place-items: center;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.document-mark-option > span {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.document-mark-option.mark-red > span { background: var(--document-mark-red); }
+.document-mark-option.mark-green > span { background: var(--document-mark-green); }
+.document-mark-option.mark-yellow > span { background: var(--document-mark-yellow); }
+.document-mark-option.mark-blue > span { background: var(--document-mark-blue); }
+.document-mark-option.mark-cyan > span { background: var(--document-mark-cyan); }
+.document-mark-option.mark-purple > span { background: var(--document-mark-purple); }
+
+.document-mark-option:hover,
+.document-mark-option:focus-visible,
+.document-mark-option.active {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+.document-mark-option.mark-none > span {
+  background: var(--bg-secondary);
 }
 
 .file-tree-row.selected {
@@ -775,10 +861,152 @@ body {
   overflow: hidden;
 }
 
-/* v1.5.1: 分屏样式已移至 SplitPanel.css，此处保留 content-area 内的 split-container 兼容 */
-.content-area > .split-container,
-.content-area > .split-leaf-panel {
-  flex: 1;
+.workspace-merge-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.36);
+}
+
+.workspace-merge-dialog {
+  width: min(520px, 100%);
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.workspace-merge-dialog h2 { margin: 0 0 16px; font-size: 16px; }
+.workspace-merge-source { display: grid; gap: 8px; margin: 12px 0; }
+.workspace-merge-source button { width: fit-content; }
+.workspace-transfer-guard {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  cursor: progress;
+}
+
+.workspace-transfer-status {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 101;
+  padding: 8px 12px;
+  border-radius: 5px;
+  background: var(--bg-tertiary);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
+}
+
+.workspace-switcher {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.workspace-switcher-trigger {
+  max-width: 220px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.workspace-switcher-trigger:hover {
+  background: var(--accent-color-alpha-hover);
+  color: var(--accent-color);
+}
+
+.workspace-switcher-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 80px));
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.workspace-switcher-option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-switcher-option:hover,
+.workspace-switcher-option.active {
+  background: var(--accent-color-alpha-hover);
+}
+
+.workspace-switcher-divider {
+  height: 1px;
+  margin: 4px;
+  background: var(--border-color);
+}
+
+.workspace-switcher-close {
+  color: var(--danger-color, #d9534f);
+}
+
+.workspace-switcher-section-label {
+  padding: 8px 8px 3px 32px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workspace-switcher-option-name,
+.workspace-switcher-option-meta {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-option-meta {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .workspace-switcher-trigger { max-width: 150px; }
+}
+
+@media (max-width: 400px) {
+  .workspace-switcher-name { display: none; }
 }
 
 .tabs {
@@ -2213,9 +2441,11 @@ body {
 .settings-panel {
   background: var(--bg-primary);
   border-radius: 8px;
-  width: 480px;
+  width: 640px;
+  max-width: calc(100vw - 24px);
   max-height: 80vh;
   overflow: auto;
+  box-sizing: border-box;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
@@ -3432,6 +3662,250 @@ body {
 
 .floating-nav-btn:active {
   transform: scale(0.95);
+}
+
+/* ============================================
+   朗读控制条 (v2.7.0 TTS)
+   ============================================ */
+
+.read-aloud {
+  position: absolute;
+  right: 16px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 100;
+}
+
+.read-aloud-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.read-aloud-toggle:hover {
+  background: var(--bg-tertiary);
+  transform: scale(1.05);
+}
+
+.read-aloud-toggle:focus {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.read-aloud-toggle.active {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-color-alpha);
+}
+
+.read-aloud-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  flex-wrap: wrap;
+}
+
+.read-aloud-sleep {
+  max-width: 110px;
+}
+
+.read-aloud-sleep-cancel {
+  min-width: 24px;
+}
+
+.read-aloud-sleep-remaining {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.read-aloud-sr-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.read-aloud-btn {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.read-aloud-btn:hover:not(:disabled) {
+  background: var(--accent-color-alpha);
+}
+
+.read-aloud-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.read-aloud-btn:focus {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+.read-aloud-rate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.read-aloud-rate input[type='range'] {
+  width: 80px;
+}
+
+.read-aloud-rate-value {
+  min-width: 40px;
+  text-align: right;
+  color: var(--text-primary);
+}
+
+.read-aloud-progress {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.read-aloud-reattach {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.read-aloud-provider {
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.read-aloud-error {
+  font-size: 12px;
+  color: var(--warning-color);
+  white-space: nowrap;
+}
+
+/* 设置·朗读 Tab:付费 provider 卡片 */
+.tts-provider-card {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.tts-voice-profiles {
+  margin: 10px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+.tts-voice-profile {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+.tts-voice-profile-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tts-voice-profile-title strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.tts-voice-profile-title .btn-secondary {
+  margin-left: auto;
+}
+.tts-voice-profile-active {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-color-alpha);
+  color: var(--accent-color);
+  font-size: 11px;
+  font-weight: 600;
+}
+.tts-voice-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.tts-voice-profile-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.tts-voice-profile-fields .settings-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.tts-test-ok {
+  color: var(--success-color, #3c9);
+}
+.tts-test-err {
+  color: var(--warning-color);
+}
+
+/* 失败非打断提示:退回系统声时的橙色细线常显(不弹窗不暂停) */
+.read-aloud-fallback {
+  font-size: 12px;
+  color: var(--warning-color);
+  white-space: nowrap;
+  border-left: 2px solid var(--warning-color);
+  padding-left: 6px;
+}
+
+/* 朗读当前段落高亮:CSS Custom Highlight API —— 只贴合文字字符,不涂块级空白 */
+::highlight(reading-aloud) {
+  background-color: var(--accent-color-alpha);
+  color: var(--text-strong);
+}
+
+/* 回退方案(不支持 Highlight API 时):用 box-decoration 让背景贴合文字行而非整块 */
+.markdown-body .reading-highlight {
+  background: var(--accent-color-alpha);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 /* ============================================
@@ -6539,8 +7013,10 @@ body.chart-fullscreen-active {
 .file-preview-tooltip {
   position: fixed;
   z-index: 10000;
+  display: flex;
+  flex-direction: column;
   width: 320px;
-  max-height: 300px;
+  max-height: min(340px, calc(100vh - 16px));
   padding: 8px 12px;
   background: rgba(30, 30, 30, 0.92);
   color: #e0e0e0;
@@ -6549,27 +7025,66 @@ body.chart-fullscreen-active {
   font-size: 12px;
   line-height: 1.5;
   overflow: hidden;
-  pointer-events: none;
-  white-space: pre-wrap;
+  pointer-events: auto;
   word-break: break-word;
-  -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
-  mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
 }
 
 .file-preview-tooltip .tooltip-filename {
-  font-weight: 600;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0 0 7px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   color: #ffffff;
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .file-preview-tooltip .tooltip-content {
+  flex: 1;
+  min-height: 0;
   color: #c0c0c0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  white-space: pre-wrap;
+}
+
+.file-preview-tooltip .tooltip-mark-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin: 8px -4px -2px;
+  padding: 8px 4px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  color: #c0c0c0;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.file-preview-tooltip .tooltip-mark-options {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.file-preview-tooltip .document-mark-option {
+  width: 23px;
+  height: 23px;
+  padding: 1px;
+}
+
+.file-preview-tooltip .document-mark-option > span {
+  width: 15px;
+  height: 15px;
+  font-size: 16px;
 }
 
 .file-preview-tooltip .tooltip-error {
@@ -6591,6 +7106,11 @@ body.chart-fullscreen-active {
 
 :root[data-theme="light"] .file-preview-tooltip .tooltip-content {
   color: #555;
+}
+
+:root[data-theme="light"] .file-preview-tooltip .tooltip-mark-controls {
+  color: #555;
+  border-top-color: var(--border-color);
 }
 
 :root[data-theme="light"] .file-preview-tooltip .tooltip-error {

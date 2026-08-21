@@ -5,6 +5,7 @@ import { join } from 'path'
 import AdmZip from 'adm-zip'
 
 const DOCX_SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL
+const VISUAL_DIR = join(process.cwd(), 'test-results', 'export-preflight-visual')
 
 /**
  * E2E: 导出前预检面板（v2.6）
@@ -18,6 +19,7 @@ test.beforeAll(() => {
   testDir = join(process.cwd(), '.tmp', 'e2e-preflight')
   rmSync(testDir, { recursive: true, force: true })
   mkdirSync(testDir, { recursive: true })
+  mkdirSync(VISUAL_DIR, { recursive: true })
 
   writeFileSync(
     join(testDir, 'risky.md'),
@@ -102,6 +104,7 @@ test.describe('导出前预检面板', () => {
     // 两类风险都要被点名：缺图 + 外部服务型图表
     await expect(panel).toContainText('no-such-image.png')
     await expect(panel).toContainText('kroki')
+    await panel.locator('.preflight-panel').screenshot({ path: join(VISUAL_DIR, 'export-preflight-risk-summary.png') })
 
     await panel.getByRole('button', { name: '取消导出' }).click()
     await expect(panel).not.toBeVisible()

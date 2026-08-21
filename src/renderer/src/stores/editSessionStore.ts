@@ -35,10 +35,14 @@ export interface OpenEditSessionInput {
   mtimeMs: number
   size?: number
   revisionToken: string
+  workspaceId?: string
+  lifecycleEpoch?: number
 }
 
 export interface EditSession {
   canonicalPath: string
+  workspaceId: string | null
+  lifecycleEpoch: number | null
   displayPath: string
   fileName: string
   status: EditSessionStatus
@@ -88,6 +92,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
         ...state.sessions,
         [input.canonicalPath]: {
           canonicalPath: input.canonicalPath,
+          workspaceId: input.workspaceId ?? null,
+          lifecycleEpoch: input.lifecycleEpoch ?? null,
           displayPath: input.displayPath,
           fileName: input.fileName,
           status: 'ready',
@@ -381,6 +387,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
         if (!draft.canonicalPath || draft.draft === draft.original) return acc
         acc[draft.canonicalPath] = {
           canonicalPath: draft.canonicalPath,
+          workspaceId: null,
+          lifecycleEpoch: null,
           displayPath: draft.displayPath,
           fileName: draft.fileName,
           status: 'dirty',

@@ -15,6 +15,36 @@ async function createMarkdown(content: string): Promise<string> {
   return filePath
 }
 
+/** 在同一临时目录建多个 md,返回各自路径(合并导出测试用) */
+async function createMarkdownFiles(contents: Record<string, string>): Promise<string[]> {
+  tempDir = await mkdtemp(path.join(tmpdir(), 'mdv-cli-export-'))
+  const paths: string[] = []
+  for (const [name, content] of Object.entries(contents)) {
+    const filePath = path.join(tempDir, name)
+    await writeFile(filePath, content, 'utf8')
+    paths.push(filePath)
+  }
+  return paths
+}
+
+/** 生成成功 renderResult 的极简 renderer(html 可控,便于断言片段拼接) */
+function makeRenderer(htmlByCall: string[], failedBlocks = 0): HeadlessMarkdownRenderer {
+  let call = 0
+  return async () => {
+    const html = htmlByCall[Math.min(call, htmlByCall.length - 1)]
+    call += 1
+    return {
+      schemaVersion: '1.0',
+      ok: failedBlocks === 0,
+      status: failedBlocks === 0 ? 'success' : 'partial',
+      html,
+      images: [],
+      stats: { totalBlocks: failedBlocks, renderedBlocks: 0, failedBlocks, durationMs: 10 },
+      warnings: [],
+    }
+  }
+}
+
 afterEach(async () => {
   if (tempDir) {
     await rm(tempDir, { recursive: true, force: true })
@@ -338,5 +368,151 @@ describe('buildExportResult', () => {
       serviceUrl: 'http://127.0.0.1:3179',
       style: 'preview',
     }))
+  })
+
+  describe('多文件合并导出', () => {
+    it('html:多文件合并成一份,含多段 merged-doc-part,第 2 段起有分页符', async () => {
+      const [a, b] = await createMarkdownFiles({ 'a.md': '# A', 'b.md': '# B' })
+      const outputPath = path.join(tempDir!, 'merged.html')
+      const renderer = makeRenderer(['<h1>A</h1>', '<h1>B</h1>'])
+
+      const result = await buildExportResult(
+        [a, b],
+        { format: 'html', out: outputPath },
+        { renderer, ...stubExportDeps },
+      )
+
+      expect(result.ok).toBe(true)
+      const html = await readFile(outputPath, 'utf8')
+      // 两段 merged-doc-part
+      expect(html.match(/class="merged-doc-part"/g)?.length).toBe(2)
+      // 第 2 段有分页符,首段没有
+      expect(html).toContain('page-break-before: always;')
+      expect(html).toContain('<h1>A</h1>')
+      expect(html).toContain('<h1>B</h1>')
+      // A 段在 B 段之前(顺序)
+      expect(html.indexOf('<h1>A</h1>')).toBeLessThan(html.indexOf('<h1>B</h1>'))
+      // summary 带 inputs 数组(路径经 realpath 规范化,用 basename 校验)
+      const inputs = (result.summary as { inputs?: string[] }).inputs ?? []
+      expect(inputs.map(p => path.basename(p))).toEqual(['a.md', 'b.md'])
+    })
+
+    it('html:各文件用自身路径分别传给 renderer 和 imageEmbedder', async () => {
+      const [a, b] = await createMarkdownFiles({ 'a.md': '# A', 'b.md': '# B' })
+      const outputPath = path.join(tempDir!, 'merged.html')
+      const rendererPaths: string[] = []
+      const renderer: HeadlessMarkdownRenderer = async (input) => {
+        const mdPath = input.markdownFilePath ?? ''
+        rendererPaths.push(mdPath)
+        return {
+          schemaVersion: '1.0', ok: true, status: 'success',
+          html: `<p>${path.basename(mdPath)}</p>`,
+          images: [], stats: { totalBlocks: 0, renderedBlocks: 0, failedBlocks: 0, durationMs: 5 }, warnings: [],
+        }
+      }
+      const embedPaths: string[] = []
+      const imageEmbedder = async (html: string, mdPath: string) => {
+        embedPaths.push(mdPath)
+        return html
+      }
+
+      await buildExportResult(
+        [a, b],
+        { format: 'html', out: outputPath },
+        { renderer, styleProvider: stubExportDeps.styleProvider, imageEmbedder },
+      )
+
+      // validateSecurePath 会 realpath 规范化路径(macOS /var→/private/var),用 basename 比对顺序与对应关系
+      expect(rendererPaths.map(p => path.basename(p))).toEqual(['a.md', 'b.md'])
+      expect(embedPaths.map(p => path.basename(p))).toEqual(['a.md', 'b.md'])
+      // renderer 与 embedder 收到的是同一路径(各文件自身路径作基准)
+      expect(rendererPaths).toEqual(embedPaths)
+    })
+
+    it('pdf:合并 content 传给 pdfWriter', async () => {
+      const [a, b] = await createMarkdownFiles({ 'a.md': '# A', 'b.md': '# B' })
+      const outputPath = path.join(tempDir!, 'merged.pdf')
+      const renderer = makeRenderer(['<h1>A</h1>', '<h1>B</h1>'])
+      const pdfWriter = vi.fn(async () => ({ type: 'pdf', path: outputPath, bytes: 200 }))
+
+      const result = await buildExportResult(
+        [a, b],
+        { format: 'pdf', out: outputPath },
+        { renderer, pdfWriter, ...stubExportDeps },
+      )
+
+      expect(result.ok).toBe(true)
+      expect(pdfWriter).toHaveBeenCalledWith(
+        outputPath,
+        expect.objectContaining({
+          content: expect.stringContaining('page-break-before: always;'),
+        }),
+      )
+      const contentArg = (pdfWriter.mock.calls[0] as unknown as [string, { content: string }])[1].content
+      expect(contentArg).toContain('<h1>A</h1>')
+      expect(contentArg).toContain('<h1>B</h1>')
+    })
+
+    it('docx + 多文件:任一文件不存在 → INPUT_NOT_FOUND(校验先于导出)', async () => {
+      const [a] = await createMarkdownFiles({ 'a.md': '# A' })
+      const missing = path.join(tempDir!, 'nope.md')
+      const outputPath = path.join(tempDir!, 'merged.docx')
+
+      const result = await buildExportResult(
+        [a, missing],
+        { format: 'docx', out: outputPath },
+        {} as any,
+      )
+
+      expect(result).toMatchObject({ ok: false, code: 'INPUT_NOT_FOUND', target: missing })
+    })
+
+    it('任一文件不存在 → INPUT_NOT_FOUND,target 指向该文件', async () => {
+      const [a] = await createMarkdownFiles({ 'a.md': '# A' })
+      const missing = path.join(tempDir!, 'nope.md')
+      const outputPath = path.join(tempDir!, 'merged.html')
+
+      const result = await buildExportResult(
+        [a, missing],
+        { format: 'html', out: outputPath },
+        { renderer: makeRenderer(['<h1>A</h1>']), ...stubExportDeps },
+      )
+
+      expect(result).toMatchObject({ ok: false, code: 'INPUT_NOT_FOUND', target: missing })
+    })
+
+    it('stats 累加:两文件各 1 图表失败 → failedCharts=2,报 RENDER_PARTIAL', async () => {
+      const [a, b] = await createMarkdownFiles({ 'a.md': '# A', 'b.md': '# B' })
+      const outputPath = path.join(tempDir!, 'merged.html')
+      const renderer = makeRenderer(['<h1>A</h1>', '<h1>B</h1>'], 1) // 每次 failedBlocks=1
+
+      const result = await buildExportResult(
+        [a, b],
+        { format: 'html', out: outputPath },
+        { renderer, ...stubExportDeps },
+      )
+
+      expect(result).toMatchObject({
+        ok: false,
+        code: 'RENDER_PARTIAL',
+        summary: { failedCharts: 2 },
+      })
+    })
+
+    it('单文件:行为与改动前一致(不进合并分支,summary 无 inputs 数组)', async () => {
+      const input = await createMarkdown('# Solo')
+      const outputPath = path.join(tempDir!, 'solo.html')
+
+      const result = await buildExportResult(
+        [input],
+        { format: 'html', out: outputPath },
+        { renderer: makeRenderer(['<h1>Solo</h1>']), ...stubExportDeps },
+      )
+
+      expect(result.ok).toBe(true)
+      const html = await readFile(outputPath, 'utf8')
+      expect(html).not.toContain('merged-doc-part')
+      expect((result.summary as { inputs?: string[] }).inputs).toBeUndefined()
+    })
   })
 })

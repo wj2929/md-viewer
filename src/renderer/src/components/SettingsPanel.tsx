@@ -8,6 +8,7 @@ import { useTheme, Theme } from '../hooks/useTheme'
 import { useUIStore, FONT_SIZE } from '../stores/uiStore'
 import { DocxSetupGuide } from './DocxSetupGuide'
 import { DocxStyleCards } from './DocxStyleCards'
+import ReadAloudSettingsTab from './ReadAloudSettingsTab'
 import { builtinRendererDefinitions } from '../renderers/builtin'
 import type { RendererDefinition, RendererTarget, RendererTargetCapability } from '../renderers/types'
 import {
@@ -23,7 +24,7 @@ import {
 // 类型定义
 // ============================================================================
 
-type SettingsTab = 'appearance' | 'browsing' | 'export' | 'charts' | 'system' | 'about'
+type SettingsTab = 'appearance' | 'browsing' | 'export' | 'charts' | 'readAloud' | 'system' | 'about'
 
 type CapabilityColumn = {
   key: RendererTarget | 'htmlPdf'
@@ -76,6 +77,7 @@ const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'browsing', label: '浏览' },
   { key: 'export', label: '导出' },
   { key: 'charts', label: '图表' },
+  { key: 'readAloud', label: '朗读' },
   { key: 'system', label: '系统' },
   { key: 'about', label: '关于' },
 ]
@@ -132,7 +134,13 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
             aria-labelledby={`settings-tab-${activeTab}`}
             aria-label={activeTabLabel}
           >
-            {activeTab === 'about' ? <AboutTab /> : <GeneralTab activeTab={activeTab} />}
+            {activeTab === 'about' ? (
+              <AboutTab />
+            ) : activeTab === 'readAloud' ? (
+              <ReadAloudSettingsTab />
+            ) : (
+              <GeneralTab activeTab={activeTab} />
+            )}
           </div>
         </div>
       </div>
@@ -144,7 +152,7 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
 // 通用 Tab
 // ============================================================================
 
-function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about'> }) {
+function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about' | 'readAloud'> }) {
   const { theme, setTheme } = useTheme()
   const { fontSize, setFontSize } = useUIStore()
   const [settings, setSettings] = useState<{ maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean }>({

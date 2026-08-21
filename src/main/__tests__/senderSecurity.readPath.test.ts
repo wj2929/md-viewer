@@ -13,8 +13,8 @@ vi.mock('electron', () => ({
 /**
  * validateSenderReadPath 读类放宽校验测试
  *
- * 验证：发起窗口根内通过、跨"任一已打开窗口根/历史/最近 folderPath"通过、
- * 精确登记的书签文件通过、完全未登记路径拒绝、受保护路径拒绝、symlink 逃逸拒绝。
+ * 验证：发起窗口、其他打开窗口及历史根内的文件通过；recent/bookmark
+ * 业务记录不能扩大授权；完全未登记路径、受保护路径和 symlink 逃逸均拒绝。
  */
 
 const temporaryRoots: string[] = []
@@ -98,13 +98,13 @@ describe('validateSenderReadPath', () => {
     await expect(validateSenderReadPath(buildCtx(), event, target)).resolves.toBe(await fs.realpath(target))
   })
 
-  it('放行最近文件 folderPath 内的文件', async () => {
+  it('拒绝 recent.folderPath 单独登记的文件', async () => {
     const target = path.join(dirs.recentRoot, 'doc.md')
-    await expect(validateSenderReadPath(buildCtx(), event, target)).resolves.toBe(await fs.realpath(target))
+    await expect(validateSenderReadPath(buildCtx(), event, target)).rejects.toThrow('安全错误')
   })
 
-  it('放行精确登记的书签文件（其目录不在任何根集合内）', async () => {
-    await expect(validateSenderReadPath(buildCtx(), event, bookmarkFile)).resolves.toBe(await fs.realpath(bookmarkFile))
+  it('拒绝精确登记的书签文件（其目录不在任何根集合内）', async () => {
+    await expect(validateSenderReadPath(buildCtx(), event, bookmarkFile)).rejects.toThrow('安全错误')
   })
 
   it('拒绝完全未登记文件夹内的文件', async () => {

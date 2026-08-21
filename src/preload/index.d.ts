@@ -1,5 +1,8 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import { type DocxStyle } from '../shared/docxStyles'
+import { type ReadAloudSettings } from '../shared/ttsProviders'
+import { type FolderActivation, type WorkspaceOperationContext } from '../shared/workspace'
+import { type DocumentMarkColor } from '../shared/documentMarks'
 
 // v1.7.0：DOCX 导出设置
 interface DocxExportSettings {
@@ -35,7 +38,7 @@ declare global {
       platform: 'darwin' | 'win32' | 'linux'
 
       // 文件系统操作
-      openFolder: () => Promise<string | null>
+      openFolder: () => Promise<FolderActivation | null>
       readDir: (path: string) => Promise<FileInfo[]>
       listChildDirs: (path: string) => Promise<Array<{ name: string; path: string }>>
       readFile: (path: string) => Promise<string>
@@ -52,12 +55,13 @@ declare global {
         refPath: string
       }) => Promise<{ content: string; resolvedPath: string }>
       readFilePreview: (path: string) => Promise<string>
+      issueLocalImageUrl: (markdownFilePath: string, rawResourcePath: string) => Promise<string>
       testOpenMarkdownFile?: (path: string) => Promise<boolean>
       testFileClipboardAction?: (
         action: 'copy' | 'cut' | 'paste',
         target: string | string[]
       ) => Promise<{ success: boolean }>
-      openEditableMarkdown: (filePath: string) => Promise<{
+      openEditableMarkdown: (filePath: string, operation: WorkspaceOperationContext) => Promise<{
         canonicalPath: string
         displayPath: string
         fileName: string
@@ -70,6 +74,7 @@ declare global {
         canonicalPath: string
         content: string
         expectedRevisionToken: string
+        workspace: WorkspaceOperationContext
         force?: boolean
       }) => Promise<{
         success: boolean
@@ -86,10 +91,10 @@ declare global {
       searchReadDir: (path: string) => Promise<FileInfo[]>
       searchReadFile: (path: string) => Promise<string>
 
-      // 文件监听 (v1.1) - 只监听已打开的文件
-      watchFolder: (path: string) => Promise<{ success: boolean }>
-      watchFile: (path: string) => Promise<{ success: boolean }>
-      unwatchFolder: () => Promise<{ success: boolean }>
+      // 文件监听：工作区上下文用于隔离异步事件；省略参数仅供旧桥接兼容。
+      watchFolder: (path: string, workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
+      watchFile: (path: string, workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
+      unwatchFolder: (workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
 
       // 导出功能
       exportHTML: (htmlContent: string, fileName: string) => Promise<string | null>
@@ -112,10 +117,11 @@ declare global {
       // 右键菜单 (v1.2 阶段 1)
       showContextMenu: (
         file: { name: string; path: string; isDirectory: boolean },
-        basePath: string
+        basePath: string,
+        operation: WorkspaceOperationContext
       ) => Promise<{ success: boolean }>
-      renameFile: (oldPath: string, newName: string) => Promise<string>
-      duplicatePath: (sourcePath: string) => Promise<{
+      renameFile: (oldPath: string, newName: string, operation: WorkspaceOperationContext) => Promise<string>
+      duplicatePath: (sourcePath: string, operation: WorkspaceOperationContext) => Promise<{
         sourcePath: string
         newPath: string
         isDirectory: boolean
@@ -138,7 +144,7 @@ declare global {
       }) => Promise<{ success: boolean }>
 
       // v1.3 阶段 3：剪贴板状态同步
-      syncClipboardState: (files: string[], isCut: boolean) => Promise<void>
+      syncClipboardState: (files: string[], isCut: boolean, operation: WorkspaceOperationContext) => Promise<void>
       queryClipboardState: () => Promise<{ files: string[]; isCut: boolean; hasFiles: boolean }>
 
       // v1.3 阶段 6：跨应用剪贴板
@@ -154,10 +160,16 @@ declare global {
       getFolderHistory: () => Promise<Array<{ id: string; path: string; name: string; lastOpened: number }>>
       removeFolderFromHistory: (historyId: string) => Promise<void>
       clearFolderHistory: () => Promise<void>
-      activateHistoryFolder: (historyId: string) => Promise<{ id: string; path: string; name: string }>
-      getFolderTreeState: () => Promise<Record<string, false>>
-      saveFolderTreeState: (folders: Record<string, false>) => Promise<Record<string, false>>
-      clearFolderTreeState: () => Promise<void>
+      activateHistoryFolder: (historyId: string) => Promise<FolderActivation>
+      getFolderTreeState: (operation: WorkspaceOperationContext) => Promise<Record<string, false>>
+      saveFolderTreeState: (folders: Record<string, false>, operation: WorkspaceOperationContext) => Promise<Record<string, false>>
+      clearFolderTreeState: (operation: WorkspaceOperationContext) => Promise<void>
+      getDocumentMarks: (operation: WorkspaceOperationContext) => Promise<Record<string, DocumentMarkColor>>
+      setDocumentMark: (
+        filePath: string,
+        color: DocumentMarkColor | null,
+        operation: WorkspaceOperationContext
+      ) => Promise<Record<string, DocumentMarkColor>>
       getReadPosition: (filePath: string) => Promise<{
         canonicalPath: string
         scrollRatio?: number
@@ -171,6 +183,7 @@ declare global {
         headingId?: string
         updatedAt?: number
         contentHash?: string
+        workspace: WorkspaceOperationContext
       }) => Promise<{
         canonicalPath: string
         scrollRatio?: number
@@ -178,7 +191,7 @@ declare global {
         updatedAt: number
         contentHash?: string
       }>
-      clearReadPosition: (filePath: string) => Promise<void>
+      clearReadPosition: (filePath: string, operation: WorkspaceOperationContext) => Promise<void>
 
       // v1.3.6：最近文件
       getRecentFiles: () => Promise<Array<{
@@ -188,10 +201,7 @@ declare global {
         folderPath: string
         lastOpened: number
       }>>
-      activateRecentFile: (recentId: string) => Promise<{
-        id: string
-        path: string
-        name: string
+      activateRecentFile: (recentId: string) => Promise<FolderActivation & {
         filePath: string
         fileName: string
       }>
@@ -201,9 +211,9 @@ declare global {
 
       // v1.3.6：固定标签（按文件夹分组）
       getPinnedTabsForFolder: (folderPath: string) => Promise<Array<{ path: string; order: number }>>
-      addPinnedTab: (filePath: string) => Promise<boolean>
-      removePinnedTab: (filePath: string) => Promise<void>
-      isTabPinned: (filePath: string) => Promise<boolean>
+      addPinnedTab: (filePath: string, operation: WorkspaceOperationContext) => Promise<boolean>
+      removePinnedTab: (filePath: string, operation: WorkspaceOperationContext) => Promise<void>
+      isTabPinned: (filePath: string, operation: WorkspaceOperationContext) => Promise<boolean>
 
       // v1.7.0：SVG → PNG 截图（主进程 BrowserWindow）
       renderSvgToPng: (svgString: string, width?: number) => Promise<{
@@ -234,28 +244,64 @@ declare global {
         error?: string
       }>
       runPreflight: (request: { filePath: string; formats: string[]; docxServiceUrl?: string }) => Promise<import('../shared/preflight').PreflightResult>
+      ttsSynthesize: (req: {
+        requestId: string
+        providerId: string
+        type: string
+        text: string
+        voice?: string
+        rate?: number
+        baseUrl?: string
+        region?: string
+        model?: string
+      }) => Promise<{
+        ok: boolean
+        kind?: string
+        message?: string
+        audioBase64?: string
+        format?: string
+        boundaries?: Array<{ text: string; offsetMs: number; durationMs: number }>
+      }>
+      ttsCancel: (requestId: string) => Promise<{ ok: boolean }>
+      ttsListVoices: (type: string) => Promise<Array<{ id: string; name: string; lang?: string }>>
+      ttsTestProvider: (req: {
+        providerId: string
+        type: string
+        text?: string
+        voice?: string
+        baseUrl?: string
+        region?: string
+        model?: string
+      }) => Promise<{ ok: boolean; kind?: string; message?: string }>
+      ttsSetKey: (providerId: string, apiKey: string) => Promise<{ ok: boolean; hasKey?: boolean; message?: string }>
+      ttsEncryptionAvailable: () => Promise<boolean>
       selectReferenceDocx: () => Promise<string | null>
 
       getLastDocxExportPath: () => Promise<string | null>
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings }>) => Promise<void>
+      getReadAloudSettings: () => Promise<ReadAloudSettings>
+      updateReadAloudSettings: (settings: ReadAloudSettings) => Promise<ReadAloudSettings>
 
       // v1.3.6：书签管理
       getBookmarks: () => Promise<Array<Bookmark>>
-      activateBookmark: (bookmarkId: string) => Promise<{
-        id: string
-        path: string
-        name: string
+      activateBookmark: (bookmarkId: string) => Promise<FolderActivation & {
         filePath: string
         fileName: string
       }>
       addBookmark: (bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'order'>) => Promise<Bookmark>
-      updateBookmark: (id: string, updates: Partial<Omit<Bookmark, 'id' | 'createdAt'>>) => Promise<void>
+      updateBookmark: (id: string, updates: {
+        title?: string
+        headingId?: string
+        headingText?: string
+        scrollPosition?: number
+        order?: number
+      }) => Promise<void>
       removeBookmark: (id: string) => Promise<void>
-      updateAllBookmarks: (bookmarks: Bookmark[]) => Promise<void>
+      updateAllBookmarks: (bookmarks: Array<{ id: string; order: number }>) => Promise<void>
       clearBookmarks: () => Promise<void>
 
       // v1.3.4：右键菜单安装
@@ -297,10 +343,10 @@ declare global {
       confirmContextMenuEnabled: () => Promise<{ success: boolean }>
 
       // 文件操作 (v1.2 阶段 2)
-      copyFile: (srcPath: string, destPath: string) => Promise<string>
-      copyDir: (srcPath: string, destPath: string) => Promise<string>
-      moveFile: (srcPath: string, destPath: string) => Promise<string>
-      moveFileToFolder: (srcPath: string, targetHistoryId: string, subRelPath?: string) => Promise<string>
+      copyFile: (srcPath: string, destPath: string, operation: WorkspaceOperationContext) => Promise<string>
+      copyDir: (srcPath: string, destPath: string, operation: WorkspaceOperationContext) => Promise<string>
+      moveFile: (srcPath: string, destPath: string, operation: WorkspaceOperationContext) => Promise<string>
+      moveFileToFolder: (srcPath: string, targetHistoryId: string, subRelPath: string | undefined, operation: WorkspaceOperationContext) => Promise<string>
       fileExists: (filePath: string) => Promise<boolean>
       isDirectory: (filePath: string) => Promise<boolean>
 
@@ -312,15 +358,15 @@ declare global {
       // 事件监听
       onFileChange: (callback: (event: unknown, data: unknown) => void) => () => void
 
-      // 文件监听事件 (v1.1)
-      onFileChanged: (callback: (filePath: string) => void) => () => void
-      onFileAdded: (callback: (filePath: string) => void) => () => void
-      onFileRemoved: (callback: (filePath: string) => void) => () => void
+      // 文件监听事件
+      onFileChanged: (callback: (event: { workspaceId: string; lifecycleEpoch: number; path?: string }) => void) => () => void
+      onFileAdded: (callback: (event: { workspaceId: string; lifecycleEpoch: number; path?: string }) => void) => () => void
+      onFileRemoved: (callback: (event: { workspaceId: string; lifecycleEpoch: number; path?: string }) => void) => () => void
 
       // v1.3 新增文件监听事件
-      onFolderAdded: (callback: (dirPath: string) => void) => () => void
-      onFolderRemoved: (callback: (dirPath: string) => void) => () => void
-      onFileRenamed: (callback: (data: { oldPath: string; newPath: string }) => void) => () => void
+      onFolderAdded: (callback: (event: { workspaceId: string; lifecycleEpoch: number; path?: string }) => void) => () => void
+      onFolderRemoved: (callback: (event: { workspaceId: string; lifecycleEpoch: number; path?: string }) => void) => () => void
+      onFileRenamed: (callback: (event: { workspaceId: string; lifecycleEpoch: number; oldPath?: string; newPath?: string }) => void) => () => void
 
       // v1.3 新增：Tab 右键菜单事件
       onTabClose: (callback: (tabId: string) => void) => () => void
@@ -351,6 +397,7 @@ declare global {
       // 右键菜单事件 (v1.2 阶段 1)
       onFileDeleted: (callback: (filePath: string) => void) => () => void
       onFileStartRename: (callback: (filePath: string) => void) => () => void
+      onDocumentMarksChanged: (callback: () => void) => () => void
       onFileDuplicateRequest: (callback: (filePath: string) => void) => () => void
       onFileMoveToRequest: (callback: (file: { path: string; isDirectory: boolean }) => void) => () => void
       onFileExportRequest: (
@@ -364,7 +411,7 @@ declare global {
       onClipboardPaste: (callback: (targetDir: string) => void) => () => void
 
       // 其他事件
-      onRestoreFolder: (callback: (folderPath: string) => void) => () => void
+      onRestoreFolder: (callback: (activation: FolderActivation) => void) => () => void
 
       // v1.3.4：打开特定文件事件
       onOpenSpecificFile: (callback: (filePath: string) => void) => () => void
@@ -414,6 +461,7 @@ declare global {
         scrollRatio?: number
         mode: 'document' | 'selection' | 'source-line' | 'scroll-ratio'
       }) => void) => () => void
+      onReadAloudFromLine: (callback: (params: { sourceLine: number | null }) => void) => () => void
       onExportChartsZipFromPreview: (callback: (params: {
         filePath: string
         tabId?: string
@@ -447,6 +495,7 @@ declare global {
       // v1.4.2：打印
       print: () => Promise<{ success: boolean }>
       onShortcutPrint: (callback: () => void) => () => void
+      onShortcutToggleReadAloud: (callback: () => void) => () => void
 
       // v1.4.2：字体大小调节
       onShortcutFontIncrease: (callback: () => void) => () => void
@@ -485,6 +534,140 @@ declare global {
 
       // v1.6.0：多窗口支持
       getWindowId: () => Promise<number | null>
+      getWorkspaceBootstrap: () => Promise<{
+        activeWorkspaceId: string | null
+        workspaces: Array<{ id: string; primaryRoot: string | null; lifecycleEpoch: number }>
+        restoredRuntime?: {
+          activeWorkspaceId: string | null
+          workspaces: Array<{
+            id: string
+            name: string
+            primaryRoot: string | null
+            tabs: Array<{ id: string; relativePath: string; isPinned?: boolean }>
+            activeTabId: string | null
+            splitState: unknown
+          }>
+        } | null
+      }>
+      saveWorkspaceDesktopRuntime: (runtime: {
+        activeWorkspaceId: string | null
+        workspaces: Array<{
+          id: string
+          name: string
+          primaryRoot: string | null
+          lifecycleEpoch: number
+          tabs: Array<{ id: string; filePath: string; isPinned?: boolean }>
+          activeTabId: string | null
+          splitState: unknown
+        }>
+      }) => Promise<void>
+      requestPendingWorkspaceSource: () => Promise<{ nonce: string } | null>
+      activateWorkspace: (workspaceId: string) => Promise<{
+        id: string; primaryRoot: string | null; lifecycleEpoch: number
+      }>
+      createWorkspace: () => Promise<{
+        id: string; primaryRoot: string | null; lifecycleEpoch: number
+      }>
+      onWorkspaceCreated: (callback: (workspace: {
+        id: string; primaryRoot: string | null; lifecycleEpoch: number
+      }) => void) => () => void
+      closeWorkspace: (workspaceId: string) => Promise<{ activeWorkspaceId: string | null }>
+      pruneInactiveWorkspaces: (request: {
+        expectedActiveWorkspaceId: string
+        candidates: Array<{ workspaceId: string; lifecycleEpoch: number; primaryRoot: string | null }>
+      }) => Promise<{ removedWorkspaceIds: string[]; activeWorkspaceId: string | null }>
+      updateWorkspacePresentations: (presentations: Array<{
+        workspaceId: string
+        lifecycleEpoch: number
+        label: string
+        isEmptyPlaceholder: boolean
+        hasMeaningfulState: boolean
+        tabCount: number
+        activeTabName: string | null
+        tabNames: string[]
+        hasSplit: boolean
+        hasDraft: boolean
+      }>) => Promise<{ applied: boolean }>
+      listWorkspaceMergeSources: () => Promise<Array<{
+        windowId: number
+        title: string
+        workspaceCount: number
+        summary: string
+        workspaces: Array<{ id: string; name: string; summary: string }>
+      }>>
+      onWorkspaceMergeSourcesChanged: (callback: () => void) => () => void
+      beginWindowTransfer: (sourceWindowId: number) => Promise<{ nonce: string | null; closedEmptyWindow: boolean }>
+      submitWindowTransferSnapshots: (nonce: string, snapshots: Array<{
+        workspaceId: string
+        name: string
+        primaryRoot: string | null
+        lifecycleEpoch: number
+        tabs: Array<{ id: string; filePath: string; isPinned?: boolean }>
+        activeTabId: string | null
+        splitState: unknown
+      }>) => Promise<void>
+      consumeWindowTransferSnapshots: (nonce: string) => Promise<Array<{
+        workspaceId: string
+        name: string
+        primaryRoot: string | null
+        lifecycleEpoch: number
+        tabs: Array<{ id: string; filePath: string; isPinned?: boolean }>
+        activeTabId: string | null
+        splitState: unknown
+      }>>
+      stageWindowTransfer: (nonce: string) => Promise<void>
+      completeWindowTransfer: (nonce: string) => Promise<{
+        workspaces: Array<{ sourceWorkspaceId: string; targetWorkspaceId: string; primaryRoot: string | null; lifecycleEpoch: number }>
+        activeWorkspaceId: string
+      }>
+      cancelWindowTransfer: (nonce: string) => Promise<void>
+      onWindowExportRequested: (callback: (payload: {
+        nonce: string
+        sourceActiveWorkspaceId: string | null
+        workspaces: Array<{ workspaceId: string; sourceLifecycleEpoch: number; primaryRoot: string | null }>
+      }) => void) => () => void
+      onWindowTransferReady: (callback: (payload: { nonce: string }) => void) => () => void
+      splitActiveWorkspace: (workspaceId: string) => Promise<{ nonce: string; targetWindowId: number }>
+      beginWorkspaceTransfer: (sourceWindowId: number, workspaceId: string) => Promise<{ nonce: string }>
+      submitWorkspaceTransferSnapshot: (nonce: string, snapshot: {
+        workspaceId: string
+        name: string
+        primaryRoot: string | null
+        lifecycleEpoch: number
+        tabs: Array<{ id: string; filePath: string; isPinned?: boolean }>
+        activeTabId: string | null
+        splitState: unknown
+      }) => Promise<void>
+      consumeWorkspaceTransferSnapshot: (nonce: string) => Promise<{
+        workspaceId: string
+        name: string
+        primaryRoot: string | null
+        lifecycleEpoch: number
+        tabs: Array<{ id: string; filePath: string; isPinned?: boolean }>
+        activeTabId: string | null
+        splitState: unknown
+      }>
+      stageWorkspaceTransfer: (nonce: string) => Promise<void>
+      completeWorkspaceTransfer: (nonce: string) => Promise<{
+        id: string; primaryRoot: string | null; lifecycleEpoch: number; replacedWorkspaceId: string | null
+      }>
+      cancelWorkspaceTransfer: (nonce: string) => Promise<void>
+      onWorkspaceRestoreRuntime: (callback: (payload: {
+        activeWorkspaceId: string | null
+        workspaces: Array<{
+          id: string
+          name: string
+          primaryRoot: string | null
+          tabs: Array<{ id: string; relativePath: string; isPinned?: boolean }>
+          activeTabId: string | null
+          splitState: unknown
+        }>
+      }) => void) => () => void
+      onWorkspaceExportRequested: (callback: (payload: { nonce: string; workspaceId: string; sourceLifecycleEpoch: number; targetWindowId: number }) => void) => () => void
+      onWorkspaceTransferReady: (callback: (payload: { nonce: string }) => void) => () => void
+      onWorkspaceTransferCancelled: (callback: (payload: { nonce: string; reason?: string }) => void) => () => void
+      onWorkspaceTransferredOut: (callback: (payload: { workspaceId: string; activeWorkspaceId: string | null }) => void) => () => void
+      onWorkspaceFolderActivated: (callback: (payload: { workspaceId: string; path: string; lifecycleEpoch: number }) => void) => () => void
       newWindow: () => Promise<number>
       newWindowWithFolder: () => Promise<number | null>
       getWindowCount: () => Promise<number>

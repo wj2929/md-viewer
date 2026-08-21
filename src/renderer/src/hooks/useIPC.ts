@@ -5,7 +5,12 @@ import { readPreviewContentWithCache, clearFileCache } from '../utils/fileCache'
 import { buildPreviewContentForFile } from '../utils/previewableFiles'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
 import { buildExportHtmlContent } from '../utils/exportHtml'
-import { createLeaf, splitLeaf, getTreeDepth, MAX_SPLIT_DEPTH, findLeafByTabId, PanelNode } from '../utils/splitTree'
+import { createLeaf, splitLeaf, getTreeDepth, MAX_SPLIT_DEPTH, findLeafByTabId, PanelNode, reconcileSplitState } from '../utils/splitTree'
+import {
+  getActiveWorkspaceLifecycleKey,
+  getActiveWorkspaceOperationContext,
+  isActiveWorkspaceLifecycleKey,
+} from '../utils/workspaceOperationContext'
 import type { useToast } from './useToast'
 
 type UseToastReturn = ReturnType<typeof useToast>
@@ -66,10 +71,22 @@ export function useIPC(options: UseIPCOptions): void {
   // 监听右键菜单事件 (v1.2 阶段 1)
   useEffect(() => {
     const unsubscribeDeleted = window.api.onFileDeleted((filePath: string) => {
-      setTabs(prev => prev.filter(tab => tab.file.path !== filePath))
+      setTabs(prev => {
+        const nextTabs = prev.filter(tab => tab.file.path !== filePath)
+        setSplitState(split => reconcileSplitState(split, new Set(nextTabs.map(tab => tab.id))))
+
+        const currentActiveTabId = useTabStore.getState().activeTabId
+        if (!currentActiveTabId || !nextTabs.some(tab => tab.id === currentActiveTabId)) {
+          setActiveTabId(nextTabs[0]?.id ?? null)
+        }
+        return nextTabs
+      })
+      const lifecycle = getActiveWorkspaceLifecycleKey()
       const currentFolderPath = useFileStore.getState().folderPath
-      if (currentFolderPath) {
-        window.api.readDir(currentFolderPath).then(setFiles).catch(console.error)
+      if (lifecycle && currentFolderPath && currentFolderPath === lifecycle.primaryRoot) {
+        window.api.readDir(currentFolderPath).then((files) => {
+          if (isActiveWorkspaceLifecycleKey(lifecycle)) setFiles(files)
+        }).catch(console.error)
       }
     })
 
@@ -118,11 +135,14 @@ export function useIPC(options: UseIPCOptions): void {
 
     const unsubscribeDuplicate = window.api.onFileDuplicateRequest(async (filePath: string) => {
       try {
-        const result = await window.api.duplicatePath(filePath)
+        const operation = getActiveWorkspaceOperationContext()
+        if (!operation) return
+        const result = await window.api.duplicatePath(filePath, operation)
+        const lifecycle = getActiveWorkspaceLifecycleKey()
         const currentFolderPath = useFileStore.getState().folderPath
-        if (currentFolderPath) {
+        if (lifecycle && currentFolderPath && currentFolderPath === lifecycle.primaryRoot) {
           const fileList = await window.api.readDir(currentFolderPath)
-          setFiles(fileList)
+          if (isActiveWorkspaceLifecycleKey(lifecycle)) setFiles(fileList)
         }
         const newName = result.newPath.split(/[/\\]/).pop() || result.newPath
         toast.success(`已创建副本：${newName}`)
@@ -204,35 +224,42 @@ export function useIPC(options: UseIPCOptions): void {
       handleTabClose(tabId)
     })
 
+    const keepTabs = (predicate: (tab: Tab) => boolean, activeTabId?: string | null) => {
+      setTabs(prev => {
+        const nextTabs = prev.filter(predicate)
+        setSplitState(split => reconcileSplitState(
+          split,
+          new Set(nextTabs.map(tab => tab.id))
+        ))
+        if (activeTabId !== undefined) {
+          setActiveTabId(activeTabId && nextTabs.some(tab => tab.id === activeTabId)
+            ? activeTabId
+            : nextTabs[0]?.id ?? null)
+        }
+        return nextTabs
+      })
+    }
+
     const unsubscribeTabCloseOthers = window.api.onTabCloseOthers((tabId: string) => {
-      setTabs(prev => prev.filter(tab => tab.id === tabId || tab.isPinned))
-      setActiveTabId(tabId)
+      keepTabs(tab => tab.id === tabId || Boolean(tab.isPinned), tabId)
     })
 
     const unsubscribeTabCloseAll = window.api.onTabCloseAll(() => {
-      setTabs(prev => {
-        const pinnedTabs = prev.filter(tab => tab.isPinned)
-        if (pinnedTabs.length > 0) {
-          setActiveTabId(pinnedTabs[0].id)
-          return pinnedTabs
-        }
-        setActiveTabId(null)
-        return []
-      })
+      keepTabs(tab => Boolean(tab.isPinned))
     })
 
     const unsubscribeTabCloseLeft = window.api.onTabCloseLeft((tabId: string) => {
-      setTabs(prev => {
-        const index = prev.findIndex(tab => tab.id === tabId)
-        return index >= 0 ? prev.slice(index) : prev
-      })
+      const index = tabsRef.current.findIndex(tab => tab.id === tabId)
+      if (index < 0) return
+      const keptIds = new Set(tabsRef.current.slice(index).map(tab => tab.id))
+      keepTabs(tab => keptIds.has(tab.id))
     })
 
     const unsubscribeTabCloseRight = window.api.onTabCloseRight((tabId: string) => {
-      setTabs(prev => {
-        const index = prev.findIndex(tab => tab.id === tabId)
-        return index >= 0 ? prev.slice(0, index + 1) : prev
-      })
+      const index = tabsRef.current.findIndex(tab => tab.id === tabId)
+      if (index < 0) return
+      const keptIds = new Set(tabsRef.current.slice(0, index + 1).map(tab => tab.id))
+      keepTabs(tab => keptIds.has(tab.id))
     })
 
     const unsubscribeTabPin = window.api.onTabPin((tabId: string) => {
@@ -240,8 +267,9 @@ export function useIPC(options: UseIPCOptions): void {
         tab.id === tabId ? { ...tab, isPinned: true } : tab
       ))
       const tab = tabsRef.current.find(t => t.id === tabId)
-      if (tab) {
-        window.api.addPinnedTab(tab.file.path).catch(err => {
+      const operation = getActiveWorkspaceOperationContext()
+      if (tab && operation) {
+        window.api.addPinnedTab(tab.file.path, operation).catch(err => {
           console.error('Failed to persist pinned tab:', err)
         })
       }
@@ -252,8 +280,9 @@ export function useIPC(options: UseIPCOptions): void {
         tab.id === tabId ? { ...tab, isPinned: false } : tab
       ))
       const tab = tabsRef.current.find(t => t.id === tabId)
-      if (tab) {
-        window.api.removePinnedTab(tab.file.path).catch(err => {
+      const operation = getActiveWorkspaceOperationContext()
+      if (tab && operation) {
+        window.api.removePinnedTab(tab.file.path, operation).catch(err => {
           console.error('Failed to remove pinned tab:', err)
         })
       }
@@ -471,7 +500,9 @@ export function useIPC(options: UseIPCOptions): void {
         try {
           const content = await readPreviewContentWithCache(filePath)
           const fileName = filePath.split(/[/\\]/).pop() || filePath
-          const isPinned = await window.api.isTabPinned(filePath)
+          const operation = getActiveWorkspaceOperationContext()
+          if (!operation) return
+          const isPinned = await window.api.isTabPinned(filePath, operation)
           const newTab: Tab = {
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             file: { name: fileName, path: filePath, isDirectory: false },

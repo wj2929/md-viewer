@@ -9,6 +9,7 @@ interface QuickEditPlacementState {
   getPlacementForLeaf: (placementKey: string) => QuickEditTarget | null
   setScrollSyncEnabled: (placementKey: string, enabled: boolean) => void
   isScrollSyncEnabled: (placementKey: string) => boolean
+  replacePlacements: (placements: Record<string, QuickEditTarget>) => void
   reset: () => void
 }
 
@@ -56,6 +57,8 @@ export const useQuickEditPlacementStore = create<QuickEditPlacementState>((set, 
   isScrollSyncEnabled: (placementKey) => {
     return Boolean(get().scrollSyncEnabled[placementKey])
   },
+
+  replacePlacements: (placements) => set({ placements: { ...placements }, scrollSyncEnabled: {} }),
 
   reset: () => set({ placements: {}, scrollSyncEnabled: {} }),
 }))

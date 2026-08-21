@@ -104,6 +104,35 @@ describe('contextMenuHandler', () => {
       expect(menu.popup).toHaveBeenCalledWith({ window: mockWindow })
     })
 
+    it('右键菜单不再包含背景标记入口', () => {
+      showContextMenu(mockWindow, {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }, '/Users/test/documents')
+
+      const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
+      expect(template.some(item => item.label === '🎨 背景标记色…')).toBe(false)
+    })
+
+    it('删除成功后才清理背景标记', async () => {
+      const removeDocumentMarks = vi.fn()
+      vi.mocked(dialog.showMessageBox).mockResolvedValue({ response: 0 } as any)
+      vi.mocked(shell.trashItem).mockResolvedValue(undefined)
+      showContextMenu(mockWindow, {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }, '/Users/test/documents', { removeDocumentMarks })
+
+      const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
+      const deleteItem = template.find(item => item.label === '🗑️ 删除')
+      await deleteItem?.click?.({} as any, mockWindow, {} as any)
+
+      expect(shell.trashItem).toHaveBeenCalled()
+      expect(removeDocumentMarks).toHaveBeenCalledWith('/Users/test/documents/test.md', false)
+    })
+
     it('应该为文件生成正确数量的菜单项', () => {
       const file = {
         name: 'test.md',
@@ -118,6 +147,39 @@ describe('contextMenuHandler', () => {
       // 文件菜单项：显示、分隔、复制路径、复制相对路径、分隔、复制、剪切、分隔、导出HTML、导出PDF、分隔、重命名、删除
       // 至少应该有 10+ 个项目（包括分隔符）
       expect(template.length).toBeGreaterThanOrEqual(10)
+    })
+
+    it('Markdown 文件显示“在新窗口中打开”并调用动作', async () => {
+      const openMarkdownInNewWindow = vi.fn()
+      showContextMenu(mockWindow, {
+        name: 'test.md',
+        path: '/Users/test/documents/test.md',
+        isDirectory: false
+      }, '/Users/test/documents', { openMarkdownInNewWindow })
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      const item = template.find((entry: any) => entry.label === '🗔 在新窗口中打开')
+      expect(item).toBeDefined()
+      item.click()
+      await Promise.resolve()
+      expect(openMarkdownInNewWindow).toHaveBeenCalledWith('/Users/test/documents/test.md')
+      expect(mockWebContents.send).not.toHaveBeenCalledWith('open-specific-file', expect.anything())
+    })
+
+    it('目录和非 Markdown 文件不显示“在新窗口中打开”', () => {
+      const openMarkdownInNewWindow = vi.fn()
+      showContextMenu(mockWindow, {
+        name: 'subfolder', path: '/Users/test/documents/subfolder', isDirectory: true
+      }, '/Users/test/documents', { openMarkdownInNewWindow })
+      let template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(template.some((entry: any) => entry.label === '🗔 在新窗口中打开')).toBe(false)
+
+      vi.mocked(Menu.buildFromTemplate).mockClear()
+      showContextMenu(mockWindow, {
+        name: 'drawing.excalidraw', path: '/Users/test/documents/drawing.excalidraw', isDirectory: false
+      }, '/Users/test/documents', { openMarkdownInNewWindow })
+      template = (Menu.buildFromTemplate as any).mock.calls[0][0]
+      expect(template.some((entry: any) => entry.label === '🗔 在新窗口中打开')).toBe(false)
     })
 
     it('应该为文件夹生成正确的菜单项（包含粘贴）', () => {

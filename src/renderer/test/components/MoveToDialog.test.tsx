@@ -1,7 +1,8 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import { MoveToDialog } from '../../src/components/MoveToDialog'
+import { useWorkspaceStore } from '../../src/stores/workspaceStore'
 
 describe('MoveToDialog', () => {
   const history = [
@@ -10,6 +11,11 @@ describe('MoveToDialog', () => {
   ]
 
   beforeEach(() => {
+    useWorkspaceStore.setState({
+      workspaces: [{ id: 'workspace-a', name: '测试工作区', primaryRoot: '/src', lifecycleEpoch: 1 }],
+      activeWorkspaceId: 'workspace-a',
+      runtimes: {},
+    })
     window.api = {
       getFolderHistory: vi.fn().mockResolvedValue(history),
       listChildDirs: vi.fn().mockResolvedValue([
@@ -22,6 +28,7 @@ describe('MoveToDialog', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -50,7 +57,7 @@ describe('MoveToDialog', () => {
     // 默认目标 = 根本身
     await act(async () => { fireEvent.click(screen.getByText('移动')) })
 
-    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', '')
+    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', '', { workspaceId: 'workspace-a', lifecycleEpoch: 1 })
     expect(onSuccess).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })
@@ -63,7 +70,7 @@ describe('MoveToDialog', () => {
     await act(async () => { fireEvent.click(sub1) })
     await act(async () => { fireEvent.click(screen.getByText('移动')) })
 
-    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', 'sub1')
+    expect(window.api.moveFileToFolder).toHaveBeenCalledWith('/src/note.md', 'h1', 'sub1', { workspaceId: 'workspace-a', lifecycleEpoch: 1 })
   })
 
   it('源已在目标目录（同目录）→ 该根禁选', async () => {
@@ -94,6 +101,58 @@ describe('MoveToDialog', () => {
     await act(async () => { fireEvent.click(screen.getByText('移动')) })
 
     expect(window.api.moveFileToFolder).not.toHaveBeenCalled()
+  })
+
+  it('按目录名称即时过滤最近打开的目录', async () => {
+    render(<MoveToDialog isOpen sources={['/src/note.md']} onClose={vi.fn()} />)
+    expect(await screen.findByText('alpha')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('搜索移动目标目录'), { target: { value: 'beta' } })
+
+    expect(screen.queryByText('alpha')).toBeNull()
+    expect(screen.getByText('beta')).toBeTruthy()
+    expect(screen.getByText('最近打开的目录 · 1/2')).toBeTruthy()
+  })
+
+  it('按完整路径过滤最近打开的目录，不搜索子目录', async () => {
+    render(<MoveToDialog isOpen sources={['/src/note.md']} onClose={vi.fn()} />)
+    await screen.findByText('alpha')
+
+    const input = screen.getByLabelText('搜索移动目标目录')
+    fireEvent.change(input, { target: { value: '/roots/alpha' } })
+    expect(screen.getByText('alpha')).toBeTruthy()
+    expect(screen.queryByText('beta')).toBeNull()
+
+    fireEvent.change(input, { target: { value: 'sub1' } })
+    expect(screen.queryByText('alpha')).toBeNull()
+    expect(screen.queryByText('sub1')).toBeNull()
+    expect(screen.getByText('未找到匹配的最近打开目录')).toBeTruthy()
+  })
+
+  it('选择过滤结果后保留搜索条件和过滤列表', async () => {
+    render(<MoveToDialog isOpen sources={['/src/note.md']} onClose={vi.fn()} />)
+    await screen.findByText('alpha')
+
+    const input = screen.getByLabelText('搜索移动目标目录')
+    fireEvent.change(input, { target: { value: 'beta' } })
+    await act(async () => { fireEvent.click(screen.getByText('beta')) })
+
+    expect(input.value).toBe('beta')
+    expect(screen.queryByText('alpha')).toBeNull()
+    expect(screen.getByText('beta')).toBeTruthy()
+    expect(await screen.findByText('sub1')).toBeTruthy()
+  })
+
+  it('清空过滤后恢复全部最近打开目录', async () => {
+    render(<MoveToDialog isOpen sources={['/src/note.md']} onClose={vi.fn()} />)
+    await screen.findByText('alpha')
+
+    fireEvent.change(screen.getByLabelText('搜索移动目标目录'), { target: { value: 'beta' } })
+    expect(screen.queryByText('alpha')).toBeNull()
+    fireEvent.click(screen.getByLabelText('清空目录搜索'))
+
+    expect(screen.getByText('alpha')).toBeTruthy()
+    expect(screen.getByText('beta')).toBeTruthy()
   })
 
   it('isOpen=false 不渲染', () => {

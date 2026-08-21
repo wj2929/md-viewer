@@ -61,7 +61,7 @@ describe('RecentFilesDropdown', () => {
   it('按文件名或路径搜索最近文件并显示匹配结果', async () => {
     render(<RecentFilesDropdown onSelectFile={onSelectFile} />)
 
-    await userEvent.click(screen.getByTitle('最近打开的文件'))
+    await userEvent.click(screen.getByRole('button', { name: '最近打开的文件' }))
 
     await waitFor(() => {
       expect(screen.getByText('cli.md')).toBeInTheDocument()
@@ -79,7 +79,7 @@ describe('RecentFilesDropdown', () => {
   it('没有匹配结果时显示空状态，并支持清空历史', async () => {
     render(<RecentFilesDropdown onSelectFile={onSelectFile} />)
 
-    await userEvent.click(screen.getByTitle('最近打开的文件'))
+    await userEvent.click(screen.getByRole('button', { name: '最近打开的文件' }))
     await waitFor(() => expect(screen.getByText('cli.md')).toBeInTheDocument())
 
     await userEvent.type(screen.getByPlaceholderText('搜索最近文件...'), 'not-found')

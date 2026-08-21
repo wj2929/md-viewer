@@ -30,7 +30,8 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
   { accelerator: 'CommandOrControl+,', action: 'settings', description: '打开设置' },
   { accelerator: 'CommandOrControl+N', action: 'new-window', description: '新建窗口' },
   { accelerator: 'CommandOrControl+Shift+O', action: 'new-window-folder', description: '新窗口打开文件夹' },
-  { accelerator: 'CommandOrControl+Shift+W', action: 'close-window', description: '关闭窗口' }
+  { accelerator: 'CommandOrControl+Shift+W', action: 'close-window', description: '关闭窗口' },
+  { accelerator: 'CommandOrControl+Shift+Space', action: 'toggle-read-aloud', description: '朗读播放/暂停' }
 ]
 
 function isImeInput(input: Electron.Input): boolean {
@@ -171,6 +172,13 @@ export function registerWindowShortcuts(window: BrowserWindow): void {
     if (cmdOrCtrl && input.key.toLowerCase() === 'p' && !input.shift && !input.alt) {
       event.preventDefault()
       webContents.send('shortcut:print')
+      return
+    }
+
+    // v2.7.0: Cmd/Ctrl + Shift + Space: 朗读播放/暂停
+    if (cmdOrCtrl && input.shift && input.key === ' ' && !input.alt) {
+      event.preventDefault()
+      webContents.send('shortcut:toggle-read-aloud')
       return
     }
 

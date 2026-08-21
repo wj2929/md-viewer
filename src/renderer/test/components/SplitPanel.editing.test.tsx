@@ -14,6 +14,12 @@ vi.mock('../../src/components/FloatingNav', () => ({
   default: () => null,
 }))
 
+vi.mock('../../src/components/ReadAloudBar', () => ({
+  default: ({ filePath }: { filePath: string }) => (
+    <div data-testid="read-aloud-bar">{filePath}</div>
+  ),
+}))
+
 const tabs: Tab[] = [
   { id: 'tab-a', file: { name: 'a.md', path: '/docs/a.md', isDirectory: false }, content: '# A' },
   { id: 'tab-b', file: { name: 'b.md', path: '/docs/b.md', isDirectory: false }, content: '# B' },
@@ -41,6 +47,41 @@ describe('SplitPanel lightweight editing', () => {
   beforeEach(() => {
     useEditSessionStore.getState().reset()
     useQuickEditPlacementStore.getState().reset()
+  })
+
+  it('renders one read aloud controller for the active leaf only', () => {
+    const view = render(
+      <SplitPanel
+        node={root}
+        tabs={tabs}
+        activeLeafId="leaf-a"
+        onSplitPanel={vi.fn()}
+        onClosePanel={vi.fn()}
+        onResizePanel={vi.fn()}
+        onSetActiveLeaf={vi.fn()}
+        onImageClick={vi.fn()}
+        onDropTab={vi.fn()}
+      />
+    )
+
+    expect(screen.getAllByTestId('read-aloud-bar')).toHaveLength(1)
+    expect(screen.getByTestId('read-aloud-bar')).toHaveTextContent('/docs/a.md')
+
+    view.rerender(
+      <SplitPanel
+        node={root}
+        tabs={tabs}
+        activeLeafId="leaf-b"
+        onSplitPanel={vi.fn()}
+        onClosePanel={vi.fn()}
+        onResizePanel={vi.fn()}
+        onSetActiveLeaf={vi.fn()}
+        onImageClick={vi.fn()}
+        onDropTab={vi.fn()}
+      />
+    )
+    expect(screen.getAllByTestId('read-aloud-bar')).toHaveLength(1)
+    expect(screen.getByTestId('read-aloud-bar')).toHaveTextContent('/docs/b.md')
   })
 
   it('does not show a header quick edit button', () => {

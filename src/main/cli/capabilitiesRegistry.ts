@@ -35,13 +35,14 @@ export const P0_COMMANDS: CliCapability[] = [
   },
   {
     name: 'export',
-    description: '后台导出 HTML、PDF 或 DOCX。',
+    description: '后台导出 HTML、PDF 或 DOCX;支持多文件合并。',
     stability: 'stable',
     schema: 'schema export --json',
     requires: ['headless-renderer'],
     examples: [
       'md-viewer export README.md --format pdf --out README.pdf',
       'md-viewer export README.md --format docx --out README.docx',
+      'md-viewer export ch1.md ch2.md ch3.md --format pdf --out book.pdf',
     ],
   },
   {

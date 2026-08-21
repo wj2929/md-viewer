@@ -668,6 +668,7 @@ test.describe('导出功能测试', () => {
     const htmlPath = join(testDir, 'test-excalidraw.html')
     await mockSaveDialog(electronApp, htmlPath)
     await triggerMarkdownExport(electronApp, 'markdown:export-html')
+    await continuePreflightIfShown(page)
     await waitForFile(htmlPath, 120000)
 
     const htmlContent = readFileSync(htmlPath, 'utf-8')
@@ -679,6 +680,7 @@ test.describe('导出功能测试', () => {
     const pdfPath = join(testDir, 'test-excalidraw.pdf')
     await mockSaveDialog(electronApp, pdfPath)
     await triggerMarkdownExport(electronApp, 'markdown:export-pdf')
+    await continuePreflightIfShown(page)
     await waitForFile(pdfPath, 120000)
 
     const pdfText = execFileSync('pdftotext', ['-f', '1', '-l', '3', pdfPath, '-'], {

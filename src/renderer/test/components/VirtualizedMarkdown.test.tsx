@@ -50,6 +50,7 @@ beforeEach(() => {
   global.window.api = {
     ...global.window.api,
     readFile: vi.fn(),
+    issueLocalImageUrl: vi.fn().mockResolvedValue('local-image://asset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
     readExcalidrawFile: undefined,
     openExternal: vi.fn().mockResolvedValue({ success: true }),
     openMdLink: vi.fn().mockResolvedValue({ success: true }),
@@ -357,7 +358,7 @@ describe('VirtualizedMarkdown', () => {
       expect(global.window.api.readExcalidrawFile).toHaveBeenCalledTimes(24)
     })
 
-    it('把普通本地图片引用转换为编码后的 local-image 绝对路径', async () => {
+    it('把普通本地图片引用转换为主进程签发的 opaque URL', async () => {
       render(
         <VirtualizedMarkdown
           content={'![欢迎图](<./images/user manual/欢迎页.png>)'}
@@ -369,8 +370,35 @@ describe('VirtualizedMarkdown', () => {
       await waitFor(() => {
         const img = document.querySelector('img[alt="欢迎图"]')
         expect(img).toBeTruthy()
-        expect(img?.getAttribute('src')).toBe('local-image:///Users/mac/Documents/test/testmd/md-viewer/docs/images/user%20manual/%E6%AC%A2%E8%BF%8E%E9%A1%B5.png')
+        expect(img?.getAttribute('src')).toBe('local-image://asset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
       })
+    })
+
+    it('向主进程申请本地图片 capability 而不暴露绝对路径', async () => {
+      const issueLocalImageUrl = vi.fn().mockResolvedValue('local-image://asset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+      global.window.api.issueLocalImageUrl = issueLocalImageUrl
+      render(
+        <VirtualizedMarkdown
+          content={'![欢迎图](<./images/user manual/欢迎页.png>)'}
+          filePath="/Users/mac/Documents/test/testmd/md-viewer/docs/user-manual.md"
+          renderDebounceMs={0}
+        />
+      )
+
+      await waitFor(() => {
+        expect(issueLocalImageUrl).toHaveBeenCalledWith(
+          '/Users/mac/Documents/test/testmd/md-viewer/docs/user-manual.md',
+          './images/user manual/欢迎页.png'
+        )
+        expect(document.querySelector('img[alt="欢迎图"]')?.getAttribute('src')).toBe(
+          'local-image://asset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        )
+      })
+    })
+
+    it('拒绝 Markdown 手写的 local-image URL', async () => {
+      render(<VirtualizedMarkdown content={'![图](local-image://asset/forged)'} filePath="/docs/a.md" renderDebounceMs={0} />)
+      await waitFor(() => expect(document.querySelector('img[alt="图"]')?.getAttribute('src')).toBeNull())
     })
 
     it('切换文件路径后仍应按新 Markdown 所在目录解析本地图片', async () => {
@@ -383,7 +411,7 @@ describe('VirtualizedMarkdown', () => {
       )
 
       await waitFor(() => {
-        expect(document.querySelector('img[alt="图"]')?.getAttribute('src')).toBe('local-image:///docs/old/images/a.png')
+        expect(global.window.api.issueLocalImageUrl).toHaveBeenCalledWith('/docs/old/source.md', './images/a.png')
       })
 
       rerender(
@@ -395,7 +423,7 @@ describe('VirtualizedMarkdown', () => {
       )
 
       await waitFor(() => {
-        expect(document.querySelector('img[alt="图"]')?.getAttribute('src')).toBe('local-image:///docs/new/images/a.png')
+        expect(global.window.api.issueLocalImageUrl).toHaveBeenLastCalledWith('/docs/new/source.md', './images/a.png')
       })
     })
   })

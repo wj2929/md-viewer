@@ -1,6 +1,6 @@
 {
   "name": "md-viewer",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "A simple and powerful Markdown preview tool with Mermaid diagrams and file watching",
   "main": "./out/main/index.js",
   "scripts": {
@@ -241,6 +241,7 @@
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
     "mermaid": "^11.12.2",
+    "msedge-tts": "2.0.7",
     "plantuml-encoder": "^1.4.0",
     "prismjs": "^1.30.0",
     "react-hot-toast": "^2.6.0",

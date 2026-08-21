@@ -4,6 +4,17 @@ interface ApplicationMenuHandlers {
   openSettings: () => void | Promise<void>
 }
 
+function buildWindowMenu(): MenuItemConstructorOptions {
+  return {
+    label: '窗口',
+    submenu: [
+      { role: 'minimize' },
+      { role: 'zoom' },
+      { role: 'close' },
+    ],
+  }
+}
+
 export function createMacApplicationMenuTemplate(handlers: ApplicationMenuHandlers): MenuItemConstructorOptions[] {
   return [
     {
@@ -30,19 +41,32 @@ export function createMacApplicationMenuTemplate(handlers: ApplicationMenuHandle
     },
     { role: 'editMenu' },
     { role: 'viewMenu' },
-    { role: 'windowMenu' },
+    {
+      role: 'windowMenu',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' },
+      ],
+    },
     { role: 'help', submenu: [] },
   ]
 }
 
 export function installApplicationMenu(): void {
-  if (process.platform !== 'darwin') return
-
-  const template = createMacApplicationMenuTemplate({
+  const handlers: ApplicationMenuHandlers = {
     openSettings: () => {
       BrowserWindow.getFocusedWindow()?.webContents.send('shortcut:settings')
     },
-  })
+  }
+
+  const template: MenuItemConstructorOptions[] = process.platform === 'darwin'
+    ? createMacApplicationMenuTemplate(handlers)
+    : [
+        { label: app?.name || 'MD Viewer', submenu: [{ role: 'quit' }] },
+        { role: 'editMenu' },
+        buildWindowMenu(),
+      ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

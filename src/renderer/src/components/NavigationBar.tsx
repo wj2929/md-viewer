@@ -33,6 +33,10 @@ interface NavigationBarProps {
   onThemeChange: (theme: 'light' | 'dark' | 'auto') => void
   onRefreshFiles: () => void
   isLoading: boolean
+  sidebarCollapsed: boolean
+  onToggleSidebar: () => void
+  bookmarkPanelCollapsed: boolean
+  onToggleBookmarkPanel: () => void
   lastExportedFilePath?: string
   lastExportedTime?: string
   onOpenLastExport?: () => void
@@ -55,6 +59,10 @@ export function NavigationBar({
   onThemeChange,
   onRefreshFiles,
   isLoading,
+  sidebarCollapsed,
+  onToggleSidebar,
+  bookmarkPanelCollapsed,
+  onToggleBookmarkPanel,
   lastExportedFilePath,
   lastExportedTime,
   onOpenLastExport,
@@ -70,6 +78,19 @@ export function NavigationBar({
         <span className="nav-logo-text">MD Viewer</span>
       </div>
 
+      <button
+        className={`nav-panel-toggle left nav-instant-tooltip ${sidebarCollapsed ? '' : 'active'}`}
+        onClick={onToggleSidebar}
+        data-tooltip={sidebarCollapsed ? '显示文件树' : '隐藏文件树'}
+        aria-label={sidebarCollapsed ? '显示文件树' : '隐藏文件树'}
+        aria-pressed={!sidebarCollapsed}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <path d="M9 3v18" />
+        </svg>
+      </button>
+
       {/* 当前文件夹路径 + 快捷操作 */}
       {folderPath && (
         <div className="nav-folder-section">
@@ -77,9 +98,10 @@ export function NavigationBar({
             📂 {folderPath.split(/[/\\]/).pop()}
           </span>
           <button
-            className="nav-refresh-btn"
+            className="nav-refresh-btn nav-instant-tooltip"
             onClick={onRefreshFiles}
-            title="刷新文件列表"
+            data-tooltip="刷新文件列表"
+            aria-label="刷新文件列表"
             disabled={isLoading}
           >
             🔄
@@ -106,6 +128,17 @@ export function NavigationBar({
 
       {/* 右侧操作区 */}
       <div className="nav-actions">
+        <button
+          className={`nav-panel-toggle right nav-instant-tooltip ${bookmarkPanelCollapsed ? '' : 'active'}`}
+          onClick={onToggleBookmarkPanel}
+          data-tooltip={bookmarkPanelCollapsed ? '显示书签面板' : '隐藏书签面板'}
+          aria-label={bookmarkPanelCollapsed ? '显示书签面板' : '隐藏书签面板'}
+          aria-pressed={!bookmarkPanelCollapsed}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4z" />
+          </svg>
+        </button>
         {lastExportedFilePath && onOpenLastExport && (
           <button
             className="nav-last-export-btn"
@@ -116,18 +149,19 @@ export function NavigationBar({
         )}
         {/* v1.4.2：窗口置顶按钮 */}
         <button
-          className={`nav-always-on-top-btn ${isAlwaysOnTop ? 'active' : ''}`}
+          className={`nav-always-on-top-btn nav-instant-tooltip ${isAlwaysOnTop ? 'active' : ''}`}
           onClick={onToggleAlwaysOnTop}
-          title={isAlwaysOnTop ? `取消置顶 (${window.api?.platform === 'darwin' ? '⌘⌥T' : 'Ctrl+Alt+T'})` : `窗口置顶 (${window.api?.platform === 'darwin' ? '⌘⌥T' : 'Ctrl+Alt+T'})`}
+          data-tooltip={isAlwaysOnTop ? `取消置顶 (${window.api?.platform === 'darwin' ? '⌘⌥T' : 'Ctrl+Alt+T'})` : `窗口置顶 (${window.api?.platform === 'darwin' ? '⌘⌥T' : 'Ctrl+Alt+T'})`}
           aria-pressed={isAlwaysOnTop}
-          aria-label="窗口置顶"
+          aria-label={isAlwaysOnTop ? '取消窗口置顶' : '窗口置顶'}
         >
           {isAlwaysOnTop ? '📌' : '📍'}
         </button>
         <button
-          className="nav-settings-btn"
+          className="nav-settings-btn nav-instant-tooltip"
           onClick={onSettingsClick}
-          title="设置"
+          data-tooltip="设置"
+          aria-label="设置"
         >
           ⚙️
         </button>

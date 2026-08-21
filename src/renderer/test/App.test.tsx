@@ -10,8 +10,16 @@ import { useLayoutStore } from '../src/stores/layoutStore'
 import { useEditSessionStore } from '../src/stores/editSessionStore'
 import { useQuickEditPlacementStore } from '../src/stores/quickEditPlacementStore'
 import { useDocumentViewModeStore } from '../src/stores/documentViewModeStore'
+import { useWorkspaceStore } from '../src/stores/workspaceStore'
 
 // Mock window.api
+const folderActivation = (path: string) => ({
+  id: `history:${path}`,
+  path,
+  name: path.split('/').filter(Boolean).pop() || 'folder',
+  workspace: { id: 'test-workspace', primaryRoot: path, lifecycleEpoch: 1 },
+})
+
 const mockApi = {
   openFolder: vi.fn(),
   readDir: vi.fn(),
@@ -106,6 +114,11 @@ const mockApi = {
   updateBookmarkOrder: vi.fn().mockResolvedValue(undefined),
   // v1.3.6：快捷键 - 添加书签
   onShortcutAddBookmark: vi.fn(() => vi.fn()),
+  onShortcutToggleReadAloud: vi.fn(() => vi.fn()),
+  onReadAloudFromLine: vi.fn(() => vi.fn()),
+  ttsListVoices: vi.fn().mockResolvedValue([
+    { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓（女）', lang: 'zh-CN' }
+  ]),
   // v1.3.6：最近文件
   getRecentFiles: vi.fn().mockResolvedValue([]),
   addRecentFile: vi.fn().mockResolvedValue(undefined),
@@ -117,7 +130,9 @@ const mockApi = {
     autoSave: false,
     bookmarkPanelWidth: 240,
     bookmarkPanelCollapsed: true,
-    bookmarkBarCollapsed: true
+    bookmarkBarCollapsed: true,
+    sidebarWidth: 280,
+    sidebarCollapsed: false
   }),
   updateAppSettings: vi.fn().mockResolvedValue(undefined),
   // v1.3.6：固定标签
@@ -215,10 +230,11 @@ describe('App 集成测试', () => {
     useFileStore.setState({ folderPath: null, files: [], isLoading: false, selectedPaths: new Set() })
     useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
     useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
-    useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
+    useLayoutStore.setState({ sidebarWidth: 280, sidebarCollapsed: false, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
     useEditSessionStore.getState().reset()
     useQuickEditPlacementStore.getState().reset()
     useDocumentViewModeStore.getState().reset()
+    useWorkspaceStore.setState({ workspaces: [], activeWorkspaceId: null, runtimes: {} })
     vi.stubGlobal('confirm', vi.fn(() => false))
     mockApi.onQuickEditFromPreview.mockImplementation(() => vi.fn())
     mockApi.openEditableMarkdown.mockResolvedValue({
@@ -247,6 +263,43 @@ describe('App 集成测试', () => {
       expect(screen.getByRole('button', { name: '打开文件夹' })).toBeInTheDocument()
     })
 
+    it('可以收起并恢复文件树侧栏且保留展开宽度', async () => {
+      mockApi.getAppSettings.mockResolvedValue({
+        imageDir: '', autoSave: false, bookmarkPanelWidth: 240,
+        bookmarkPanelCollapsed: true, bookmarkBarCollapsed: true,
+        sidebarWidth: 360, sidebarCollapsed: false
+      })
+      mockApi.readDir.mockResolvedValue([])
+      useFileStore.setState({
+        folderPath: '/test/folder',
+        files: [],
+        isLoading: false,
+        selectedPaths: new Set()
+      })
+      const { container } = render(<App />)
+
+      const collapseButton = await screen.findByRole('button', { name: '隐藏文件树' })
+      await waitFor(() => expect(useLayoutStore.getState().sidebarWidth).toBe(360))
+      let sidebar = document.querySelector('.sidebar') as HTMLElement
+      expect(collapseButton).toHaveAttribute('aria-pressed', 'true')
+      expect(sidebar.style.width).toBe('360px')
+      expect(document.querySelector('#file-tree-panel')).toBeInTheDocument()
+      expect(document.querySelector('.resize-handle')).toBeInTheDocument()
+
+      fireEvent.click(collapseButton)
+      expect(screen.getByRole('button', { name: '显示文件树' })).toHaveAttribute('aria-pressed', 'false')
+      expect(document.querySelector('.sidebar')).not.toBeInTheDocument()
+      expect(document.querySelector('#file-tree-panel')).not.toBeInTheDocument()
+      expect(document.querySelector('.resize-handle')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: '显示文件树' }))
+      sidebar = document.querySelector('.sidebar') as HTMLElement
+      expect(sidebar).toBeInTheDocument()
+      expect(sidebar.style.width).toBe('360px')
+      expect(mockApi.updateAppSettings).toHaveBeenCalledWith({ sidebarCollapsed: true })
+      expect(mockApi.updateAppSettings).toHaveBeenCalledWith({ sidebarCollapsed: false })
+    })
+
     it('应该显示应用标题', () => {
       render(<App />)
       // v1.3.6：欢迎页面时没有 NavigationBar，应该显示欢迎文本
@@ -261,7 +314,7 @@ describe('App 集成测试', () => {
     it('应该显示主题切换按钮', async () => {
       // v1.3.6：主题切换按钮只在打开文件夹后的 NavigationBar 中显示
       // 初始状态下（欢迎页面）没有主题切换按钮
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
 
       render(<App />)
@@ -287,7 +340,7 @@ describe('App 集成测试', () => {
 
   describe('文件夹操作', () => {
     it('点击"打开文件夹"应该调用 openFolder API', async () => {
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
 
       render(<App />)
@@ -306,7 +359,7 @@ describe('App 集成测试', () => {
         { name: 'test2.md', path: '/test/folder/test2.md', isDirectory: false }
       ]
 
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue(mockFiles)
 
       render(<App />)
@@ -333,7 +386,7 @@ describe('App 集成测试', () => {
         scrollToRatio: undefined,
         highlightKeyword: undefined
       })
-      mockApi.openFolder.mockResolvedValue('/new/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/new/folder'))
       mockApi.readDir.mockResolvedValue([
         { name: 'new.md', path: '/new/folder/new.md', isDirectory: false }
       ])
@@ -369,7 +422,7 @@ describe('App 集成测试', () => {
     })
 
     it('打开文件夹后应该显示文件夹名称', async () => {
-      mockApi.openFolder.mockResolvedValue('/test/my-folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/my-folder'))
       mockApi.readDir.mockResolvedValue([
         { name: 'test.md', path: '/test/my-folder/test.md', isDirectory: false }
       ])
@@ -407,7 +460,7 @@ describe('App 集成测试', () => {
   describe('已打开文件刷新', () => {
     it('再次选择已打开文件时应该重新读取磁盘最新内容', async () => {
       const file = { name: 'test-excalidraw.md', path: '/test/folder/test-excalidraw.md', isDirectory: false }
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([file])
       mockApi.readFile
         .mockResolvedValueOnce('# 旧内容')
@@ -437,7 +490,7 @@ describe('App 集成测试', () => {
     it('快速编辑此处应该进入对照预览编辑工作区', async () => {
       let quickEditHandler: ((target: any) => void) | undefined
       const file = { name: 'report.md', path: '/test/folder/report.md', isDirectory: false }
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([file])
       mockApi.readFile.mockResolvedValue('# Report')
       mockApi.onQuickEditFromPreview.mockImplementation((handler) => {
@@ -464,7 +517,7 @@ describe('App 集成测试', () => {
       })
 
       await waitFor(() => {
-        expect(mockApi.openEditableMarkdown).toHaveBeenCalledWith('/test/folder/report.md')
+        expect(mockApi.openEditableMarkdown).toHaveBeenCalledWith('/test/folder/report.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
         expect(screen.getByLabelText('report.md 编辑工作区')).toBeInTheDocument()
       })
     })
@@ -472,7 +525,7 @@ describe('App 集成测试', () => {
 
   describe('文件监听功能 (v1.1)', () => {
     it('打开文件夹后应该启动文件监听', async () => {
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
       mockApi.watchFolder.mockResolvedValue(undefined)
 
@@ -486,12 +539,12 @@ describe('App 集成测试', () => {
       })
 
       await waitFor(() => {
-        expect(mockApi.watchFolder).toHaveBeenCalledWith('/test/folder')
+        expect(mockApi.watchFolder).toHaveBeenCalledWith('/test/folder', 'test-workspace', 1)
       }, { timeout: 3000 })
     })
 
     it('应该注册文件变化监听器', async () => {
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
       mockApi.watchFolder.mockResolvedValue({ success: true })
 
@@ -508,9 +561,9 @@ describe('App 集成测试', () => {
     })
 
     it('已打开 Markdown 文件收到外部修改事件后应该自动读取磁盘最新内容', async () => {
-      let fileChangedHandler: ((path: string) => Promise<void>) | undefined
+      let fileChangedHandler: ((event: string) => Promise<void>) | undefined
       const file = { name: 'live.md', path: '/test/folder/live.md', isDirectory: false }
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([file])
       mockApi.watchFolder.mockResolvedValue({ success: true })
       mockApi.onFileChanged.mockImplementation((handler) => {
@@ -532,7 +585,7 @@ describe('App 集成测试', () => {
       })
 
       await act(async () => {
-        await fileChangedHandler?.('/test/folder/live.md')
+        await fileChangedHandler?.({ workspaceId: 'test-workspace', lifecycleEpoch: 1, path: '/test/folder/live.md' })
       })
 
       await waitFor(() => {
@@ -543,7 +596,7 @@ describe('App 集成测试', () => {
 
     it('文件监听失败时应该记录错误', async () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
       mockApi.watchFolder.mockRejectedValue(new Error('监听失败'))
 
@@ -562,7 +615,7 @@ describe('App 集成测试', () => {
 
   describe('右键菜单事件 (v1.2)', () => {
     it('应该注册右键菜单事件监听器', async () => {
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
 
       render(<App />)
@@ -579,7 +632,7 @@ describe('App 集成测试', () => {
     })
 
     it('应该注册剪贴板事件监听器', async () => {
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
 
       render(<App />)
@@ -616,7 +669,7 @@ describe('App 集成测试', () => {
         capturedCallback = cb
         return vi.fn()
       })
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
 
       render(<App />)
@@ -637,7 +690,7 @@ describe('App 集成测试', () => {
         capturedCallback = cb
         return vi.fn()
       })
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
 
       render(<App />)
@@ -666,7 +719,7 @@ describe('App 集成测试', () => {
   describe('主题切换 (v1.2)', () => {
     it('应该能切换主题', async () => {
       // v1.3.6：主题切换按钮只在打开文件夹后显示
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([])
 
       render(<App />)
@@ -696,7 +749,7 @@ describe('App 集成测试', () => {
 
   describe('刷新功能', () => {
     it('点击刷新按钮应该重新加载文件列表', async () => {
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockResolvedValue([
         { name: 'test.md', path: '/test/folder/test.md', isDirectory: false }
       ])
@@ -731,7 +784,7 @@ describe('App 集成测试', () => {
   describe('错误处理', () => {
     it('加载文件列表失败时应该显示空列表', async () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-      mockApi.openFolder.mockResolvedValue('/test/folder')
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
       mockApi.readDir.mockRejectedValue(new Error('读取失败'))
 
       render(<App />)
@@ -754,7 +807,7 @@ describe('App 集成测试', () => {
     })
 
     it('恢复文件夹回调应该正确设置状态', async () => {
-      let capturedCallback: (folderPath: string) => void = () => {}
+      let capturedCallback: (activation: ReturnType<typeof folderActivation>) => void = () => {}
       mockApi.onRestoreFolder.mockImplementation((cb) => {
         capturedCallback = cb
         return vi.fn()
@@ -765,7 +818,7 @@ describe('App 集成测试', () => {
 
       // 模拟恢复文件夹
       act(() => {
-        capturedCallback('/restored/folder')
+        capturedCallback(folderActivation('/restored/folder'))
       })
 
       await waitFor(() => {
@@ -798,6 +851,11 @@ describe('App 集成测试', () => {
 
   describe('快速编辑', () => {
     beforeEach(() => {
+      useWorkspaceStore.setState({
+        workspaces: [{ id: 'test-workspace', name: '测试工作区', primaryRoot: '/test/folder', lifecycleEpoch: 1 }],
+        activeWorkspaceId: 'test-workspace',
+        runtimes: {},
+      })
       useFileStore.setState({
         folderPath: '/test/folder',
         files: [{ name: 'report.md', path: '/test/folder/report.md', isDirectory: false }],
@@ -837,7 +895,7 @@ describe('App 集成测试', () => {
       })
 
       await waitFor(() => {
-        expect(mockApi.openEditableMarkdown).toHaveBeenCalledWith('/test/folder/report.md')
+        expect(mockApi.openEditableMarkdown).toHaveBeenCalledWith('/test/folder/report.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
       })
       expect(await screen.findByLabelText('report.md 编辑工作区')).toBeInTheDocument()
       expect(await screen.findByLabelText('Markdown 源码编辑区')).toBeInTheDocument()
@@ -862,6 +920,7 @@ describe('App 集成测试', () => {
           canonicalPath: '/real/test/folder/report.md',
           content: '# Changed',
           expectedRevisionToken: '1000:8',
+          workspace: { workspaceId: 'test-workspace', lifecycleEpoch: 1 },
           force: false
         })
       })
@@ -1241,7 +1300,7 @@ describe('App 边界条件测试', () => {
     useFileStore.setState({ folderPath: null, files: [], isLoading: false, selectedPaths: new Set() })
     useTabStore.setState({ tabs: [], activeTabId: null, splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, highlightKeyword: undefined })
     useBookmarkStore.setState({ bookmarks: [], bookmarksLoading: true, bookmarkPanelCollapsed: true, bookmarkPanelWidth: 240, bookmarkBarCollapsed: true })
-    useLayoutStore.setState({ sidebarWidth: 280, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
+    useLayoutStore.setState({ sidebarWidth: 280, sidebarCollapsed: false, isResizing: false, showSettings: false, showShortcutsHelp: false, isFullscreen: false, isDragOver: false, lightbox: null })
     useEditSessionStore.getState().reset()
     vi.stubGlobal('confirm', vi.fn(() => false))
   })
@@ -1252,7 +1311,7 @@ describe('App 边界条件测试', () => {
   })
 
   it('应该处理空文件列表', async () => {
-    mockApi.openFolder.mockResolvedValue('/empty/folder')
+    mockApi.openFolder.mockResolvedValue(folderActivation('/empty/folder'))
     mockApi.readDir.mockResolvedValue([])
 
     render(<App />)
@@ -1292,7 +1351,7 @@ describe('App 边界条件测试', () => {
       }
     ]
 
-    mockApi.openFolder.mockResolvedValue('/test')
+    mockApi.openFolder.mockResolvedValue(folderActivation('/test'))
     mockApi.readDir.mockResolvedValue(nestedFiles)
 
     render(<App />)
@@ -1312,7 +1371,7 @@ describe('App 边界条件测试', () => {
       { name: 'file-with-dashes.md', path: '/test/file-with-dashes.md', isDirectory: false }
     ]
 
-    mockApi.openFolder.mockResolvedValue('/test')
+    mockApi.openFolder.mockResolvedValue(folderActivation('/test'))
     mockApi.readDir.mockResolvedValue(specialFiles)
 
     render(<App />)

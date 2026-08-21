@@ -2,12 +2,14 @@ import { BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, clipboard, sh
 import * as path from 'path'
 import { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
-import { validateSenderReadPath } from './senderSecurity'
+import { getSenderWorkspaceForOperation, validateSenderReadPath } from './senderSecurity'
+import type { WorkspaceOperationContext } from '../../shared/workspace'
 import { showContextMenu, dispatchFileClipboardAction } from '../contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
 import { showMarkdownContextMenu, MarkdownMenuContext } from '../markdownMenuHandler'
 import { appDataManager } from '../appDataManager'
 import { getLastDocxExportPath } from './exportHandlers'
+import { openMarkdownInNewWindow } from '../openMarkdownInNewWindow'
 import * as fs from 'fs'
 
 // 文件信息接口（与 fileHandlers 共享）
@@ -28,20 +30,34 @@ export function registerMenuHandlers(ctx: IPCContext): void {
 // ============== 右键菜单 Handlers ==============
 
 // 显示文件树右键菜单
-ipcMain.handle('context-menu:show', async (event, file: FileInfo, _basePath: string) => {
+ipcMain.handle('context-menu:show', async (
+  event,
+  file: FileInfo,
+  _basePath: string,
+  operation: WorkspaceOperationContext
+) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) {
     throw new Error('无法获取窗口实例')
   }
 
-  const basePath = ctx.windowManager.getWindowFolderPath(window.id)
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  const basePath = workspace.primaryRoot
   if (!basePath) {
-    throw new Error('当前窗口未绑定文件夹')
+    throw new Error('当前工作区未绑定文件夹')
   }
   await validateSecurePathInBase(file.path, basePath)
   await validateSecurePathInBase(basePath, basePath)
 
-  showContextMenu(window, file, basePath)
+  showContextMenu(window, file, basePath, {
+    openMarkdownInNewWindow: filePath => openMarkdownInNewWindow(ctx, filePath, basePath).then(() => undefined),
+    removeDocumentMarks: async (filePath, isDirectory) => {
+      if (ctx.appDataManager.removeDocumentMarks(basePath, filePath, isDirectory)) {
+        window.webContents.send('document-marks:changed')
+        ctx.windowManager.broadcastToOthers(window.id, 'document-marks:changed')
+      }
+    }
+  })
   return { success: true }
 })
 
@@ -265,6 +281,15 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     menuTemplate.push({
       label: quickEditMode === 'document' ? '✏️ 快速编辑' : '🎯 快速编辑此处',
       click: () => event.sender.send('markdown:quick-edit', quickEditTarget)
+    })
+
+    // v2.7.0: 从当前行朗读(传源码行号,渲染层映射到朗读句起点)
+    menuTemplate.push({
+      label: '🔊 从当前行播放',
+      click: () =>
+        event.sender.send('markdown:read-aloud-from-line', {
+          sourceLine: typeof sourceLine === 'number' ? sourceLine : null,
+        })
     })
 
     menuTemplate.push({ type: 'separator' })

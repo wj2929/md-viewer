@@ -16,6 +16,7 @@ interface DocumentViewModeState {
   setCompareRatio: (leafId: string, tabId: string, ratio: number) => void
   setTarget: (leafId: string, tabId: string, target: QuickEditTarget | null) => void
   resetView: (leafId: string, tabId: string) => void
+  replaceViews: (views: Record<string, DocumentViewState>) => void
   reset: () => void
 }
 
@@ -78,6 +79,8 @@ export const useDocumentViewModeStore = create<DocumentViewModeState>((set, get)
       return { views }
     })
   },
+
+  replaceViews: (views) => set({ views: { ...views } }),
 
   reset: () => set({ views: {} }),
 }))

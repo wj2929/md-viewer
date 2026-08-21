@@ -5,10 +5,17 @@ import * as os from 'os'
 import { createHash } from 'crypto'
 import chokidar from 'chokidar'
 import { IPCContext } from './context'
-import { validateSearchPath, validateNotProtected, validateSecurePathInBase } from '../security'
+import { validateNotProtected, validateSecurePathInBase } from '../security'
 import { isClipboardSourceAuthorized } from '../clipboardState'
 import { activateFolderForWindow } from '../folderActivation'
-import { getSenderFolderRoot, validateSenderPath, validateSenderReadPath } from './senderSecurity'
+import {
+  getSenderWorkspace,
+  getSenderWorkspaceForOperation,
+  validateSenderReadPath,
+  validateWorkspaceOperationPath,
+  validateWorkspaceWritePath,
+} from './senderSecurity'
+import type { WorkspaceOperationContext } from '../../shared/workspace'
 
 // 文件信息接口
 interface FileInfo {
@@ -37,35 +44,38 @@ const LOCAL_ASSET_MIME_TYPES = new Map<string, string>([
 const MAX_LOCAL_ASSET_SIZE = 10 * 1024 * 1024
 const DUPLICATE_SUFFIX_PATTERN = / - 副本(?: [1-9]\d*)?$/
 
-async function validateClipboardSourceOrCurrentRoot(
+async function validateClipboardSourceOrWorkspaceRoot(
   ctx: IPCContext,
   event: Electron.IpcMainInvokeEvent,
-  sourcePath: string
+  sourcePath: string,
+  operation: WorkspaceOperationContext
 ): Promise<string> {
-  const root = getSenderFolderRoot(ctx, event)
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
   try {
-    return await validateSecurePathInBase(sourcePath, root)
+    return await validateSecurePathInBase(sourcePath, workspace.primaryRoot)
   } catch {
     if (!isClipboardSourceAuthorized(event.sender.id, sourcePath)) {
-      throw new Error('安全错误：源路径不在当前文件夹且未被复制授权')
+      throw new Error('安全错误：源路径不在当前工作区且未被复制授权')
     }
-
     const sourceStats = await fs.lstat(sourcePath)
-    if (sourceStats.isSymbolicLink()) {
-      throw new Error('安全错误：不支持通过符号链接复制或移动')
-    }
+    if (sourceStats.isSymbolicLink()) throw new Error('安全错误：不支持通过符号链接复制或移动')
     const resolvedSource = await fs.realpath(sourcePath)
     validateNotProtected(resolvedSource)
     return resolvedSource
   }
 }
 
-async function validateDestinationInCurrentRoot(
-  ctx: IPCContext,
-  event: Electron.IpcMainInvokeEvent,
-  destinationPath: string
-): Promise<string> {
-  return validateSecurePathInBase(destinationPath, getSenderFolderRoot(ctx, event))
+async function broadcastDocumentMarksChanged(ctx: IPCContext, senderId?: number): Promise<void> {
+  const senderWindow = senderId === undefined ? null : BrowserWindow.fromId(senderId)
+  if (senderWindow) {
+    ctx.windowManager.broadcastToOthers(senderWindow.id, 'document-marks:changed')
+    senderWindow.webContents.send('document-marks:changed')
+    return
+  }
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('document-marks:changed')
+  }
 }
 
 function isSameOrChildPath(targetPath: string, parentPath: string): boolean {
@@ -137,27 +147,56 @@ async function duplicatePath(
 
 let watchedWebContentsId: number | null = null
 
-// 多目录监听：每个目录一个 watcher + 引用计数
-const dirWatchers = new Map<string, { watcher: ReturnType<typeof chokidar.watch>; refCount: number }>()
-// 窗口 → 监听的目录路径（用于 cleanup 时减引用计数）
-const windowWatchedDir = new Map<number, string>()
+/**
+ * 监听器不是广播总线。一个 BrowserWindow 可以有多个工作区，迟到的 A 事件
+ * 绝不能在 B 已激活后更新当前 renderer facade，因此订阅以 workspace + epoch 为单位。
+ */
+interface WorkspaceWatchContext {
+  workspaceId: string
+  lifecycleEpoch: number
+  strict: boolean
+}
 
-// 每个窗口独立的文件监听器
-interface WindowWatcherState {
+interface WorkspaceWatchEvent {
+  workspaceId: string
+  lifecycleEpoch: number
+  path?: string
+  oldPath?: string
+  newPath?: string
+}
+
+interface WatchSubscription extends WorkspaceWatchContext {
+  sender: Electron.WebContents
+}
+
+interface DirectoryWatcherState {
   watcher: ReturnType<typeof chokidar.watch>
-  dir: string
+  subscriptions: Map<string, WatchSubscription>
+  pendingUnlink: { path: string; timestamp: number } | null
+}
+
+interface WorkspaceFileWatcherState extends WatchSubscription {
+  watcher: ReturnType<typeof chokidar.watch>
   files: Set<string>
 }
-const windowFileWatchers = new Map<number, WindowWatcherState>()
+
+// 目录 watcher 可由不同窗口/工作区共享；事件只定向投递给其订阅者。
+const dirWatchers = new Map<string, DirectoryWatcherState>()
+// 每个 (webContents, workspace) 只能有一个活动目录订阅。
+const workspaceWatchedDirs = new Map<string, string>()
+// 超过目录 watcher 深度的已打开文件，按 (webContents, workspace) 单独监听。
+const workspaceFileWatchers = new Map<string, WorkspaceFileWatcherState>()
 
 // 每个窗口独立的可编辑文件授权集合。必须先通过 fs:openEditableMarkdown 授权，
 // 才允许后续 fs:saveEditableMarkdown 写入。
-const windowEditableFiles = new Map<number, Set<string>>()
+interface EditableFileGrant {
+  workspaceId: string
+  lifecycleEpoch: number
+}
 
-// 重命名检测
-let pendingUnlink: { path: string; timestamp: number } | null = null
+const windowEditableFiles = new Map<number, Map<string, EditableFileGrant>>()
+
 const RENAME_THRESHOLD_MS = 500
-const pendingFileUnlinkTimers = new Map<string, NodeJS.Timeout>()
 
 function hashContent(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16)
@@ -199,14 +238,6 @@ function revisionTokenMatches(expectedRevisionToken: string, diskRevisionToken: 
   const disk = parseRevisionToken(diskRevisionToken)
   if (!expected.hash && expected.mtimeMs === disk.mtimeMs && expected.size === disk.size) return true
   return Boolean(expected.hash && disk.hash && expected.hash === disk.hash)
-}
-
-async function getBestEffortCanonicalPath(filePath: string): Promise<string> {
-  try {
-    return await fs.realpath(filePath)
-  } catch {
-    return path.resolve(filePath)
-  }
 }
 
 // 配置常量
@@ -281,118 +312,206 @@ function isWatchPathSafe(targetPath: string): { safe: boolean; reason?: string }
   return { safe: true }
 }
 
-// 安全发送函数：广播给所有窗口（多窗口支持）
-function safeSendToRenderer(channel: string, data: unknown): void {
-  const allWindows = BrowserWindow.getAllWindows()
-  for (const win of allWindows) {
-    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
-      win.webContents.send(channel, data)
-    }
+function getWorkspaceWatcherKey(webContentsId: number, workspaceId: string): string {
+  return `${webContentsId}:${workspaceId}`
+}
+
+function toWorkspaceWatchEvent(
+  context: WorkspaceWatchContext,
+  patch: Omit<WorkspaceWatchEvent, keyof WorkspaceWatchContext>
+): WorkspaceWatchEvent {
+  return {
+    workspaceId: context.workspaceId,
+    lifecycleEpoch: context.lifecycleEpoch,
+    ...patch,
   }
 }
 
-// 监听目录（多窗口支持：引用计数 + 多目录并行）
-function watchDirectory(dirPath: string, sender: Electron.WebContents): void {
-  // 兼容旧逻辑
+function sendWorkspaceWatchEvent(
+  subscription: WatchSubscription,
+  channel: string,
+  patch: Omit<WorkspaceWatchEvent, keyof WorkspaceWatchContext>
+): void {
+  if (subscription.sender.isDestroyed()) return
+  subscription.sender.send(channel, toWorkspaceWatchEvent(subscription, patch))
+}
+
+function broadcastDirectoryEvent(
+  state: DirectoryWatcherState,
+  channel: string,
+  patch: Omit<WorkspaceWatchEvent, keyof WorkspaceWatchContext>
+): void {
+  for (const subscription of state.subscriptions.values()) {
+    sendWorkspaceWatchEvent(subscription, channel, patch)
+  }
+}
+
+function detachDirectorySubscription(key: string): void {
+  const dirPath = workspaceWatchedDirs.get(key)
+  if (!dirPath) return
+
+  workspaceWatchedDirs.delete(key)
+  const state = dirWatchers.get(dirPath)
+  if (!state) return
+  state.subscriptions.delete(key)
+  if (state.subscriptions.size > 0) return
+
+  console.log(`[WATCHER] Closing watcher for ${dirPath}`)
+  state.watcher.close()
+  dirWatchers.delete(dirPath)
+  if (fileWatcher === state.watcher) fileWatcher = null
+  if (watchedDir === dirPath) watchedDir = null
+}
+
+function closeWorkspaceFileWatcher(key: string): void {
+  const state = workspaceFileWatchers.get(key)
+  if (!state) return
+  console.log(`[WATCHER] Cleaning up opened-file watcher for ${key}`)
+  state.watcher.close()
+  workspaceFileWatchers.delete(key)
+}
+
+function cleanupWorkspaceWatchers(webContentsId: number, workspaceId?: string): void {
+  const keys = new Set<string>()
+  for (const key of workspaceWatchedDirs.keys()) {
+    if (key.startsWith(`${webContentsId}:`) && (!workspaceId || key === getWorkspaceWatcherKey(webContentsId, workspaceId))) {
+      keys.add(key)
+    }
+  }
+  for (const key of workspaceFileWatchers.keys()) {
+    if (key.startsWith(`${webContentsId}:`) && (!workspaceId || key === getWorkspaceWatcherKey(webContentsId, workspaceId))) {
+      keys.add(key)
+    }
+  }
+  for (const key of keys) {
+    detachDirectorySubscription(key)
+    closeWorkspaceFileWatcher(key)
+  }
+}
+
+// 监听活动工作区根目录。多个订阅可以复用同一个 chokidar watcher，但绝不广播给无关工作区。
+function watchDirectory(
+  ctx: IPCContext,
+  dirPath: string,
+  sender: Electron.WebContents,
+  context: WorkspaceWatchContext
+): void {
   watchedDir = dirPath
   watchedWebContentsId = sender.id
+  const key = getWorkspaceWatcherKey(sender.id, context.workspaceId)
+  const previousDir = workspaceWatchedDirs.get(key)
+  if (previousDir && previousDir !== dirPath) {
+    detachDirectorySubscription(key)
+    closeWorkspaceFileWatcher(key)
+  }
 
-  // 已有 watcher，增加引用计数
-  const existing = dirWatchers.get(dirPath)
+  let state = dirWatchers.get(dirPath)
+  if (!state) {
+    console.log(`[WATCHER] Watching directory: ${dirPath}`)
+    const watcher = chokidar.watch(dirPath, {
+      persistent: true,
+      ignoreInitial: true,
+      depth: WATCHER_CONFIG.MAX_DEPTH,
+      ignored: [
+        ...WATCHER_CONFIG.IGNORED_PATTERNS,
+        (filePath: string, stats?: fs.Stats) => {
+          if (hasIgnoredPathSegment(filePath)) return true
+          if (!stats) return false
+          if (stats.isDirectory()) return false
+          return !isPreviewableFilePath(filePath)
+        }
+      ],
+      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 }
+    })
+    state = { watcher, subscriptions: new Map(), pendingUnlink: null }
+    fileWatcher = watcher
+    dirWatchers.set(dirPath, state)
+
+    watcher.on('error', (error: unknown) => console.error('[WATCHER] Error:', error))
+    watcher.on('ready', () => {
+      const watched = watcher.getWatched() || {}
+      const fileCount = Object.values(watched).reduce((sum, entries) => sum + entries.length, 0)
+      console.log(`[WATCHER] Ready! Watching ${Object.keys(watched).length} directories, ${fileCount} files`)
+    })
+    watcher.on('change', (filePath: string) => {
+      console.log(`[WATCHER] File changed: ${filePath}`)
+      broadcastDirectoryEvent(state!, 'file:changed', { path: filePath })
+    })
+    watcher.on('add', (filePath: string) => {
+      const pending = state!.pendingUnlink
+      if (pending && Date.now() - pending.timestamp < RENAME_THRESHOLD_MS) {
+        if (pending.path === filePath) {
+          broadcastDirectoryEvent(state!, 'file:changed', { path: filePath })
+        } else {
+          const changed = ctx.appDataManager?.relocateDocumentMarks(dirPath, pending.path, filePath)
+          if (changed) void broadcastDocumentMarksChanged(ctx)
+          broadcastDirectoryEvent(state!, 'file:renamed', { oldPath: pending.path, newPath: filePath })
+        }
+        state!.pendingUnlink = null
+      } else {
+        broadcastDirectoryEvent(state!, 'file:added', { path: filePath })
+      }
+    })
+    watcher.on('unlink', (filePath: string) => {
+      state!.pendingUnlink = { path: filePath, timestamp: Date.now() }
+      setTimeout(() => {
+        if (state?.pendingUnlink?.path !== filePath) return
+        const changed = ctx.appDataManager?.removeDocumentMarks(dirPath, filePath)
+        if (changed) void broadcastDocumentMarksChanged(ctx)
+        broadcastDirectoryEvent(state, 'file:removed', { path: filePath })
+        watchedFiles.delete(filePath)
+        state.pendingUnlink = null
+      }, RENAME_THRESHOLD_MS + 50)
+    })
+    watcher.on('addDir', (addedDirPath: string) => {
+      if (addedDirPath !== dirPath) broadcastDirectoryEvent(state!, 'folder:added', { path: addedDirPath })
+    })
+    watcher.on('unlinkDir', (removedDirPath: string) => {
+      const changed = ctx.appDataManager?.removeDocumentMarks(dirPath, removedDirPath, true)
+      if (changed) void broadcastDocumentMarksChanged(ctx)
+      broadcastDirectoryEvent(state!, 'folder:removed', { path: removedDirPath })
+    })
+  }
+
+  state.subscriptions.set(key, { sender, ...context })
+  workspaceWatchedDirs.set(key, dirPath)
+}
+
+function watchOpenedFile(
+  filePath: string,
+  sender: Electron.WebContents,
+  context: WorkspaceWatchContext
+): void {
+  const key = getWorkspaceWatcherKey(sender.id, context.workspaceId)
+  const existing = workspaceFileWatchers.get(key)
   if (existing) {
-    existing.refCount++
-    console.log(`[WATCHER] Reusing watcher for ${dirPath} (refCount: ${existing.refCount})`)
+    if (!existing.files.has(filePath)) {
+      existing.files.add(filePath)
+      existing.watcher.add(filePath)
+    }
     return
   }
 
-  console.log(`[WATCHER] Watching directory: ${dirPath}`)
-
-  const watcher = chokidar.watch(dirPath, {
+  const files = new Set([filePath])
+  const watcher = chokidar.watch(filePath, {
     persistent: true,
     ignoreInitial: true,
-    depth: WATCHER_CONFIG.MAX_DEPTH,
-    ignored: [
-      ...WATCHER_CONFIG.IGNORED_PATTERNS,
-      (filePath: string, stats?: fs.Stats) => {
-        // 目录与文件都先按路径段剪枝：命中 node_modules/.git 等直接整枝忽略，
-        // 避免 chokidar 递归进入铺满监听句柄、阻塞主进程（切换文件夹卡顿真因）。
-        if (hasIgnoredPathSegment(filePath)) return true
-        if (!stats) return false
-        if (stats.isDirectory()) return false
-        return !isPreviewableFilePath(filePath)
-      }
-    ],
-    awaitWriteFinish: {
-      stabilityThreshold: 200,
-      pollInterval: 50
-    }
+    awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 }
   })
-
-  // 也赋值给旧的全局变量，保持兼容
-  fileWatcher = watcher
-
-  dirWatchers.set(dirPath, { watcher, refCount: 1 })
-
-  watcher.on('error', (error: unknown) => {
-    console.error('[WATCHER] Error:', error)
+  const state: WorkspaceFileWatcherState = { watcher, files, sender, ...context }
+  workspaceFileWatchers.set(key, state)
+  watcher.on('error', (error: unknown) => console.error('[WATCHER] Opened file watcher error:', error))
+  watcher.on('change', (changedPath: string) => {
+    if (state.files.has(changedPath)) sendWorkspaceWatchEvent(state, 'file:changed', { path: changedPath })
   })
-
-  watcher.on('ready', () => {
-    const watched = watcher.getWatched() || {}
-    let fileCount = 0
-    let dirCount = 0
-    for (const dir of Object.keys(watched)) {
-      dirCount++
-      fileCount += watched[dir].length
-    }
-    console.log(`[WATCHER] Ready! Watching ${dirCount} directories, ${fileCount} files`)
+  watcher.on('add', (addedPath: string) => {
+    if (state.files.has(addedPath)) sendWorkspaceWatchEvent(state, 'file:changed', { path: addedPath })
   })
-
-  watcher.on('change', (filePath: string) => {
-    console.log(`[WATCHER] File changed: ${filePath}`)
-    safeSendToRenderer('file:changed', filePath)
-  })
-
-  watcher.on('add', (filePath: string) => {
-    if (pendingUnlink && Date.now() - pendingUnlink.timestamp < RENAME_THRESHOLD_MS) {
-      if (pendingUnlink.path === filePath) {
-        console.log(`[WATCHER] File changed (atomic write): ${filePath}`)
-        safeSendToRenderer('file:changed', filePath)
-      } else {
-        console.log(`[WATCHER] File renamed: ${pendingUnlink.path} -> ${filePath}`)
-        safeSendToRenderer('file:renamed', { oldPath: pendingUnlink.path, newPath: filePath })
-      }
-      pendingUnlink = null
-    } else {
-      console.log(`[WATCHER] File added: ${filePath}`)
-      safeSendToRenderer('file:added', filePath)
-    }
-  })
-
-  watcher.on('unlink', (filePath: string) => {
-    console.log(`[WATCHER] File unlinked: ${filePath}`)
-    pendingUnlink = { path: filePath, timestamp: Date.now() }
-
+  watcher.on('unlink', (removedPath: string) => {
+    if (!state.files.has(removedPath)) return
     setTimeout(() => {
-      if (pendingUnlink && pendingUnlink.path === filePath) {
-        console.log(`[WATCHER] File removed: ${filePath}`)
-        safeSendToRenderer('file:removed', filePath)
-        watchedFiles.delete(filePath)
-        pendingUnlink = null
-      }
+      if (state.files.has(removedPath)) sendWorkspaceWatchEvent(state, 'file:removed', { path: removedPath })
     }, RENAME_THRESHOLD_MS + 50)
-  })
-
-  watcher.on('addDir', (addedDirPath: string) => {
-    if (addedDirPath !== dirPath) {
-      console.log(`[WATCHER] Directory added: ${addedDirPath}`)
-      safeSendToRenderer('folder:added', addedDirPath)
-    }
-  })
-
-  watcher.on('unlinkDir', (removedDirPath: string) => {
-    console.log(`[WATCHER] Directory removed: ${removedDirPath}`)
-    safeSendToRenderer('folder:removed', removedDirPath)
   })
 }
 
@@ -478,113 +597,14 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
   return sortTree(tree)
 }
 
-// 减少目录 watcher 引用计数，归零时关闭
-function unwatchDirectoryRef(dirPath: string): void {
-  const entry = dirWatchers.get(dirPath)
-  if (!entry) return
-  entry.refCount--
-  if (entry.refCount <= 0) {
-    console.log(`[WATCHER] Closing watcher for ${dirPath} (refCount: 0)`)
-    const closingWatcher = entry.watcher
-    closingWatcher.close()
-    dirWatchers.delete(dirPath)
-    if (fileWatcher === closingWatcher) {
-      fileWatcher = null
-    }
-    if (watchedDir === dirPath) {
-      watchedDir = null
-    }
-  } else {
-    console.log(`[WATCHER] Decreased refCount for ${dirPath} (refCount: ${entry.refCount})`)
-  }
-}
-
-function closeWindowFileWatcher(webContentsId: number): void {
-  const watcher = windowFileWatchers.get(webContentsId)
-  if (!watcher) return
-  console.log(`[WATCHER] Window ${webContentsId} closing, cleaning up file watcher`)
-  watcher.watcher.close()
-  windowFileWatchers.delete(webContentsId)
-}
-
-function watchOpenedFile(filePath: string, sender: Electron.WebContents): void {
-  const webContentsId = sender.id
-  const existing = windowFileWatchers.get(webContentsId)
-  if (existing) {
-    if (!existing.files.has(filePath)) {
-      existing.files.add(filePath)
-      existing.watcher.add(filePath)
-      console.log(`[WATCHER] Added opened file watcher: ${filePath}`)
-    }
-    return
-  }
-
-  console.log(`[WATCHER] Watching opened file: ${filePath}`)
-  const files = new Set([filePath])
-  const watcher = chokidar.watch(filePath, {
-    persistent: true,
-    ignoreInitial: true,
-    awaitWriteFinish: {
-      stabilityThreshold: 200,
-      pollInterval: 50
-    }
-  })
-  const state: WindowWatcherState = {
-    watcher,
-    dir: path.dirname(filePath),
-    files
-  }
-  windowFileWatchers.set(webContentsId, state)
-
-  watcher.on('error', (error: unknown) => {
-    console.error('[WATCHER] Opened file watcher error:', error)
-  })
-
-  watcher.on('change', (changedPath: string) => {
-    if (!state.files.has(changedPath)) return
-    console.log(`[WATCHER] Opened file changed: ${changedPath}`)
-    safeSendToRenderer('file:changed', changedPath)
-  })
-
-  watcher.on('add', (addedPath: string) => {
-    if (!state.files.has(addedPath)) return
-    const pendingTimer = pendingFileUnlinkTimers.get(addedPath)
-    if (pendingTimer) {
-      clearTimeout(pendingTimer)
-      pendingFileUnlinkTimers.delete(addedPath)
-    }
-    console.log(`[WATCHER] Opened file changed (add): ${addedPath}`)
-    safeSendToRenderer('file:changed', addedPath)
-  })
-
-  watcher.on('unlink', (removedPath: string) => {
-    if (!state.files.has(removedPath)) return
-    const previousTimer = pendingFileUnlinkTimers.get(removedPath)
-    if (previousTimer) clearTimeout(previousTimer)
-    const timer = setTimeout(() => {
-      pendingFileUnlinkTimers.delete(removedPath)
-      console.log(`[WATCHER] Opened file removed: ${removedPath}`)
-      safeSendToRenderer('file:removed', removedPath)
-    }, RENAME_THRESHOLD_MS + 50)
-    pendingFileUnlinkTimers.set(removedPath, timer)
-  })
-}
-
 // 导出文件监听器状态，供 index.ts 窗口关闭清理使用
 export function getFileWatcherState() {
   return {
-    windowFileWatchers,
+    workspaceFileWatchers,
     fileWatcher: () => fileWatcher,
     watchedWebContentsId: () => watchedWebContentsId,
     cleanup: (webContentsId: number) => {
-      // 清理窗口级 watcher
-      closeWindowFileWatcher(webContentsId)
-      // 减少目录 watcher 引用计数
-      const dir = windowWatchedDir.get(webContentsId)
-      if (dir) {
-        unwatchDirectoryRef(dir)
-        windowWatchedDir.delete(webContentsId)
-      }
+      cleanupWorkspaceWatchers(webContentsId)
     }
   }
 }
@@ -621,7 +641,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw new Error('无法识别当前窗口')
     }
 
-    return (await activateFolderForWindow(ctx, window, result.filePaths[0])).path
+    return activateFolderForWindow(ctx, window, result.filePaths[0])
   })
 
   // 读取目录
@@ -828,10 +848,13 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 打开可编辑 Markdown：读取内容，返回规范路径和文件版本信息，并授权当前窗口保存
-  ipcMain.handle('fs:openEditableMarkdown', async (event, filePath: string) => {
-    await validateSenderReadPath(ctx, event, filePath)
-
-    const canonicalPath = await getBestEffortCanonicalPath(filePath)
+  ipcMain.handle('fs:openEditableMarkdown', async (
+    event,
+    filePath: string,
+    operation: WorkspaceOperationContext
+  ) => {
+    const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+    const canonicalPath = await validateWorkspaceOperationPath(ctx, event, operation, filePath)
     if (!canonicalPath.toLowerCase().endsWith('.md')) {
       throw new Error('只能编辑 Markdown 文件')
     }
@@ -848,8 +871,11 @@ export function registerFileHandlers(ctx: IPCContext): void {
 
     const content = await fs.readFile(canonicalPath, 'utf-8')
     const senderId = event.sender.id
-    const editableFiles = windowEditableFiles.get(senderId) || new Set<string>()
-    editableFiles.add(canonicalPath)
+    const editableFiles = windowEditableFiles.get(senderId) || new Map<string, EditableFileGrant>()
+    editableFiles.set(canonicalPath, {
+      workspaceId: operation.workspaceId,
+      lifecycleEpoch: operation.lifecycleEpoch,
+    })
     windowEditableFiles.set(senderId, editableFiles)
 
     return {
@@ -868,10 +894,11 @@ export function registerFileHandlers(ctx: IPCContext): void {
     canonicalPath: string
     content: string
     expectedRevisionToken: string
+    workspace: WorkspaceOperationContext
     force?: boolean
   }) => {
-    const { canonicalPath, content, expectedRevisionToken, force = false } = payload
-    await validateSenderPath(ctx, event, canonicalPath)
+    const { canonicalPath, content, expectedRevisionToken, workspace: operation, force = false } = payload
+    const resolvedPath = await validateWorkspaceOperationPath(ctx, event, operation, canonicalPath)
 
     if (!canonicalPath.toLowerCase().endsWith('.md')) {
       throw new Error('只能保存 Markdown 文件')
@@ -887,15 +914,17 @@ export function registerFileHandlers(ctx: IPCContext): void {
 
     const senderId = event.sender.id
     const editableFiles = windowEditableFiles.get(senderId)
-    if (!editableFiles?.has(canonicalPath)) {
+    const grant = editableFiles?.get(resolvedPath)
+    if (!grant || grant.workspaceId !== operation.workspaceId || grant.lifecycleEpoch !== operation.lifecycleEpoch) {
       throw new Error('未授权编辑此文件')
     }
+    getSenderWorkspaceForOperation(ctx, event, operation)
 
-    const stats = await fs.stat(canonicalPath)
+    const stats = await fs.stat(resolvedPath)
     if (!stats.isFile()) {
       throw new Error('目标不是文件')
     }
-    const diskContent = !force && stats.size <= MAX_SIZE ? await fs.readFile(canonicalPath, 'utf-8') : undefined
+    const diskContent = !force && stats.size <= MAX_SIZE ? await fs.readFile(resolvedPath, 'utf-8') : undefined
     const diskRevisionToken = buildRevisionToken(stats, diskContent)
     if (!force && !revisionTokenMatches(expectedRevisionToken, diskRevisionToken)) {
       return {
@@ -907,8 +936,8 @@ export function registerFileHandlers(ctx: IPCContext): void {
       }
     }
 
-    await fs.writeFile(canonicalPath, content, 'utf-8')
-    const nextStats = await fs.stat(canonicalPath)
+    await fs.writeFile(resolvedPath, content, 'utf-8')
+    const nextStats = await fs.stat(resolvedPath)
     return {
       success: true,
       mtimeMs: nextStats.mtimeMs,
@@ -917,105 +946,119 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
-  // 监听文件夹
-  ipcMain.handle('fs:watchFolder', async (event, folderPath: string) => {
-    try {
-      await validateSenderReadPath(ctx, event, folderPath)
+  const resolveWatchContext = (
+    event: Electron.IpcMainInvokeEvent,
+    workspaceId?: string,
+    lifecycleEpoch?: number,
+    allowStaleEpoch = false
+  ): WorkspaceWatchContext => {
+    if (workspaceId === undefined && lifecycleEpoch === undefined) {
+      // 旧 renderer/test bridge 的兼容路径；新工作区 UI 必须传完整上下文。
+      return { workspaceId: `legacy-${event.sender.id}`, lifecycleEpoch: 0, strict: false }
+    }
+    if (typeof workspaceId !== 'string' || !Number.isInteger(lifecycleEpoch)) {
+      throw new Error('安全错误：监听请求缺少完整工作区上下文')
+    }
+    const verifiedLifecycleEpoch = lifecycleEpoch as number
+    const workspace = getSenderWorkspace(ctx, event, workspaceId)
+    if (!allowStaleEpoch && workspace.lifecycleEpoch !== verifiedLifecycleEpoch) {
+      throw new Error('安全错误：工作区已失效')
+    }
+    return { workspaceId, lifecycleEpoch: verifiedLifecycleEpoch, strict: true }
+  }
 
-      const pathCheck = isWatchPathSafe(folderPath)
-      if (!pathCheck.safe) {
-        console.warn(`[WATCHER] Rejected unsafe path: ${folderPath} - ${pathCheck.reason}`)
-        return { success: false, error: pathCheck.reason }
+  // 只监听活动工作区主文件树；切回其他工作区时由 renderer 主动刷新。
+  ipcMain.handle(
+    'fs:watchFolder',
+    async (event, folderPath: string, workspaceId?: string, lifecycleEpoch?: number) => {
+      try {
+        const context = resolveWatchContext(event, workspaceId, lifecycleEpoch)
+        const resolvedFolderPath = context.strict
+          ? await validateWorkspaceWritePath(ctx, event, context.workspaceId, folderPath)
+          : await validateSenderReadPath(ctx, event, folderPath)
+        const pathCheck = isWatchPathSafe(resolvedFolderPath)
+        if (!pathCheck.safe) {
+          console.warn(`[WATCHER] Rejected unsafe path: ${resolvedFolderPath} - ${pathCheck.reason}`)
+          return { success: false, error: pathCheck.reason }
+        }
+
+        _baseFolderPath = resolvedFolderPath
+        watchedFiles.clear()
+        watchDirectory(ctx, resolvedFolderPath, event.sender, context)
+        console.log(`[MAIN] Workspace ${context.workspaceId} watching: ${resolvedFolderPath}`)
+        return { success: true }
+      } catch (error) {
+        console.error('Failed to set workspace watcher:', error)
+        throw error
       }
+    }
+  )
 
-      _baseFolderPath = folderPath
-      watchedFiles.clear()
+  ipcMain.handle(
+    'fs:watchFile',
+    async (event, filePath: string, workspaceId?: string, lifecycleEpoch?: number) => {
+      const context = resolveWatchContext(event, workspaceId, lifecycleEpoch)
+      const resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
+      watchedFiles.add(resolvedFilePath)
+      const key = getWorkspaceWatcherKey(event.sender.id, context.workspaceId)
+      const watchedDirectory = workspaceWatchedDirs.get(key)
+      if (!watchedDirectory || !isWithinDirectoryWatcherDepth(watchedDirectory, resolvedFilePath)) {
+        watchOpenedFile(resolvedFilePath, event.sender, context)
+      }
+      console.log(`[MAIN] Workspace ${context.workspaceId} opened: ${resolvedFilePath}`)
+      return { success: true }
+    }
+  )
 
-      // 如果该窗口之前监听了另一个目录，先减引用计数
-      const webContentsId = event.sender.id
-      const prevDir = windowWatchedDir.get(webContentsId)
-      if (prevDir === folderPath && dirWatchers.has(folderPath)) {
-        console.log(`[WATCHER] Window ${webContentsId} already watching ${folderPath}`)
+  ipcMain.handle(
+    'fs:unwatchFolder',
+    async (event, workspaceId?: string, lifecycleEpoch?: number) => {
+      if (workspaceId === undefined && lifecycleEpoch === undefined) {
+        cleanupWorkspaceWatchers(event.sender.id, `legacy-${event.sender.id}`)
         return { success: true }
       }
-      if (prevDir && prevDir !== folderPath) {
-        unwatchDirectoryRef(prevDir)
-        closeWindowFileWatcher(webContentsId)
+      // cleanup 必须幂等：工作区迁出/关闭后 renderer 的 effect cleanup 仍会到达。
+      // key 含 sender id，调用方只能撤销自己的遗留订阅，不能影响其他窗口。
+      if (typeof workspaceId !== 'string' || !Number.isInteger(lifecycleEpoch)) {
+        throw new Error('安全错误：监听请求缺少完整工作区上下文')
       }
-      windowWatchedDir.set(webContentsId, folderPath)
-
-      watchDirectory(folderPath, event.sender)
-
-      console.log(`[MAIN] Base folder set and watching: ${folderPath}`)
-      return { success: true }
-    } catch (error) {
-      console.error('Failed to set base folder:', error)
-      throw error
-    }
-  })
-
-  // 监听单个文件
-  ipcMain.handle('fs:watchFile', async (event, filePath: string) => {
-    const resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
-
-    watchedFiles.add(resolvedFilePath)
-
-    if (!fileWatcher && _baseFolderPath) {
-      watchDirectory(_baseFolderPath, event.sender)
-    }
-
-    const watchedDirectory = windowWatchedDir.get(event.sender.id)
-    if (!watchedDirectory || !isWithinDirectoryWatcherDepth(watchedDirectory, resolvedFilePath)) {
-      watchOpenedFile(resolvedFilePath, event.sender)
-    }
-
-    console.log(`[MAIN] File opened: ${resolvedFilePath}`)
-    return { success: true }
-  })
-
-  // 停止监听
-  ipcMain.handle('fs:unwatchFolder', async (event) => {
-    const webContentsId = event.sender.id
-    const watchedDirectory = windowWatchedDir.get(webContentsId)
-    if (watchedDirectory) {
-      unwatchDirectoryRef(watchedDirectory)
-      windowWatchedDir.delete(webContentsId)
-      closeWindowFileWatcher(webContentsId)
+      cleanupWorkspaceWatchers(event.sender.id, workspaceId)
       return { success: true }
     }
-
-    // 兼容旧状态：没有窗口目录记录时，清理全局 watcher 和对应 map 项。
-    if (fileWatcher) {
-      const closingWatcher = fileWatcher
-      await closingWatcher.close()
-      for (const [dirPath, entry] of dirWatchers.entries()) {
-        if (entry.watcher === closingWatcher) {
-          dirWatchers.delete(dirPath)
-        }
-      }
-      fileWatcher = null
-      watchedDir = null
-    }
-    return { success: true }
-  })
+  )
 
   // 重命名文件/文件夹
-  ipcMain.handle('fs:rename', async (event, oldPath: string, newName: string) => {
+  ipcMain.handle('fs:rename', async (
+    event,
+    oldPath: string,
+    newName: string,
+    operation: WorkspaceOperationContext
+  ) => {
     try {
-      const resolvedOldPath = await validateSenderPath(ctx, event, oldPath)
+      const resolvedOldPath = await validateWorkspaceOperationPath(ctx, event, operation, oldPath)
       if (!newName || path.basename(newName) !== newName) {
         throw new Error('安全错误：新名称必须是单个文件或目录名称')
       }
 
       const dirName = path.dirname(resolvedOldPath)
       const newPath = path.join(dirName, newName)
-      const resolvedNewPath = await validateSenderPath(ctx, event, newPath)
+      const resolvedNewPath = await validateWorkspaceOperationPath(ctx, event, operation, newPath)
 
       if (await fs.pathExists(resolvedNewPath)) {
         throw new Error('目标文件已存在')
       }
 
+      const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+      if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+      const sourceStats = await fs.lstat(resolvedOldPath)
       await fs.move(resolvedOldPath, resolvedNewPath)
+      const changed = ctx.appDataManager?.relocateDocumentMarks(
+        workspace.primaryRoot,
+        resolvedOldPath,
+        resolvedNewPath,
+        sourceStats.isDirectory()
+      )
+      if (changed) await broadcastDocumentMarksChanged(ctx, event.sender.id)
       return resolvedNewPath
     } catch (error) {
       console.error('Failed to rename file:', error)
@@ -1024,9 +1067,16 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 同目录创建不覆盖的副本
-  ipcMain.handle('fs:duplicate', async (event, sourcePath: string) => {
+  ipcMain.handle('fs:duplicate', async (
+    event,
+    sourcePath: string,
+    operation: WorkspaceOperationContext
+  ) => {
     try {
-      return await duplicatePath(sourcePath, getSenderFolderRoot(ctx, event))
+      const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+      if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+      await validateWorkspaceOperationPath(ctx, event, operation, sourcePath)
+      return await duplicatePath(sourcePath, workspace.primaryRoot)
     } catch (error) {
       console.error('Failed to duplicate path:', error)
       throw error
@@ -1034,10 +1084,15 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 复制文件
-  ipcMain.handle('fs:copyFile', async (event, srcPath: string, destPath: string) => {
+  ipcMain.handle('fs:copyFile', async (
+    event,
+    srcPath: string,
+    destPath: string,
+    operation: WorkspaceOperationContext
+  ) => {
     try {
-      const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
-      const resolvedDestination = await validateDestinationInCurrentRoot(ctx, event, destPath)
+      const resolvedSource = await validateClipboardSourceOrWorkspaceRoot(ctx, event, srcPath, operation)
+      const resolvedDestination = await validateWorkspaceOperationPath(ctx, event, operation, destPath)
 
       if (!(await fs.pathExists(resolvedSource))) {
         throw new Error('源文件不存在')
@@ -1056,10 +1111,15 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 复制目录
-  ipcMain.handle('fs:copyDir', async (event, srcPath: string, destPath: string) => {
+  ipcMain.handle('fs:copyDir', async (
+    event,
+    srcPath: string,
+    destPath: string,
+    operation: WorkspaceOperationContext
+  ) => {
     try {
-      const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
-      const resolvedDestination = await validateDestinationInCurrentRoot(ctx, event, destPath)
+      const resolvedSource = await validateClipboardSourceOrWorkspaceRoot(ctx, event, srcPath, operation)
+      const resolvedDestination = await validateWorkspaceOperationPath(ctx, event, operation, destPath)
 
       if (isSameOrChildPath(resolvedDestination, resolvedSource)) {
         throw new Error('无法复制目录到自身或子目录')
@@ -1088,10 +1148,15 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 移动文件/文件夹
-  ipcMain.handle('fs:moveFile', async (event, srcPath: string, destPath: string) => {
+  ipcMain.handle('fs:moveFile', async (
+    event,
+    srcPath: string,
+    destPath: string,
+    operation: WorkspaceOperationContext
+  ) => {
     try {
-      const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
-      const resolvedDestination = await validateDestinationInCurrentRoot(ctx, event, destPath)
+      const resolvedSource = await validateClipboardSourceOrWorkspaceRoot(ctx, event, srcPath, operation)
+      const resolvedDestination = await validateWorkspaceOperationPath(ctx, event, operation, destPath)
 
       if (isSameOrChildPath(resolvedDestination, resolvedSource)) {
         throw new Error('无法移动目录到自身或子目录')
@@ -1110,7 +1175,18 @@ export function registerFileHandlers(ctx: IPCContext): void {
         throw new Error('目标文件已存在')
       }
 
+      const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+      if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
       await fs.move(resolvedSource, resolvedDestination, { overwrite: false })
+      if (isSameOrChildPath(resolvedSource, workspace.primaryRoot)) {
+        const changed = ctx.appDataManager?.relocateDocumentMarks(
+          workspace.primaryRoot,
+          resolvedSource,
+          resolvedDestination,
+          sourceStats.isDirectory()
+        )
+        if (changed) await broadcastDocumentMarksChanged(ctx, event.sender.id)
+      }
       return resolvedDestination
     } catch (error) {
       console.error('Failed to move file:', error)
@@ -1126,9 +1202,15 @@ export function registerFileHandlers(ctx: IPCContext): void {
   //   - 源、受保护路径、自身/子目录、目录内 symlink、overwrite:false 等不变式与 fs:moveFile 一致。
   ipcMain.handle(
     'fs:moveFileToFolder',
-    async (event, srcPath: string, targetHistoryId: string, subRelPath?: string) => {
+    async (
+      event,
+      srcPath: string,
+      targetHistoryId: string,
+      subRelPath: string | undefined,
+      operation: WorkspaceOperationContext
+    ) => {
       try {
-        const resolvedSource = await validateClipboardSourceOrCurrentRoot(ctx, event, srcPath)
+        const resolvedSource = await validateClipboardSourceOrWorkspaceRoot(ctx, event, srcPath, operation)
 
         const targetRoot = await ctx.folderHistoryManager.resolveHistoryFolder(targetHistoryId)
         if (!targetRoot) {
@@ -1159,7 +1241,15 @@ export function registerFileHandlers(ctx: IPCContext): void {
           throw new Error('目标文件已存在')
         }
 
+        const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+        if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
         await fs.move(resolvedSource, resolvedDestination, { overwrite: false })
+        const changed = ctx.appDataManager?.removeDocumentMarks(
+          workspace.primaryRoot,
+          resolvedSource,
+          sourceStats.isDirectory()
+        )
+        if (changed) await broadcastDocumentMarksChanged(ctx, event.sender.id)
         return resolvedDestination
       } catch (error) {
         console.error('Failed to move file to folder:', error)
@@ -1171,8 +1261,8 @@ export function registerFileHandlers(ctx: IPCContext): void {
   // 检查文件是否存在
   ipcMain.handle('fs:exists', async (event, filePath: string) => {
     try {
-      await validateSenderReadPath(ctx, event, filePath)
-      return await fs.pathExists(filePath)
+      const resolvedPath = await validateSenderReadPath(ctx, event, filePath)
+      return await fs.pathExists(resolvedPath)
     } catch (error) {
       console.error('Failed to check file existence:', error)
       return false
@@ -1191,13 +1281,12 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
-  // 文件预览：只读前 1024 字节（用于 tooltip 预览）
-  // 使用 validateSearchPath 而非 validatePath，允许跨文件夹预览（最近文件可能不在当前 basePath 内）
-  ipcMain.handle('fs:readFilePreview', async (_, filePath: string) => {
+  // 文件预览：只读前 4096 字节；允许已授权历史目录和其他打开窗口的文件。
+  ipcMain.handle('fs:readFilePreview', async (event, filePath: string) => {
     try {
-      validateSearchPath(filePath)
+      const resolvedPath = await validateSenderReadPath(ctx, event, filePath)
       const { open } = await import('node:fs/promises')
-      const fh = await open(filePath, 'r')
+      const fh = await open(resolvedPath, 'r')
       const buf = Buffer.alloc(4096)
       const { bytesRead } = await fh.read(buf, 0, 4096, 0)
       await fh.close()
@@ -1207,11 +1296,11 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
-  // 搜索专用：读取任意文件夹的 md 文件列表（仅检查 PROTECTED_PATTERNS）
-  ipcMain.handle('search:readDir', async (_, dirPath: string) => {
+  // 搜索专用：只允许扫描主进程已授权的目录。
+  ipcMain.handle('search:readDir', async (event, dirPath: string) => {
     try {
-      validateSearchPath(dirPath)
-      return await scanPreviewableFiles(dirPath)
+      const resolvedPath = await validateSenderReadPath(ctx, event, dirPath)
+      return await scanPreviewableFiles(resolvedPath)
     } catch (error) {
       console.error('Failed to search readDir:', error)
       if (error instanceof Error && error.message.includes('安全错误')) throw error
@@ -1219,13 +1308,13 @@ export function registerFileHandlers(ctx: IPCContext): void {
     }
   })
 
-  // 搜索专用：读取任意文件内容（仅检查 PROTECTED_PATTERNS）
-  ipcMain.handle('search:readFile', async (_, filePath: string) => {
+  // 搜索专用：只允许读取主进程已授权的文件内容。
+  ipcMain.handle('search:readFile', async (event, filePath: string) => {
     try {
-      validateSearchPath(filePath)
-      const stats = await fs.stat(filePath)
+      const resolvedPath = await validateSenderReadPath(ctx, event, filePath)
+      const stats = await fs.stat(resolvedPath)
       if (stats.size > 5 * 1024 * 1024) throw new Error('文件过大')
-      return await fs.readFile(filePath, 'utf-8')
+      return await fs.readFile(resolvedPath, 'utf-8')
     } catch (error) {
       if (error instanceof Error) throw error
       console.error('Failed to search readFile:', error)

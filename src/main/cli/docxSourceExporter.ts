@@ -15,6 +15,8 @@ export interface ConvertSourceDocxOptions {
   timeoutMs?: number
   /** 源 md 文件路径；提供时随请求上传本地图片资源（bundle 模式） */
   sourceFilePath?: string
+  /** 多文件合并:预构造的 bundle(汇总资源 + 根级 entryPath),优先于 sourceFilePath */
+  __mergedBundle?: { entryPath: string; resources: BundleImageResource[] }
 }
 
 const RASTER_IMAGE_MEDIA_TYPES: Record<string, string> = {
@@ -81,6 +83,101 @@ async function collectLocalImageResources(
   return resources
 }
 
+/** 单文件命名空间化处理的产物 */
+export interface NamespacedPart {
+  /** 图片引用已重写为 __partN__/... 的 markdown */
+  markdown: string
+  /** 该文件的本地图片资源(path 已带 __partN__/ 前缀) */
+  resources: BundleImageResource[]
+}
+
+/**
+ * 多文件合并 DOCX 用:把单个文件的本地图片引用重写成带命名空间前缀的根相对路径
+ * (images/a.png → __part<index>__/images/a.png),并按该文件自身目录收集图片资源。
+ * 这样多文件合并后同名图片不撞车,且服务端按归一化相对路径精确匹配(entryPath 设根级 index.md)。
+ * 图表围栏(```mermaid 等内联源码)不含外部引用,随 markdown 原样保留。
+ */
+export async function namespaceLocalImages(
+  markdown: string,
+  sourceFilePath: string,
+  partIndex: number,
+): Promise<NamespacedPart> {
+  const prefix = `__part${partIndex}__`
+  const baseDir = path.dirname(sourceFilePath)
+  const fencedSpans: Array<[number, number]> = []
+  for (const fence of markdown.matchAll(FENCED_CODE_RE)) {
+    fencedSpans.push([fence.index ?? 0, (fence.index ?? 0) + fence[0].length])
+  }
+
+  // 先扫描:决定哪些引用要重写(clean→带前缀 path),并收集资源
+  const rewriteMap = new Map<string, string>() // clean → `${prefix}/${clean}`
+  const resources: BundleImageResource[] = []
+  const seen = new Set<string>()
+  for (const match of markdown.matchAll(LOCAL_IMAGE_REF_RE)) {
+    const start = match.index ?? 0
+    if (fencedSpans.some(([s, e]) => start >= s && start < e)) continue
+    const ref = (match[1] || match[2] || '').trim()
+    if (!ref || /^(https?:)?\/\//i.test(ref) || ref.startsWith('data:') || ref.includes('mdv__chart__')) continue
+    const clean = ref.split(/[?#]/)[0].replace(/^\.\//, '')
+    const mediaType = RASTER_IMAGE_MEDIA_TYPES[path.extname(clean).toLowerCase()]
+    if (!mediaType) continue
+    if (clean.startsWith('/') || clean.split('/').includes('..')) continue
+    const namespaced = `${prefix}/${clean}`
+    rewriteMap.set(ref, namespaced)
+    if (seen.has(clean)) continue
+    seen.add(clean)
+    try {
+      const data = await readFile(path.resolve(baseDir, clean))
+      if (data.length === 0 || data.length > LOCAL_IMAGE_MAX_BYTES) continue
+      resources.push({
+        path: namespaced,
+        kind: 'binary',
+        base64: data.toString('base64'),
+        mediaType,
+        size: data.length,
+      })
+    } catch {
+      // 读不到不上传,服务端告警
+    }
+  }
+
+  // 再替换:在非围栏区把图片引用的路径部分换成带前缀路径
+  let result = ''
+  let cursor = 0
+  for (const match of markdown.matchAll(LOCAL_IMAGE_REF_RE)) {
+    const start = match.index ?? 0
+    const end = start + match[0].length
+    if (fencedSpans.some(([s, e]) => start >= s && start < e)) continue
+    const ref = (match[1] || match[2] || '').trim()
+    const namespaced = rewriteMap.get(ref)
+    if (!namespaced) continue
+    result += markdown.slice(cursor, start)
+    result += match[0].replace(ref, namespaced)
+    cursor = end
+  }
+  result += markdown.slice(cursor)
+
+  return { markdown: result, resources }
+}
+
+/**
+ * 多文件合并 DOCX:各文件命名空间化后的 markdown 用 <!-- pagebreak --> 拼接,
+ * 汇总所有资源,以单一 bundle 请求发给服务端(entryPath=index.md 根级)。
+ */
+export async function exportMergedDocxViaConvertSource(
+  parts: NamespacedPart[],
+  options: Omit<ConvertSourceDocxOptions, 'markdown' | 'sourceFilePath'>,
+): Promise<ConvertSourceDocxResult> {
+  const mergedMarkdown = parts.map(p => p.markdown).join('\n\n<!-- pagebreak -->\n\n')
+  const mergedResources = parts.flatMap(p => p.resources)
+  return exportDocxViaConvertSource({
+    ...options,
+    markdown: mergedMarkdown,
+    // 预构造 bundle:直接传汇总资源 + 根级 entryPath,跳过单文件 collectLocalImageResources
+    __mergedBundle: { entryPath: 'index.md', resources: mergedResources },
+  } as ConvertSourceDocxOptions)
+}
+
 export interface ConvertSourceDocxResult {
   artifact: CliArtifact
   warnings: string[]
@@ -127,17 +224,23 @@ export async function exportDocxViaConvertSource(
   const serviceUrl = options.serviceUrl.replace(/\/+$/, '')
   await ensureOutputPathWritable(options.outputPath, serviceUrl)
 
-  const localImageResources = options.sourceFilePath
-    ? await collectLocalImageResources(options.markdown, options.sourceFilePath)
-    : []
+  // 合并场景:调用方已预构造 bundle(汇总资源 + 根级 entryPath);否则走单文件收集
+  const merged = options.__mergedBundle
+  const localImageResources = merged
+    ? merged.resources
+    : options.sourceFilePath
+      ? await collectLocalImageResources(options.markdown, options.sourceFilePath)
+      : []
   const body = JSON.stringify({
-    ...(localImageResources.length > 0
-      ? {
-          sourceType: 'bundle',
-          entryPath: path.basename(options.sourceFilePath!),
-          resources: localImageResources,
-        }
-      : { sourceType: 'markdown' }),
+    ...(merged
+      ? { sourceType: 'bundle', entryPath: merged.entryPath, resources: merged.resources }
+      : localImageResources.length > 0
+        ? {
+            sourceType: 'bundle',
+            entryPath: path.basename(options.sourceFilePath!),
+            resources: localImageResources,
+          }
+        : { sourceType: 'markdown' }),
     markdown: options.markdown,
     style: options.style || 'preview',
     renderMode: 'fullFidelity',

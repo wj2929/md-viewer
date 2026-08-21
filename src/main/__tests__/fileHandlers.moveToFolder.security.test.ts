@@ -29,6 +29,8 @@ vi.mock('chokidar', () => ({
 
 const temporaryPaths: string[] = []
 
+const OPERATION = { workspaceId: 'workspace-a', lifecycleEpoch: 1 }
+
 interface Fixture {
   root: string
   sourceRoot: string // 发起窗口根（源所在）
@@ -89,20 +91,21 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
       folderHistoryManager: { addFolder: vi.fn(), resolveHistoryFolder },
       windowManager: {
         getWindowFolderPath: vi.fn(() => fixture.sourceRoot),
-        getAllWindowFolderRoots: vi.fn(() => [fixture.sourceRoot])
+        getAllWindowFolderRoots: vi.fn(() => [fixture.sourceRoot]),
+        getWorkspace: vi.fn(() => ({ ...OPERATION, primaryRoot: fixture.sourceRoot })),
       }
     } as any)
   })
 
   function invokeMove() {
     return getHandler<
-      (event: Electron.IpcMainInvokeEvent, src: string, targetHistoryId: string, subRelPath?: string) => Promise<string>
+      (event: Electron.IpcMainInvokeEvent, src: string, targetHistoryId: string, subRelPath: string | undefined, operation: typeof OPERATION) => Promise<string>
     >('fs:moveFileToFolder')
   }
 
   it('把文件跨根移动到目标历史根', async () => {
     const move = invokeMove()
-    const dest = await move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid')
+    const dest = await move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid', undefined, OPERATION)
 
     expect(await fs.pathExists(dest)).toBe(true)
     expect(await fs.pathExists(fixture.sourceFile)).toBe(false)
@@ -111,7 +114,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
 
   it('把文件移动到目标根的子目录（subRelPath）', async () => {
     const move = invokeMove()
-    const dest = await move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid', 'sub')
+    const dest = await move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid', 'sub', OPERATION)
 
     const expectedDir = path.join(await fs.realpath(fixture.targetRoot), 'sub')
     expect(await fs.pathExists(dest)).toBe(true)
@@ -120,7 +123,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
 
   it('把目录（含子文件）整棵跨根移动', async () => {
     const move = invokeMove()
-    const dest = await move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceDir, 'valid')
+    const dest = await move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceDir, 'valid', undefined, OPERATION)
 
     expect(await fs.pathExists(path.join(dest, 'inner.md'))).toBe(true)
     expect(await fs.pathExists(fixture.sourceDir)).toBe(false)
@@ -129,7 +132,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
   it('subRelPath 含 ../ 逃出历史根 → 拒绝，源保留', async () => {
     const move = invokeMove()
     await expect(
-      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid', '../sourceRoot')
+      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid', '../sourceRoot', OPERATION)
     ).rejects.toThrow('安全错误')
 
     expect(await fs.pathExists(fixture.sourceFile)).toBe(true)
@@ -138,7 +141,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
   it('非法/失效 historyId → resolveHistoryFolder 返回 null → 拒绝', async () => {
     const move = invokeMove()
     await expect(
-      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'bogus')
+      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'bogus', undefined, OPERATION)
     ).rejects.toThrow('目标目录无效')
 
     expect(await fs.pathExists(fixture.sourceFile)).toBe(true)
@@ -148,7 +151,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
     await fs.writeFile(path.join(fixture.targetRoot, 'note.md'), 'existing')
     const move = invokeMove()
     await expect(
-      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid')
+      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceFile, 'valid', undefined, OPERATION)
     ).rejects.toThrow('目标文件已存在')
 
     expect(await fs.pathExists(fixture.sourceFile)).toBe(true)
@@ -161,7 +164,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
     await fs.writeFile(outsideSource, 'foreign')
 
     await expect(
-      move(createEvent() as Electron.IpcMainInvokeEvent, outsideSource, 'valid')
+      move(createEvent() as Electron.IpcMainInvokeEvent, outsideSource, 'valid', undefined, OPERATION)
     ).rejects.toThrow('安全错误')
   })
 
@@ -172,7 +175,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
     )
     const move = invokeMove()
     await expect(
-      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceDir, 'valid')
+      move(createEvent() as Electron.IpcMainInvokeEvent, fixture.sourceDir, 'valid', undefined, OPERATION)
     ).rejects.toThrow('自身或子目录')
 
     expect(await fs.pathExists(fixture.sourceDir)).toBe(true)

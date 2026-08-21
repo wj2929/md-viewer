@@ -96,14 +96,19 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
 
   return (
     <div className="folder-history-dropdown" ref={dropdownRef}>
-      <button className="folder-btn" onClick={handleOpenClick} title="切换文件夹">
+      <button
+        className="folder-btn nav-instant-tooltip"
+        onClick={handleOpenClick}
+        data-tooltip="切换文件夹"
+        aria-label="切换文件夹"
+      >
         📂
       </button>
       <button
-        className="history-toggle-btn"
+        className="history-toggle-btn nav-instant-tooltip"
         onClick={() => setIsOpen(!isOpen)}
         aria-label="最近打开的文件夹"
-        title="最近打开的文件夹"
+        data-tooltip="最近打开的文件夹"
       >
         ▼
       </button>

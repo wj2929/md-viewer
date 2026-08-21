@@ -40,6 +40,8 @@ vi.mock('fs-extra', async () => {
   }
 })
 
+const OPERATION = { workspaceId: 'workspace-a', lifecycleEpoch: 1 }
+
 const ctx = {
   store: { set: vi.fn() },
   // 读放宽分支（validateSenderReadPath）快路径失败时会遍历 所有窗口根 + 文件夹历史
@@ -51,7 +53,8 @@ const ctx = {
   },
   windowManager: {
     getWindowFolderPath: vi.fn<(id: number) => string | undefined>(() => '/docs'),
-    getAllWindowFolderRoots: vi.fn<() => string[]>(() => [])
+    getAllWindowFolderRoots: vi.fn<() => string[]>(() => []),
+    getWorkspace: vi.fn(() => ({ id: OPERATION.workspaceId, primaryRoot: '/docs', lifecycleEpoch: OPERATION.lifecycleEpoch })),
   }
 }
 
@@ -124,10 +127,10 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     withRoot([{ isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 1000 } as fs.Stats])
     mockReadFile.mockResolvedValue('# A')
 
-    const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
+    const openEditable = handler<(event: any, filePath: string, operation: typeof OPERATION) => Promise<any>>('fs:openEditableMarkdown')
     const saveEditable = handler<(event: any, payload: any) => Promise<any>>('fs:saveEditableMarkdown')
 
-    await expect(openEditable(eventFor(1), '/docs/a.md')).resolves.toEqual({
+    await expect(openEditable(eventFor(1), '/docs/a.md', OPERATION)).resolves.toEqual({
       canonicalPath: '/docs/a.md',
       displayPath: '/docs/a.md',
       fileName: 'a.md',
@@ -143,7 +146,15 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
       content: '# Changed',
       expectedRevisionToken: '1000:12',
       force: false,
+      workspace: OPERATION,
     })).rejects.toThrow('未授权编辑')
+  })
+
+  it('rejects an editable open request without workspace context', async () => {
+    withRoot([{ isFile: () => true, isDirectory: () => false, size: 12, mtimeMs: 1000 } as fs.Stats])
+    const openEditable = handler<(event: any, filePath: string, operation?: typeof OPERATION) => Promise<any>>('fs:openEditableMarkdown')
+
+    await expect(openEditable(eventFor(1), '/docs/a.md')).rejects.toThrow('写入请求缺少完整工作区上下文')
   })
 
   it('returns conflict when revision token differs before saving', async () => {
@@ -153,16 +164,17 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     ])
     mockReadFile.mockResolvedValue('# A')
 
-    const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
+    const openEditable = handler<(event: any, filePath: string, operation: typeof OPERATION) => Promise<any>>('fs:openEditableMarkdown')
     const saveEditable = handler<(event: any, payload: any) => Promise<any>>('fs:saveEditableMarkdown')
 
-    await openEditable(eventFor(1), '/docs/a.md')
+    await openEditable(eventFor(1), '/docs/a.md', OPERATION)
 
     await expect(saveEditable(eventFor(1), {
       canonicalPath: '/docs/a.md',
       content: '# Changed',
       expectedRevisionToken: '1000:12',
       force: false,
+      workspace: OPERATION,
     })).resolves.toEqual({
       success: false,
       conflict: {
@@ -181,16 +193,17 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     ])
     mockReadFile.mockResolvedValue('# A')
 
-    const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
+    const openEditable = handler<(event: any, filePath: string, operation: typeof OPERATION) => Promise<any>>('fs:openEditableMarkdown')
     const saveEditable = handler<(event: any, payload: any) => Promise<any>>('fs:saveEditableMarkdown')
 
-    const opened = await openEditable(eventFor(1), '/docs/a.md')
+    const opened = await openEditable(eventFor(1), '/docs/a.md', OPERATION)
 
     await expect(saveEditable(eventFor(1), {
       canonicalPath: '/docs/a.md',
       content: '# Changed',
       expectedRevisionToken: opened.revisionToken,
       force: false,
+      workspace: OPERATION,
     })).resolves.toEqual({ success: true, mtimeMs: 3000, size: 22, revisionToken: '3000:22:2c30f987a9e44271' })
     expect(mockWriteFile).toHaveBeenCalledWith('/docs/a.md', '# Changed', 'utf-8')
   })
@@ -203,16 +216,17 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     ])
     mockReadFile.mockResolvedValue('# A')
 
-    const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
+    const openEditable = handler<(event: any, filePath: string, operation: typeof OPERATION) => Promise<any>>('fs:openEditableMarkdown')
     const saveEditable = handler<(event: any, payload: any) => Promise<any>>('fs:saveEditableMarkdown')
 
-    await openEditable(eventFor(1), '/docs/a.md')
+    await openEditable(eventFor(1), '/docs/a.md', OPERATION)
 
     await expect(saveEditable(eventFor(1), {
       canonicalPath: '/docs/a.md',
       content: '# Changed',
       expectedRevisionToken: '1000:20',
       force: false,
+      workspace: OPERATION,
     })).resolves.toEqual({ success: true, mtimeMs: 3000, size: 22, revisionToken: '3000:22:2c30f987a9e44271' })
     expect(mockWriteFile).toHaveBeenCalledWith('/docs/a.md', '# Changed', 'utf-8')
   })
@@ -225,9 +239,9 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     })
     mockReadFile.mockResolvedValue('# A')
 
-    const openEditable = handler<(event: any, filePath: string) => Promise<any>>('fs:openEditableMarkdown')
+    const openEditable = handler<(event: any, filePath: string, operation: typeof OPERATION) => Promise<any>>('fs:openEditableMarkdown')
 
-    await expect(openEditable(eventFor(1), '/docs/a.md')).resolves.toMatchObject({
+    await expect(openEditable(eventFor(1), '/docs/a.md', OPERATION)).resolves.toMatchObject({
       canonicalPath: path.resolve('/docs/a.md'),
       revisionToken: '1000:12:327f031b25e00b1a',
     })
@@ -252,6 +266,73 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     await expect(watchFolder(eventFor(1), '/Users/test/docs/project')).resolves.toEqual({ success: true })
     expect(watch).toHaveBeenCalledTimes(2)
     await expect(unwatchFolder(eventFor(1))).resolves.toEqual({ success: true })
+  })
+
+  it('rejects a stale workspace context before renaming', async () => {
+    ctx.windowManager.getWorkspace.mockReturnValue({
+      id: 'workspace-a',
+      primaryRoot: '/Users/test/docs/project',
+      lifecycleEpoch: 2,
+    })
+    const rename = handler<(event: any, oldPath: string, newName: string, operation: any) => Promise<any>>('fs:rename')
+
+    await expect(rename(eventFor(1), '/Users/test/docs/project/a.md', 'b.md', {
+      workspaceId: 'workspace-a',
+      lifecycleEpoch: 1,
+    })).rejects.toThrow('工作区已失效')
+  })
+
+  it('rejects watcher registrations with a stale workspace epoch', async () => {
+    mockRealpath.mockImplementation(async (p: string) => p)
+    mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    ctx.windowManager.getWorkspace.mockReturnValue({
+      id: 'workspace-a',
+      primaryRoot: '/Users/test/docs/project',
+      lifecycleEpoch: 2,
+    })
+    const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
+
+    await expect(
+      watchFolder(eventFor(1), '/Users/test/docs/project', 'workspace-a', 1)
+    ).rejects.toThrow('工作区已失效')
+  })
+
+  it('only delivers a directory event to its workspace subscriber', async () => {
+    mockRealpath.mockImplementation(async (p: string) => p)
+    mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    ctx.windowManager.getWorkspace.mockImplementation((...args: unknown[]) => {
+      const workspaceId = args[1] as string
+      return {
+        id: workspaceId,
+        primaryRoot: '/Users/test/docs/project',
+        lifecycleEpoch: workspaceId === 'workspace-a' ? 1 : 2,
+      }
+    })
+    const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
+    const watch = vi.mocked(chokidar.watch)
+    const senderA = { id: 11, send: vi.fn(), isDestroyed: vi.fn(() => false) }
+    const senderB = { id: 12, send: vi.fn(), isDestroyed: vi.fn(() => false) }
+
+    await watchFolder({ sender: senderA }, '/Users/test/docs/project', 'workspace-a', 1)
+    await watchFolder({ sender: senderB }, '/Users/test/docs/project', 'workspace-b', 2)
+    const watcher = watch.mock.results[0].value
+    const changeListener = watcher.on.mock.calls.find(([event]: [string]) => event === 'change')?.[1]
+    changeListener('/Users/test/docs/project/a.md')
+
+    expect(senderA.send).toHaveBeenCalledWith('file:changed', {
+      workspaceId: 'workspace-a', lifecycleEpoch: 1, path: '/Users/test/docs/project/a.md',
+    })
+    expect(senderB.send).toHaveBeenCalledWith('file:changed', {
+      workspaceId: 'workspace-b', lifecycleEpoch: 2, path: '/Users/test/docs/project/a.md',
+    })
+    expect(senderA.send).toHaveBeenCalledTimes(1)
+    expect(senderB.send).toHaveBeenCalledTimes(1)
+
+    const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
+    await unwatchFolder({ sender: senderA }, 'workspace-a', 1)
+    await unwatchFolder({ sender: senderB }, 'workspace-b', 2)
   })
 
   it('creates an individual watcher when an opened Markdown file is deeper than the directory watcher depth', async () => {

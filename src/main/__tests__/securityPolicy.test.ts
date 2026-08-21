@@ -23,4 +23,16 @@ describe('content security policy', () => {
     expect(connectDirective).toContain('https://assets.antv.antgroup.com')
     expect(connectDirective).not.toContain('connect-src *')
   })
+
+  it('allows TTS audio playback via media-src (blob/data) without broadening connect-src to third-party TTS', () => {
+    const policy = createContentSecurityPolicy(false)
+    const mediaDirective = policy.split(';').find(part => part.trim().startsWith('media-src')) || ''
+
+    expect(mediaDirective).toContain('blob:')
+    expect(mediaDirective).toContain('data:')
+    // 第三方 TTS 请求走主进程,connect-src 不应含 openai/azure 等外部端点
+    const connectDirective = policy.split(';').find(part => part.trim().startsWith('connect-src')) || ''
+    expect(connectDirective).not.toContain('openai')
+    expect(connectDirective).not.toContain('azure')
+  })
 })

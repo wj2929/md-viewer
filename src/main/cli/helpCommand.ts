@@ -64,6 +64,7 @@ export function renderHumanHelp(): string {
     '  md-viewer help export --json',
     '  md-viewer open README.md',
     '  md-viewer export README.md --format pdf --out README.pdf',
+    '  md-viewer export ch1.md ch2.md --format pdf --out book.pdf   # 多文件合并(html/pdf/docx)',
     '  md-viewer screenshot README.md --selector ".markdown-body" --out README.png',
     '  md-viewer charts list README.md --json',
     '  md-viewer inspect README.md --json',

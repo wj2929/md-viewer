@@ -3,16 +3,61 @@ import * as fs from 'fs-extra'
 import * as path from 'path'
 import { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
-import { getSenderFolderRoot, validateSenderPath, validateSenderReadPath } from './senderSecurity'
+import { getSenderWorkspaceForOperation, validateSenderReadPath, validateWorkspaceOperationPath } from './senderSecurity'
+import type { WorkspaceOperationContext } from '../../shared/workspace'
 import { activateFolderForWindow, activateHistoryFolderForWindow } from '../folderActivation'
 import { syncClipboardState, getClipboardState } from '../clipboardState'
 import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from '../clipboardManager'
 import * as contextMenuManager from '../contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from '../security/pathValidator'
 import { getCliShimStatus, installCliShim, uninstallCliShim } from '../cliShimInstaller'
+import { isDocumentMarkColor, isMarkdownPath } from '../../shared/documentMarks'
 
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 const MARKDOWN_LINK_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
+
+async function resolveRecentFolderRoot(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  canonicalFilePath: string
+): Promise<string> {
+  const historyRoot = await ctx.folderHistoryManager.findContainingFolder(canonicalFilePath)
+  if (historyRoot) return historyRoot
+
+  const candidateRoots = ctx.windowManager.getAllWindowFolderRoots()
+  for (const root of candidateRoots) {
+    try {
+      await validateSecurePathInBase(canonicalFilePath, root)
+      return await fs.realpath(root)
+    } catch {
+      // 尝试下一个主进程持有的已授权根
+    }
+  }
+
+  throw new Error('安全错误：文件不在可记录的已授权目录内')
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+function toBookmarkSortEntries(bookmarks: unknown): Array<{ id: string; order: number }> {
+  if (!Array.isArray(bookmarks)) {
+    throw new Error('无效的书签排序')
+  }
+
+  return bookmarks.map((bookmark) => {
+    if (!bookmark || typeof bookmark !== 'object') {
+      throw new Error('无效的书签排序')
+    }
+
+    const { id, order } = bookmark as { id?: unknown; order?: unknown }
+    if (typeof id !== 'string' || !isNonNegativeInteger(order)) {
+      throw new Error('无效的书签排序')
+    }
+    return { id, order }
+  })
+}
 
 function isPreviewableFilePath(filePath: string): boolean {
   return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
@@ -98,7 +143,12 @@ function findHeadingLine(markdown: string, headingId: string): number | undefine
   return undefined
 }
 
-async function resolveMarkdownLinkTarget(currentFilePath: string, href: string): Promise<{
+async function resolveMarkdownLinkTarget(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  currentFilePath: string,
+  href: string
+): Promise<{
   success: boolean
   targetPath?: string
   targetLine?: number
@@ -108,14 +158,22 @@ async function resolveMarkdownLinkTarget(currentFilePath: string, href: string):
   const { cleanHref, headingId } = splitMarkdownLinkHref(href)
   if (!cleanHref) return { success: false, error: '链接目标为空' }
 
-  const dir = path.dirname(currentFilePath)
+  const canonicalCurrentFilePath = await validateSenderReadPath(ctx, event, currentFilePath)
+  const dir = path.dirname(canonicalCurrentFilePath)
   const targetPath = path.resolve(dir, cleanHref)
   if (!MARKDOWN_LINK_EXTENSIONS.has(path.extname(targetPath).toLowerCase())) {
     return { success: false, error: '目标不是 Markdown 文件' }
   }
 
+  let canonicalTargetPath: string
   try {
-    const stat = await fs.stat(targetPath)
+    canonicalTargetPath = await validateSenderReadPath(ctx, event, targetPath)
+  } catch {
+    return { success: false, error: '目标文件不在已授权目录内' }
+  }
+
+  try {
+    const stat = await fs.stat(canonicalTargetPath)
     if (!stat.isFile()) return { success: false, error: '目标不是 Markdown 文件' }
   } catch {
     return { success: false, error: '文件不存在' }
@@ -124,13 +182,21 @@ async function resolveMarkdownLinkTarget(currentFilePath: string, href: string):
   let targetLine: number | undefined
   if (headingId) {
     try {
-      targetLine = findHeadingLine(await fs.readFile(targetPath, 'utf8'), headingId)
+      targetLine = findHeadingLine(await fs.readFile(canonicalTargetPath, 'utf8'), headingId)
     } catch {
       targetLine = undefined
     }
   }
 
-  return { success: true, targetPath, targetLine, headingId }
+  return { success: true, targetPath: canonicalTargetPath, targetLine, headingId }
+}
+
+export function sanitizeSettingsUpdates(updates: unknown): Record<string, unknown> {
+  if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+    throw new Error('无效的应用设置')
+  }
+  const { readAloud: _ignored, ...safeUpdates } = updates as Record<string, unknown>
+  return safeUpdates
 }
 
 export function registerDataHandlers(ctx: IPCContext): void {
@@ -139,10 +205,14 @@ export function registerDataHandlers(ctx: IPCContext): void {
 // ============== v1.3 阶段 3：剪贴板状态同步 ==============
 
 // 同步剪贴板状态
-ipcMain.handle('clipboard:sync-state', async (event, files: string[], isCut: boolean) => {
-  const root = getSenderFolderRoot(ctx, event)
+ipcMain.handle('clipboard:sync-state', async (
+  event,
+  files: string[],
+  isCut: boolean,
+  operation: WorkspaceOperationContext
+) => {
   for (const filePath of files) {
-    await validateSecurePathInBase(filePath, root)
+    await validateWorkspaceOperationPath(ctx, event, operation, filePath)
   }
   syncClipboardState(event.sender.id, files, isCut)
 })
@@ -319,20 +389,21 @@ ipcMain.handle('recent-files:activate', async (event, recentId: string) => {
     throw new Error('安全错误：最近文件不存在或当前窗口无效')
   }
 
-  let rootPath = recentFile.folderPath
-  try {
-    await validateSecurePathInBase(recentFile.path, rootPath)
-  } catch {
-    rootPath = path.dirname(recentFile.path)
-  }
-
+  const canonicalFilePath = await validateSenderReadPath(ctx, event, recentFile.path)
+  const rootPath = await resolveRecentFolderRoot(ctx, event, canonicalFilePath)
   const activation = await activateFolderForWindow(ctx, win, rootPath)
-  const canonicalFilePath = await validateSecurePathInBase(recentFile.path, activation.path)
-  return { ...activation, filePath: canonicalFilePath, fileName: path.basename(canonicalFilePath) }
+  const resolvedFilePath = await validateSecurePathInBase(canonicalFilePath, activation.path)
+  return { ...activation, filePath: resolvedFilePath, fileName: path.basename(resolvedFilePath) }
 })
 
-ipcMain.handle('recent-files:add', async (_, file: { path: string; name: string; folderPath: string }) => {
-  await ctx.appDataManager.addRecentFile(file)
+ipcMain.handle('recent-files:add', async (event, file: { path: string; name: string; folderPath: string }) => {
+  const canonicalFilePath = await validateSenderReadPath(ctx, event, file.path)
+  const folderPath = await resolveRecentFolderRoot(ctx, event, canonicalFilePath)
+  await ctx.appDataManager.addRecentFile({
+    path: canonicalFilePath,
+    name: path.basename(canonicalFilePath),
+    folderPath,
+  })
 })
 
 ipcMain.handle('recent-files:remove', async (_, filePath: string) => {
@@ -347,28 +418,46 @@ ipcMain.handle('recent-files:clear', async () => {
 
 // ============== v1.3.6：固定标签管理（按文件夹分组） ==============
 
-ipcMain.handle('pinned-tabs:get-for-folder', async (_, folderPath: string) => {
-  return ctx.appDataManager.getPinnedTabsForFolder(folderPath)
+ipcMain.handle('pinned-tabs:get-for-folder', async (event, folderPath: string) => {
+  const canonicalRoot = await validateSenderReadPath(ctx, event, folderPath)
+  const stats = await fs.stat(canonicalRoot)
+  if (!stats.isDirectory()) {
+    throw new Error('安全错误：目标不是目录')
+  }
+  return ctx.appDataManager.getPinnedTabsForFolder(canonicalRoot)
 })
 
-ipcMain.handle('pinned-tabs:add', async (event, filePath: string) => {
-  const root = getSenderFolderRoot(ctx, event)
-  const canonicalPath = await validateSenderPath(ctx, event, filePath)
-  return ctx.appDataManager.addPinnedTabForFolder(canonicalPath, root)
+ipcMain.handle('pinned-tabs:add', async (
+  event,
+  filePath: string,
+  operation: WorkspaceOperationContext
+) => {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  const canonicalPath = await validateWorkspaceOperationPath(ctx, event, operation, filePath)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  return ctx.appDataManager.addPinnedTabForFolder(canonicalPath, workspace.primaryRoot)
 })
 
-ipcMain.handle('pinned-tabs:remove', async (event, filePath: string) => {
-  const root = getSenderFolderRoot(ctx, event)
-  const canonicalPath = await validateSenderPath(ctx, event, filePath)
-  ctx.appDataManager.removePinnedTabForFolder(canonicalPath, root)
+ipcMain.handle('pinned-tabs:remove', async (
+  event,
+  filePath: string,
+  operation: WorkspaceOperationContext
+) => {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  const canonicalPath = await validateWorkspaceOperationPath(ctx, event, operation, filePath)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  ctx.appDataManager.removePinnedTabForFolder(canonicalPath, workspace.primaryRoot)
 })
 
-ipcMain.handle('pinned-tabs:is-pinned', async (event, filePath: string) => {
-  // 查询类：放宽到任一已授权文件夹，避免跨文件夹分屏时阻断；
-  // 固定分组仍按发起窗口根查询，跨文件夹文件自然返回未固定
-  const root = getSenderFolderRoot(ctx, event)
+ipcMain.handle('pinned-tabs:is-pinned', async (
+  event,
+  filePath: string,
+  operation: WorkspaceOperationContext
+) => {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
   const canonicalPath = await validateSenderReadPath(ctx, event, filePath)
-  return ctx.appDataManager.isTabPinnedInFolder(canonicalPath, root)
+  if (!workspace.primaryRoot) return false
+  return ctx.appDataManager.isTabPinnedInFolder(canonicalPath, workspace.primaryRoot)
 })
 
   // ============== 应用设置管理 ==============
@@ -380,26 +469,62 @@ ipcMain.handle('settings:get', async () => {
 })
 
 ipcMain.handle('settings:update', async (_, updates: Record<string, unknown>) => {
-  ctx.appDataManager.updateSettings(updates)
+  ctx.appDataManager.updateSettings(sanitizeSettingsUpdates(updates))
 })
 
-ipcMain.handle('folder-tree-state:get', async (event) => {
-  const root = getSenderFolderRoot(ctx, event)
-  return ctx.appDataManager.getFolderTreeState(root)
+ipcMain.handle('folder-tree-state:get', async (event, operation: WorkspaceOperationContext) => {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  return ctx.appDataManager.getFolderTreeState(workspace.primaryRoot)
 })
 
-ipcMain.handle('folder-tree-state:save', async (event, folders: Record<string, unknown>) => {
+ipcMain.handle('folder-tree-state:save', async (
+  event,
+  folders: Record<string, unknown>,
+  operation: WorkspaceOperationContext
+) => {
   if (!folders || typeof folders !== 'object' || Array.isArray(folders)) {
     throw new Error('无效的文件树状态')
   }
 
-  const root = getSenderFolderRoot(ctx, event)
-  return ctx.appDataManager.saveFolderTreeState(root, folders)
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  return ctx.appDataManager.saveFolderTreeState(workspace.primaryRoot, folders)
 })
 
-ipcMain.handle('folder-tree-state:clear', async (event) => {
-  const root = getSenderFolderRoot(ctx, event)
-  ctx.appDataManager.clearFolderTreeState(root)
+ipcMain.handle('folder-tree-state:clear', async (event, operation: WorkspaceOperationContext) => {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  ctx.appDataManager.clearFolderTreeState(workspace.primaryRoot)
+})
+
+ipcMain.handle('document-marks:get', async (event, operation: WorkspaceOperationContext) => {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  return ctx.appDataManager.getDocumentMarks(workspace.primaryRoot)
+})
+
+ipcMain.handle('document-marks:set', async (
+  event,
+  filePath: string,
+  color: unknown,
+  operation: WorkspaceOperationContext
+) => {
+  if (color !== null && !isDocumentMarkColor(color)) throw new Error('无效的背景标记色')
+  if (!isMarkdownPath(filePath)) throw new Error('仅支持标记 Markdown 文件')
+
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+  const canonicalPath = await validateSenderReadPath(ctx, event, filePath)
+  const stat = await fs.stat(canonicalPath)
+  if (!stat.isFile()) throw new Error('仅支持标记 Markdown 文件')
+
+  const marks = ctx.appDataManager.setDocumentMark(workspace.primaryRoot, canonicalPath, color)
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
+  if (senderWindow) {
+    ctx.windowManager.broadcastToOthers(senderWindow.id, 'document-marks:changed')
+  }
+  return marks
 })
 
 ipcMain.handle('read-position:get', async (event, filePath: string) => {
@@ -413,14 +538,16 @@ ipcMain.handle('read-position:save', async (event, position: {
   headingId?: string
   updatedAt?: number
   contentHash?: string
+  workspace: WorkspaceOperationContext
 }) => {
-  await validateSenderPath(ctx, event, position.canonicalPath)
-  return ctx.appDataManager.saveReadPosition(position)
+  const canonicalPath = await validateWorkspaceOperationPath(ctx, event, position.workspace, position.canonicalPath)
+  const { workspace: _workspace, ...readPosition } = position
+  return ctx.appDataManager.saveReadPosition({ ...readPosition, canonicalPath })
 })
 
-ipcMain.handle('read-position:clear', async (event, filePath: string) => {
-  await validateSenderPath(ctx, event, filePath)
-  ctx.appDataManager.clearReadPosition(filePath)
+ipcMain.handle('read-position:clear', async (event, filePath: string, operation: WorkspaceOperationContext) => {
+  const canonicalPath = await validateWorkspaceOperationPath(ctx, event, operation, filePath)
+  ctx.appDataManager.clearReadPosition(canonicalPath)
 })
 
   // ============== 搜索历史管理（原子操作） ==============
@@ -462,11 +589,11 @@ ipcMain.handle('bookmarks:activate', async (event, bookmarkId: string) => {
     throw new Error('安全错误：书签不存在或当前窗口无效')
   }
 
-  const rootPath = await ctx.folderHistoryManager.findContainingFolder(bookmark.filePath)
-    ?? path.dirname(bookmark.filePath)
+  const canonicalFilePath = await validateSenderReadPath(ctx, event, bookmark.filePath)
+  const rootPath = await resolveRecentFolderRoot(ctx, event, canonicalFilePath)
   const activation = await activateFolderForWindow(ctx, win, rootPath)
-  const canonicalFilePath = await validateSecurePathInBase(bookmark.filePath, activation.path)
-  return { ...activation, filePath: canonicalFilePath, fileName: path.basename(canonicalFilePath) }
+  const resolvedFilePath = await validateSecurePathInBase(canonicalFilePath, activation.path)
+  return { ...activation, filePath: resolvedFilePath, fileName: path.basename(resolvedFilePath) }
 })
 
 ipcMain.handle('bookmarks:add', async (event, bookmark: {
@@ -477,10 +604,13 @@ ipcMain.handle('bookmarks:add', async (event, bookmark: {
   headingText?: string
   scrollPosition?: number
 }) => {
-  // 安全校验：书签只记录路径引用（写的是书签库，非目标文件），
-  // 用读放宽校验——允许给分屏打开的跨文件夹文件加书签，仍受 realpath 边界 + 受保护路径拦截
-  await validateSenderReadPath(ctx, event, bookmark.filePath)
-  const result = ctx.appDataManager.addBookmark(bookmark)
+  // 书签可以记录分屏中的跨根文件，但书签记录本身绝不授予后续读取权限。
+  const canonicalFilePath = await validateSenderReadPath(ctx, event, bookmark.filePath)
+  const result = ctx.appDataManager.addBookmark({
+    ...bookmark,
+    filePath: canonicalFilePath,
+    fileName: path.basename(canonicalFilePath),
+  })
   // v1.6.0: 广播书签变更到其他窗口
   const senderWindow = BrowserWindow.fromWebContents(event.sender)
   if (senderWindow) {
@@ -496,7 +626,14 @@ ipcMain.handle('bookmarks:update', async (event, id: string, updates: {
   scrollPosition?: number
   order?: number
 }) => {
-  ctx.appDataManager.updateBookmark(id, updates)
+  const allowedUpdates = {
+    ...(typeof updates?.title === 'string' ? { title: updates.title } : {}),
+    ...(typeof updates?.headingId === 'string' ? { headingId: updates.headingId } : {}),
+    ...(typeof updates?.headingText === 'string' ? { headingText: updates.headingText } : {}),
+    ...(typeof updates?.scrollPosition === 'number' ? { scrollPosition: updates.scrollPosition } : {}),
+    ...(isNonNegativeInteger(updates?.order) ? { order: updates.order } : {}),
+  }
+  ctx.appDataManager.updateBookmark(id, allowedUpdates)
   const senderWindow = BrowserWindow.fromWebContents(event.sender)
   if (senderWindow) {
     ctx.windowManager.broadcastToOthers(senderWindow.id, 'bookmarks:changed')
@@ -511,18 +648,20 @@ ipcMain.handle('bookmarks:remove', async (event, id: string) => {
   }
 })
 
-ipcMain.handle('bookmarks:update-all', async (event, bookmarks: Array<{
-  id: string
-  filePath: string
-  fileName: string
-  title?: string
-  headingId?: string
-  headingText?: string
-  scrollPosition?: number
-  createdAt: number
-  order: number
-}>) => {
-  ctx.appDataManager.updateBookmarks(bookmarks)
+ipcMain.handle('bookmarks:update-all', async (event, bookmarks: unknown) => {
+  const sortEntries = toBookmarkSortEntries(bookmarks)
+  const existing = new Map(ctx.appDataManager.getBookmarks().map(bookmark => [bookmark.id, bookmark]))
+  if (sortEntries.length !== existing.size || new Set(sortEntries.map(bookmark => bookmark.id)).size !== existing.size) {
+    throw new Error('无效的书签排序')
+  }
+
+  const reordered = sortEntries.map(({ id, order }) => {
+    if (!existing.has(id)) {
+      throw new Error('无效的书签排序')
+    }
+    return { ...existing.get(id)!, order }
+  })
+  ctx.appDataManager.updateBookmarks(reordered)
   const senderWindow = BrowserWindow.fromWebContents(event.sender)
   if (senderWindow) {
     ctx.windowManager.broadcastToOthers(senderWindow.id, 'bookmarks:changed')
@@ -570,13 +709,13 @@ ipcMain.handle('drop:openPaths', async (event, paths: string[]) => {
 })
 
 // v2.4.0: 内部 Markdown 链接解析 — 仅返回目标，打开前由渲染进程统一处理脏草稿确认
-ipcMain.handle('navigate:resolveMdLink', async (_, currentFilePath: string, href: string) => {
-  return resolveMarkdownLinkTarget(currentFilePath, href)
+ipcMain.handle('navigate:resolveMdLink', async (event, currentFilePath: string, href: string) => {
+  return resolveMarkdownLinkTarget(ctx, event, currentFilePath, href)
 })
 
 // v1.5.1: 内部 .md 链接跳转 — 解析相对路径并打开目标 .md 文件
 ipcMain.handle('navigate:openMdLink', async (event, currentFilePath: string, href: string) => {
-  const result = await resolveMarkdownLinkTarget(currentFilePath, href)
+  const result = await resolveMarkdownLinkTarget(ctx, event, currentFilePath, href)
   const senderWindow = BrowserWindow.fromWebContents(event.sender)
 
   if (!result.success || !result.targetPath) return result

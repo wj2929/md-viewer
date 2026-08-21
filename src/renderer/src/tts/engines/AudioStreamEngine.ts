@@ -1,0 +1,271 @@
+/**
+ * 音频流引擎(edge / 付费 provider 共用)
+ * @module tts/engines/AudioStreamEngine
+ * @description 调主进程 tts:synthesize 拿音频 base64 → blob URL → HTMLAudioElement 播放。
+ * edge 与付费在渲染侧同构(都是"主进程给音频,这里播")。
+ * 关键:预取下一段(look-ahead 1 段)消除段间空白;播完 revokeObjectURL 防内存泄漏;
+ * requestToken 防竞态(迟到的合成结果被丢弃)。
+ */
+
+import type { TtsEngine, TtsEngineError, SpeechSegment } from '../types'
+
+/** 传给主进程合成的 provider 运行时配置(不含 key,key 主进程自取) */
+export interface AudioEngineProvider {
+  providerId: string
+  type: 'edge' | 'openai' | 'azure'
+  voice?: string
+  baseUrl?: string
+  region?: string
+  model?: string
+}
+
+interface PrefetchEntry {
+  index: number
+  promise: Promise<SegmentSynthesisResult>
+}
+
+type SegmentSynthesisResult =
+  | { kind: 'audio'; url: string }
+  | { kind: 'empty' }
+  | { kind: 'aborted' }
+  | { kind: 'error'; error: TtsEngineError }
+
+const EDGE_RETRY_DELAYS_MS = [150, 400]
+
+let uid = 0
+
+export class AudioStreamEngine implements TtsEngine {
+  private segments: SpeechSegment[] = []
+  private index = 0
+  private rate = 1
+  private provider: AudioEngineProvider
+  private audio: HTMLAudioElement | null = null
+  private currentUrl: string | null = null
+  private prefetch: PrefetchEntry | null = null
+  private inFlightRequestIds = new Set<string>()
+  private disposed = false
+  private token = 0
+  private paused = false
+
+  private segmentStartCb: (index: number) => void = () => {}
+  private endCb: () => void = () => {}
+  private errorCb: (e: TtsEngineError) => void = () => {}
+
+  constructor(provider: AudioEngineProvider, rate = 1) {
+    this.provider = provider
+    this.rate = rate
+  }
+
+  play(segments: SpeechSegment[], startIndex: number): void {
+    if (this.disposed) return
+    this.stop()
+    this.segments = segments
+    this.index = Math.max(0, Math.min(startIndex, segments.length - 1))
+    this.paused = false
+    this.token += 1
+    this.playCurrent(this.token)
+  }
+
+  private buildRequestId(): string {
+    uid += 1
+    return `tts-${this.provider.providerId}-${uid}`
+  }
+
+  /** 合成指定段；Edge 瞬时网络错误在段内重试，避免一次抖动降级整次朗读。 */
+  private async synthesizeSegment(index: number, token: number): Promise<SegmentSynthesisResult> {
+    const seg = this.segments[index]
+    if (!seg) return { kind: 'aborted' }
+    const maxRetries = this.provider.type === 'edge' ? EDGE_RETRY_DELAYS_MS.length : 0
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      if (this.disposed || token !== this.token) return { kind: 'aborted' }
+      const requestId = this.buildRequestId()
+      this.inFlightRequestIds.add(requestId)
+      let res: Awaited<ReturnType<typeof window.api.ttsSynthesize>>
+      try {
+        res = await window.api.ttsSynthesize({
+          requestId,
+          providerId: this.provider.providerId,
+          type: this.provider.type,
+          text: seg.text,
+          voice: this.provider.voice,
+          rate: 1,
+          baseUrl: this.provider.baseUrl,
+          region: this.provider.region,
+          model: this.provider.model,
+        })
+      } finally {
+        this.inFlightRequestIds.delete(requestId)
+      }
+      if (res.ok && res.audioBase64) {
+        const blob = base64ToBlob(res.audioBase64, `audio/${res.format || 'mp3'}`)
+        return { kind: 'audio', url: URL.createObjectURL(blob) }
+      }
+      if (res.kind === 'empty') return { kind: 'empty' }
+      if (res.kind === 'aborted') return { kind: 'aborted' }
+      const error = {
+        kind: (res.kind as TtsEngineError['kind']) || 'unknown',
+        message: res.message || '合成失败',
+      }
+      if (error.kind !== 'network' || attempt === maxRetries) return { kind: 'error', error }
+      await delay(EDGE_RETRY_DELAYS_MS[attempt])
+    }
+    return { kind: 'aborted' }
+  }
+
+  private async playCurrent(token: number): Promise<void> {
+    if (this.disposed || token !== this.token) return
+    if (this.index >= this.segments.length) {
+      this.endCb()
+      return
+    }
+
+    // 取当前段音频：优先消费预取结果。预取错误到本段真正开始时才上报，
+    // 不得打断上一段仍在正常播放的音频。
+    let result: SegmentSynthesisResult
+    if (this.prefetch && this.prefetch.index === this.index) {
+      result = await this.prefetch.promise
+      this.prefetch = null
+    } else {
+      result = await this.synthesizeSegment(this.index, token)
+    }
+    if (this.disposed || token !== this.token) {
+      if (result.kind === 'audio') URL.revokeObjectURL(result.url)
+      return
+    }
+    if (result.kind === 'empty') {
+      this.index += 1
+      this.playCurrent(token)
+      return
+    }
+    if (result.kind === 'aborted') return
+    if (result.kind === 'error') {
+      this.errorCb({ ...result.error, segmentIndex: this.index })
+      return
+    }
+    const url = result.url
+
+    // 启动下一段预取(look-ahead 1 段,消除段间空白)
+    const nextIndex = this.index + 1
+    if (nextIndex < this.segments.length) {
+      this.prefetch = {
+        index: nextIndex,
+        promise: this.synthesizeSegment(nextIndex, token),
+      }
+    }
+
+    this.segmentStartCb(this.index)
+
+    const audio = new Audio(url)
+    audio.playbackRate = this.rate // 语速在播放侧实时控制,拖语速立即生效
+    this.currentUrl = url
+    this.audio = audio
+    let failed = false
+    const failPlayback = (): void => {
+      if (failed || this.disposed || token !== this.token || this.audio !== audio) return
+      failed = true
+      this.releaseCurrent()
+      this.discardPrefetch()
+      this.errorCb({ kind: 'unknown', message: '音频播放失败', segmentIndex: this.index })
+    }
+    audio.onended = () => {
+      if (failed || this.disposed || token !== this.token) return
+      this.releaseCurrent()
+      this.index += 1
+      this.playCurrent(token)
+    }
+    audio.onerror = failPlayback
+    try {
+      await audio.play()
+    } catch {
+      failPlayback()
+    }
+  }
+
+  private releaseCurrent(): void {
+    if (this.audio) {
+      this.audio.onended = null
+      this.audio.onerror = null
+      this.audio.pause()
+      this.audio = null
+    }
+    if (this.currentUrl) {
+      URL.revokeObjectURL(this.currentUrl)
+      this.currentUrl = null
+    }
+  }
+
+  private discardPrefetch(): void {
+    if (!this.prefetch) return
+    const promise = this.prefetch.promise
+    this.prefetch = null
+    promise.then((result) => {
+      if (result.kind === 'audio') URL.revokeObjectURL(result.url)
+    }).catch(() => {})
+  }
+
+  private cancelInFlight(): void {
+    for (const requestId of this.inFlightRequestIds) {
+      void window.api.ttsCancel(requestId)
+    }
+    this.inFlightRequestIds.clear()
+  }
+
+  pause(): void {
+    this.paused = true
+    this.audio?.pause()
+  }
+
+  resume(): void {
+    this.paused = false
+    const audio = this.audio
+    const token = this.token
+    if (!audio) return
+    audio.play().catch(() => {
+      if (this.disposed || token !== this.token || this.audio !== audio) return
+      this.releaseCurrent()
+      this.discardPrefetch()
+      this.errorCb({ kind: 'unknown', message: '音频播放失败', segmentIndex: this.index })
+    })
+  }
+
+  stop(): void {
+    this.token += 1 // 使迟到的合成/事件失效
+    this.cancelInFlight()
+    this.releaseCurrent()
+    this.discardPrefetch()
+  }
+
+  setRate(rate: number): void {
+    this.rate = rate
+    // 立即作用到当前正在播的音频(playbackRate 实时变速);预取的下一段用 rate=1 合成,播放时也会套用
+    if (this.audio) this.audio.playbackRate = rate
+  }
+
+  onSegmentStart(cb: (index: number) => void): void {
+    this.segmentStartCb = cb
+  }
+
+  onEnd(cb: () => void): void {
+    this.endCb = cb
+  }
+
+  onError(cb: (e: TtsEngineError) => void): void {
+    this.errorCb = cb
+  }
+
+  dispose(): void {
+    this.disposed = true
+    this.stop()
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function base64ToBlob(base64: string, mime: string): Blob {
+  const bytes = atob(base64)
+  const arr = new Uint8Array(bytes.length)
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+  return new Blob([arr], { type: mime })
+}

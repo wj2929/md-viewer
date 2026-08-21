@@ -8,6 +8,12 @@ import Store from 'electron-store'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../shared/docxStyles'
+import type { ReadAloudSettings } from '../shared/ttsProviders'
+import {
+  isDocumentMarkColor,
+  isMarkdownPath,
+  type DocumentMarkColor,
+} from '../shared/documentMarks'
 
 // ============== 数据接口定义 ==============
 
@@ -58,6 +64,7 @@ export interface PinnedTabsByFolder {
  */
 export interface FolderTreeState {
   folders: Record<string, false>
+  marks?: Record<string, DocumentMarkColor>
   updatedAt: number
 }
 
@@ -97,6 +104,8 @@ export interface AppSettings {
   bookmarkPanelWidth: number     // 书签面板宽度
   bookmarkPanelCollapsed: boolean // 书签面板是否折叠
   bookmarkBarCollapsed: boolean   // 书签栏是否折叠（v1.3.6）
+  sidebarWidth?: number           // 左侧文档树展开宽度
+  sidebarCollapsed?: boolean      // 左侧文档树是否收缩
   maxRecentFiles?: number         // 最近文件上限（v1.5.2）
   maxFolderHistory?: number       // 文件夹历史上限（v1.5.2）
   showExportBranding?: boolean    // 导出文件显示署名（v1.5.3），默认 true
@@ -113,6 +122,7 @@ export interface AppSettings {
     localFallbackEnabled: boolean
     referenceDocxPath?: string
   }
+  readAloud?: ReadAloudSettings  // v2.7.0：语音朗读设置(多 provider)
 }
 
 /**
@@ -136,6 +146,7 @@ const MAX_PINNED_TABS_PER_FOLDER = 15       // 每个文件夹最多固定标签
 const MAX_FOLDERS_WITH_PINNED = 50          // 最多保留多少个文件夹的固定标签
 const MAX_FOLDERS_WITH_TREE_STATE = 50
 const MAX_COLLAPSED_FOLDERS_PER_ROOT = 1000
+const MAX_DOCUMENT_MARKS_PER_ROOT = 1000
 const MAX_READ_POSITIONS = 500
 const VALIDATE_TIMEOUT = 1000 // 路径验证超时（毫秒）
 
@@ -169,7 +180,9 @@ class AppDataManager {
           autoSave: true,
           bookmarkPanelWidth: 240,
           bookmarkPanelCollapsed: true,
-          bookmarkBarCollapsed: true
+          bookmarkBarCollapsed: true,
+          sidebarWidth: 280,
+          sidebarCollapsed: false
         }
       }
     })
@@ -442,6 +455,122 @@ class AppDataManager {
     return next
   }
 
+  private sanitizeDocumentMarks(marks: Record<string, unknown>): Record<string, DocumentMarkColor> {
+    const next: Record<string, DocumentMarkColor> = {}
+
+    for (const [rawTreePath, color] of Object.entries(marks)) {
+      if (!isDocumentMarkColor(color)) continue
+      const treePath = this.normalizeTreePath(rawTreePath)
+      if (!treePath || !isMarkdownPath(treePath)) continue
+
+      next[treePath] = color
+      if (Object.keys(next).length >= MAX_DOCUMENT_MARKS_PER_ROOT) break
+    }
+
+    return next
+  }
+
+  private documentTreePath(rootFolderPath: string, targetPath: string): string {
+    const root = this.normalizeFolderTreeRoot(rootFolderPath)
+    const relativePath = path.relative(root, path.resolve(targetPath)).split(path.sep).join('/')
+    const treePath = this.normalizeTreePath(relativePath)
+    if (!treePath) throw new Error('文件不在当前工作区内')
+    return treePath
+  }
+
+  private saveDocumentMarks(rootFolderPath: string, marks: Record<string, DocumentMarkColor>): void {
+    const root = this.normalizeFolderTreeRoot(rootFolderPath)
+    const states = this.store.get('folderTreeStates', {})
+    const current = states[root]
+    const folders = this.sanitizeFolderTreeFolders(current?.folders || {})
+
+    if (Object.keys(marks).length === 0 && Object.keys(folders).length === 0) {
+      if (!current) return
+      const nextStates = { ...states }
+      delete nextStates[root]
+      this.store.set('folderTreeStates', nextStates)
+      return
+    }
+
+    this.store.set('folderTreeStates', this.pruneFolderTreeStates({
+      ...states,
+      [root]: { folders, marks, updatedAt: Date.now() }
+    }))
+  }
+
+  getDocumentMarks(rootFolderPath: string): Record<string, DocumentMarkColor> {
+    const root = this.normalizeFolderTreeRoot(rootFolderPath)
+    const state = this.store.get('folderTreeStates', {})[root]
+    return this.sanitizeDocumentMarks(state?.marks || {})
+  }
+
+  setDocumentMark(
+    rootFolderPath: string,
+    filePath: string,
+    color: DocumentMarkColor | null
+  ): Record<string, DocumentMarkColor> {
+    const treePath = this.documentTreePath(rootFolderPath, filePath)
+    if (!isMarkdownPath(treePath)) throw new Error('仅支持标记 Markdown 文件')
+    if (color !== null && !isDocumentMarkColor(color)) throw new Error('无效的背景标记色')
+
+    const marks = this.getDocumentMarks(rootFolderPath)
+    if (color === null) {
+      delete marks[treePath]
+    } else {
+      if (!Object.hasOwn(marks, treePath) && Object.keys(marks).length >= MAX_DOCUMENT_MARKS_PER_ROOT) {
+        throw new Error('当前工作区的背景标记已达 1000 项上限')
+      }
+      marks[treePath] = color
+    }
+    this.saveDocumentMarks(rootFolderPath, marks)
+    return marks
+  }
+
+  removeDocumentMarks(rootFolderPath: string, targetPath: string, isDirectory = false): boolean {
+    const treePath = this.documentTreePath(rootFolderPath, targetPath)
+    const marks = this.getDocumentMarks(rootFolderPath)
+    const prefix = `${treePath}/`
+    let changed = false
+
+    for (const markedPath of Object.keys(marks)) {
+      if (markedPath === treePath || (isDirectory && markedPath.startsWith(prefix))) {
+        delete marks[markedPath]
+        changed = true
+      }
+    }
+    if (changed) this.saveDocumentMarks(rootFolderPath, marks)
+    return changed
+  }
+
+  relocateDocumentMarks(
+    rootFolderPath: string,
+    oldPath: string,
+    newPath: string,
+    isDirectory = false
+  ): boolean {
+    const oldTreePath = this.documentTreePath(rootFolderPath, oldPath)
+    const newTreePath = this.documentTreePath(rootFolderPath, newPath)
+    const marks = this.getDocumentMarks(rootFolderPath)
+    const prefix = `${oldTreePath}/`
+    const moves: Array<[string, string, DocumentMarkColor]> = []
+
+    for (const [markedPath, color] of Object.entries(marks)) {
+      if (markedPath === oldTreePath) {
+        moves.push([markedPath, newTreePath, color])
+      } else if (isDirectory && markedPath.startsWith(prefix)) {
+        moves.push([markedPath, `${newTreePath}/${markedPath.slice(prefix.length)}`, color])
+      }
+    }
+    if (moves.length === 0) return false
+
+    for (const [source] of moves) delete marks[source]
+    for (const [, destination, color] of moves) {
+      if (isMarkdownPath(destination)) marks[destination] = color
+    }
+    this.saveDocumentMarks(rootFolderPath, marks)
+    return true
+  }
+
   /**
    * 截断根目录状态数量
    */
@@ -475,10 +604,13 @@ class AppDataManager {
     const root = this.normalizeFolderTreeRoot(rootFolderPath)
     const sanitizedFolders = this.sanitizeFolderTreeFolders(folders)
     const states = this.store.get('folderTreeStates', {})
+    const current = states[root]
+    const marks = this.sanitizeDocumentMarks(current?.marks || {})
     const nextStates = this.pruneFolderTreeStates({
       ...states,
       [root]: {
         folders: sanitizedFolders,
+        marks,
         updatedAt: Date.now()
       }
     })
@@ -493,7 +625,17 @@ class AppDataManager {
   clearFolderTreeState(rootFolderPath: string): void {
     const root = this.normalizeFolderTreeRoot(rootFolderPath)
     const states = this.store.get('folderTreeStates', {})
-    if (!states[root]) return
+    const current = states[root]
+    if (!current) return
+
+    const marks = this.sanitizeDocumentMarks(current.marks || {})
+    if (Object.keys(marks).length > 0) {
+      this.store.set('folderTreeStates', {
+        ...states,
+        [root]: { folders: {}, marks, updatedAt: Date.now() }
+      })
+      return
+    }
 
     const nextStates = { ...states }
     delete nextStates[root]

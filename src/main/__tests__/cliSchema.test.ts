@@ -23,6 +23,9 @@ describe('CLI schemas', () => {
       command: 'export',
       positional: [{ name: 'input', required: true }],
     })
+    // 多文件合并:export 的 input 标为 variadic,description 说明可传多个
+    expect(getCommandSchema('export')?.positional[0].variadic).toBe(true)
+    expect(getCommandSchema('export')?.positional[0].description).toContain('多个')
     expect(getCommandSchema('export')?.flags.format.enum).toEqual(['html', 'pdf', 'docx'])
     expect(getCommandSchema('export')?.flags['docx-service']).toMatchObject({
       type: 'string',

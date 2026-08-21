@@ -257,6 +257,62 @@ describe('AppDataManager', () => {
     })
   })
 
+  describe('文档背景标记', () => {
+    it('按工作区相对路径保存、改色和取消', () => {
+      const root = '/workspace/document-marks'
+      const file = path.join(root, 'docs', 'plan.md')
+
+      expect(appDataManager.setDocumentMark(root, file, 'yellow')).toEqual({
+        'docs/plan.md': 'yellow'
+      })
+      expect(appDataManager.setDocumentMark(root, file, 'blue')).toEqual({
+        'docs/plan.md': 'blue'
+      })
+      expect(appDataManager.setDocumentMark(root, file, null)).toEqual({})
+    })
+
+    it('拒绝越界路径、非 Markdown 和未知颜色', () => {
+      const root = '/workspace/document-marks-safe'
+      expect(() => appDataManager.setDocumentMark(root, '/outside/file.md', 'red')).toThrow()
+      expect(() => appDataManager.setDocumentMark(root, path.join(root, 'file.txt'), 'red')).toThrow()
+      expect(() => appDataManager.setDocumentMark(root, path.join(root, 'file.md'), '#fff' as any)).toThrow()
+    })
+
+    it('保存或清除折叠状态不应删除背景标记', () => {
+      const root = '/workspace/document-marks-tree-state'
+      appDataManager.setDocumentMark(root, path.join(root, 'notes.md'), 'green')
+      appDataManager.saveFolderTreeState(root, { docs: false })
+      appDataManager.clearFolderTreeState(root)
+
+      expect(appDataManager.getDocumentMarks(root)).toEqual({ 'notes.md': 'green' })
+    })
+
+    it('文件和目录移动时迁移标记，删除目录时清理后代', () => {
+      const root = '/workspace/document-marks-lifecycle'
+      appDataManager.setDocumentMark(root, path.join(root, 'old.md'), 'red')
+      appDataManager.setDocumentMark(root, path.join(root, 'docs', 'nested.md'), 'purple')
+
+      expect(appDataManager.relocateDocumentMarks(
+        root,
+        path.join(root, 'old.md'),
+        path.join(root, 'new.md')
+      )).toBe(true)
+      expect(appDataManager.relocateDocumentMarks(
+        root,
+        path.join(root, 'docs'),
+        path.join(root, 'archive'),
+        true
+      )).toBe(true)
+      expect(appDataManager.getDocumentMarks(root)).toEqual({
+        'new.md': 'red',
+        'archive/nested.md': 'purple'
+      })
+
+      expect(appDataManager.removeDocumentMarks(root, path.join(root, 'archive'), true)).toBe(true)
+      expect(appDataManager.getDocumentMarks(root)).toEqual({ 'new.md': 'red' })
+    })
+  })
+
   describe('阅读位置', () => {
     it('应该按规范化路径保存和读取阅读位置', () => {
       const saved = appDataManager.saveReadPosition({

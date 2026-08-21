@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { FileInfo } from './FileTree'
 
 export interface Tab {
@@ -20,9 +20,10 @@ interface TabBarProps {
   bookmarkBarCollapsed?: boolean
   bookmarkCount?: number
   onShowBookmarkBar?: () => void
+  leading?: ReactNode
 }
 
-export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, onTabUnpin, basePath, bookmarkBarCollapsed, bookmarkCount, onShowBookmarkBar }: TabBarProps): JSX.Element {
+export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, onTabUnpin, basePath, bookmarkBarCollapsed, bookmarkCount, onShowBookmarkBar, leading }: TabBarProps): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   const moreMenuRef = useRef<HTMLDivElement>(null)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -69,40 +70,18 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
     onTabClose(tab.id)
   }, [onTabClose])
 
-  // v1.3.6 Day 7.6：无标签时，如果没有书签，完全不渲染（避免空 TabBar）
-  if (tabs.length === 0) {
-    // 只有书签数量 > 0 时才显示触发按钮
-    if (!bookmarkBarCollapsed || !bookmarkCount || bookmarkCount === 0) {
-      return <></>  // 完全不渲染
-    }
-
-    return (
-      <div className="tabs">
-        {/* 书签触发按钮（折叠状态显示） */}
-        <button
-          className="tab-bar-bookmark-trigger"
-          onClick={onShowBookmarkBar}
-          title={`显示书签栏 (${bookmarkCount} 个书签)`}
-          aria-label="显示书签栏"
-          aria-expanded="false"
-        >
-          <span className="tab-bar-bookmark-icon">⭐</span>
-          <span className="tab-bar-bookmark-badge">{bookmarkCount}</span>
-        </button>
-      </div>
-    )
-  }
-
-  // v1.3.6：对标签排序，固定的在前面
-  const sortedTabs = [...tabs].sort((a, b) => {
-    if (a.isPinned && !b.isPinned) return -1
-    if (!a.isPinned && b.isPinned) return 1
-    return 0
-  })
+  // 空 Tab 仍要让 hooks 在每次 render 按相同顺序执行；否则打开首个文件时会触发 Hook 数量变化。
+  const isEmpty = tabs.length === 0
+  const sortedTabs = isEmpty
+    ? []
+    : [...tabs].sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1
+        if (!a.isPinned && b.isPinned) return 1
+        return 0
+      })
 
   const handleCloseClick = (e: React.MouseEvent, tab: Tab) => {
     e.stopPropagation()
-    // v1.3.6：固定标签不显示关闭按钮，但如果点击了也要处理
     if (tab.isPinned) return
     onTabClose(tab.id)
   }
@@ -175,8 +154,13 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
     }
   }, [showMoreMenu])
 
+  if (isEmpty && !leading && (!bookmarkBarCollapsed || !bookmarkCount || bookmarkCount === 0)) {
+    return <></>
+  }
+
   return (
     <div className="tabs">
+      {leading}
       {scrollState.hasOverflow && (
         <button
           type="button"
