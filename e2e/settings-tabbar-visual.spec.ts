@@ -27,7 +27,7 @@ test.describe('设置面板与多标签栏视觉 smoke', () => {
     expect(panelBox!.width).toBeGreaterThanOrEqual(630)
     await page.locator('.settings-panel').screenshot({ path: join(OUT_DIR, 'settings-appearance.png') })
 
-    for (const tabName of ['浏览', '导出', '图表', '系统', '关于']) {
+    for (const tabName of ['浏览', '导出', '图表', '朗读', '系统', '关于']) {
       await page.getByRole('tab', { name: tabName }).click()
       await expect(page.getByRole('tabpanel', { name: tabName })).toBeVisible()
       await page.locator('.settings-panel').screenshot({
