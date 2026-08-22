@@ -149,6 +149,14 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
                       key={item.id}
                       className="history-item"
                       onClick={() => handleSelect(item.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        window.api.showRecentFolderContextMenu({
+                          historyId: item.id,
+                          name: item.name
+                        })
+                      }}
                     >
                       <div className="history-info">
                         <span className="history-icon">📁</span>

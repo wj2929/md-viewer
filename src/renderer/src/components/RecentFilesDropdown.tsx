@@ -74,6 +74,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
     e.preventDefault()
     e.stopPropagation()
     window.api.showRecentFileContextMenu({
+      id: file.id,
       filePath: file.path,
       fileName: file.name
     })

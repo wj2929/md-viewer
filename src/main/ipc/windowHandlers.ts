@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import { IPCContext } from './context'
-import { activateFolderForWindow } from '../folderActivation'
+import { openFolderInNewWindow } from '../folderActivation'
 import { validateSenderReadPath } from './senderSecurity'
 import { workspaceTransferCoordinator, type WorkspaceTransferSnapshot } from '../workspaceTransferCoordinator'
 import { workspaceSessionStore, type DesktopSessionRuntimeWindow } from '../workspaceSessionStore'
@@ -551,15 +551,7 @@ export function registerWindowHandlers(ctx: IPCContext): void {
     }
 
     const folderPath = result.filePaths[0]
-    const win = ctx.windowManager.createWindow()
-
-    ctx.windowManager.addPendingAction(win.id, () => {
-      activateFolderForWindow(ctx, win, folderPath, { notifyRenderer: true }).catch((error) => {
-        console.error('[newWindowWithFolder] Failed to activate folder:', error)
-      })
-    })
-
-    return win.id
+    return openFolderInNewWindow(ctx, folderPath)
   })
 
   // 获取窗口数量

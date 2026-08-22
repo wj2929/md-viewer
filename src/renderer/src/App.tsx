@@ -1,7 +1,8 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, ReadAloudBar, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel, MoveToDialog, WorkspaceSwitcher, WorkspaceImportControl } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, ReadAloudBar, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel, MoveToDialog, WorkspaceSwitcher, WorkspaceImportControl, LoadingPlaceholder } from './components'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves, reconcileSplitState } from './utils/splitTree'
 import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
+import { ensureTabContentLoaded } from './utils/ensureTabContentLoaded'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
@@ -290,22 +291,18 @@ function App(): React.JSX.Element {
         for (const restored of bootstrap.restoredRuntime.workspaces) {
           const workspace = descriptors.find((item) => item.id === restored.id)
           if (!workspace?.primaryRoot) continue
-          const restoredTabs: Tab[] = []
-          for (const tab of restored.tabs) {
-            const separator = workspace.primaryRoot.endsWith('/') || workspace.primaryRoot.endsWith('\\') ? '' : '/'
-            const filePath = `${workspace.primaryRoot}${separator}${tab.relativePath}`
-            try {
-              const content = await readPreviewContentWithCache(filePath)
-              restoredTabs.push({
-                id: tab.id,
-                file: { name: filePath.split(/[/\\]/).pop() || '', path: filePath, isDirectory: false },
-                content,
-                isPinned: tab.isPinned,
-              })
-            } catch {
-              // 启动恢复中失效文件由安全回退跳过。
+          const root = workspace.primaryRoot
+          // 懒加载：恢复时只建壳 tab（content=null），激活或进入分屏叶子时才读盘
+          const restoredTabs: Tab[] = restored.tabs.map((tab) => {
+            const separator = root.endsWith('/') || root.endsWith('\\') ? '' : '/'
+            const filePath = `${root}${separator}${tab.relativePath}`
+            return {
+              id: tab.id,
+              file: { name: filePath.split(/[/\\]/).pop() || '', path: filePath, isDirectory: false },
+              content: null,
+              isPinned: tab.isPinned,
             }
-          }
+          })
           const validTabIds = new Set(restoredTabs.map((tab) => tab.id))
           saveRuntime(restored.id, {
             folderPath: workspace.primaryRoot,
@@ -411,17 +408,13 @@ function App(): React.JSX.Element {
           const prepared = []
           for (const snapshot of snapshots) {
             const remapped = remapImportedWorkspaceSnapshot({ ...snapshot, splitState: snapshot.splitState as SplitState }, `${nonce}-${snapshot.workspaceId}`)
-            const importedTabs: Tab[] = []
-            for (const tab of snapshot.tabs) {
-              try {
-                importedTabs.push({
-                  id: remapped.tabIds.get(tab.id)!,
-                  file: { name: getFileNameFromPath(tab.filePath), path: tab.filePath, isDirectory: false },
-                  content: await readPreviewContentWithCache(tab.filePath),
-                  isPinned: tab.isPinned,
-                })
-              } catch { /* 失效文件在 reconcile 中移除。 */ }
-            }
+            // 懒加载：接收方也只建壳 tab，激活或进入分屏叶子时才读盘
+            const importedTabs: Tab[] = snapshot.tabs.map((tab) => ({
+              id: remapped.tabIds.get(tab.id)!,
+              file: { name: getFileNameFromPath(tab.filePath), path: tab.filePath, isDirectory: false },
+              content: null,
+              isPinned: tab.isPinned,
+            }))
             const validTabIds = new Set(importedTabs.map((tab) => tab.id))
             prepared.push({ snapshot, tabs: importedTabs, activeTabId: remapped.activeTabId && validTabIds.has(remapped.activeTabId) ? remapped.activeTabId : importedTabs[0]?.id ?? null, splitState: reconcileSplitState(remapped.splitState, validTabIds) })
           }
@@ -497,20 +490,13 @@ function App(): React.JSX.Element {
         try {
           const snapshot = await window.api.consumeWorkspaceTransferSnapshot(nonce)
           const remapped = remapImportedWorkspaceSnapshot({ ...snapshot, splitState: snapshot.splitState as SplitState }, nonce)
-          const tabs: Tab[] = []
-          for (const tab of snapshot.tabs) {
-            try {
-              const content = await readPreviewContentWithCache(tab.filePath)
-              tabs.push({
-                id: remapped.tabIds.get(tab.id)!,
-                file: { name: tab.filePath.split(/[/\\]/).pop() || '', path: tab.filePath, isDirectory: false },
-                content,
-                isPinned: tab.isPinned,
-              })
-            } catch {
-              // 文件已失效时跳过；后续 reconcile 会移除其分屏叶子。
-            }
-          }
+          // 懒加载：接收方只建壳 tab，激活或进入分屏叶子时才读盘
+          const tabs: Tab[] = snapshot.tabs.map((tab) => ({
+            id: remapped.tabIds.get(tab.id)!,
+            file: { name: tab.filePath.split(/[/\\]/).pop() || '', path: tab.filePath, isDirectory: false },
+            content: null,
+            isPinned: tab.isPinned,
+          }))
           const validTabIds = new Set(tabs.map((tab) => tab.id))
           const splitState = reconcileSplitState(remapped.splitState, validTabIds)
           await window.api.stageWorkspaceTransfer(nonce)
@@ -876,19 +862,13 @@ function App(): React.JSX.Element {
       try {
         const pinnedTabs = await window.api.getPinnedTabsForFolder(activation.path)
         if (pinnedTabs.length > 0) {
-          const newTabs: Tab[] = []
-          for (const pinned of pinnedTabs) {
-            try {
-              const content = await readPreviewContentWithCache(pinned.path)
-              const fileName = pinned.path.split(/[/\\]/).pop() || ''
-              newTabs.push({
-                id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                file: { name: fileName, path: pinned.path, isDirectory: false },
-                content,
-                isPinned: true
-              })
-            } catch { /* 忽略 */ }
-          }
+          // 懒加载：固定标签建壳，激活时才读盘
+          const newTabs: Tab[] = pinnedTabs.map((pinned) => ({
+            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file: { name: pinned.path.split(/[/\\]/).pop() || '', path: pinned.path, isDirectory: false },
+            content: null,
+            isPinned: true
+          }))
           if (newTabs.length > 0) {
             setTabs(prev => [...prev, ...newTabs])
             // 新窗口可能同时收到 open-specific-file；目录恢复不能在异步完成后
@@ -910,21 +890,13 @@ function App(): React.JSX.Element {
     try {
       const pinnedTabs = await window.api.getPinnedTabsForFolder(targetFolderPath)
       if (pinnedTabs.length === 0) return
-      const newTabs: Tab[] = []
-      for (const pinned of pinnedTabs) {
-        try {
-          const content = await readPreviewContentWithCache(pinned.path)
-          const fileName = pinned.path.split(/[/\\]/).pop() || ''
-          newTabs.push({
-            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            file: { name: fileName, path: pinned.path, isDirectory: false },
-            content,
-            isPinned: true
-          })
-        } catch (err) {
-          console.warn('[App] Failed to restore pinned tab:', pinned.path, err)
-        }
-      }
+      // 懒加载：固定标签建壳，激活时才读盘
+      const newTabs: Tab[] = pinnedTabs.map((pinned) => ({
+        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file: { name: pinned.path.split(/[/\\]/).pop() || '', path: pinned.path, isDirectory: false },
+        content: null,
+        isPinned: true
+      }))
       if (newTabs.length > 0) {
         let firstAddedTabId: string | null = null
         setTabs(prev => {
@@ -953,6 +925,68 @@ function App(): React.JSX.Element {
     setTabs(prev => prev.filter(tab => tab.isPinned || splitTabIds.has(tab.id)))
   }, [setTabs])
 
+  // v2.8.0：切走当前文件夹前，把实时 tab 列表 + 当前文档归档到 folderTabSessions。
+  // 必须在触发切换的 activation IPC（会替换主进程工作区根）之前调用，否则旧路径会按新根校验被拒。
+  const archiveCurrentFolderTabs = useCallback(async () => {
+    const oldFolderPath = useFileStore.getState().folderPath
+    if (!oldFolderPath) return
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
+    const currentTabs = tabsRef.current
+    const activeId = useTabStore.getState().activeTabId
+    const activeTab = currentTabs.find(tab => tab.id === activeId)
+    try {
+      await window.api.saveFolderTabSession(
+        {
+          tabs: currentTabs.map(tab => ({ filePath: tab.file.path, isPinned: tab.isPinned })),
+          activeFilePath: activeTab?.file.path ?? null,
+        },
+        operation
+      )
+    } catch (error) {
+      console.error('[App] Failed to archive folder tab session:', error)
+    }
+  }, [])
+
+  // v2.8.0：切回文件夹时，用归档的 tab 会话重建壳 tab（content=null，懒加载）。
+  // 无归档则回退到固定标签恢复。active 采用归档的当前文档；isPinned 以 pinned store 为权威校正。
+  const restoreFolderTabSession = useCallback(async (targetFolderPath: string) => {
+    try {
+      const session = await window.api.getFolderTabSession(targetFolderPath)
+      if (session.tabs.length === 0) {
+        await restorePinnedTabs(targetFolderPath)
+        return
+      }
+      const pinnedTabs = await window.api.getPinnedTabsForFolder(targetFolderPath)
+      const pinnedPaths = new Set(pinnedTabs.map(tab => tab.path))
+      const shellTabs: Tab[] = session.tabs.map(entry => ({
+        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file: { name: entry.path.split(/[/\\]/).pop() || '', path: entry.path, isDirectory: false },
+        content: null,
+        isPinned: pinnedPaths.has(entry.path),
+      }))
+      const targetActivePath = session.activePath ?? session.tabs[0]?.path ?? null
+      let activeId: string | null = null
+      setTabs(prev => {
+        const existingPaths = new Set(prev.map(tab => tab.file.path))
+        const merged = [...prev]
+        for (const shell of shellTabs) {
+          if (existingPaths.has(shell.file.path)) continue
+          existingPaths.add(shell.file.path)
+          merged.push(shell)
+        }
+        if (targetActivePath) {
+          activeId = merged.find(tab => tab.file.path === targetActivePath)?.id ?? null
+        }
+        return merged
+      })
+      if (activeId) setActiveTabId(activeId)
+    } catch (error) {
+      console.error('[App] Failed to restore folder tab session:', error)
+      await restorePinnedTabs(targetFolderPath)
+    }
+  }, [restorePinnedTabs])
+
   const refreshExistingTabContent = useCallback(async (tab: Tab, loadContent: () => Promise<string>, errorPrefix = '无法打开文件') => {
     const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
     setActiveTabId(tab.id)
@@ -974,6 +1008,8 @@ function App(): React.JSX.Element {
 
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
+    if (!confirmLeaveDirtyActiveTab()) return
+    await archiveCurrentFolderTabs()
     try {
       const activation = await window.api.openFolder()
       if (activation) {
@@ -984,15 +1020,17 @@ function App(): React.JSX.Element {
         setFolderPath(activation.path)
         keepPinnedAndSplitTabsForFolderSwitch()
         setActiveTabId(null)
-        await restorePinnedTabs(activation.path)
+        await restoreFolderTabSession(activation.path)
       }
     } catch (error) {
       console.error('Failed to open folder:', error)
     }
-  }, [keepPinnedAndSplitTabsForFolderSwitch, restorePinnedTabs, upsertWorkspace])
+  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedAndSplitTabsForFolderSwitch, restoreFolderTabSession, upsertWorkspace])
 
   // 从历史选择文件夹
   const handleSelectHistoryFolder = useCallback(async (historyId: string) => {
+    if (!confirmLeaveDirtyActiveTab()) return
+    await archiveCurrentFolderTabs()
     const activation = await window.api.activateHistoryFolder(historyId)
     upsertWorkspace({
       ...activation.workspace,
@@ -1001,11 +1039,13 @@ function App(): React.JSX.Element {
     setFolderPath(activation.path)
     keepPinnedAndSplitTabsForFolderSwitch()
     setActiveTabId(null)
-    await restorePinnedTabs(activation.path)
-  }, [keepPinnedAndSplitTabsForFolderSwitch, restorePinnedTabs, upsertWorkspace])
+    await restoreFolderTabSession(activation.path)
+  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedAndSplitTabsForFolderSwitch, restoreFolderTabSession, upsertWorkspace])
 
   // 从主进程持有的最近文件记录激活；renderer 不再推导或授权根目录。
   const handleSelectRecentFile = useCallback(async (recentId: string) => {
+    if (!confirmLeaveDirtyActiveTab()) return
+    await archiveCurrentFolderTabs()
     try {
       const activation = await window.api.activateRecentFile(recentId)
       upsertWorkspace({
@@ -1015,21 +1055,35 @@ function App(): React.JSX.Element {
       setFolderPath(activation.path)
       keepPinnedAndSplitTabsForFolderSwitch()
       setActiveTabId(null)
+      await restoreFolderTabSession(activation.path)
 
+      // 刚点击的最近文件始终覆盖归档 active：确保它有 tab 并激活 + 预热内容
       const pinnedTabs = await window.api.getPinnedTabsForFolder(activation.path)
-      const content = await readPreviewContentWithCache(activation.filePath)
-      const newTab: Tab = {
-        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        file: { name: activation.fileName, path: activation.filePath, isDirectory: false },
-        content,
-        isPinned: pinnedTabs.some(tab => tab.path === activation.filePath)
+      const isPinned = pinnedTabs.some(tab => tab.path === activation.filePath)
+      let targetId: string | null = null
+      setTabs(prev => {
+        const existing = prev.find(tab => tab.file.path === activation.filePath)
+        if (existing) {
+          targetId = existing.id
+          return prev
+        }
+        const shell: Tab = {
+          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file: { name: activation.fileName, path: activation.filePath, isDirectory: false },
+          content: null,
+          isPinned,
+        }
+        targetId = shell.id
+        return [...prev, shell]
+      })
+      if (targetId) {
+        setActiveTabId(targetId)
+        void ensureTabContentLoaded(targetId)
       }
-      setTabs(prev => prev.some(tab => tab.file.path === activation.filePath) ? prev : [...prev, newTab])
-      setActiveTabId(newTab.id)
     } catch (error) {
       toast.error(`无法打开最近文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [keepPinnedAndSplitTabsForFolderSwitch, toast, upsertWorkspace])
+  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedAndSplitTabsForFolderSwitch, restoreFolderTabSession, toast, upsertWorkspace])
 
   // 加载文件列表
   useEffect(() => {
@@ -1301,8 +1355,22 @@ function App(): React.JSX.Element {
   const activeQuickEditSession = activeTab ? findEditSessionForPath(editSessions, activeTab.file.path) : undefined
   const activeQuickEditTarget = quickEditPlacements.single || null
   const activeQuickEditCanonicalPath = activeQuickEditTarget?.canonicalPath || null
-  const activePreviewContent = activeTab ? activeQuickEditSession?.draft ?? activeTab.content : ''
+  const activeRawContent = activeTab ? (activeQuickEditSession?.draft ?? activeTab.content) : ''
+  const isActiveContentLoading = activeTab != null && activeRawContent == null
+  const activePreviewContent = activeRawContent ?? ''
   const isActiveDraftPreview = Boolean(activeQuickEditSession?.dirty)
+
+  // 懒加载触发：当且仅当某 tab 是活动 tab 或出现在分屏叶子中时，才读入其内容
+  useEffect(() => {
+    const ids = new Set<string>()
+    if (activeTabId) ids.add(activeTabId)
+    if (splitState.root) {
+      for (const leaf of getAllLeaves(splitState.root)) {
+        if (leaf.tabId) ids.add(leaf.tabId)
+      }
+    }
+    for (const id of ids) void ensureTabContentLoaded(id)
+  }, [activeTabId, splitState, tabs])
 
   const updateTabsForEditSession = useCallback((session: EditSession, content: string) => {
     setTabs(prev => prev.map(tab =>
@@ -1640,7 +1708,8 @@ function App(): React.JSX.Element {
       }
       const currentTabs = tabsRef.current
       const affectedTab = currentTabs.find(tab => tab.file.path === changedPath)
-      if (affectedTab) {
+      if (affectedTab && affectedTab.content !== null) {
+        // 壳 tab（content===null）尚未 materialize，不 eager 回写；激活时会读到最新内容
         try {
           const newContent = await window.api.readFile(changedPath)
           setTabs(prev => prev.map(tab => tab.file.path === changedPath ? { ...tab, content: newContent } : tab))
@@ -1683,7 +1752,7 @@ function App(): React.JSX.Element {
         } catch (error) {
           console.error('Failed to reload clean edit session after add:', error)
         }
-      } else if (affectedTab && !editSession?.dirty) {
+      } else if (affectedTab && affectedTab.content !== null && !editSession?.dirty) {
         try {
           const newContent = await window.api.readFile(addedPath)
           setTabs(prev => prev.map(tab => tab.file.path === addedPath ? { ...tab, content: newContent } : tab))
@@ -1730,18 +1799,24 @@ function App(): React.JSX.Element {
       }
       const affectedTab = tabsRef.current.find(tab => tab.file.path === oldPath)
       if (affectedTab && !dirtySession?.dirty) {
-        try {
-          const newContent = await window.api.readFile(newPath)
-          setTabs(prev => prev.map(tab => tab.file.path === oldPath
-            ? { ...tab, content: newContent, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
-            : tab
-          ))
-        } catch (error) {
-          console.error('Failed to reload renamed file:', error)
-          setTabs(prev => prev.map(tab => tab.file.path === oldPath
-            ? { ...tab, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
-            : tab
-          ))
+        const renamePathOnly = (prev: Tab[]) => prev.map(tab => tab.file.path === oldPath
+          ? { ...tab, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
+          : tab
+        )
+        if (affectedTab.content === null) {
+          // 壳 tab：只跟随新路径，内容保持懒加载
+          setTabs(renamePathOnly)
+        } else {
+          try {
+            const newContent = await window.api.readFile(newPath)
+            setTabs(prev => prev.map(tab => tab.file.path === oldPath
+              ? { ...tab, content: newContent, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
+              : tab
+            ))
+          } catch (error) {
+            console.error('Failed to reload renamed file:', error)
+            setTabs(renamePathOnly)
+          }
         }
       }
       await refreshFiles()
@@ -2177,6 +2252,9 @@ function App(): React.JSX.Element {
                             )}
                             <div className="preview" ref={setPreviewNode}>
                               {activeTab ? (
+                                isActiveContentLoading ? (
+                                  <LoadingPlaceholder />
+                                ) : (
                                 <VirtualizedMarkdown
                                   key={activeTab.file.path}
                                   content={activePreviewContent}
@@ -2193,6 +2271,7 @@ function App(): React.JSX.Element {
                                   onReadPositionChange={(position) => handleReadPositionChange(activeTab.file.path, position)}
                                   onMarkdownLinkClick={handleMarkdownLinkClick}
                                 />
+                                )
                               ) : (
                                 <p className="placeholder">选择一个 Markdown 文件开始预览</p>
                               )}

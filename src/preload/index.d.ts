@@ -215,6 +215,16 @@ declare global {
       removePinnedTab: (filePath: string, operation: WorkspaceOperationContext) => Promise<void>
       isTabPinned: (filePath: string, operation: WorkspaceOperationContext) => Promise<boolean>
 
+      // v2.8.0：按文件夹归档 tab 会话
+      saveFolderTabSession: (
+        payload: { tabs: Array<{ filePath: string; isPinned?: boolean }>; activeFilePath: string | null },
+        operation: WorkspaceOperationContext
+      ) => Promise<void>
+      getFolderTabSession: (folderPath: string) => Promise<{
+        tabs: Array<{ path: string; isPinned?: boolean }>
+        activePath: string | null
+      }>
+
       // v1.7.0：SVG → PNG 截图（主进程 BrowserWindow）
       renderSvgToPng: (svgString: string, width?: number) => Promise<{
         success: boolean
@@ -527,8 +537,14 @@ declare global {
 
       // 最近文件右键菜单
       showRecentFileContextMenu: (file: {
+        id: string
         filePath: string
         fileName: string
+      }) => Promise<void>
+      // 最近文件夹右键菜单
+      showRecentFolderContextMenu: (folder: {
+        historyId: string
+        name: string
       }) => Promise<void>
       onRecentFileRemove: (callback: (filePath: string) => void) => () => void
 

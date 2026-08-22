@@ -3,7 +3,7 @@ import * as fs from 'fs-extra'
 import * as path from 'path'
 import { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
-import { getSenderWorkspaceForOperation, validateSenderReadPath, validateWorkspaceOperationPath } from './senderSecurity'
+import { getSenderWorkspaceForOperation, validateSenderReadPath, validateWorkspaceOperationPath, resolveRecentFolderRoot } from './senderSecurity'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
 import { activateFolderForWindow, activateHistoryFolderForWindow } from '../folderActivation'
 import { syncClipboardState, getClipboardState } from '../clipboardState'
@@ -15,27 +15,6 @@ import { isDocumentMarkColor, isMarkdownPath } from '../../shared/documentMarks'
 
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 const MARKDOWN_LINK_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
-
-async function resolveRecentFolderRoot(
-  ctx: IPCContext,
-  event: Electron.IpcMainInvokeEvent,
-  canonicalFilePath: string
-): Promise<string> {
-  const historyRoot = await ctx.folderHistoryManager.findContainingFolder(canonicalFilePath)
-  if (historyRoot) return historyRoot
-
-  const candidateRoots = ctx.windowManager.getAllWindowFolderRoots()
-  for (const root of candidateRoots) {
-    try {
-      await validateSecurePathInBase(canonicalFilePath, root)
-      return await fs.realpath(root)
-    } catch {
-      // 尝试下一个主进程持有的已授权根
-    }
-  }
-
-  throw new Error('安全错误：文件不在可记录的已授权目录内')
-}
 
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0
@@ -458,6 +437,48 @@ ipcMain.handle('pinned-tabs:is-pinned', async (
   const canonicalPath = await validateSenderReadPath(ctx, event, filePath)
   if (!workspace.primaryRoot) return false
   return ctx.appDataManager.isTabPinnedInFolder(canonicalPath, workspace.primaryRoot)
+})
+
+  // ============== v2.8.0：按文件夹归档 tab 会话 ==============
+
+ipcMain.handle('folder-tab-session:save', async (
+  event,
+  payload: { tabs: Array<{ filePath: string; isPinned?: boolean }>; activeFilePath: string | null },
+  operation: WorkspaceOperationContext
+) => {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
+
+  // 逐个校验 tab 路径落在发起窗口工作区根内，拒绝越权路径
+  const validTabs: Array<{ filePath: string; isPinned?: boolean }> = []
+  for (const tab of payload.tabs) {
+    try {
+      const canonicalPath = await validateWorkspaceOperationPath(ctx, event, operation, tab.filePath)
+      validTabs.push({ filePath: canonicalPath, isPinned: tab.isPinned })
+    } catch {
+      // 越权或失效路径直接跳过，不写入归档
+    }
+  }
+
+  let activeCanonical: string | null = null
+  if (payload.activeFilePath) {
+    try {
+      activeCanonical = await validateWorkspaceOperationPath(ctx, event, operation, payload.activeFilePath)
+    } catch {
+      activeCanonical = null
+    }
+  }
+
+  ctx.appDataManager.saveFolderTabSession(workspace.primaryRoot, validTabs, activeCanonical)
+})
+
+ipcMain.handle('folder-tab-session:get-for-folder', async (event, folderPath: string) => {
+  const canonicalRoot = await validateSenderReadPath(ctx, event, folderPath)
+  const stats = await fs.stat(canonicalRoot)
+  if (!stats.isDirectory()) {
+    throw new Error('安全错误：目标不是目录')
+  }
+  return ctx.appDataManager.getFolderTabSession(canonicalRoot)
 })
 
   // ============== 应用设置管理 ==============

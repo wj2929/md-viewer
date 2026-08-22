@@ -60,6 +60,29 @@ export interface PinnedTabsByFolder {
 }
 
 /**
+ * 按文件夹归档的完整 tab 会话（v2.8.0）
+ * 用于"切走再切回同一文件夹"时恢复上次打开的完整 tab 列表与当前文档。
+ * 与 pinnedTabsByFolder 并列，同样只存相对路径。
+ * 注意：按 folderPath 全局 key，多窗口同开一个文件夹时后切走者覆盖先切走者（last-write-wins），
+ * 这是刻意接受的行为，非 bug。
+ */
+export interface FolderTabSessionEntry {
+  relativePath: string
+  order: number
+  isPinned?: boolean
+}
+
+export interface FolderTabSession {
+  tabs: FolderTabSessionEntry[]
+  activeRelativePath: string | null
+  updatedAt: number
+}
+
+export interface FolderTabSessionsByFolder {
+  [folderPath: string]: FolderTabSession
+}
+
+/**
  * 文件树展开状态
  */
 export interface FolderTreeState {
@@ -133,6 +156,7 @@ interface AppDataStore {
   bookmarks: Bookmark[]
   pinnedTabs: PinnedTab[]                    // 旧版，保留用于迁移
   pinnedTabsByFolder: PinnedTabsByFolder     // v1.3.6 新版
+  folderTabSessions: FolderTabSessionsByFolder // v2.8.0：按文件夹归档 tab 会话
   folderTreeStates: FolderTreeStatesByRoot
   readPositions: Record<string, ReadPosition>
   settings: AppSettings
@@ -144,6 +168,8 @@ const MAX_RECENT_FILES = 20
 const MAX_BOOKMARKS = 100
 const MAX_PINNED_TABS_PER_FOLDER = 15       // 每个文件夹最多固定标签数
 const MAX_FOLDERS_WITH_PINNED = 50          // 最多保留多少个文件夹的固定标签
+const MAX_TABS_PER_FOLDER_SESSION = 100     // v2.8.0：每个文件夹会话最多 tab 数
+const MAX_FOLDERS_WITH_TAB_SESSION = 50     // v2.8.0：最多保留多少个文件夹的 tab 会话
 const MAX_FOLDERS_WITH_TREE_STATE = 50
 const MAX_COLLAPSED_FOLDERS_PER_ROOT = 1000
 const MAX_DOCUMENT_MARKS_PER_ROOT = 1000
@@ -173,6 +199,7 @@ class AppDataManager {
         bookmarks: [],
         pinnedTabs: [],              // 旧版，保留用于迁移
         pinnedTabsByFolder: {},      // v1.3.6 新版
+        folderTabSessions: {},       // v2.8.0：按文件夹归档 tab 会话
         folderTreeStates: {},
         readPositions: {},
         settings: {
@@ -850,6 +877,125 @@ class AppDataManager {
     }
 
     this.store.set('pinnedTabsByFolder', pinnedByFolder)
+  }
+
+  // ============== v2.8.0：按文件夹归档 tab 会话 ==============
+
+  /**
+   * 保存某个文件夹当前打开的完整 tab 会话（切走该文件夹前调用）。
+   * @param folderPath 文件夹根目录（绝对路径）
+   * @param tabs 当前 tab 列表，按顺序传入 { filePath, isPinned }
+   * @param activeFilePath 当前活动文档的绝对路径（无则 null）
+   */
+  saveFolderTabSession(
+    folderPath: string,
+    tabs: Array<{ filePath: string; isPinned?: boolean }>,
+    activeFilePath: string | null
+  ): void {
+    const normalizedFolder = path.resolve(folderPath)
+    const entries: FolderTabSessionEntry[] = []
+
+    for (const tab of tabs) {
+      const normalizedFile = path.resolve(tab.filePath)
+      // 安全校验：只归档文件夹内的文件
+      if (!normalizedFile.startsWith(normalizedFolder + path.sep)) continue
+      const relativePath = path.relative(normalizedFolder, normalizedFile)
+      if (entries.some(e => e.relativePath === relativePath)) continue
+      entries.push({ relativePath, order: entries.length, isPinned: tab.isPinned })
+      if (entries.length >= MAX_TABS_PER_FOLDER_SESSION) break
+    }
+
+    const sessions = this.store.get('folderTabSessions', {})
+
+    // 空会话：清除该文件夹记录，避免留下空壳
+    if (entries.length === 0) {
+      if (sessions[normalizedFolder]) {
+        delete sessions[normalizedFolder]
+        this.store.set('folderTabSessions', sessions)
+      }
+      return
+    }
+
+    let activeRelativePath: string | null = null
+    if (activeFilePath) {
+      const normalizedActive = path.resolve(activeFilePath)
+      if (normalizedActive.startsWith(normalizedFolder + path.sep)) {
+        const rel = path.relative(normalizedFolder, normalizedActive)
+        if (entries.some(e => e.relativePath === rel)) activeRelativePath = rel
+      }
+    }
+
+    sessions[normalizedFolder] = { tabs: entries, activeRelativePath, updatedAt: Date.now() }
+    this.store.set('folderTabSessions', sessions)
+    this.cleanupOldTabSessionFolders()
+  }
+
+  /**
+   * 读取某个文件夹上次归档的 tab 会话；读时剔除已失效（不存在或非文件）的条目。
+   * @returns tabs 为绝对路径 + isPinned；activePath 指向仍有效的活动文档（失效则回退首个）
+   */
+  async getFolderTabSession(
+    folderPath: string
+  ): Promise<{ tabs: Array<{ path: string; isPinned?: boolean }>; activePath: string | null }> {
+    const normalizedFolder = path.resolve(folderPath)
+    const sessions = this.store.get('folderTabSessions', {})
+    const session = sessions[normalizedFolder]
+    if (!session) return { tabs: [], activePath: null }
+
+    const validTabs: Array<{ path: string; order: number; isPinned?: boolean }> = []
+    for (const entry of session.tabs) {
+      const absolutePath = path.join(normalizedFolder, entry.relativePath)
+      // 安全校验：路径必须在文件夹内
+      if (!absolutePath.startsWith(normalizedFolder + path.sep)) continue
+      try {
+        const stats = await fs.stat(absolutePath)
+        if (!stats.isFile()) continue
+        validTabs.push({ path: absolutePath, order: entry.order, isPinned: entry.isPinned })
+      } catch {
+        // 文件已失效，跳过
+      }
+    }
+
+    validTabs.sort((a, b) => a.order - b.order)
+
+    let activePath: string | null = null
+    if (session.activeRelativePath) {
+      const absoluteActive = path.join(normalizedFolder, session.activeRelativePath)
+      if (validTabs.some(t => t.path === absoluteActive)) activePath = absoluteActive
+    }
+    if (!activePath && validTabs.length > 0) activePath = validTabs[0].path
+
+    return { tabs: validTabs.map(t => ({ path: t.path, isPinned: t.isPinned })), activePath }
+  }
+
+  /**
+   * 清除某个文件夹的 tab 会话记录
+   */
+  clearFolderTabSession(folderPath: string): void {
+    const normalizedFolder = path.resolve(folderPath)
+    const sessions = this.store.get('folderTabSessions', {})
+    if (!sessions[normalizedFolder]) return
+    delete sessions[normalizedFolder]
+    this.store.set('folderTabSessions', sessions)
+  }
+
+  /**
+   * 清理过多的文件夹会话记录（按 updatedAt LRU）
+   */
+  private cleanupOldTabSessionFolders(): void {
+    const sessions = this.store.get('folderTabSessions', {})
+    const folders = Object.keys(sessions)
+    if (folders.length <= MAX_FOLDERS_WITH_TAB_SESSION) return
+
+    const foldersByTime = folders
+      .map(folder => ({ folder, updatedAt: sessions[folder].updatedAt }))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+    const toKeep = new Set(foldersByTime.slice(0, MAX_FOLDERS_WITH_TAB_SESSION).map(f => f.folder))
+
+    for (const folder of folders) {
+      if (!toKeep.has(folder)) delete sessions[folder]
+    }
+    this.store.set('folderTabSessions', sessions)
   }
 
   // ============== 旧版 API（兼容性，已废弃） ==============

@@ -137,7 +137,7 @@ export function MarkdownEditWorkbench({
 
   const isWriter = !session?.writerId || session.writerId === writerId
   const readOnly = !isWriter
-  const content = session?.draft ?? tab.content
+  const content = session?.draft ?? tab.content ?? ''
   const dirty = Boolean(session?.dirty) || hasPendingSourceDraft
   const hasConflict = Boolean(session?.conflictReason)
   const conflictMessage = getConflictMessage(session?.conflictReason)

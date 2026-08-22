@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import * as fs from 'fs/promises'
 import type { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
@@ -124,4 +125,30 @@ export async function validateSenderReadPath(
   }
 
   throw new Error(`安全错误：路径 "${targetPath}" 不在任何已授权的文件夹内`)
+}
+
+/**
+ * 解析某个已被记录的最近文件所属的「已授权根目录」。
+ * renderer 只传 opaque 记录（如 recent id 解析出的文件路径），主进程据此反查授权根，
+ * 用于把该文件在新窗口中打开或写入最近文件记录。绝不接受 renderer 直接提供的根路径。
+ */
+export async function resolveRecentFolderRoot(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  canonicalFilePath: string
+): Promise<string> {
+  const historyRoot = await ctx.folderHistoryManager.findContainingFolder(canonicalFilePath)
+  if (historyRoot) return historyRoot
+
+  const candidateRoots = ctx.windowManager.getAllWindowFolderRoots()
+  for (const root of candidateRoots) {
+    try {
+      await validateSecurePathInBase(canonicalFilePath, root)
+      return await fs.realpath(root)
+    } catch {
+      // 尝试下一个主进程持有的已授权根
+    }
+  }
+
+  throw new Error('安全错误：文件不在可记录的已授权目录内')
 }

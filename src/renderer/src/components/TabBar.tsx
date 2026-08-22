@@ -4,7 +4,7 @@ import { FileInfo } from './FileTree'
 export interface Tab {
   id: string
   file: FileInfo
-  content: string
+  content: string | null  // null = 懒加载壳，尚未从磁盘读入
   isPinned?: boolean  // v1.3.6 新增：是否固定
 }
 

@@ -6,6 +6,7 @@ import { renderChartsForDocx } from '../utils/docxChartRenderer'
 import { useExportTaskStore } from '../stores/exportTaskStore'
 import { createExportGuard } from '../utils/exportGuard'
 import { useEditSessionStore } from '../stores/editSessionStore'
+import { ensureTabContentLoaded } from '../utils/ensureTabContentLoaded'
 import { usePreflightStore } from '../stores/preflightStore'
 
 interface UseExportParams {
@@ -33,7 +34,7 @@ function getExportContent(tab: Tab): string {
   const session = Object.values(useEditSessionStore.getState().sessions).find(item =>
     item.displayPath === tab.file.path || item.canonicalPath === tab.file.path
   )
-  return session?.draft ?? tab.content
+  return session?.draft ?? tab.content ?? ''
 }
 
 export function waitForExportFeedbackPaint(): Promise<void> {
@@ -95,6 +96,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
     if (!exportTab) return
     if (!(await exportGuard(exportTab.file.path))) return
     if (!(await runPreflightGate(exportTab.file.path, ['html']))) return
+    await ensureTabContentLoaded(exportTab.id)
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
@@ -123,6 +125,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
     if (!exportTab) return
     if (!(await exportGuard(exportTab.file.path))) return
     if (!(await runPreflightGate(exportTab.file.path, ['pdf']))) return
+    await ensureTabContentLoaded(exportTab.id)
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
@@ -156,6 +159,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       if (s.docxExport?.remoteEnabled && s.docxExport?.serverUrl) preflightDocxUrl = s.docxExport.serverUrl
     } catch { /* 读设置失败则不查 DOCX 服务，预检仍做其余检查 */ }
     if (!(await runPreflightGate(exportTab.file.path, ['docx'], preflightDocxUrl))) return
+    await ensureTabContentLoaded(exportTab.id)
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {

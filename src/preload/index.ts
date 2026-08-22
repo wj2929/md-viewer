@@ -295,9 +295,16 @@ const api = {
 
   // 最近文件右键菜单
   showRecentFileContextMenu: (file: {
+    id: string
     filePath: string
     fileName: string
   }) => ipcRenderer.invoke('context-menu:recent-file', file),
+
+  // 最近文件夹右键菜单
+  showRecentFolderContextMenu: (folder: {
+    historyId: string
+    name: string
+  }) => ipcRenderer.invoke('context-menu:recent-folder', folder),
 
   // v1.3.6：最近文件
   getRecentFiles: () =>
@@ -329,6 +336,17 @@ const api = {
     ipcRenderer.invoke('pinned-tabs:remove', filePath, operation),
   isTabPinned: (filePath: string, operation: WorkspaceOperationContext) =>
     ipcRenderer.invoke('pinned-tabs:is-pinned', filePath, operation) as Promise<boolean>,
+
+  // v2.8.0：按文件夹归档 tab 会话
+  saveFolderTabSession: (
+    payload: { tabs: Array<{ filePath: string; isPinned?: boolean }>; activeFilePath: string | null },
+    operation: WorkspaceOperationContext
+  ) => ipcRenderer.invoke('folder-tab-session:save', payload, operation) as Promise<void>,
+  getFolderTabSession: (folderPath: string) =>
+    ipcRenderer.invoke('folder-tab-session:get-for-folder', folderPath) as Promise<{
+      tabs: Array<{ path: string; isPinned?: boolean }>
+      activePath: string | null
+    }>,
 
   // v1.3.6：应用设置
   getAppSettings: () =>

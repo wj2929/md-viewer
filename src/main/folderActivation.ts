@@ -118,3 +118,18 @@ export async function activateHistoryFolderForWindow(
 
   return activateFolderForWindow(ctx, window, resolvedPath)
 }
+
+/**
+ * 在新窗口中打开一个已由主进程解析出的授权文件夹。
+ * folderPath 必须来自主进程可信来源（原生对话框、resolveHistoryFolder 等），
+ * 不接受 renderer 直接提供的任意路径。返回新窗口 id。
+ */
+export function openFolderInNewWindow(ctx: IPCContext, folderPath: string): number {
+  const win = ctx.windowManager.createWindow()
+  ctx.windowManager.addPendingAction(win.id, () => {
+    activateFolderForWindow(ctx, win, folderPath, { notifyRenderer: true }).catch((error) => {
+      console.error('[openFolderInNewWindow] Failed to activate folder:', error)
+    })
+  })
+  return win.id
+}

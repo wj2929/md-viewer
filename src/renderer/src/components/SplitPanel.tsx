@@ -11,6 +11,7 @@ import ReadAloudBar from './ReadAloudBar'
 import { QuickEditDrawer } from './QuickEditDrawer'
 import { MarkdownEditWorkbench } from './editor'
 import { Tab } from './TabBar'
+import { LoadingPlaceholder } from './LoadingPlaceholder'
 import { PanelNode, LeafNode, SplitNode } from '../utils/splitTree'
 import { LightboxState } from './ImageLightbox'
 import { useEditSessionStore } from '../stores/editSessionStore'
@@ -186,7 +187,9 @@ function LeafPanel({
   const quickEditSession = useEditSessionStore(state => tab ? findEditSessionForPath(state.sessions, tab.file.path) : undefined)
   const quickEditTarget = tab ? getQuickEditTarget?.(tab, node.id) : null
   const quickEditCanonicalPath = quickEditTarget?.canonicalPath || null
-  const previewContent = tab ? quickEditSession?.draft ?? tab.content : ''
+  const rawContent = tab ? (quickEditSession?.draft ?? tab.content) : ''
+  const isContentLoading = tab != null && rawContent == null
+  const previewContent = rawContent ?? ''
   const isDraftPreview = Boolean(quickEditSession?.dirty)
   const documentMode = tab ? getDocumentViewMode?.(node.id, tab.id) ?? 'preview' : 'preview'
   const documentTarget = tab ? getDocumentViewTarget?.(node.id, tab.id) ?? null : null
@@ -293,6 +296,9 @@ function LeafPanel({
                 )}
                 <div className="preview" ref={setPreviewNode}>
                   {tab ? (
+                    isContentLoading ? (
+                      <LoadingPlaceholder />
+                    ) : (
                     <VirtualizedMarkdown
                       key={tab.file.path}
                       content={previewContent}
@@ -308,6 +314,7 @@ function LeafPanel({
                       onReadPositionChange={(position) => tab && onReadPositionChange?.(tab.file.path, position)}
                       onMarkdownLinkClick={onMarkdownLinkClick}
                     />
+                    )
                   ) : (
                     <p className="placeholder">选择文件开始预览</p>
                   )}

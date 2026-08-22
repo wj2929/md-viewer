@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef } from 'react'
 import { useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useClipboardStore, useWindowStore, useUIStore } from '../stores'
 import type { Tab } from '../components'
 import { readPreviewContentWithCache, clearFileCache } from '../utils/fileCache'
+import { ensureTabContentLoaded } from '../utils/ensureTabContentLoaded'
 import { buildPreviewContentForFile } from '../utils/previewableFiles'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
 import { buildExportHtmlContent } from '../utils/exportHtml'
@@ -622,42 +623,48 @@ export function useIPC(options: UseIPCOptions): void {
     const unsubscribeExportDOCX = window.api.onMarkdownExportDOCX((docStyle?: string) => { handleExportDOCX(docStyle) })
 
     const unsubscribeCopySource = window.api.onMarkdownCopySource(() => {
-      const currentTabs = useTabStore.getState().tabs
-      const currentActiveTabId = useTabStore.getState().activeTabId
-      const activeTab = currentTabs.find(t => t.id === currentActiveTabId)
-      if (activeTab) {
-        navigator.clipboard.writeText(activeTab.content)
-        toast.success('已复制 Markdown 源码')
-      }
+      void (async () => {
+        const currentActiveTabId = useTabStore.getState().activeTabId
+        if (currentActiveTabId) await ensureTabContentLoaded(currentActiveTabId)
+        const activeTab = useTabStore.getState().tabs.find(t => t.id === currentActiveTabId)
+        if (activeTab) {
+          navigator.clipboard.writeText(activeTab.content ?? '')
+          toast.success('已复制 Markdown 源码')
+        }
+      })()
     })
 
     const unsubscribeCopyPlainText = window.api.onMarkdownCopyPlainText(() => {
-      const currentTabs = useTabStore.getState().tabs
-      const currentActiveTabId = useTabStore.getState().activeTabId
-      const activeTab = currentTabs.find(t => t.id === currentActiveTabId)
-      if (activeTab) {
-        const plainText = activeTab.content
-          .replace(/#{1,6}\s+/g, '')
-          .replace(/\*\*([^*]+)\*\*/g, '$1')
-          .replace(/\*([^*]+)\*/g, '$1')
-          .replace(/`([^`]+)`/g, '$1')
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-          .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-        navigator.clipboard.writeText(plainText)
-        toast.success('已复制纯文本')
-      }
+      void (async () => {
+        const currentActiveTabId = useTabStore.getState().activeTabId
+        if (currentActiveTabId) await ensureTabContentLoaded(currentActiveTabId)
+        const activeTab = useTabStore.getState().tabs.find(t => t.id === currentActiveTabId)
+        if (activeTab) {
+          const plainText = (activeTab.content ?? '')
+            .replace(/#{1,6}\s+/g, '')
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/\*([^*]+)\*/g, '$1')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+            .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+          navigator.clipboard.writeText(plainText)
+          toast.success('已复制纯文本')
+        }
+      })()
     })
 
     const unsubscribeCopyHTML = window.api.onMarkdownCopyHTML(() => {
-      const currentTabs = useTabStore.getState().tabs
-      const currentActiveTabId = useTabStore.getState().activeTabId
-      const activeTab = currentTabs.find(t => t.id === currentActiveTabId)
-      if (activeTab) {
-        const md = createMarkdownRenderer()
-        const html = md.render(activeTab.content)
-        navigator.clipboard.writeText(html)
-        toast.success('已复制 HTML')
-      }
+      void (async () => {
+        const currentActiveTabId = useTabStore.getState().activeTabId
+        if (currentActiveTabId) await ensureTabContentLoaded(currentActiveTabId)
+        const activeTab = useTabStore.getState().tabs.find(t => t.id === currentActiveTabId)
+        if (activeTab) {
+          const md = createMarkdownRenderer()
+          const html = md.render(activeTab.content ?? '')
+          navigator.clipboard.writeText(html)
+          toast.success('已复制 HTML')
+        }
+      })()
     })
 
     return () => {

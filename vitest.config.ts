@@ -11,6 +11,8 @@ export default defineConfig({
     include: [
       'src/renderer/**/*.{test,spec}.{ts,tsx}',
       'src/main/__tests__/appDataManager.test.ts',
+      'src/main/__tests__/appDataManager.folderTabSession.test.ts',
+      'src/main/__tests__/dataHandlers.folderTabSession.security.test.ts',
       'src/main/__tests__/fileHandlers.editing.test.ts',
       'src/main/__tests__/fileHandlers.excalidraw.test.ts',
       'src/main/__tests__/fileHandlers.copyMove.security.test.ts',

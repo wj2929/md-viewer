@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, clipboard, sh
 import * as path from 'path'
 import { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
-import { getSenderWorkspaceForOperation, validateSenderReadPath } from './senderSecurity'
+import { getSenderWorkspaceForOperation, validateSenderReadPath, resolveRecentFolderRoot } from './senderSecurity'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
 import { showContextMenu, dispatchFileClipboardAction } from '../contextMenuHandler'
 import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
@@ -10,6 +10,7 @@ import { showMarkdownContextMenu, MarkdownMenuContext } from '../markdownMenuHan
 import { appDataManager } from '../appDataManager'
 import { getLastDocxExportPath } from './exportHandlers'
 import { openMarkdownInNewWindow } from '../openMarkdownInNewWindow'
+import { openFolderInNewWindow } from '../folderActivation'
 import * as fs from 'fs'
 
 // 文件信息接口（与 fileHandlers 共享）
@@ -149,11 +150,12 @@ ipcMain.handle('context-menu:bookmark', (_event, bookmark: {
 })
 
 // 最近文件右键菜单
-ipcMain.handle('context-menu:recent-file', (_event, file: {
+ipcMain.handle('context-menu:recent-file', (event, file: {
+  id: string
   filePath: string
   fileName: string
 }) => {
-  const window = BrowserWindow.fromWebContents(_event.sender)
+  const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) return
 
   const menu = Menu.buildFromTemplate([
@@ -180,10 +182,54 @@ ipcMain.handle('context-menu:recent-file', (_event, file: {
         }
       ]
     },
+    {
+      label: '🗔 在新窗口中打开',
+      click: () => {
+        void (async () => {
+          try {
+            const recentFile = appDataManager.getRecentFile(file.id)
+            if (!recentFile) throw new Error('最近文件不存在')
+            const canonical = await validateSenderReadPath(ctx, event, recentFile.path)
+            const root = await resolveRecentFolderRoot(ctx, event, canonical)
+            await openMarkdownInNewWindow(ctx, canonical, root)
+          } catch (error) {
+            console.error('[context-menu:recent-file] 在新窗口打开失败:', error)
+          }
+        })()
+      }
+    },
     { type: 'separator' },
     {
       label: '🗑️ 从历史中移除',
       click: () => window.webContents.send('recent-file:remove', file.filePath)
+    }
+  ])
+
+  menu.popup({ window })
+})
+
+// 最近文件夹右键菜单
+ipcMain.handle('context-menu:recent-folder', (event, folder: {
+  historyId: string
+  name: string
+}) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (!window) return
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '🗔 在新窗口中打开',
+      click: () => {
+        void (async () => {
+          try {
+            const resolvedPath = await ctx.folderHistoryManager.resolveHistoryFolder(folder.historyId)
+            if (!resolvedPath) throw new Error('历史目录不存在、不可访问或未经授权')
+            openFolderInNewWindow(ctx, resolvedPath)
+          } catch (error) {
+            console.error('[context-menu:recent-folder] 在新窗口打开失败:', error)
+          }
+        })()
+      }
     }
   ])
 
