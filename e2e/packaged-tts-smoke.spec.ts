@@ -39,7 +39,10 @@ test.describe('packaged app TTS smoke', () => {
 
     const env = { ...process.env }
     delete env.NODE_ENV
-    Object.assign(env, { MD_VIEWER_SKIP_RESTORE: '1' })
+    Object.assign(env, {
+      MD_VIEWER_SKIP_RESTORE: '1',
+      ...(process.platform === 'linux' ? { ELECTRON_DISABLE_SANDBOX: '1' } : {}),
+    })
     let electronApp: ElectronApplication | undefined
 
     try {

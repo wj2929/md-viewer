@@ -32,6 +32,7 @@ async function run(args, timeout = 90_000) {
       env: {
         ...process.env,
         MD_VIEWER_DISABLE_UPDATE_CHECK: '1',
+        ...(process.platform === 'linux' ? { ELECTRON_DISABLE_SANDBOX: '1' } : {}),
       },
     })
   } finally {

@@ -193,6 +193,9 @@ async function main() {
     cliRun = spawnSync(executablePath, ['capabilities', '--json'], {
       timeout: 30_000,
       stdio: [stdinFd, stdoutFd, stderrFd],
+      env: process.platform === 'linux'
+        ? { ...process.env, ELECTRON_DISABLE_SANDBOX: '1' }
+        : process.env,
     })
   } finally {
     fsSync.closeSync(stdinFd)
@@ -203,7 +206,9 @@ async function main() {
   const stderr = fsSync.readFileSync(stderrPath, 'utf8')
   fsSync.rmSync(cliOutputDir, { recursive: true, force: true })
   if (cliRun.error) throw cliRun.error
-  if (cliRun.status !== 0) throw new Error(`packaged CLI 退出码异常：${cliRun.status}`)
+  if (cliRun.status !== 0) {
+    throw new Error(`packaged CLI 退出异常：status=${cliRun.status} signal=${cliRun.signal ?? 'none'} stderr=${stderr.trim() || '<empty>'}`)
+  }
   if (stderr.trim()) throw new Error(`packaged CLI stderr 非空：${stderr.trim()}`)
   const cliResult = JSON.parse(stdout)
   if (cliResult.ok !== true || cliResult.command !== 'capabilities') {
