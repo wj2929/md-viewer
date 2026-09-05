@@ -21,8 +21,11 @@ function actionableStderr(stderr) {
   return stderr.split(/\r?\n/).filter(line => {
     const value = line.trim()
     if (!value) return false
-    return process.platform !== 'linux'
-      || !/ERROR:dbus\/(?:bus|object_proxy)\.cc:\d+/.test(value)
+    if (process.platform !== 'linux') return true
+    return !(
+      /ERROR:dbus\/(?:bus|object_proxy)\.cc:\d+/.test(value)
+      || /ERROR:components\/viz\/service\/main\/viz_main_impl\.cc:\d+.*Exiting GPU process/.test(value)
+    )
   }).join('\n')
 }
 
