@@ -69,6 +69,16 @@ async function assertFile(filePath, signature, minimumBytes = signature.length) 
   if (!bytes.subarray(0, signature.length).equals(signature)) {
     throw new Error(`${path.basename(filePath)} 文件签名异常`)
   }
+  return bytes
+}
+
+async function assertPng(filePath) {
+  const bytes = await assertFile(filePath, Buffer.from('89504e470d0a1a0a', 'hex'), 24)
+  const width = bytes.readUInt32BE(16)
+  const height = bytes.readUInt32BE(20)
+  if (width < 32 || height < 32) {
+    throw new Error(`${path.basename(filePath)} 尺寸异常：${width}x${height}`)
+  }
 }
 
 function assertChartSummary(result, command) {
@@ -108,7 +118,7 @@ async function main() {
 
     const screenshotPath = path.join(outputDir, 'body.png')
     await run(['screenshot', fixturePath, '--selector', '.markdown-body', '--out', screenshotPath, '--json'])
-    await assertFile(screenshotPath, Buffer.from('89504e470d0a1a0a', 'hex'), 1024)
+    await assertPng(screenshotPath)
 
     const charts = await run(['charts', 'list', fixturePath, '--json'])
     assertChartSummary(charts, 'charts list')
@@ -121,7 +131,7 @@ async function main() {
     await assertFile(chartsZip, Buffer.from('PK'), 100)
     const chartPngs = (await fs.readdir(chartsDir)).filter(file => file.endsWith('.png'))
     if (chartPngs.length !== 1) throw new Error(`charts export PNG 数量异常：${chartPngs.length}`)
-    await assertFile(path.join(chartsDir, chartPngs[0]), Buffer.from('89504e470d0a1a0a', 'hex'), 1024)
+    await assertPng(path.join(chartsDir, chartPngs[0]))
 
     const commands = ['capabilities', 'inspect', 'render', 'export:html', 'export:pdf', 'screenshot', 'charts:list', 'charts:export']
     const docxServiceUrl = process.env.MD_VIEWER_DOCX_SERVICE_URL?.trim()
