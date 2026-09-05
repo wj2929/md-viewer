@@ -22,10 +22,7 @@ function actionableStderr(stderr) {
     const value = line.trim()
     if (!value) return false
     if (process.platform !== 'linux') return true
-    return !(
-      /ERROR:dbus\/(?:bus|object_proxy)\.cc:\d+/.test(value)
-      || /ERROR:components\/viz\/service\/main\/viz_main_impl\.cc:\d+.*Exiting GPU process/.test(value)
-    )
+    return !/^\[\d+:\d+\/\d+\.\d+:ERROR:(?:dbus\/|gpu\/|components\/viz\/)/.test(value)
   }).join('\n')
 }
 
