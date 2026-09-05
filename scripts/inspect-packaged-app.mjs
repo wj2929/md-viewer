@@ -34,6 +34,15 @@ async function pathExists(filePath) {
   }
 }
 
+function actionableStderr(stderr) {
+  return stderr.split(/\r?\n/).filter(line => {
+    const value = line.trim()
+    if (!value) return false
+    return process.platform !== 'linux'
+      || !/ERROR:dbus\/bus\.cc:\d+.*Failed to connect to the bus/.test(value)
+  }).join('\n')
+}
+
 async function directorySize(targetPath) {
   const stats = await fs.lstat(targetPath)
   if (!stats.isDirectory()) return stats.size
@@ -209,7 +218,8 @@ async function main() {
   if (cliRun.status !== 0) {
     throw new Error(`packaged CLI 退出异常：status=${cliRun.status} signal=${cliRun.signal ?? 'none'} stderr=${stderr.trim() || '<empty>'}`)
   }
-  if (stderr.trim()) throw new Error(`packaged CLI stderr 非空：${stderr.trim()}`)
+  const stderrFailure = actionableStderr(stderr)
+  if (stderrFailure) throw new Error(`packaged CLI stderr 非空：${stderrFailure}`)
   const cliResult = JSON.parse(stdout)
   if (cliResult.ok !== true || cliResult.command !== 'capabilities') {
     throw new Error('packaged CLI capabilities 返回失败')

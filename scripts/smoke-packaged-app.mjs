@@ -17,6 +17,15 @@ const platformTarget = process.platform === 'darwin'
     : 'dist/staged/linux-unpacked/md-viewer'
 const executablePath = path.join(projectRoot, platformTarget)
 
+function actionableStderr(stderr) {
+  return stderr.split(/\r?\n/).filter(line => {
+    const value = line.trim()
+    if (!value) return false
+    return process.platform !== 'linux'
+      || !/ERROR:dbus\/bus\.cc:\d+.*Failed to connect to the bus/.test(value)
+  }).join('\n')
+}
+
 async function run(args, timeout = 90_000) {
   const processOutputDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'md-viewer-packaged-command-'))
   const stdinFd = fsSync.openSync(os.devNull, 'r')
@@ -47,7 +56,8 @@ async function run(args, timeout = 90_000) {
   if (child.status !== 0) {
     throw new Error(`${args.join(' ')} 退出码异常：${child.status}\nstdout: ${stdout.trim()}\nstderr: ${stderr.trim()}`)
   }
-  if (stderr.trim()) throw new Error(`${args[0]} stderr 非空：${stderr.trim()}`)
+  const stderrFailure = actionableStderr(stderr)
+  if (stderrFailure) throw new Error(`${args[0]} stderr 非空：${stderrFailure}`)
   const result = JSON.parse(stdout)
   if (result.ok !== true) throw new Error(`${args[0]} 返回失败：${stdout}`)
   return result
