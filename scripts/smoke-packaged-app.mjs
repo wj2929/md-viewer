@@ -22,7 +22,7 @@ function actionableStderr(stderr) {
     const value = line.trim()
     if (!value) return false
     return process.platform !== 'linux'
-      || !/ERROR:dbus\/bus\.cc:\d+.*Failed to connect to the bus/.test(value)
+      || !/ERROR:dbus\/(?:bus|object_proxy)\.cc:\d+/.test(value)
   }).join('\n')
 }
 
