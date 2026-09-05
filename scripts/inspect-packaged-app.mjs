@@ -139,8 +139,14 @@ async function main() {
   if (chartExamplesSidecar.bytes !== chartExamplesZip.byteLength || chartExamplesSidecar.sha256 !== chartExamplesSha256) {
     throw new Error('packaged 图表示例 ZIP 与 sidecar manifest 不一致')
   }
-  if (chartExamplesSidecar.packageVersion !== (await readJson(path.join(projectRoot, 'package.json'))).version) {
-    throw new Error(`packaged 图表示例版本异常：${chartExamplesSidecar.packageVersion}`)
+  const appVersion = (await readJson(path.join(projectRoot, 'package.json'))).version
+  if (
+    chartExamplesSidecar.minAppVersion !== appVersion
+    || chartExamplesSidecar.maxAppVersion !== appVersion
+  ) {
+    throw new Error(
+      `packaged 图表示例与应用版本不兼容：${chartExamplesSidecar.packageVersion} / ${appVersion}`,
+    )
   }
   const actualChartEntries = inspectChartExamplesArchive(chartExamplesZip, chartExamplesSource, chartExamplesSidecar)
 
