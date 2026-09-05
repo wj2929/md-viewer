@@ -89,6 +89,13 @@ async function containsNativeModule(directory) {
   return false
 }
 
+function normalizeCopyPath(filePath) {
+  const resolved = path.resolve(filePath)
+  return process.platform === 'win32' && resolved.startsWith('\\\\?\\')
+    ? resolved.slice(4)
+    : resolved
+}
+
 async function copyPackage(lockPath, entry, runtimeConfig) {
   const packageName = packageNameFromLockPath(lockPath)
   if (!packageName) throw new Error(`无效 lock package path：${lockPath}`)
@@ -108,13 +115,16 @@ async function copyPackage(lockPath, entry, runtimeConfig) {
   }
 
   const destination = path.join(stageRoot, lockPath)
+  const normalizedSourceDirectory = normalizeCopyPath(sourceDirectory)
   await fs.mkdir(path.dirname(destination), { recursive: true })
   await fs.cp(sourceDirectory, destination, {
     recursive: true,
     dereference: false,
     filter: source => {
-      const relative = path.relative(sourceDirectory, source)
-      if (!relative) return true
+      const normalizedSource = normalizeCopyPath(source)
+      if (normalizedSource.toLowerCase() === normalizedSourceDirectory.toLowerCase()) return true
+      const relative = path.relative(normalizedSourceDirectory, normalizedSource)
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return false
       const segments = relative.split(path.sep)
       return !segments.includes('node_modules') && !segments.includes('.bin')
     },
