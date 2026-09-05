@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { showTabContextMenu, TabMenuContext } from '../tabMenuHandler'
 import { BrowserWindow, Menu, shell, clipboard } from 'electron'
+import { getFileManagerLabels } from '../platformMenuLabels'
 
 // Mock Electron 模块
 vi.mock('electron', () => ({
@@ -25,6 +26,7 @@ vi.mock('electron', () => ({
 }))
 
 describe('tabMenuHandler', () => {
+  const fileManagerLabels = getFileManagerLabels()
   let mockWindow: BrowserWindow
   let mockWebContents: { send: ReturnType<typeof vi.fn> }
   let mockMenu: { popup: ReturnType<typeof vi.fn> }
@@ -63,7 +65,7 @@ describe('tabMenuHandler', () => {
       expect(labels).toContain('关闭所有标签')
       expect(labels).toContain('关闭左侧标签')
       expect(labels).toContain('关闭右侧标签')
-      expect(labels).toContain('在 Finder 中显示')
+      expect(labels).toContain(fileManagerLabels.showInFolder)
       expect(labels).toContain('复制文件路径')
       expect(labels).toContain('复制相对路径')
     })
@@ -171,7 +173,7 @@ describe('tabMenuHandler', () => {
         showTabContextMenu(mockWindow, baseContext)
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
-        const item = template.find((item: any) => item.label === '在 Finder 中显示')
+        const item = template.find((item: any) => item.label === fileManagerLabels.showInFolder)
         item?.click?.({} as any, mockWindow, {} as any)
 
         expect(shell.showItemInFolder).toHaveBeenCalledWith('/Users/test/docs/README.md')
@@ -207,11 +209,11 @@ describe('tabMenuHandler', () => {
         showTabContextMenu(mockWindow, baseContext)
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
-        const item = template.find((item: any) => item.label === '在 Finder 中显示')
+        const item = template.find((item: any) => item.label === fileManagerLabels.showInFolder)
         item?.click?.({} as any, mockWindow, {} as any)
 
         expect(mockWebContents.send).toHaveBeenCalledWith('error:show', {
-          message: '无法在 Finder 中显示：文件不存在'
+          message: `无法在 ${fileManagerLabels.fileManagerName} 中显示：文件不存在`
         })
       })
     })

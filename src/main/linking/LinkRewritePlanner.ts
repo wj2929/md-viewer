@@ -25,6 +25,16 @@ const MAX_PLANS_PER_OWNER = 8
 const MAX_CHANGES_PER_PLAN = 2000
 const MAX_PLAN_BYTES = 2 * 1024 * 1024
 
+function groupChangesBySource(changes: readonly LinkRewriteChange[]): Map<string, LinkRewriteChange[]> {
+  const grouped = new Map<string, LinkRewriteChange[]>()
+  for (const change of changes) {
+    const existing = grouped.get(change.sourceRelativePath)
+    if (existing) existing.push(change)
+    else grouped.set(change.sourceRelativePath, [change])
+  }
+  return grouped
+}
+
 interface StoredPlan extends LinkRewritePlanView {
   ownerId: string
   rootPath: string
@@ -222,7 +232,7 @@ export class LinkRewritePlanner {
     const selected = plan.changes.filter(change => selectedIds.has(change.changeId))
     if (selected.length !== selectedIds.size) throw new Error('链接修复项无效')
 
-    const grouped = Map.groupBy(selected, change => change.sourceRelativePath)
+    const grouped = groupChangesBySource(selected)
     const results: LinkRewriteApplyFileResult[] = []
     const updatedPaths: string[] = []
     for (const [relativePath, changes] of grouped) {
@@ -273,7 +283,7 @@ export class LinkRewritePlanner {
     const changeIds = new Set(selectedChanges.map(change => change.changeId))
     if (changeIds.size !== selectedChanges.length) throw new Error('链接修复项重复')
 
-    const grouped = Map.groupBy(selectedChanges, change => change.sourceRelativePath)
+    const grouped = groupChangesBySource(selectedChanges)
     const results: LinkRewriteApplyFileResult[] = []
     const updatedPaths: string[] = []
     for (const [relativePath, changes] of grouped) {
