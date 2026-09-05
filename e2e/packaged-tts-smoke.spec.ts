@@ -4,6 +4,10 @@ import { test, expect, _electron as electron, type ElectronApplication } from '@
 
 const projectRoot = process.cwd()
 const packageVersion = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8')).version as string
+const chartExamplesManifest = JSON.parse(readFileSync(
+  join(projectRoot, 'resources', 'examples', 'md-viewer-chart-examples.manifest.json'),
+  'utf8',
+)) as { packageVersion: string; caseCount: number; rendererCount: number }
 const runPackaged = process.env.MD_VIEWER_PACKAGED_E2E === '1'
 
 function stagedExecutable(): string {
@@ -55,7 +59,19 @@ test.describe('packaged app TTS smoke', () => {
       })
       const page = await electronApp.firstWindow()
       await page.waitForLoadState('domcontentloaded')
-      await page.locator('.tab', { hasText: 'tts-smoke.md' }).click()
+      const documentTab = page.locator('.tab', { hasText: 'tts-smoke.md' })
+      try {
+        await expect(documentTab).toBeVisible({ timeout: 15_000 })
+      } catch (error) {
+        const windows = await Promise.all(electronApp.windows().map(async window => ({
+          url: window.url(),
+          title: await window.title(),
+          body: (await window.locator('body').innerText().catch(() => '')).slice(0, 1000),
+        })))
+        console.error('[packaged-tts-smoke] 启动文件未打开：', JSON.stringify(windows, null, 2))
+        throw error
+      }
+      await documentTab.click()
       await expect(page.locator('.tab.active', { hasText: 'tts-smoke.md' })).toBeVisible({ timeout: 15_000 })
       await expect(page.locator('.markdown-body')).toContainText(
         '这是 packaged 应用的系统语音初始化验证。',
@@ -66,9 +82,9 @@ test.describe('packaged app TTS smoke', () => {
       expect(chartExamples).toMatchObject({
         state: 'ready',
         appVersion: packageVersion,
-        packageVersion,
-        caseCount: 93,
-        rendererCount: 20,
+        packageVersion: chartExamplesManifest.packageVersion,
+        caseCount: chartExamplesManifest.caseCount,
+        rendererCount: chartExamplesManifest.rendererCount,
       })
       expect(chartExamples.bytes).toBeGreaterThan(0)
 

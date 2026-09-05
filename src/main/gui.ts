@@ -214,6 +214,18 @@ function restoreDesktopWindows(session: DesktopSessionV1): void {
 // 存储待处理的启动路径
 let pendingLaunchPath: string | null = null
 
+function openPathWhenWindowReady(targetPath: string, type: 'md-file' | 'directory', win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  const currentUrl = win.webContents.getURL()
+  if (!currentUrl || currentUrl === 'about:blank' || win.webContents.isLoadingMainFrame()) {
+    win.webContents.once('did-finish-load', () => {
+      if (!win.isDestroyed()) openPathInWindow(targetPath, type, win)
+    })
+    return
+  }
+  openPathInWindow(targetPath, type, win)
+}
+
 // 处理启动参数
 async function handleLaunchArgs(args: string[]): Promise<void> {
   const targetPath = extractGuiLaunchPath(args)
@@ -228,7 +240,7 @@ async function handleLaunchArgs(args: string[]): Promise<void> {
   }
 
   if (mainWindow) {
-    openPathInWindow(validation.normalizedPath, validation.type as 'md-file' | 'directory')
+    openPathWhenWindowReady(validation.normalizedPath, validation.type as 'md-file' | 'directory', mainWindow)
   } else {
     pendingLaunchPath = validation.normalizedPath
   }
@@ -326,16 +338,19 @@ app.whenReady().then(() => {
     appDataManager.validateRecentFilesInBackground()
 
     // 处理待处理的启动路径
-    if (pendingLaunchPath) {
-      setTimeout(async () => {
-        if (pendingLaunchPath) {
-          const validation = await validateLaunchPath(pendingLaunchPath)
-          if (validation.valid) {
-            openPathInWindow(validation.normalizedPath, validation.type as 'md-file' | 'directory')
-          }
-          pendingLaunchPath = null
+    if (pendingLaunchPath && mainWindow) {
+      const launchPath = pendingLaunchPath
+      const launchWindow = mainWindow
+      pendingLaunchPath = null
+      void validateLaunchPath(launchPath).then(validation => {
+        if (validation.valid) {
+          openPathWhenWindowReady(
+            validation.normalizedPath,
+            validation.type as 'md-file' | 'directory',
+            launchWindow,
+          )
         }
-      }, 1000)
+      })
     }
 
     handleLaunchArgs(startupArgv)
