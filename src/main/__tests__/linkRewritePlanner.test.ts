@@ -308,7 +308,9 @@ describe('LinkRewritePlanner', () => {
     expect(bytes.subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf]))
     expect(bytes.toString('utf8')).toContain('\r\n\r\n')
     expect(bytes.toString('utf8')).toContain('./archive/design.md')
-    expect((await stat(sourcePath)).mode & 0o777).toBe(0o640)
+    if (process.platform !== 'win32') {
+      expect((await stat(sourcePath)).mode & 0o777).toBe(0o640)
+    }
   })
 
   it('apply 写入前路径被替换时拒绝覆盖新目标', async () => {

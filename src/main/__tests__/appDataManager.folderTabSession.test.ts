@@ -47,7 +47,7 @@ describe('AppDataManager.folderTabSession', () => {
   })
 
   it('保存后按顺序读回绝对路径，并保留 active 与 isPinned', async () => {
-    const root = '/ws/session-roundtrip'
+    const root = path.resolve('/ws/session-roundtrip')
     appDataManager.saveFolderTabSession(
       root,
       [
@@ -179,7 +179,7 @@ describe('AppDataManager.folderTabSession', () => {
   })
 
   it('拒绝归档文件夹外的路径（防遍历）', async () => {
-    const root = '/ws/session-traversal'
+    const root = path.resolve('/ws/session-traversal')
     appDataManager.saveFolderTabSession(
       root,
       [
@@ -195,7 +195,7 @@ describe('AppDataManager.folderTabSession', () => {
   })
 
   it('读取时剔除已失效（不存在）的条目', async () => {
-    const root = '/ws/session-stale'
+    const root = path.resolve('/ws/session-stale')
     const gone = path.join(root, 'gone.md')
     appDataManager.saveFolderTabSession(
       root,
@@ -209,7 +209,7 @@ describe('AppDataManager.folderTabSession', () => {
   })
 
   it('active 文件失效时回退到首个有效 tab', async () => {
-    const root = '/ws/session-active-fallback'
+    const root = path.resolve('/ws/session-active-fallback')
     const activeGone = path.join(root, 'active.md')
     appDataManager.saveFolderTabSession(
       root,
@@ -223,7 +223,7 @@ describe('AppDataManager.folderTabSession', () => {
   })
 
   it('每个文件夹最多归档 100 个 tab', async () => {
-    const root = '/ws/session-cap'
+    const root = path.resolve('/ws/session-cap')
     const tabs = Array.from({ length: 150 }, (_, i) => ({ filePath: path.join(root, `f${i}.md`) }))
     appDataManager.saveFolderTabSession(root, tabs, null)
 

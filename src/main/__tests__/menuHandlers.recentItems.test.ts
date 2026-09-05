@@ -53,7 +53,7 @@ describe('最近项右键菜单', () => {
     vi.clearAllMocks()
     tempDir = await realpath(await mkdtemp(join(tmpdir(), 'mdv-recent-menu-')))
     root = join(tempDir, '工作区')
-    filePath = join(root, 'docs', '说明 #1?.md')
+    filePath = join(root, 'docs', '说明 #1.md')
     await mkdir(join(root, 'docs'), { recursive: true })
     await writeFile(filePath, '# test')
     sender = { send: vi.fn() }
@@ -62,7 +62,7 @@ describe('最近项右键菜单', () => {
       authorizedRoot: root,
       appDataManager: {
         getRecentFile: vi.fn(() => ({
-          id: 'recent-1', path: filePath, name: '说明 #1?.md', folderPath: root, lastOpened: 1,
+          id: 'recent-1', path: filePath, name: '说明 #1.md', folderPath: root, lastOpened: 1,
         })),
       },
       folderHistoryManager: {
@@ -103,7 +103,7 @@ describe('最近项右键菜单', () => {
     template[1].click()
     expect(clipboard.writeText).toHaveBeenCalledWith(filePath)
     template[2].click()
-    expect(clipboard.writeText).toHaveBeenCalledWith('docs/说明 #1?.md')
+    expect(clipboard.writeText).toHaveBeenCalledWith('docs/说明 #1.md')
     template[4].submenu[0].click()
     expect(sender.send).toHaveBeenCalledWith('file:open-in-split', {
       filePath,

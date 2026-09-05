@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
+import path from 'node:path'
 import { registerWorkspaceIndexHandlers } from '../ipc/workspaceIndexHandlers'
 
 vi.mock('electron', () => ({
@@ -111,7 +112,7 @@ describe('workspace index IPC', () => {
     expect(ctx.folderHistoryManager.resolveHistoryFolder).toHaveBeenCalledWith('history-a')
     expect(workspaceIndexService.attach).toHaveBeenCalledWith('/history/root', 'history-query:9:history-a')
     expect(workspaceIndexService.detach).toHaveBeenCalledWith('/history/root', 'history-query:9:history-a')
-    expect(result).toEqual([expect.objectContaining({ historyId: 'history-a', filePath: '/history/root/doc.md' })])
+    expect(result).toEqual([expect.objectContaining({ historyId: 'history-a', filePath: path.join('/history/root', 'doc.md') })])
 
     await expect(handler('workspace-index:queryHistory')(
       { sender: { id: 9 } }, OPERATION, 'hit', Array.from({ length: 11 }, (_, index) => `history-${index}`), [], 20,

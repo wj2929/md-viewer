@@ -125,18 +125,24 @@ describe('WorkspaceIndexService', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'mdv-index-backlinks-'))
     const root = join(tempDir, 'workspace')
     await mkdir(join(root, 'docs'), { recursive: true })
-    await writeFile(join(root, 'index.md'), [
+    const links = [
       '[带参数](./docs/design.md?mode=full#安全边界)',
       '[中文](./docs/%E7%9B%AE%E6%A0%87.md)',
       '[井号](./docs/a%23b.md)',
-      '[问号](./docs/a%3Fb.md)',
-    ].join('\n'))
-    await Promise.all([
-      writeFile(join(root, 'docs', 'design.md'), '# 设计'),
-      writeFile(join(root, 'docs', '目标.md'), '# 目标'),
-      writeFile(join(root, 'docs', 'a#b.md'), '# 井号'),
-      writeFile(join(root, 'docs', 'a?b.md'), '# 问号'),
-    ])
+    ]
+    const files = [
+      ['design.md', '# 设计'],
+      ['目标.md', '# 目标'],
+      ['a#b.md', '# 井号'],
+    ]
+    const targets = ['docs/design.md', 'docs/目标.md', 'docs/a#b.md']
+    if (process.platform !== 'win32') {
+      links.push('[问号](./docs/a%3Fb.md)')
+      files.push(['a?b.md', '# 问号'])
+      targets.push('docs/a?b.md')
+    }
+    await writeFile(join(root, 'index.md'), links.join('\n'))
+    await Promise.all(files.map(([name, content]) => writeFile(join(root, 'docs', name), content)))
     const service = new WorkspaceIndexService(
       new WorkspaceIndexStore(join(tempDir, 'storage')),
       new FakeWatcher() as unknown as WorkspaceWatchService,
@@ -144,7 +150,7 @@ describe('WorkspaceIndexService', () => {
     await service.attach(root, 'consumer')
     await service.waitUntilIdle(root)
 
-    for (const target of ['docs/design.md', 'docs/目标.md', 'docs/a#b.md', 'docs/a?b.md']) {
+    for (const target of targets) {
       expect(await service.getBacklinks(root, target)).toEqual([
         expect.objectContaining({ sourceRelativePath: 'index.md' }),
       ])

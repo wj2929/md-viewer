@@ -239,7 +239,7 @@ describe('chart examples IPC handlers', () => {
     })
     expect(dialog.showOpenDialog).not.toHaveBeenCalled()
     expect(state.installChartExamples).toHaveBeenCalledWith({
-      destinationParent: '/Users/test/Library/Application Support/md-viewer/chart-examples',
+      destinationParent: path.join('/Users/test/Library/Application Support/md-viewer', 'chart-examples'),
       packageVersion: '2.8.0',
       zipBytes: zip,
     })
