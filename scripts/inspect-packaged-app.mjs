@@ -164,7 +164,7 @@ async function main() {
   }
   const actualChartEntries = inspectChartExamplesArchive(chartExamplesZip, chartExamplesSource, chartExamplesSidecar)
 
-  const asarEntries = await listPackage(asarPath)
+  const asarEntries = (await listPackage(asarPath)).map(entry => entry.split(path.sep).join('/'))
   const runtimeClosure = await readJson(path.join(projectRoot, '.package-app', '.runtime-closure.json'))
   for (const packageEntry of runtimeClosure.packages ?? []) {
     const packageName = packageEntry.path.slice(packageEntry.path.lastIndexOf('node_modules/') + 'node_modules/'.length)
