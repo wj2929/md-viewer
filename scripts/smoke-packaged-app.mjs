@@ -21,8 +21,13 @@ function actionableStderr(stderr) {
   return stderr.split(/\r?\n/).filter(line => {
     const value = line.trim()
     if (!value) return false
-    if (process.platform !== 'linux') return true
-    return !/^\[\d+:\d+\/\d+\.\d+:ERROR:(?:dbus\/|gpu\/|components\/viz\/)/.test(value)
+    if (process.platform === 'linux') {
+      return !/^\[\d+:\d+\/\d+\.\d+:ERROR:(?:dbus\/|gpu\/|components\/viz\/)/.test(value)
+    }
+    if (process.platform === 'darwin') {
+      return !/^\[\d+:\d+\/\d+\.\d+:ERROR:base\/process\/process_mac\.cc:\d+\] task_policy_set /.test(value)
+    }
+    return true
   }).join('\n')
 }
 
