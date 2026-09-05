@@ -24,6 +24,8 @@ describe('previewableFiles', () => {
   it('classifies supported preview file extensions', () => {
     expect(isMarkdownFile('/docs/a.MD')).toBe(true)
     expect(isMarkdownFile('/docs/a.markdown')).toBe(true)
+    expect(isMarkdownFile('/docs/a#draft.md')).toBe(true)
+    expect(isMarkdownFile('/docs/a?draft.md')).toBe(true)
     expect(isExcalidrawFile('/docs/a.excalidraw')).toBe(true)
     expect(isPreviewableFile('/docs/a.excalidraw')).toBe(true)
     expect(isPreviewableFile('/docs/a.txt')).toBe(false)

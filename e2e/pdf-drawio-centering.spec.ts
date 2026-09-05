@@ -158,7 +158,7 @@ test.describe('PDF DrawIO 导出视觉回归', () => {
   test.skip(!existsSync(PYTHON), '缺少带 PIL 的 Python，无法分析 PNG')
 
   test('DrawIO 图表在 PDF 内容区域内应视觉居中', async ({ page, electronApp }) => {
-    const testDir = join(tmpdir(), `md-viewer-pdf-drawio-${Date.now()}`)
+    const testDir = join(process.cwd(), '.tmp', `md-viewer-pdf-drawio-${Date.now()}`)
     mkdirSync(testDir, { recursive: true })
     try {
       const markdownPath = join(testDir, 'drawio-centering.md')

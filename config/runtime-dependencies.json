@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "runtimeDependencies": [
+    "adm-zip",
+    "chokidar",
+    "docx",
+    "electron-store",
+    "fs-extra",
+    "glob",
+    "markdown-it",
+    "msedge-tts"
+  ],
+  "builtins": [
+    "electron"
+  ],
+  "computedImports": [],
+  "installScriptAllowlist": [],
+  "nativeModuleAllowlist": []
+}

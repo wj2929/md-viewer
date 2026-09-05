@@ -2,7 +2,21 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import { type DocxStyle } from '../shared/docxStyles'
 import { type ReadAloudSettings } from '../shared/ttsProviders'
 import { type FolderActivation, type WorkspaceOperationContext } from '../shared/workspace'
+import { type FolderSplitLayoutV1 } from '../shared/folderTabSession'
 import { type DocumentMarkColor } from '../shared/documentMarks'
+import { type CrossRootMoveImpactReport } from '../shared/crossRootMoveImpact'
+import type {
+  ChartExamplesStatus,
+  InstallChartExamplesResult,
+  SaveChartExamplesResult,
+} from '../shared/chartExamples'
+import type {
+  LinkImpactSummary,
+  LinkOperationReceipt,
+  LinkRewriteApplyResult,
+  LinkRewriteBatchApplyResult,
+  LinkRewritePlanView,
+} from '../main/linking/types'
 
 // v1.7.0：DOCX 导出设置
 interface DocxExportSettings {
@@ -57,6 +71,8 @@ declare global {
       readFilePreview: (path: string) => Promise<string>
       issueLocalImageUrl: (markdownFilePath: string, rawResourcePath: string) => Promise<string>
       testOpenMarkdownFile?: (path: string) => Promise<boolean>
+      testSetEditableSaveDelay?: (delayMs: number) => Promise<boolean>
+      testGetOpenedFileWatcherCount?: (workspaceId: string) => Promise<number>
       testFileClipboardAction?: (
         action: 'copy' | 'cut' | 'paste',
         target: string | string[]
@@ -94,6 +110,7 @@ declare global {
       // 文件监听：工作区上下文用于隔离异步事件；省略参数仅供旧桥接兼容。
       watchFolder: (path: string, workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
       watchFile: (path: string, workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
+      unwatchFile: (path: string, workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
       unwatchFolder: (workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
 
       // 导出功能
@@ -104,6 +121,9 @@ declare global {
         markdownFilePath: string
         images: Array<{ filename: string; pngBase64: string }>
       }) => Promise<{ filePath?: string; written?: number; canceled?: boolean; error?: string }>
+      getChartExamplesStatus: () => Promise<ChartExamplesStatus>
+      installChartExamples: () => Promise<InstallChartExamplesResult>
+      saveChartExamples: () => Promise<SaveChartExamplesResult>
 
       // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
       renderCodeBlockToPng: (code: string) => Promise<{
@@ -217,12 +237,17 @@ declare global {
 
       // v2.8.0：按文件夹归档 tab 会话
       saveFolderTabSession: (
-        payload: { tabs: Array<{ filePath: string; isPinned?: boolean }>; activeFilePath: string | null },
+        payload: {
+          tabs: Array<{ filePath: string; isPinned?: boolean }>
+          activeFilePath: string | null
+          splitLayout?: FolderSplitLayoutV1
+        },
         operation: WorkspaceOperationContext
       ) => Promise<void>
       getFolderTabSession: (folderPath: string) => Promise<{
         tabs: Array<{ path: string; isPinned?: boolean }>
         activePath: string | null
+        splitLayout?: FolderSplitLayoutV1
       }>
 
       // v1.7.0：SVG → PNG 截图（主进程 BrowserWindow）
@@ -291,8 +316,8 @@ declare global {
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; docxExport: DocxExportSettings }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; autoRenderRemoteCharts?: boolean; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; autoRenderRemoteCharts: boolean; docxExport: DocxExportSettings }>) => Promise<void>
       getReadAloudSettings: () => Promise<ReadAloudSettings>
       updateReadAloudSettings: (settings: ReadAloudSettings) => Promise<ReadAloudSettings>
 
@@ -356,6 +381,7 @@ declare global {
       copyFile: (srcPath: string, destPath: string, operation: WorkspaceOperationContext) => Promise<string>
       copyDir: (srcPath: string, destPath: string, operation: WorkspaceOperationContext) => Promise<string>
       moveFile: (srcPath: string, destPath: string, operation: WorkspaceOperationContext) => Promise<string>
+      previewCrossRootMoveImpact: (sources: string[], targetHistoryId: string, subRelPath: string | undefined, operation: WorkspaceOperationContext) => Promise<CrossRootMoveImpactReport>
       moveFileToFolder: (srcPath: string, targetHistoryId: string, subRelPath: string | undefined, operation: WorkspaceOperationContext) => Promise<string>
       fileExists: (filePath: string) => Promise<boolean>
       isDirectory: (filePath: string) => Promise<boolean>
@@ -536,16 +562,9 @@ declare global {
       onBookmarkDelete: (callback: (bookmarkId: string) => void) => () => void
 
       // 最近文件右键菜单
-      showRecentFileContextMenu: (file: {
-        id: string
-        filePath: string
-        fileName: string
-      }) => Promise<void>
+      showRecentFileContextMenu: (recentId: string) => Promise<{ success: boolean; error?: string }>
       // 最近文件夹右键菜单
-      showRecentFolderContextMenu: (folder: {
-        historyId: string
-        name: string
-      }) => Promise<void>
+      showRecentFolderContextMenu: (historyId: string) => Promise<{ success: boolean; error?: string }>
       onRecentFileRemove: (callback: (filePath: string) => void) => () => void
 
       // v1.6.0：多窗口支持
@@ -643,6 +662,90 @@ declare global {
         workspaces: Array<{ workspaceId: string; sourceLifecycleEpoch: number; primaryRoot: string | null }>
       }) => void) => () => void
       onWindowTransferReady: (callback: (payload: { nonce: string }) => void) => () => void
+      getWorkspaceIndexStatus: (workspace: WorkspaceOperationContext) => Promise<{
+        state: 'detached' | 'building' | 'ready' | 'updating' | 'degraded' | 'error' | 'read-only'
+        generation: number
+        indexedDocuments: number
+        totalDocuments: number
+        pendingDocuments: number
+        errors: number
+      }>
+      queryWorkspaceIndex: (workspace: WorkspaceOperationContext, query: string, limit?: number) => Promise<Array<{
+        relativePath: string
+        displayName: string
+        score: number
+        lineStart: number
+        snippet: string
+        revisionToken: string
+      }>>
+      queryWorkspaceHistoryIndexes: (workspace: WorkspaceOperationContext, query: string, historyIds: string[], recentFileIds: string[], limit?: number) => Promise<Array<{
+        historyId?: string
+        recentFileId?: string
+        filePath: string
+        relativePath: string
+        displayName: string
+        score: number
+        lineStart: number
+        snippet: string
+        revisionToken: string
+      }>>
+      getWorkspaceBacklinks: (workspace: WorkspaceOperationContext, targetRelativePath: string) => Promise<Array<{
+        sourceRelativePath: string
+        sourceDisplayName: string
+        lineStart: number
+        rawTarget: string
+        context: string
+        placement: 'prose' | 'standalone-link' | 'table'
+        sourceRange: {
+          startOffset: number
+          endOffset: number
+          startLine: number
+          startColumn: number
+          endLine: number
+          endColumn: number
+        }
+      }>>
+      rebuildWorkspaceIndex: (workspace: WorkspaceOperationContext) => Promise<unknown>
+      subscribeWorkspaceIndexStatus: (workspace: WorkspaceOperationContext, callback: (status: {
+        state: 'detached' | 'building' | 'ready' | 'updating' | 'degraded' | 'error' | 'read-only'
+        generation: number
+        indexedDocuments: number
+        totalDocuments: number
+        pendingDocuments: number
+        errors: number
+      }) => void) => () => void
+      createLinkImpact: (
+        workspace: WorkspaceOperationContext,
+        mapping: { oldRelativePath: string; newRelativePath: string },
+      ) => Promise<LinkImpactSummary>
+      executeLinkRewriteOperation: (
+        workspace: WorkspaceOperationContext,
+        input: {
+          impactId: string
+          mapping: { oldRelativePath: string; newRelativePath: string }
+          reason: 'move' | 'rename'
+          confirm: boolean
+        },
+      ) => Promise<{ newPath: string; receipt: LinkOperationReceipt }>
+      createLinkRepairPlan: (
+        workspace: WorkspaceOperationContext,
+        mapping: { oldRelativePath: string; newRelativePath: string },
+        reason: 'move' | 'rename',
+        operationReceiptId: string,
+      ) => Promise<LinkRewritePlanView>
+      applyLinkRepairPlan: (
+        workspace: WorkspaceOperationContext,
+        input: { planId: string; operationReceiptId: string; selectedChangeIds: string[]; confirm: boolean },
+      ) => Promise<LinkRewriteApplyResult>
+      applyLinkRepairPlans: (
+        workspace: WorkspaceOperationContext,
+        input: {
+          plans: Array<{ planId: string; operationReceiptId: string; selectedChangeIds: string[] }>
+          confirm: boolean
+        },
+      ) => Promise<LinkRewriteBatchApplyResult>
+      regenerateLinkRepairPlan: (workspace: WorkspaceOperationContext, planId: string) => Promise<LinkRewritePlanView>
+      discardLinkRepairPlan: (workspace: WorkspaceOperationContext, planId: string) => Promise<void>
       splitActiveWorkspace: (workspaceId: string) => Promise<{ nonce: string; targetWindowId: number }>
       beginWorkspaceTransfer: (sourceWindowId: number, workspaceId: string) => Promise<{ nonce: string }>
       submitWorkspaceTransferSnapshot: (nonce: string, snapshot: {
@@ -700,6 +803,16 @@ declare global {
         hasUpdate?: boolean; currentVersion?: string; latestVersion?: string;
         releaseUrl?: string; releaseNotes?: string; publishedAt?: string;
         error?: string
+      }>
+      exportDiagnosticsBundle: () => Promise<{
+        canceled: boolean
+        outputPath?: string
+        bytes?: number
+        entries?: string[]
+        error?: {
+          code: 'OUTPUT_EXISTS' | 'OUTPUT_NOT_WRITABLE' | 'BUNDLE_FAILED'
+          message: string
+        }
       }>
     }
   }

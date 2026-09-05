@@ -16,6 +16,7 @@ describe('plantumlRenderer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFetch.mockReset()
+    localStorage.clear()
     clearSvgCache()
   })
 
@@ -127,6 +128,22 @@ class User {
       const result = await processPlantUMLInHtml(html)
       expect(result).toContain('plantuml-container')
       expect(result).not.toContain('language-plantuml')
+    })
+
+    it('切换服务器地址后不复用旧服务器的 SVG 缓存', async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve('<svg><text>Server A</text></svg>') })
+        .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve('<svg><text>Server B</text></svg>') })
+      const html = '<pre class="language-plantuml"><code class="language-plantuml">A -&gt; B</code></pre>'
+
+      localStorage.setItem('plantuml-server-url', 'https://plantuml-a.example')
+      expect(await processPlantUMLInHtml(html)).toContain('Server A')
+      localStorage.setItem('plantuml-server-url', 'https://plantuml-b.example')
+      expect(await processPlantUMLInHtml(html)).toContain('Server B')
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(mockFetch.mock.calls[0][0]).toMatch(/^https:\/\/plantuml-a\.example\/svg\//)
+      expect(mockFetch.mock.calls[1][0]).toMatch(/^https:\/\/plantuml-b\.example\/svg\//)
     })
 
     it('应该把 c4plantuml 代码块复用 PlantUML 导出路径', async () => {

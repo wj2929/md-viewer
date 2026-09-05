@@ -3,18 +3,22 @@ import packageJson from '../../../package.json'
 import { buildCapabilitiesResult } from './capabilitiesCommand'
 import { buildChartsResult } from './chartsCommand'
 import { buildDoctorResult } from './doctorCommand'
+import { buildDoctorBundleResult } from './doctorBundleCommand'
+import { buildDiffResult } from './diffCommand'
 import { buildExportResult } from './exportCommand'
 import { buildHelpResult, renderHumanHelp } from './helpCommand'
 import { buildInspectResult } from './inspectCommand'
 import { buildLinksResult } from './linksCommand'
 import { buildOpenResult } from './openCommand'
 import { parseCliArgs } from './parser'
+import { isAutomationCliArgv, isHeadlessCliArgv } from './parserMode'
 import { buildPreflightResult } from './preflightCommand'
 import { buildRenderResult } from './renderCommand'
 import { createFailureResult, getExitCode, stringifyCliResult } from './result'
 import { buildSchemaResult } from './schemaCommand'
 import { buildScreenshotResult } from './screenshotCommand'
-import { buildInstallCliResult, buildUninstallCliResult } from './shimCommand'
+import { buildUninstallCliResult, buildInstallCliResult } from './shimCommand'
+import { runWatchCommand } from './watchCommand'
 import type { CliResult } from './types'
 
 export interface CliIo {
@@ -22,15 +26,7 @@ export interface CliIo {
   stderr: (text: string) => void
 }
 
-export function isAutomationCliArgv(argv: string[]): boolean {
-  const parsed = parseCliArgs(argv)
-  return parsed.kind === 'automation' || parsed.kind === 'invalid' || parsed.kind === 'meta'
-}
-
-export function isHeadlessCliArgv(argv: string[]): boolean {
-  const parsed = parseCliArgs(argv)
-  return parsed.kind === 'invalid' || parsed.kind === 'meta' || (parsed.kind === 'automation' && parsed.command !== 'open')
-}
+export { isAutomationCliArgv, isHeadlessCliArgv }
 
 export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<number> {
   const parsed = parseCliArgs(argv)
@@ -67,6 +63,10 @@ export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<num
     return 0
   }
 
+  if (parsed.command === 'watch') {
+    return runWatchCommand(parsed.positional, parsed.flags, io)
+  }
+
   const result = await dispatchAutomationCommand(parsed.command, parsed.positional, parsed.flags)
   writeJson(io, result)
   return getExitCode(result)
@@ -91,7 +91,7 @@ async function dispatchAutomationCommand(
     case 'preflight':
       return buildPreflightResult(positional, flags)
     case 'doctor':
-      return buildDoctorResult(flags)
+      return flags.bundle ? buildDoctorBundleResult(flags) : buildDoctorResult(flags)
     case 'charts':
       return buildChartsResult(positional, flags)
     case 'screenshot':
@@ -102,6 +102,8 @@ async function dispatchAutomationCommand(
       return buildInspectResult(positional, flags)
     case 'links':
       return buildLinksResult(positional, flags)
+    case 'diff':
+      return buildDiffResult(positional, flags)
     case 'render':
       return buildRenderResult(positional, flags)
     case 'install-cli':

@@ -3,7 +3,12 @@ import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, type ViewUpdate, keymap } from '@codemirror/view'
 import type { QuickEditTarget } from '../../utils/quickEditTarget'
 import { DEFAULT_TOP_RATIO, getScrollRatio } from '../../utils/scrollSyncAnchors'
-import { applyMarkdownFormat, type MarkdownFormatCommand } from './markdownFormatCommands'
+import {
+  applyMarkdownFormat,
+  insertMarkdownTemplate,
+  type MarkdownFormatCommand,
+  type MarkdownInsertionTemplate,
+} from './markdownFormatCommands'
 import { createMarkdownEditorExtensions } from './markdownEditorExtensions'
 import './MarkdownEditorPane.css'
 
@@ -22,6 +27,7 @@ export interface MarkdownEditorPaneHandle {
   getVisibleLine: (topRatio?: number) => number
   scrollToLine: (lineNumber: number, options?: ScrollToLineOptions) => boolean
   applyFormat: (command: MarkdownFormatCommand) => void
+  insertTemplate: (template: MarkdownInsertionTemplate) => boolean
 }
 
 interface MarkdownEditorPaneProps {
@@ -30,6 +36,7 @@ interface MarkdownEditorPaneProps {
   target?: QuickEditTarget | null
   onChange: (content: string) => void
   onSave: (content: string) => void
+  onCompositionChange?: (composing: boolean) => void
   onLocateComplete?: (located: boolean) => void
 }
 
@@ -60,7 +67,7 @@ function lineFromTarget(content: string, target?: QuickEditTarget | null): numbe
 }
 
 export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownEditorPaneProps>(function MarkdownEditorPane(
-  { content, readOnly, target = null, onChange, onSave, onLocateComplete },
+  { content, readOnly, target = null, onChange, onSave, onCompositionChange, onLocateComplete },
   ref
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -69,10 +76,12 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
   const readOnlyCompartmentRef = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
+  const onCompositionChangeRef = useRef(onCompositionChange)
   const suppressChangeRef = useRef(false)
 
   onChangeRef.current = onChange
   onSaveRef.current = onSave
+  onCompositionChangeRef.current = onCompositionChange
 
   const getVisibleLine = (topRatio = DEFAULT_TOP_RATIO): number => {
     const view = viewRef.current
@@ -144,6 +153,12 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
       if (!view) return
       applyMarkdownFormat(view, command)
     },
+    insertTemplate: (template: MarkdownInsertionTemplate) => {
+      const view = viewRef.current
+      if (!view) return false
+      insertMarkdownTemplate(view, template)
+      return true
+    },
   }), [content])
 
   useEffect(() => {
@@ -175,8 +190,15 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
 
     const view = new EditorView({ state, parent: hostRef.current })
     viewRef.current = view
+    const handleCompositionStart = () => onCompositionChangeRef.current?.(true)
+    const handleCompositionEnd = () => onCompositionChangeRef.current?.(false)
+    view.contentDOM.addEventListener('compositionstart', handleCompositionStart)
+    view.contentDOM.addEventListener('compositionend', handleCompositionEnd)
 
     return () => {
+      view.contentDOM.removeEventListener('compositionstart', handleCompositionStart)
+      view.contentDOM.removeEventListener('compositionend', handleCompositionEnd)
+      onCompositionChangeRef.current?.(false)
       view.destroy()
       viewRef.current = null
     }

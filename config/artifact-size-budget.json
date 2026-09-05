@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "artifacts": {
+    "win32-x64-unpacked-app": {
+      "platformKey": "win32-x64",
+      "target": "unpacked-app",
+      "relativePath": "dist/staged/win-unpacked",
+      "baselineBytes": 344569591,
+      "maxBytes": 361798071,
+      "maxIncreasePercent": 5
+    },
+    "win32-x64-app-asar": {
+      "platformKey": "win32-x64",
+      "target": "app-asar",
+      "relativePath": "dist/staged/win-unpacked/resources/app.asar",
+      "baselineBytes": 45906053,
+      "maxBytes": 48201356,
+      "maxIncreasePercent": 5
+    },
+    "darwin-x64-unpacked-app": {
+      "platformKey": "darwin-x64",
+      "target": "unpacked-app",
+      "relativePath": "dist/staged/mac/MD Viewer.app",
+      "baselineBytes": 276525351,
+      "maxBytes": 290351619,
+      "maxIncreasePercent": 5
+    },
+    "darwin-x64-app-asar": {
+      "platformKey": "darwin-x64",
+      "target": "app-asar",
+      "relativePath": "dist/staged/mac/MD Viewer.app/Contents/Resources/app.asar",
+      "baselineBytes": 45906053,
+      "maxBytes": 48201356,
+      "maxIncreasePercent": 5
+    },
+    "darwin-arm64-unpacked-app": {
+      "platformKey": "darwin-arm64",
+      "target": "unpacked-app",
+      "relativePath": "dist/staged/mac-arm64/MD Viewer.app",
+      "baselineBytes": 270489903,
+      "maxBytes": 284014399,
+      "maxIncreasePercent": 5
+    },
+    "darwin-arm64-app-asar": {
+      "platformKey": "darwin-arm64",
+      "target": "app-asar",
+      "relativePath": "dist/staged/mac-arm64/MD Viewer.app/Contents/Resources/app.asar",
+      "baselineBytes": 45691366,
+      "maxBytes": 47975935,
+      "maxIncreasePercent": 5
+    }
+  }
+}

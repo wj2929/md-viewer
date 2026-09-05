@@ -26,6 +26,12 @@ describe('tocExtractor 工具函数测试', () => {
       expect(toc[1].id).toBe('你好世界')
     })
 
+    it('应该避免自然数字后缀与重复标题产生相同 ID', () => {
+      const markdown = '# Foo\n# Foo\n# Foo-1'
+      const toc = extractToc(markdown, md)
+      expect(toc.map(item => item.id)).toEqual(['foo', 'foo-1', 'foo-1-1'])
+    })
+
     it('应该处理重复标题', () => {
       const markdown = '# Title\n## Title\n### Title'
       const tokens = md.parse(markdown, {})

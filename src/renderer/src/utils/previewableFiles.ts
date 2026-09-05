@@ -2,8 +2,7 @@ const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkd
 const EXCALIDRAW_EXTENSION = '.excalidraw'
 
 function extensionOf(filePath: string): string {
-  const cleanPath = filePath.split(/[?#]/, 1)[0] || filePath
-  const fileName = cleanPath.split(/[/\\]/).pop() || cleanPath
+  const fileName = filePath.split(/[/\\]/).pop() || filePath
   const dotIndex = fileName.lastIndexOf('.')
   return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : ''
 }

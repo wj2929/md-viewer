@@ -186,6 +186,7 @@ function expectNoRendererSourceResidue(htmlContent: string): void {
     '<pre class="language-plotly"',
     '<pre class="language-dbml"',
     '<pre class="language-antv-g6"',
+    '<pre class="language-svg"',
     '<pre class="language-kroki"',
     '<pre class="language-nomnoml"',
     '<pre class="language-pikchr"',
@@ -359,6 +360,7 @@ test.describe('导出功能测试', () => {
     expect(htmlContent).toContain('plotly-container')
     expect(htmlContent).toContain('dbml-container')
     expect(htmlContent).toContain('antv-g6-container')
+    expect(htmlContent).toContain('svg-container')
     expect(htmlContent).toContain('kroki-container')
     expectNoRendererSourceResidue(htmlContent)
 
@@ -395,6 +397,7 @@ test.describe('导出功能测试', () => {
     expect(pdfText).not.toContain('language-wavedrom')
     expect(pdfText).not.toContain('language-dbml')
     expect(pdfText).not.toContain('language-antv-g6')
+    expect(pdfText).not.toContain('language-svg')
   })
 
   test('别名图表导出的 HTML 不应残留源码块', async ({ page, electronApp }) => {

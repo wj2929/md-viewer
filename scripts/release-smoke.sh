@@ -137,6 +137,8 @@ case "$MODE" in
       src/renderer/test/utils/v24WorkflowContracts.test.ts \
       src/renderer/test/utils/exportHtml.responsive.test.ts
     run_step "构建 E2E 产物" npm run build
+    run_step "图表示例包核验" npm run chart-examples:check
+    run_step "运行时依赖核验" npm run verify:runtime
     run_step "CLI Headless E2E" run_cli_e2e
     run_step "核心 E2E" run_core_e2e \
       e2e/02-file-tree.spec.ts \
@@ -156,8 +158,10 @@ case "$MODE" in
     echo "运行 v${APP_VERSION} 完整门禁（纯 headless，不开可见窗口）"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
-    run_step "全量单元测试" npm test -- --run
+    run_step "全量单元测试" npm run test:unit
     run_step "构建" npm run build
+    run_step "图表示例包核验" npm run chart-examples:check
+    run_step "运行时依赖核验" npm run verify:runtime
     run_step "准备 DOCX 服务" ensure_docx_service_for_full
     run_step "CLI Headless E2E" run_cli_e2e
     run_step "导出回归基线(含DOCX)" env MD_VIEWER_DOCX_SERVICE_URL="${DOCX_SERVICE_URL}" node scripts/export-baseline.mjs
@@ -167,19 +171,14 @@ case "$MODE" in
     echo "运行 v${APP_VERSION} 发布前门禁（含可见窗口交互 E2E）"
     run_step "类型检查" npm run typecheck
     run_step "ESLint" npm run lint
-    run_step "全量单元测试" npm test -- --run
+    run_step "全量单元测试" npm run test:unit
     run_step "构建" npm run build
+    run_step "图表示例包核验" npm run chart-examples:check
+    run_step "运行时依赖核验" npm run verify:runtime
     run_step "准备 DOCX 服务" ensure_docx_service_for_full
     run_step "CLI Headless E2E" run_cli_e2e
-    run_step "核心 E2E（可见窗口）" run_core_e2e \
-      e2e/02-file-tree.spec.ts \
-      e2e/03-markdown-rendering.spec.ts \
-      e2e/05-export-features.spec.ts \
-      e2e/file-tree-drag-move.spec.ts \
-      e2e/workspace-transfer.spec.ts \
-      e2e/markdown-edit-mode.spec.ts \
-      e2e/markdown-links.spec.ts \
-      e2e/read-position.spec.ts
+    run_step "完整 Electron E2E（后台隐藏）" npm run test:e2e:release
+    run_step "可见窗口交互 E2E" npm run test:e2e:interactive
     run_step "导出回归基线(含DOCX)" env MD_VIEWER_DOCX_SERVICE_URL="${DOCX_SERVICE_URL}" node scripts/export-baseline.mjs
     ;;
   *)

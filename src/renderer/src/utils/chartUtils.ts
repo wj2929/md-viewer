@@ -40,6 +40,7 @@ const EXPORTABLE_CHART_DEFINITIONS: ExportableChartDefinition[] = [
   { type: 'plotly', wrapperSelector: '.plotly-wrapper', containerSelector: '.plotly-container' },
   { type: 'dbml', wrapperSelector: '.dbml-wrapper', containerSelector: '.dbml-container' },
   { type: 'antv-g6', wrapperSelector: '.antv-g6-wrapper', containerSelector: '.antv-g6-container' },
+  { type: 'svg', wrapperSelector: '.svg-wrapper', containerSelector: '.svg-container' },
   { type: 'kroki', wrapperSelector: '.kroki-wrapper', containerSelector: '.kroki-container' },
 ]
 
@@ -592,6 +593,17 @@ function resolveFullscreenSvgChartBinding(wrapper: HTMLElement): FullscreenSvgCh
       actionButtonSelector: '.antv-g6-action-btn',
       backButtonSelector: '.antv-g6-back-btn',
       filenamePrefix: 'antv-g6',
+    }
+  }
+  if (wrapper.classList.contains('svg-wrapper')) {
+    return {
+      chartType: 'svg',
+      containerSelector: '.svg-container',
+      codeViewSelector: '.svg-code-view',
+      toggleBarSelector: '.svg-toggle-bar',
+      actionButtonSelector: '.svg-action-btn',
+      backButtonSelector: '.svg-back-btn',
+      filenamePrefix: 'svg',
     }
   }
   if (wrapper.classList.contains('kroki-wrapper')) {

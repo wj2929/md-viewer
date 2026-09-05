@@ -1,6 +1,6 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { act, render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useWorkspaceStore } from '../../src/stores/workspaceStore'
 import { FileTree, FileInfo } from '../../src/components/FileTree'
@@ -28,8 +28,33 @@ describe('FileTree', () => {
       getDocumentMarks: vi.fn().mockResolvedValue({}),
       setDocumentMark: vi.fn().mockResolvedValue({}),
       onDocumentMarksChanged: vi.fn(() => vi.fn()),
-      moveFile: vi.fn().mockResolvedValue('/base/path/docs/moved.md')
+      moveFile: vi.fn().mockResolvedValue('/base/path/docs/moved.md'),
+      createLinkImpact: vi.fn().mockResolvedValue({
+        impactId: 'impact-a',
+        mapping: { oldRelativePath: 'moved.md', newRelativePath: 'docs/moved.md' },
+        affectedSourceFiles: 0,
+        exactChanges: 0,
+        candidates: 0,
+        items: [],
+      }),
+      executeLinkRewriteOperation: vi.fn().mockImplementation(async (operation, input) => ({
+        newPath: await window.api.moveFile(
+          `/base/path/${input.mapping.oldRelativePath}`,
+          `/base/path/${input.mapping.newRelativePath}`,
+          operation,
+        ),
+        receipt: { operationReceiptId: 'receipt-a' },
+      })),
+      createLinkRepairPlan: vi.fn().mockResolvedValue({ planId: 'plan-a', operationReceiptId: 'receipt-a', changes: [], warnings: [] }),
+      applyLinkRepairPlan: vi.fn().mockResolvedValue({ planId: 'plan-a', files: [] }),
+      applyLinkRepairPlans: vi.fn().mockResolvedValue({ planIds: ['plan-a'], files: [] }),
+      regenerateLinkRepairPlan: vi.fn(),
+      discardLinkRepairPlan: vi.fn().mockResolvedValue(undefined),
     } as any
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn(),
+    })
   })
 
   const createMockFile = (name: string, path: string, treePath = name): FileInfo => ({
@@ -50,6 +75,7 @@ describe('FileTree', () => {
   beforeEach(() => {
     mockOnFileSelect.mockClear()
     mockShowContextMenu.mockClear()
+    HTMLElement.prototype.scrollIntoView.mockClear()
     mockShowContextMenu.mockResolvedValue({ success: true })
     useWorkspaceStore.setState({
       workspaces: [{ id: 'test-workspace', name: '测试工作区', primaryRoot: basePath, lifecycleEpoch: 1 }],
@@ -63,6 +89,15 @@ describe('FileTree', () => {
     window.api.setDocumentMark.mockResolvedValue({})
     window.api.moveFile.mockClear()
     window.api.moveFile.mockResolvedValue('/base/path/docs/moved.md')
+    window.api.executeLinkRewriteOperation.mockClear()
+    window.api.executeLinkRewriteOperation.mockImplementation(async (operation, input) => ({
+      newPath: await window.api.moveFile(
+        `/base/path/${input.mapping.oldRelativePath}`,
+        `/base/path/${input.mapping.newRelativePath}`,
+        operation,
+      ),
+      receipt: { operationReceiptId: 'receipt-a' },
+    }))
   })
 
   afterEach(() => {
@@ -188,6 +223,113 @@ describe('FileTree', () => {
       fireEvent.keyDown(fileRow, { key: ' ' })
 
       expect(mockOnFileSelect).toHaveBeenCalledWith(file)
+    })
+  })
+
+  describe('活动文档定位', () => {
+    const targetFile = createMockFile(
+      'authorization.md',
+      '/base/path/docs/design/security/authorization.md',
+      'docs/design/security/authorization.md'
+    )
+    const nestedFiles = [
+      createMockDirectory('docs', '/base/path/docs', [
+        createMockDirectory('design', '/base/path/docs/design', [
+          createMockDirectory('security', '/base/path/docs/design/security', [targetFile], 'docs/design/security')
+        ], 'docs/design')
+      ], 'docs')
+    ]
+    const revealRequest = {
+      id: 1,
+      filePath: targetFile.path,
+      basePath,
+      workspaceId: 'test-workspace',
+      lifecycleEpoch: 1,
+    }
+
+    it('应该展开所有折叠祖先并把目标行滚动到可视区域', async () => {
+      window.api.getFolderTreeState = vi.fn(() => createImmediateFolderTreeState({
+        docs: false,
+        'docs/design': false,
+        'docs/design/security': false,
+      }))
+
+      render(
+        <FileTree
+          files={nestedFiles}
+          onFileSelect={mockOnFileSelect}
+          selectedPath={targetFile.path}
+          revealRequest={revealRequest}
+          basePath={basePath}
+        />
+      )
+
+      const targetRow = await screen.findByText('authorization.md')
+      expect(screen.getByText('docs').closest('.file-tree-row')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText('design').closest('.file-tree-row')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText('security').closest('.file-tree-row')).toHaveAttribute('aria-expanded', 'true')
+      expect(targetRow.closest('.file-tree-row')).toHaveAttribute('aria-selected', 'true')
+      await waitFor(() => expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+        block: 'nearest',
+        inline: 'nearest',
+      }))
+      await waitFor(() => expect(window.api.saveFolderTreeState).toHaveBeenCalledWith(
+        {},
+        { workspaceId: 'test-workspace', lifecycleEpoch: 1 }
+      ))
+    })
+
+    it('同一活动文档收到新的定位请求时应该再次展开并滚动', async () => {
+      const { rerender } = render(
+        <FileTree
+          files={nestedFiles}
+          onFileSelect={mockOnFileSelect}
+          selectedPath={targetFile.path}
+          revealRequest={revealRequest}
+          basePath={basePath}
+        />
+      )
+      await screen.findByText('authorization.md')
+      await waitFor(() => expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(1))
+
+      fireEvent.click(screen.getByText('docs'))
+      expect(screen.queryByText('authorization.md')).not.toBeInTheDocument()
+
+      rerender(
+        <FileTree
+          files={nestedFiles}
+          onFileSelect={mockOnFileSelect}
+          selectedPath={targetFile.path}
+          revealRequest={{ ...revealRequest, id: 2 }}
+          basePath={basePath}
+        />
+      )
+
+      await screen.findByText('authorization.md')
+      await waitFor(() => expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(2))
+    })
+
+    it('文件树过滤隐藏目标时应该清除过滤后再定位', async () => {
+      const { rerender } = render(
+        <FileTree files={nestedFiles} onFileSelect={mockOnFileSelect} basePath={basePath} />
+      )
+      const filterInput = screen.getByRole('textbox', { name: '文件过滤' })
+      await userEvent.type(filterInput, '不存在的文件')
+      expect(screen.queryByText('authorization.md')).not.toBeInTheDocument()
+
+      rerender(
+        <FileTree
+          files={nestedFiles}
+          onFileSelect={mockOnFileSelect}
+          selectedPath={targetFile.path}
+          revealRequest={revealRequest}
+          basePath={basePath}
+        />
+      )
+
+      await waitFor(() => expect(filterInput).toHaveValue(''))
+      await screen.findByText('authorization.md')
+      await waitFor(() => expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled())
     })
   })
 
@@ -987,7 +1129,7 @@ describe('FileTree', () => {
 
     const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
-    it('拖文件到目录 → 调用 moveFile(src, 目标目录/basename)', async () => {
+    it('拖文件到目录先显示影响向导，确认后才执行物理移动', async () => {
       const file = createMockFile('a.md', '/base/path/a.md')
       const dir = createMockDirectory('docs', '/base/path/docs', [])
       const { container } = render(
@@ -995,15 +1137,16 @@ describe('FileTree', () => {
       )
 
       const rows = container.querySelectorAll('.file-tree-row')
-      const fileRow = rows[0]  // a.md
-      const dirRow = rows[1]   // docs
       const dt = makeDataTransfer()
+      fireEvent.dragStart(rows[0], { dataTransfer: dt })
+      fireEvent.dragOver(rows[1], { dataTransfer: dt })
+      fireEvent.drop(rows[1], { dataTransfer: dt })
 
-      fireEvent.dragStart(fileRow, { dataTransfer: dt })
-      fireEvent.dragOver(dirRow, { dataTransfer: dt })
-      fireEvent.drop(dirRow, { dataTransfer: dt })
-      await act(flush)
-
+      expect(await screen.findByRole('heading', { name: /移动影响/ })).toBeInTheDocument()
+      expect(window.api.moveFile).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: '移动 1 项' }))
+      await waitFor(() => expect(window.api.executeLinkRewriteOperation).toHaveBeenCalled())
+      expect(await screen.findByRole('heading', { name: /移动结果/ })).toBeInTheDocument()
       expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
     })
 
@@ -1048,9 +1191,9 @@ describe('FileTree', () => {
       fireEvent.dragStart(rows[0], { dataTransfer: dt })
       fireEvent.dragOver(dirRow, { dataTransfer: dt })
       fireEvent.drop(dirRow, { dataTransfer: dt })
-      await act(flush)
+      fireEvent.click(await screen.findByRole('button', { name: '移动 2 项' }))
+      await waitFor(() => expect(window.api.moveFile).toHaveBeenCalledTimes(2))
 
-      expect(window.api.moveFile).toHaveBeenCalledTimes(2)
       expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/a.md', '/base/path/docs/a.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
       expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/b.md', '/base/path/docs/b.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
     })
@@ -1068,7 +1211,8 @@ describe('FileTree', () => {
       fireEvent.dragStart(rows[0], { dataTransfer: dt })
       fireEvent.dragOver(rows[1], { dataTransfer: dt })
       fireEvent.drop(rows[1], { dataTransfer: dt })
-      await act(flush)
+      fireEvent.click(await screen.findByRole('button', { name: '移动 1 项' }))
+      await waitFor(() => expect(onMoveSuccess).toHaveBeenCalled())
 
       expect(onMoveSuccess).toHaveBeenCalledWith(expect.stringContaining('已移动'))
     })
@@ -1087,7 +1231,8 @@ describe('FileTree', () => {
       fireEvent.dragStart(rows[0], { dataTransfer: dt })
       fireEvent.dragOver(rows[1], { dataTransfer: dt })
       fireEvent.drop(rows[1], { dataTransfer: dt })
-      await act(flush)
+      fireEvent.click(await screen.findByRole('button', { name: '移动 1 项' }))
+      await waitFor(() => expect(onMoveError).toHaveBeenCalled())
 
       expect(onMoveError).toHaveBeenCalledWith(expect.stringContaining('目标文件已存在'))
     })
@@ -1113,7 +1258,8 @@ describe('FileTree', () => {
       expect(rootDropBar).toBeTruthy()
       fireEvent.dragOver(rootDropBar, { dataTransfer: dt })
       fireEvent.drop(rootDropBar, { dataTransfer: dt })
-      await act(flush)
+      fireEvent.click(await screen.findByRole('button', { name: '移动 1 项' }))
+      await waitFor(() => expect(window.api.moveFile).toHaveBeenCalled())
 
       expect(window.api.moveFile).toHaveBeenCalledWith('/base/path/docs/a.md', '/base/path/a.md', { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
     })

@@ -32,6 +32,8 @@ export function useMarkmapChart(
     if (markmapBlocks.length === 0) return
 
     const instances: Markmap[] = []
+    const resizeObservers: ResizeObserver[] = []
+    let disposed = false
 
     markmapBlocks.forEach((block, index) => {
       const code = block.textContent || ''
@@ -133,10 +135,18 @@ export function useMarkmapChart(
         // 存储实例到 DOM 元素，供工具栏操作使用
         ;(chartContainer as any).__markmapInstance = mm
 
-        // 渲染后自适应
-        requestAnimationFrame(() => {
-          mm.fit()
-        })
+        // 渲染后自适应；容器尺寸变化时重新 fit，覆盖设置预览、侧栏和分屏调整。
+        const fitToContainer = () => {
+          requestAnimationFrame(() => {
+            if (!disposed) mm.fit()
+          })
+        }
+        fitToContainer()
+        if (typeof ResizeObserver !== 'undefined') {
+          const resizeObserver = new ResizeObserver(fitToContainer)
+          resizeObserver.observe(chartContainer)
+          resizeObservers.push(resizeObserver)
+        }
 
         instances.push(mm)
       } catch (error) {
@@ -154,6 +164,8 @@ export function useMarkmapChart(
     })
 
     return () => {
+      disposed = true
+      resizeObservers.forEach(observer => observer.disconnect())
       instances.forEach((mm) => {
         try {
           mm.destroy()

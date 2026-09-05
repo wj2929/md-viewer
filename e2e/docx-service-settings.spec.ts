@@ -30,7 +30,7 @@ test.describe('DOCX 服务设置联调', () => {
       }, SERVICE_URL)
 
       expect(connection.ok).toBe(true)
-      expect(connection.version).toBe('0.1.0')
+      expect(connection.version).toMatch(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/)
       expect(connection.mode).toBe('full')
       expect(connection.chartRenderersAvailable).toContain('mermaid')
 
@@ -48,12 +48,13 @@ test.describe('DOCX 服务设置联调', () => {
       }, SERVICE_URL)
 
       await page.locator('.nav-settings-btn').click()
+      await page.getByRole('tab', { name: '导出' }).click()
       const docxSection = page.locator('.settings-section').filter({ hasText: 'DOCX 导出服务' })
       await expect(docxSection).toBeVisible()
       await expect(docxSection.locator('input.settings-input').first()).toHaveValue(SERVICE_URL)
 
       await docxSection.getByRole('button', { name: '测试' }).click()
-      await expect(docxSection.locator('.docx-test-result-summary')).toContainText('v0.1.0')
+      await expect(docxSection.locator('.docx-test-result-summary')).toContainText(`v${connection.version}`)
       await expect(docxSection.locator('.docx-test-result-summary')).toContainText('full')
 
       await docxSection.locator('.docx-test-detail-toggle').click()

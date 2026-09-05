@@ -6,7 +6,10 @@ import type Renderer from 'markdown-it/lib/renderer.mjs'
 import Prism from 'prismjs'
 import katex from 'katex'
 import DOMPurify from 'dompurify'
-import { slugify } from './slugify'
+import {
+  createHeadingIdAllocator,
+  extractPlainHeadingText,
+} from '../../../shared/markdown/semantics'
 import { builtinRendererDefinitions } from '../renderers/builtin'
 import { createRendererRegistry } from '../renderers/registry'
 
@@ -26,6 +29,15 @@ import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
 
 const rendererRegistry = createRendererRegistry(builtinRendererDefinitions)
+const inlineStatesWithoutLatexClose = new WeakSet<StateInline>()
+
+function isEscapedDelimiter(source: string, index: number): boolean {
+  let precedingBackslashes = 0
+  for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor--) {
+    precedingBackslashes++
+  }
+  return precedingBackslashes % 2 === 1
+}
 
 /**
  * 检测 JavaScript 代码块是否为 ECharts 配置
@@ -144,6 +156,38 @@ export function createMarkdownRenderer(): MarkdownIt {
     return true
   })
 
+  // 兼容 LaTeX 行内公式 \(...\)，在 markdown-it 转义规则前提取
+  md.inline.ruler.before('escape', 'math_inline_latex', (state: StateInline, silent: boolean): boolean => {
+    const start = state.pos
+    if (state.src.slice(start, start + 2) !== '\\(') return false
+    if (inlineStatesWithoutLatexClose.has(state)) return false
+
+    let end = start + 2
+    while (end < state.src.length) {
+      if (state.src.slice(end, end + 2) === '\\)' && !isEscapedDelimiter(state.src, end)) break
+      end++
+    }
+    if (end >= state.src.length) {
+      inlineStatesWithoutLatexClose.add(state)
+      return false
+    }
+
+    if (!silent) {
+      const latex = state.src.slice(start + 2, end)
+      try {
+        const html = katex.renderToString(latex, { throwOnError: false })
+        const token = state.push('html_inline', '', 0)
+        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->`
+      } catch (e) {
+        const token = state.push('html_inline', '', 0)
+        token.content = `<span class="katex-error">${latex}</span>`
+      }
+    }
+
+    state.pos = end + 2
+    return true
+  })
+
   // 块级数学公式 $$...$$
   md.block.ruler.before('fence', 'math_block', (state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean => {
     let pos = state.bMarks[startLine] + state.tShift[startLine]
@@ -209,39 +253,65 @@ export function createMarkdownRenderer(): MarkdownIt {
 
     state.line = lastLine + 1
     return true
-  })
+  }, { alt: ['paragraph', 'reference', 'blockquote', 'list'] })
+
+  // 兼容 LaTeX 块级公式 \[...\]，避免定界符先被 markdown-it 当作转义字符
+  md.block.ruler.before('fence', 'math_block_latex', (state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean => {
+    let pos = state.bMarks[startLine] + state.tShift[startLine]
+    let max = state.eMarks[startLine]
+    const openingLine = state.src.slice(pos, max).trim()
+    if (openingLine !== '\\[') return false
+
+    const firstLine = ''
+
+    let lastLine = startLine
+    const latexLines = [firstLine]
+    for (let nextLine = startLine + 1; nextLine < endLine; nextLine++) {
+      pos = state.bMarks[nextLine] + state.tShift[nextLine]
+      max = state.eMarks[nextLine]
+      const line = state.src.slice(pos, max)
+      const trimmedLine = line.trim()
+      if (trimmedLine === '\\]') {
+        latexLines.push(line.slice(0, line.lastIndexOf('\\]')))
+        lastLine = nextLine
+        break
+      }
+      if (
+        state.isEmpty(nextLine)
+        || trimmedLine === '\\['
+        || /^(?:>\s*|[-+*]\s+|\d+[.)]\s+)\\\[$/.test(trimmedLine)
+      ) return false
+      latexLines.push(line)
+    }
+    if (lastLine === startLine) return false
+    if (!silent) {
+      const latex = latexLines.join('\n').trim()
+      try {
+        const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
+        const token = state.push('html_block', '', 0)
+        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->\n`
+      } catch (e) {
+        const token = state.push('html_block', '', 0)
+        token.content = `<div class="katex-error">${latex}</div>\n`
+      }
+    }
+    state.line = lastLine + 1
+    return true
+  }, { alt: ['paragraph', 'reference', 'blockquote', 'list'] })
 
   // ✅ 自定义标题渲染，为标题添加 id 属性支持目录跳转
-  md.renderer.rules.heading_open = (tokens: Token[], idx: number, options: MdOptions, env: { _usedIds?: Set<string> }, self: Renderer): string => {
+  md.renderer.rules.heading_open = (tokens: Token[], idx: number, options: MdOptions, env: { _allocateHeadingId?: (text: string) => string }, self: Renderer): string => {
     const token = tokens[idx]
     const nextToken = tokens[idx + 1]
 
-    // 每次 render 调用时在 env 中初始化 usedIds
-    if (!env._usedIds) {
-      env._usedIds = new Set<string>()
+    if (!env._allocateHeadingId) {
+      env._allocateHeadingId = createHeadingIdAllocator()
     }
 
-    // 获取标题文本
-    let titleText = ''
-    if (nextToken && nextToken.type === 'inline' && nextToken.children) {
-      titleText = nextToken.children
-        .filter((t: Token) => t.type === 'text' || t.type === 'code_inline')
-        .map((t: Token) => t.content)
-        .join('')
-    }
-
-    // 生成唯一 id
-    let slug = slugify(titleText)
-    let uniqueSlug = slug
-    let counter = 1
-    while (env._usedIds.has(uniqueSlug)) {
-      uniqueSlug = `${slug}-${counter}`
-      counter++
-    }
-    env._usedIds.add(uniqueSlug)
-
-    // 添加 id 属性
-    token.attrSet('id', uniqueSlug)
+    const titleText = nextToken?.type === 'inline'
+      ? extractPlainHeadingText(nextToken.children)
+      : ''
+    token.attrSet('id', env._allocateHeadingId(titleText))
 
     return self.renderToken(tokens, idx, options)
   }
@@ -452,6 +522,28 @@ export function setupDOMPurifyHooks(): void {
   // 清除之前的 hooks（防止重复添加）
   DOMPurify.removeAllHooks()
 
+  // KaTeX 0.16.x 样式表中的结构类。仅在 .katex 子树内放行，避免数学排版类污染普通 Markdown HTML。
+  const KATEX_CLASSES = new Set([
+    'accent', 'accent-body', 'accent-full', 'amsrm', 'angl', 'anglpad', 'arraycolsep',
+    'base', 'boldsymbol', 'boxpad', 'brace-center', 'brace-left', 'brace-right',
+    'cancel-lap', 'cancel-pad', 'cd-arrow-pad', 'cd-label-left', 'cd-label-right',
+    'cd-vert-arrow', 'clap', 'col-align-c', 'col-align-l', 'col-align-r',
+    'delim-size1', 'delim-size4', 'delimcenter', 'delimsizing', 'eqn-num', 'fbox',
+    'fcolorbox', 'fix', 'fleqn', 'fontsize-ensurer', 'frac-line', 'halfarrow-left',
+    'halfarrow-right', 'hbox', 'hdashline', 'hide-tail', 'hline', 'inner', 'katex',
+    'katex-display', 'katex-html', 'katex-mathml', 'katex-version', 'large-op',
+    'leqno', 'llap', 'mainrm', 'mathbb', 'mathbf', 'mathboldfrak', 'mathboldsf',
+    'mathcal', 'mathfrak', 'mathit', 'mathitsf', 'mathnormal', 'mathrm', 'mathscr',
+    'mathsf', 'mathsfit', 'mathtt', 'mfrac', 'mml-eqn-num', 'mover', 'mspace',
+    'msupsub', 'mtable', 'mtr-glue', 'mult', 'munder', 'newline', 'nulldelimiter',
+    'op-limits', 'op-symbol', 'overlay', 'overline', 'overline-line', 'pstrut',
+    'rlap', 'root', 'rule', 'sizing', 'small-op', 'sout', 'sqrt', 'stretchy',
+    'strut', 'svg-align', 'tag', 'text', 'textbb', 'textbf', 'textboldfrak', 'textboldsf',
+    'textfrak', 'textit', 'textitsf', 'textrm', 'textscr', 'textsf', 'texttt',
+    'thinbox', 'underline', 'underline-line', 'vbox', 'vertical-separator', 'vlist',
+    'vlist-r', 'vlist-s', 'vlist-t', 'vlist-t2', 'x-arrow', 'x-arrow-pad',
+  ])
+
   // class 白名单（仅允许项目中使用的 class）
   const ALLOWED_CLASSES = new Set([
     // Markdown 渲染相关
@@ -523,6 +615,7 @@ export function setupDOMPurifyHooks(): void {
     'language-plotly', 'plotly-wrapper', 'plotly-container', 'plotly-error',
     'language-dbml', 'dbml-wrapper', 'dbml-container', 'dbml-error',
     'language-antv-g6', 'antv-g6-wrapper', 'antv-g6-container', 'antv-g6-error',
+    'language-svg', 'svg-wrapper', 'svg-container', 'svg-error',
     'language-kroki', 'kroki-wrapper', 'kroki-container', 'kroki-error',
 
     // KaTeX 相关（完整的 KaTeX 类白名单）
@@ -565,9 +658,11 @@ export function setupDOMPurifyHooks(): void {
     // 验证 class 属性
     if (data.attrName === 'class') {
       const classes = data.attrValue.split(/\s+/).filter(Boolean)
+      const insideKatex = (node as Element).closest('.katex') !== null
       const safeClasses = classes.filter(c => {
-        // 允许白名单中的 class
+        // 允许项目白名单；KaTeX 专用结构类只允许出现在公式子树内。
         if (ALLOWED_CLASSES.has(c)) return true
+        if (insideKatex && KATEX_CLASSES.has(c)) return true
         // 允许 reset-size* 格式的 KaTeX class
         if (/^reset-size\d+$/.test(c)) return true
         // 允许 size* 格式的 KaTeX class
@@ -619,9 +714,47 @@ export function setupDOMPurifyHooks(): void {
 
     // 验证 style 属性（阻止危险的 CSS 属性）
     if (data.attrName === 'style') {
+      const element = node as Element
+      const parent = element.parentElement
+      const insideKatex = element.closest('.katex') !== null
+      const isKatexVlistItem = insideKatex
+        && parent?.classList.contains('vlist') === true
+        && parent.parentElement?.classList.contains('vlist-r') === true
+      const isKatexDelimiter = insideKatex
+        && element.classList.contains('delimcenter')
+        && parent?.classList.contains('minner') === true
+      const isKatexLargeOperator = insideKatex
+        && element.classList.contains('op-symbol')
+        && element.classList.contains('large-op')
+        && parent?.classList.contains('mop') === true
+      const isKatexAccent = insideKatex
+        && element.classList.contains('accent-body')
+      const isKatexRule = insideKatex
+        && element.classList.contains('rule')
+      const isKatexCdLabel = insideKatex
+        && (
+          element.classList.contains('cd-label-left')
+          || element.classList.contains('cd-label-right')
+        )
       const styles = data.attrValue.split(';').map(s => s.trim()).filter(Boolean)
       const safeStyles = styles.filter(style => {
-        const prop = style.split(':')[0].trim().toLowerCase()
+        const [rawProp, ...rawValue] = style.split(':')
+        const prop = rawProp.trim().toLowerCase()
+        const value = rawValue.join(':').trim()
+        const isFiniteEm = /^-?(?:\d+(?:\.\d+)?|\.\d+)em$/i.test(value)
+
+        // KaTeX 依赖少量定位属性排列分数、上下限、矩阵、cases、重音和大型运算符。
+        // 只放行 KaTeX 固定结构中的有限 em 偏移及 relative；普通 Markdown HTML 仍会删除。
+        if (
+          prop === 'top'
+          && isFiniteEm
+          && (isKatexVlistItem || isKatexDelimiter || isKatexLargeOperator || isKatexAccent)
+        ) {
+          return true
+        }
+        if (prop === 'left' && isFiniteEm && isKatexAccent) return true
+        if (prop === 'bottom' && isFiniteEm && (isKatexRule || isKatexCdLabel)) return true
+        if (prop === 'position' && value === 'relative' && isKatexLargeOperator) return true
         return !DANGEROUS_STYLE_PROPS.test(prop)
       })
 
@@ -645,6 +778,8 @@ export function setupDOMPurifyHooks(): void {
  * @version v1.4.6
  */
 export function sanitizeHtml(html: string): string {
+  // React effect 晚于首轮 render；在真正消毒前同步安装 hook，避免首个恢复文档与后续文档策略不一致。
+  setupDOMPurifyHooks()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return String(DOMPurify.sanitize(html, DOMPURIFY_CONFIG as any))
 }

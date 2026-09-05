@@ -1,8 +1,15 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { FolderActivation, WorkspaceOperationContext } from '../shared/workspace'
+import type { FolderSplitLayoutV1 } from '../shared/folderTabSession'
 import type { WorkspaceTransferSnapshot } from '../main/workspaceTransferCoordinator'
 import type { DocumentMarkColor } from '../shared/documentMarks'
+import type { CrossRootMoveImpactReport } from '../shared/crossRootMoveImpact'
+import type {
+  ChartExamplesStatus,
+  InstallChartExamplesResult,
+  SaveChartExamplesResult,
+} from '../shared/chartExamples'
 
 // 自定义 API 暴露给渲染进程
 const api = {
@@ -10,7 +17,7 @@ const api = {
   platform: process.platform as 'darwin' | 'win32' | 'linux',
 
   // 文件系统操作 (v1.0 核心功能)
-  openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+  openFolder: () => ipcRenderer.invoke('dialog:openFolder') as Promise<FolderActivation | null>,
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   listChildDirs: (path: string) =>
     ipcRenderer.invoke('fs:listChildDirs', path) as Promise<Array<{ name: string; path: string }>>,
@@ -26,6 +33,12 @@ const api = {
     ipcRenderer.invoke('fs:issueLocalImageUrl', markdownFilePath, rawResourcePath) as Promise<string>,
   testOpenMarkdownFile: (path: string) =>
     ipcRenderer.invoke('test:openMarkdownFile', path) as Promise<boolean>,
+  testSetEditableSaveDelay: process.env.NODE_ENV === 'test'
+    ? (delayMs: number) => ipcRenderer.invoke('test:setEditableSaveDelay', delayMs) as Promise<boolean>
+    : undefined,
+  testGetOpenedFileWatcherCount: process.env.NODE_ENV === 'test'
+    ? (workspaceId: string) => ipcRenderer.invoke('test:getOpenedFileWatcherCount', workspaceId) as Promise<number>
+    : undefined,
   testFileClipboardAction: process.env.NODE_ENV === 'test'
     ? (action: 'copy' | 'cut' | 'paste', target: string | string[]) =>
         ipcRenderer.invoke('test:file-clipboard-action', action, target) as Promise<{ success: boolean }>
@@ -67,6 +80,8 @@ const api = {
     ipcRenderer.invoke('fs:watchFolder', path, workspaceId, lifecycleEpoch),
   watchFile: (path: string, workspaceId?: string, lifecycleEpoch?: number) =>
     ipcRenderer.invoke('fs:watchFile', path, workspaceId, lifecycleEpoch),
+  unwatchFile: (path: string, workspaceId?: string, lifecycleEpoch?: number) =>
+    ipcRenderer.invoke('fs:unwatchFile', path, workspaceId, lifecycleEpoch),
   unwatchFolder: (workspaceId?: string, lifecycleEpoch?: number) =>
     ipcRenderer.invoke('fs:unwatchFolder', workspaceId, lifecycleEpoch),
 
@@ -79,6 +94,12 @@ const api = {
     markdownFilePath: string
     images: Array<{ filename: string; pngBase64: string }>
   }) => ipcRenderer.invoke('export:charts-zip', payload) as Promise<{ filePath?: string; written?: number; canceled?: boolean; error?: string }>,
+  getChartExamplesStatus: () =>
+    ipcRenderer.invoke('examples:getChartExamplesStatus') as Promise<ChartExamplesStatus>,
+  installChartExamples: () =>
+    ipcRenderer.invoke('examples:installChartExamples') as Promise<InstallChartExamplesResult>,
+  saveChartExamples: () =>
+    ipcRenderer.invoke('examples:saveChartExamples') as Promise<SaveChartExamplesResult>,
 
   // v1.5.1：代码块截图（用于 DOCX 导出时保持 ASCII 艺术对齐）
   renderCodeBlockToPng: (code: string) =>
@@ -294,17 +315,12 @@ const api = {
     ipcRenderer.invoke('read-position:clear', filePath, operation) as Promise<void>,
 
   // 最近文件右键菜单
-  showRecentFileContextMenu: (file: {
-    id: string
-    filePath: string
-    fileName: string
-  }) => ipcRenderer.invoke('context-menu:recent-file', file),
+  showRecentFileContextMenu: (recentId: string) =>
+    ipcRenderer.invoke('context-menu:recent-file', recentId) as Promise<{ success: boolean; error?: string }>,
 
   // 最近文件夹右键菜单
-  showRecentFolderContextMenu: (folder: {
-    historyId: string
-    name: string
-  }) => ipcRenderer.invoke('context-menu:recent-folder', folder),
+  showRecentFolderContextMenu: (historyId: string) =>
+    ipcRenderer.invoke('context-menu:recent-folder', historyId) as Promise<{ success: boolean; error?: string }>,
 
   // v1.3.6：最近文件
   getRecentFiles: () =>
@@ -339,13 +355,18 @@ const api = {
 
   // v2.8.0：按文件夹归档 tab 会话
   saveFolderTabSession: (
-    payload: { tabs: Array<{ filePath: string; isPinned?: boolean }>; activeFilePath: string | null },
+    payload: {
+      tabs: Array<{ filePath: string; isPinned?: boolean }>
+      activeFilePath: string | null
+      splitLayout?: FolderSplitLayoutV1
+    },
     operation: WorkspaceOperationContext
   ) => ipcRenderer.invoke('folder-tab-session:save', payload, operation) as Promise<void>,
   getFolderTabSession: (folderPath: string) =>
     ipcRenderer.invoke('folder-tab-session:get-for-folder', folderPath) as Promise<{
       tabs: Array<{ path: string; isPinned?: boolean }>
       activePath: string | null
+      splitLayout?: FolderSplitLayoutV1
     }>,
 
   // v1.3.6：应用设置
@@ -487,6 +508,14 @@ const api = {
     ipcRenderer.invoke('fs:copyDir', srcPath, destPath, operation),
   moveFile: (srcPath: string, destPath: string, operation: WorkspaceOperationContext) =>
     ipcRenderer.invoke('fs:moveFile', srcPath, destPath, operation),
+  previewCrossRootMoveImpact: (
+    sources: string[],
+    targetHistoryId: string,
+    subRelPath: string | undefined,
+    operation: WorkspaceOperationContext,
+  ) => ipcRenderer.invoke(
+    'fs:previewCrossRootMoveImpact', sources, targetHistoryId, subRelPath, operation,
+  ) as Promise<CrossRootMoveImpactReport>,
   moveFileToFolder: (srcPath: string, targetHistoryId: string, subRelPath: string | undefined, operation: WorkspaceOperationContext) =>
     ipcRenderer.invoke('fs:moveFileToFolder', srcPath, targetHistoryId, subRelPath, operation),
   fileExists: (filePath: string) => ipcRenderer.invoke('fs:exists', filePath),
@@ -1046,6 +1075,111 @@ const api = {
     ipcRenderer.on('workspace:window-transfer-ready', handler)
     return () => ipcRenderer.removeListener('workspace:window-transfer-ready', handler)
   },
+  getWorkspaceIndexStatus: (workspace: WorkspaceOperationContext) =>
+    ipcRenderer.invoke('workspace-index:getStatus', workspace) as Promise<{
+      state: 'detached' | 'building' | 'ready' | 'updating' | 'degraded' | 'error' | 'read-only'
+      generation: number
+      indexedDocuments: number
+      totalDocuments: number
+      pendingDocuments: number
+      errors: number
+    }>,
+  queryWorkspaceIndex: (workspace: WorkspaceOperationContext, query: string, limit?: number) =>
+    ipcRenderer.invoke('workspace-index:query', workspace, query, limit) as Promise<Array<{
+      relativePath: string
+      displayName: string
+      score: number
+      lineStart: number
+      snippet: string
+      revisionToken: string
+    }>>,
+  queryWorkspaceHistoryIndexes: (workspace: WorkspaceOperationContext, query: string, historyIds: string[], recentFileIds: string[], limit?: number) =>
+    ipcRenderer.invoke('workspace-index:queryHistory', workspace, query, historyIds, recentFileIds, limit) as Promise<Array<{
+      historyId?: string
+      recentFileId?: string
+      filePath: string
+      relativePath: string
+      displayName: string
+      score: number
+      lineStart: number
+      snippet: string
+      revisionToken: string
+    }>>,
+  getWorkspaceBacklinks: (workspace: WorkspaceOperationContext, targetRelativePath: string) =>
+    ipcRenderer.invoke('workspace-index:getBacklinks', workspace, targetRelativePath) as Promise<Array<{
+      sourceRelativePath: string
+      sourceDisplayName: string
+      lineStart: number
+      rawTarget: string
+      context: string
+      placement: 'prose' | 'standalone-link' | 'table'
+      sourceRange: {
+        startOffset: number
+        endOffset: number
+        startLine: number
+        startColumn: number
+        endLine: number
+        endColumn: number
+      }
+    }>>,
+  rebuildWorkspaceIndex: (workspace: WorkspaceOperationContext) =>
+    ipcRenderer.invoke('workspace-index:rebuild', workspace),
+  subscribeWorkspaceIndexStatus: (workspace: WorkspaceOperationContext, callback: (status: {
+    state: 'detached' | 'building' | 'ready' | 'updating' | 'degraded' | 'error' | 'read-only'
+    generation: number
+    indexedDocuments: number
+    totalDocuments: number
+    pendingDocuments: number
+    errors: number
+  }) => void) => {
+    let subscriptionId: string | null = null
+    let disposed = false
+    const listener = (_event: Electron.IpcRendererEvent, payload: { subscriptionId: string; status: Parameters<typeof callback>[0] }) => {
+      if (payload.subscriptionId === subscriptionId) callback(payload.status)
+    }
+    ipcRenderer.on('workspace-index:statusChanged', listener)
+    void ipcRenderer.invoke('workspace-index:subscribeStatus', workspace).then((id: string) => {
+      subscriptionId = id
+      if (disposed) void ipcRenderer.invoke('workspace-index:unsubscribeStatus', id).catch(() => {})
+    })
+    return () => {
+      disposed = true
+      ipcRenderer.removeListener('workspace-index:statusChanged', listener)
+      if (subscriptionId) void ipcRenderer.invoke('workspace-index:unsubscribeStatus', subscriptionId).catch(() => {})
+    }
+  },
+  createLinkImpact: (workspace: WorkspaceOperationContext, mapping: { oldRelativePath: string; newRelativePath: string }) =>
+    ipcRenderer.invoke('link-rewrite:getImpact', workspace, mapping),
+  executeLinkRewriteOperation: (
+    workspace: WorkspaceOperationContext,
+    input: {
+      impactId: string
+      mapping: { oldRelativePath: string; newRelativePath: string }
+      reason: 'move' | 'rename'
+      confirm: boolean
+    },
+  ) => ipcRenderer.invoke('link-rewrite:executeOperation', workspace, input),
+  createLinkRepairPlan: (
+    workspace: WorkspaceOperationContext,
+    mapping: { oldRelativePath: string; newRelativePath: string },
+    reason: 'move' | 'rename',
+    operationReceiptId: string,
+  ) => ipcRenderer.invoke('link-rewrite:createRepairPlan', workspace, mapping, reason, operationReceiptId),
+  applyLinkRepairPlan: (
+    workspace: WorkspaceOperationContext,
+    input: { planId: string; operationReceiptId: string; selectedChangeIds: string[]; confirm: boolean },
+  ) => ipcRenderer.invoke('link-rewrite:apply', workspace, input),
+  applyLinkRepairPlans: (
+    workspace: WorkspaceOperationContext,
+    input: {
+      plans: Array<{ planId: string; operationReceiptId: string; selectedChangeIds: string[] }>
+      confirm: boolean
+    },
+  ) => ipcRenderer.invoke('link-rewrite:applyBatch', workspace, input),
+  regenerateLinkRepairPlan: (workspace: WorkspaceOperationContext, planId: string) =>
+    ipcRenderer.invoke('link-rewrite:regeneratePlan', workspace, planId),
+  discardLinkRepairPlan: (workspace: WorkspaceOperationContext, planId: string) =>
+    ipcRenderer.invoke('link-rewrite:discard', workspace, planId),
   splitActiveWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:splitActive', workspaceId) as Promise<{
     nonce: string; targetWindowId: number
   }>,
@@ -1171,7 +1305,17 @@ const api = {
       hasUpdate?: boolean; currentVersion?: string; latestVersion?: string;
       releaseUrl?: string; releaseNotes?: string; publishedAt?: string;
       error?: string
-    }>
+    }>,
+  exportDiagnosticsBundle: () => ipcRenderer.invoke('diagnostics:exportBundle') as Promise<{
+    canceled: boolean
+    outputPath?: string
+    bytes?: number
+    entries?: string[]
+    error?: {
+      code: 'OUTPUT_EXISTS' | 'OUTPUT_NOT_WRITABLE' | 'BUNDLE_FAILED'
+      message: string
+    }
+  }>
 }
 
 // 仅在 contextIsolation 启用时暴露 API

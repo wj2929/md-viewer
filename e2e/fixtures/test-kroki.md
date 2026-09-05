@@ -29,6 +29,8 @@
 
 ## 4. Pikchr 时序
 
+<div id="md-case-kroki-pikchr-timeline"></div>
+
 ```pikchr
 box "Open Markdown" wid 1.55 ht 0.48
 arrow right 0.45
@@ -63,6 +65,8 @@ circle "Release" rad 0.5
 
 ## 7. SvgBob 网络
 
+<div id="md-case-kroki-svgbob-network"></div>
+
 ```svgbob
 +-----------+    +------------+
 | Preview   | -> | Renderer   |
@@ -75,6 +79,8 @@ circle "Release" rad 0.5
 ```
 
 ## 8. SvgBob 流程
+
+<div id="md-case-kroki-svgbob-flow"></div>
 
 ```svgbob
 +--------+    +--------+    +--------+
@@ -114,6 +120,8 @@ circle "Release" rad 0.5
 
 ## 11. TikZ 简图
 
+<div id="md-case-kroki-tikz-simple-flow"></div>
+
 ```tikz
 \documentclass{standalone}
 \usepackage{tikz}
@@ -134,6 +142,8 @@ circle "Release" rad 0.5
 ```
 
 ## 12. TikZ 架构节点
+
+<div id="md-case-kroki-tikz-architecture"></div>
 
 ```tikz
 \documentclass{standalone}
@@ -234,6 +244,8 @@ box "Data Steward" fit
 
 ## 18. SvgBob 微服务网络
 
+<div id="md-case-kroki-svgbob-service-network"></div>
+
 ```svgbob
 +-----------+    +-----------+    +---------+
 | Browser   | -> | Gateway   | -> | Render  |
@@ -252,6 +264,8 @@ box "Data Steward" fit
 
 ## 19. SvgBob 批处理拓扑
 
+<div id="md-case-kroki-svgbob-batch-topology"></div>
+
 ```svgbob
 +-----------+    +------------+    +-----------+
 | Scheduler | -> | Job Queue  | -> | Worker    |
@@ -264,6 +278,8 @@ box "Data Steward" fit
 ```
 
 ## 20. SvgBob 数据血缘
+
+<div id="md-case-kroki-svgbob-data-lineage"></div>
 
 ```svgbob
 +-----+    +-----+    +-----+    +------+
@@ -313,6 +329,8 @@ box "Data Steward" fit
 
 ## 23. TikZ 多层架构
 
+<div id="md-case-kroki-tikz-layered-architecture"></div>
+
 ```tikz
 \documentclass{standalone}
 \usepackage{tikz}
@@ -338,6 +356,8 @@ box "Data Steward" fit
 ```
 
 ## 24. TikZ 发布流程
+
+<div id="md-case-kroki-tikz-release-flow"></div>
 
 ```tikz
 \documentclass{standalone}

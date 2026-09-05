@@ -43,14 +43,12 @@ export function createContentSecurityPolicy(dev: boolean): string {
     // media-src:供 TTS 朗读播放主进程返回的音频(blob:/data:)。
     // 第三方 TTS 请求走主进程(不放开 connect-src),故此处只需放行本地音频源。
     joinDirective('media-src', ["'self'", 'blob:', 'data:']),
+    // D2 通过 @terrastruct/d2 的 Blob Worker 编译图表；生产环境同样需要此窄权限。
+    joinDirective('worker-src', ["'self'", 'blob:']),
     joinDirective('connect-src', dev
       ? [...COMMON_CONNECT_SOURCES, 'ws://localhost:*', 'http://localhost:*']
       : [...COMMON_CONNECT_SOURCES, 'http://localhost:*', 'http://127.0.0.1:*']),
   ]
-
-  if (dev) {
-    directives.push(joinDirective('worker-src', ["'self'", 'blob:']))
-  }
 
   return `${directives.join('; ')};`
 }

@@ -54,7 +54,7 @@ export interface BrowserPageRenderResult {
   html: string
   images: Array<{
     id: string
-    type: 'mermaid' | 'katex' | 'echarts' | 'markmap' | 'graphviz' | 'excalidraw' | 'drawio' | 'infographic' | 'plantuml' | 'vega-lite' | 'd2' | 'bpmn' | 'wavedrom' | 'c4plantuml' | 'structurizr' | 'plotly' | 'dbml' | 'antv-g6' | 'kroki'
+    type: 'mermaid' | 'katex' | 'echarts' | 'markmap' | 'graphviz' | 'excalidraw' | 'drawio' | 'infographic' | 'plantuml' | 'vega-lite' | 'd2' | 'bpmn' | 'wavedrom' | 'c4plantuml' | 'structurizr' | 'plotly' | 'dbml' | 'antv-g6' | 'svg' | 'kroki'
     selector: string
     widthPx: number
     heightPx: number

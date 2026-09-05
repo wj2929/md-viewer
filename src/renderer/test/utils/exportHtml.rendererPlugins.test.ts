@@ -40,6 +40,9 @@ vi.mock('../../src/utils/dbmlRenderer', () => ({
 vi.mock('../../src/utils/antvG6Renderer', () => ({
   processAntvG6InHtml: (html: string) => Promise.resolve(html.replace('language-antv-g6', 'antv-g6-container')),
 }))
+vi.mock('../../src/utils/restrictedSvgRenderer', () => ({
+  processRestrictedSvgInHtml: (html: string) => html.replace('language-svg', 'svg-container'),
+}))
 vi.mock('../../src/utils/krokiRenderer', () => ({
   processKrokiInHtml: (html: string) => Promise.resolve(html.replace('language-kroki', 'kroki-container')),
 }))
@@ -55,6 +58,7 @@ describe('buildExportHtmlContent renderer plugins', () => {
       '<pre class="language-plotly"><code>{"data":[]}</code></pre>',
       '<pre class="language-dbml"><code>Table users { id int }</code></pre>',
       '<pre class="language-antv-g6"><code>{"nodes":[]}</code></pre>',
+      '<pre class="language-svg"><code>&lt;svg viewBox="0 0 10 10" /&gt;</code></pre>',
       '<pre class="language-kroki"><code>[A]-&gt;[B]</code></pre>',
     ].join('\n')
 
@@ -68,6 +72,7 @@ describe('buildExportHtmlContent renderer plugins', () => {
     expect(result).toContain('plotly-container')
     expect(result).toContain('dbml-container')
     expect(result).toContain('antv-g6-container')
+    expect(result).toContain('svg-container')
     expect(result).toContain('kroki-container')
   })
 })

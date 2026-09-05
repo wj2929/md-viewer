@@ -4,7 +4,10 @@
  */
 
 import type Token from 'markdown-it/lib/token.mjs'
-import { uniqueSlugify } from './slugify'
+import {
+  createHeadingIdAllocator,
+  extractPlainHeadingText,
+} from '../../../shared/markdown/semantics'
 
 /**
  * 目录项结构
@@ -27,7 +30,7 @@ export interface TocItem {
  */
 export function extractTocFromTokens(tokens: Token[]): TocItem[] {
   const toc: TocItem[] = []
-  const usedSlugs = new Map<string, number>()
+  const allocateHeadingId = createHeadingIdAllocator()
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]
@@ -39,15 +42,9 @@ export function extractTocFromTokens(tokens: Token[]): TocItem[] {
       if (!inlineToken || inlineToken.type !== 'inline') continue
 
       // 提取纯文本内容（排除 Markdown 语法）
-      const text = inlineToken.children
-        ?.filter((t: Token) => t.type === 'text' || t.type === 'code_inline')
-        .map((t: Token) => t.content)
-        .join('')
-        .trim() || ''
+      const text = extractPlainHeadingText(inlineToken.children)
 
-      if (!text) continue
-
-      const id = uniqueSlugify(text, usedSlugs)
+      const id = allocateHeadingId(text)
       toc.push({ id, text, level })
     }
   }

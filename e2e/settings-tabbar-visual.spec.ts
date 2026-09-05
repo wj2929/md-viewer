@@ -85,19 +85,32 @@ test.describe('设置面板与多标签栏视觉 smoke', () => {
     const historyDirs = ['保利威', '直播平台', 'testmd', 'docs', '模型费用'].map(name => join(testDir, name))
     for (const dir of historyDirs) {
       mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, 'index.md'), `# ${dir}\n`)
+      const indexPath = join(dir, 'index.md')
+      writeFileSync(indexPath, `# ${dir}\n`)
       await page.evaluate(async path => {
-        await window.api.setFolderPath(path)
-      }, dir)
+        await window.api.testOpenMarkdownFile?.(path)
+      }, indexPath)
+      await expect.poll(async () => {
+        const bootstrap = await page.evaluate(() => window.api.getWorkspaceBootstrap())
+        return bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)?.primaryRoot
+      }).toBe(dir)
     }
 
-    await openFolderViaIPC(electronApp, testDir)
+    await page.evaluate(async path => {
+      await window.api.testOpenMarkdownFile?.(path)
+    }, join(testDir, 'test1.md'))
+    await expect.poll(async () => {
+      const bootstrap = await page.evaluate(() => window.api.getWorkspaceBootstrap())
+      return bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)?.primaryRoot
+    }).toBe(testDir)
+    await page.locator('.file-tree-item', { hasText: 'test1.md' }).click()
+    await expect(page.getByRole('treeitem', { name: /test1\.md/ })).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 })
     await page.getByRole('button', { name: '最近打开的文件夹' }).click()
 
     const historyMenu = page.locator('.history-menu')
     const tabBar = page.locator('.tabs')
     await expect(historyMenu).toBeVisible()
-    await expect(historyMenu.getByText('保利威')).toBeVisible()
+    await expect(historyMenu.locator('.history-name', { hasText: '保利威' })).toBeVisible()
 
     const historyMenuBox = await historyMenu.boundingBox()
     const tabBarBox = await tabBar.boundingBox()

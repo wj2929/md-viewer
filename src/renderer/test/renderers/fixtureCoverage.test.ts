@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { normalizePlantUMLCode } from '../../src/utils/plantumlRenderer'
+import { renderRestrictedSvgToSvg } from '../../src/utils/restrictedSvgRenderer'
 
 interface FixtureExpectation {
   path: string
@@ -20,6 +21,32 @@ const FIXTURES: FixtureExpectation[] = [
   { path: 'e2e/fixtures/test-dbml.md', fences: { dbml: 24 } },
   { path: 'e2e/fixtures/test-antv-g6.md', fences: { 'antv-g6': 24 } },
   { path: 'e2e/fixtures/test-kroki.md', fences: { nomnoml: 6, pikchr: 5, svgbob: 5, bytefield: 4, tikz: 4 } },
+  {
+    path: 'e2e/fixtures/test-diagram-design.md',
+    fences: { d2: 15, graphviz: 13, mermaid: 16, structurizr: 9, dbml: 9, 'antv-g6': 5, drawio: 13, svg: 10, markmap: 3 },
+  },
+]
+
+const REQUIRED_CASE_IDS = [
+  'md-case-d2-export-task-state',
+  'md-case-structurizr-data-lake-governance',
+  'md-case-mermaid-gantt-export-width',
+  'md-case-kroki-pikchr-timeline',
+  'md-case-kroki-tikz-release-flow',
+  'md-case-d2-architecture-zoned-flow',
+  'md-case-graphviz-dependency-ranks-cycle',
+  'md-case-mermaid-sequence-alt-refresh',
+  'md-case-dbml-db-schema-row-fk',
+  'md-case-svg-editorial-platform-architecture',
+  'md-case-svg-architecture-tradeoff-decision-canvas',
+  'md-case-svg-incident-recovery-multi-plane-storyboard',
+  'md-case-svg-event-storming-domain-flow',
+  'md-case-svg-service-blueprint-export-journey',
+  'md-case-svg-migration-portfolio-wave-map',
+  'md-case-svg-team-topology-interaction-map',
+  'md-case-svg-capacity-budget-saturation-corridor',
+  'md-case-svg-failure-propagation-blast-radius-overlay',
+  'md-case-svg-state-data-migration-visibility-overlay',
 ]
 
 function readFixture(relativePath: string): string {
@@ -35,6 +62,15 @@ function extractCodeFences(markdown: string, language: string): string[] {
   const escaped = language.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const pattern = new RegExp(`^\\s*\`\`\`${escaped}\\b[^\\n]*\\n([\\s\\S]*?)^\\s*\`\`\`\\s*$`, 'gim')
   return [...markdown.matchAll(pattern)].map(match => match[1].trim())
+}
+
+function extractCaseMarkers(markdown: string): string[] {
+  return [...markdown.matchAll(/<div\s+id="(md-case-[^"]+)"\s*><\/div>/gi)].map(match => match[1])
+}
+
+function extractBoundCaseMarkers(markdown: string): Array<{ id: string; language: string }> {
+  return [...markdown.matchAll(/<div\s+id="(md-case-[^"]+)"\s*><\/div>[ \t]*\r?\n[ \t]*\r?\n```([a-z0-9-]+)\b/gi)]
+    .map(match => ({ id: match[1], language: match[2].toLowerCase() }))
 }
 
 function extractBpmnReferences(markdown: string): string[] {
@@ -77,6 +113,132 @@ function parseJsonFixtureBlock(source: string): Record<string, unknown> {
 }
 
 describe('RendererPlugin fixture coverage', () => {
+  it('fixture case markers are unique, stable and bound to code fences', () => {
+    const paths = [...new Set([...FIXTURES.map(fixture => fixture.path), 'e2e/fixtures/test-all-charts.md'])]
+    const seen = new Map<string, string>()
+    const diagramReference = readFixture('e2e/fixtures/test-diagram-design.md')
+
+    expect(extractCaseMarkers(diagramReference), 'AI diagram reference case count').toHaveLength(93)
+
+    for (const path of paths) {
+      const markdown = readFixture(path)
+      const markers = extractCaseMarkers(markdown)
+      const bound = extractBoundCaseMarkers(markdown)
+      expect(bound.map(item => item.id), `${path} markers must be followed by a fence`).toEqual(markers)
+
+      for (const { id, language } of bound) {
+        expect(id, `${path} case id`).toMatch(/^md-case-[a-z0-9]+(?:-[a-z0-9]+)*$/)
+        expect(seen.has(id), `${id} already declared in ${seen.get(id)}`).toBe(false)
+        expect(countFences(markdown, language), `${id} language ${language}`).toBeGreaterThan(0)
+        seen.set(id, path)
+      }
+    }
+
+    for (const id of REQUIRED_CASE_IDS) {
+      expect(seen.has(id), `${id} must exist`).toBe(true)
+    }
+  })
+
+  it('AI diagram reference keeps DrawIO examples as valid, explicitly laid out XML', () => {
+    const blocks = extractCodeFences(readFixture('e2e/fixtures/test-diagram-design.md'), 'drawio')
+
+    expect(blocks).toHaveLength(13)
+    for (const block of blocks) {
+      assertValidXml(block)
+      expect(block).toContain('<mxGraphModel')
+      expect(block).toContain('<mxGeometry')
+      expect(block).toContain('swimlane')
+      expect(block).toContain('edgeStyle=orthogonalEdgeStyle')
+    }
+  })
+
+  it('AI diagram reference keeps every SVG example inside the supported static profile', () => {
+    const blocks = extractCodeFences(readFixture('e2e/fixtures/test-diagram-design.md'), 'svg')
+
+    expect(blocks).toHaveLength(10)
+    const rendered = blocks.map((block, index) => renderRestrictedSvgToSvg(block, `fixture-${index}`))
+    for (const result of rendered) {
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.svg).not.toContain('<style')
+        expect(result.svg).not.toContain('class=')
+      }
+    }
+
+    const [
+      platform,
+      decision,
+      recovery,
+      eventStorming,
+      serviceBlueprint,
+      migrationWaves,
+      teamTopology,
+      capacityBudget,
+      failurePropagation,
+      migrationVisibility,
+    ] = rendered
+    if (
+      platform.ok && decision.ok && recovery.ok && eventStorming.ok && serviceBlueprint.ok
+      && migrationWaves.ok && teamTopology.ok && capacityBudget.ok
+      && failurePropagation.ok && migrationVisibility.ok
+    ) {
+      expect(platform.svg).toContain('mdv-svg-fixture-0-svg-arrow')
+      expect(platform.svg).toContain('<feDropShadow')
+
+      expect(decision.svg).toContain('mdv-svg-fixture-1-svg-adr-ok')
+      expect(decision.svg).toContain('<polygon')
+      expect(decision.svg).toContain('<tspan')
+
+      expect(recovery.svg).toContain('mdv-svg-fixture-2-svg-recovery-gate')
+      expect(recovery.svg).toContain('<polyline')
+      expect(recovery.svg).toContain('<ellipse')
+
+      expect(eventStorming.svg).toContain('mdv-svg-fixture-3-svg-es-arrow')
+      expect(eventStorming.svg).toContain('订单已接受')
+      expect(eventStorming.svg).toContain('支付最终失败')
+      expect(eventStorming.svg).toContain('预留已释放')
+      expect(eventStorming.svg).toContain('订单已取消')
+      expect(eventStorming.svg).toContain('<polygon')
+
+      expect(serviceBlueprint.svg).toContain('mdv-svg-fixture-4-svg-sb-handoff')
+      expect(serviceBlueprint.svg).toContain('用户可见线')
+      expect(serviceBlueprint.svg).toContain('<tspan')
+
+      expect(migrationWaves.svg).toContain('mdv-svg-fixture-5-svg-mw-arrow')
+      expect(migrationWaves.svg).toContain('W0 · 先隔离')
+      expect(migrationWaves.svg).toContain('transform="rotate(-90 62 548)"')
+
+      expect(teamTopology.svg).toContain('mdv-svg-fixture-6-svg-tt-arrow')
+      expect(teamTopology.svg).toContain('STREAM-ALIGNED TEAM')
+      expect(teamTopology.svg).toContain('Facilitating · 有退出日期')
+
+      expect(capacityBudget.svg).toContain('mdv-svg-fixture-7-svg-cap-warning')
+      expect(capacityBudget.svg).toContain('900 = 800 + 100')
+      expect(capacityBudget.svg).toContain('ρDB = 0.80')
+      expect(capacityBudget.svg).toContain('EffectiveBudget = validated capacity × 80%')
+      expect(capacityBudget.svg).toContain('100 / 110 / 120% 为本算例策略阈值')
+      expect(capacityBudget.svg).toContain('队列是有界缓冲，不是额外吞吐')
+
+      expect(failurePropagation.svg).toContain('mdv-svg-fixture-8-svg-blast-topology-clip')
+      expect(failurePropagation.svg).toContain('共同原因分叉')
+      expect(failurePropagation.svg).toContain('Affected AZ failure domain')
+      expect(failurePropagation.svg).toContain('观测映射 · 非传播边')
+      expect(failurePropagation.svg).toContain('Cache fallback')
+      expect(failurePropagation.svg).toContain('BLOCK')
+      expect(failurePropagation.svg).toContain('51 req/s / 500 req/s')
+      expect(failurePropagation.svg).toContain('纯重试 = 30 req/s')
+
+      expect(migrationVisibility.svg).toContain('mdv-svg-fixture-9-svg-mig-rollback')
+      expect(migrationVisibility.svg).toContain('旧 epoch 写入拒绝')
+      expect(migrationVisibility.svg).toContain('source_cursor_applied ≥ Hc')
+      expect(migrationVisibility.svg).toContain('source_shadow.target_cursor_applied ≥ Hr[tgt]')
+      expect(migrationVisibility.svg).toContain('C_final gate')
+      expect(migrationVisibility.svg).toContain('rollback exit approved')
+      expect(migrationVisibility.svg).toContain('Reverse CDC still active')
+      expect(migrationVisibility.svg).toContain('C_final → stop reverse CDC')
+    }
+  })
+
   for (const fixture of FIXTURES) {
     it(`${fixture.path} includes enough independent examples`, () => {
       const markdown = readFixture(fixture.path)

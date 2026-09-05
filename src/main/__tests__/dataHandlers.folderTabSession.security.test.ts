@@ -83,12 +83,13 @@ describe('folder-tab-session IPC 安全边界', () => {
     )
 
     expect(saveFolderTabSession).toHaveBeenCalledTimes(1)
-    const [passedRoot, validTabs, activeCanonical] = saveFolderTabSession.mock.calls[0]
+    const [passedRoot, validTabs, activeCanonical, splitLayout] = saveFolderTabSession.mock.calls[0]
     expect(passedRoot).toBe(root)
     expect(validTabs).toHaveLength(1)
     expect(await fs.realpath(validTabs[0].filePath)).toBe(await fs.realpath(path.join(root, 'inside.md')))
     expect(validTabs[0].isPinned).toBe(true)
     expect(await fs.realpath(activeCanonical)).toBe(await fs.realpath(path.join(root, 'inside.md')))
+    expect(splitLayout).toBeUndefined()
   })
 
   it('save 缺少工作区上下文时拒绝（epoch 不匹配）', async () => {

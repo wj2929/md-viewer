@@ -107,6 +107,7 @@ export function registerWindowHandlers(ctx: IPCContext): void {
     workspaceSessionStore.save({
       version: 1,
       windows: [...desktop.windows.filter((item) => item.id !== snapshot.id), snapshot],
+      lastActiveWindowId: win.isFocused() ? snapshot.id : desktop.lastActiveWindowId,
     })
   })
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import katex from 'katex'
 import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../../src/utils/markdownRenderer'
 
 // 创建一个真实的 markdown-it 实例进行测试
@@ -42,6 +43,16 @@ describe('markdownRenderer 工具函数测试', () => {
       expect(md.render('# H1')).toContain('<h1 id="h1">')
       expect(md.render('## H2')).toContain('<h2 id="h2">')
       expect(md.render('### H3')).toContain('<h3 id="h3">')
+    })
+
+    it('标题 ID 应与 TOC/CLI 共用碰撞安全语义', () => {
+      const result = md.render('# Foo\n# Foo\n# Foo-1\n# !!!')
+      expect(Array.from(result.matchAll(/<h1 id="([^"]+)"/g), match => match[1])).toEqual([
+        'foo',
+        'foo-1',
+        'foo-1-1',
+        'heading',
+      ])
     })
 
     it('应该渲染粗体', () => {
@@ -236,6 +247,37 @@ describe('markdownRenderer 工具函数测试', () => {
       expect(result).toContain('katex')
     })
 
+    it('应该渲染 LaTeX 行内定界符 \\(...\\)', () => {
+      const result = md.render(String.raw`Variable: \(w\)`)
+      expect(result).toContain('class="katex"')
+      expect(result).toContain('w')
+    })
+
+    it('应该同时保留美元和 LaTeX 行内定界符', () => {
+      const result = md.render(String.raw`$x$ and \(y\)`)
+      expect(result.match(/class="katex"/g)).toHaveLength(2)
+    })
+
+    it('不应把转义定界符或代码跨度渲染为公式', () => {
+      const escaped = md.render(String.raw`Literal: \\(w\\)`)
+      const code = md.render(String.raw`Code: ` + '`\\(w\\)`')
+      expect(escaped).not.toContain('class="katex"')
+      expect(code).not.toContain('class="katex"')
+    })
+
+    it('不应渲染缺少结束符的 LaTeX 行内公式', () => {
+      const result = md.render(String.raw`Variable: \(w`)
+      expect(result).not.toContain('class="katex"')
+    })
+
+    it('大量未闭合行内定界符不应重复扫描后缀', () => {
+      const source = (String.raw`\(`).repeat(12000)
+      const startedAt = performance.now()
+      const result = md.render(source)
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+      expect(result).not.toContain('class="katex"')
+    })
+
     it('应该处理多个行内公式', () => {
       const result = md.render('$x$ and $y$')
       // 应该有两个 katex 元素
@@ -276,6 +318,128 @@ describe('markdownRenderer 工具函数测试', () => {
     it('应该渲染多行块级公式', () => {
       const result = md.render('$$\nx = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n$$')
       expect(result).toContain('katex')
+    })
+
+    it('正文后不留空行也应该开始 $$ 块级公式', () => {
+      const source = String.raw`before
+$$
+\begin{aligned}
+A &= \pi r^2 \\
+V &= \frac{4}{3}\pi r^3
+\end{aligned}
+$$
+after`
+      const renderToString = vi.mocked(katex.renderToString)
+      renderToString.mockClear()
+      const result = md.render(source)
+      const template = document.createElement('template')
+      template.innerHTML = result
+
+      expect(renderToString).toHaveBeenCalledTimes(1)
+      expect(renderToString).toHaveBeenCalledWith(
+        String.raw`\begin{aligned}
+A &= \pi r^2 \\
+V &= \frac{4}{3}\pi r^3
+\end{aligned}`,
+        expect.objectContaining({ displayMode: true }),
+      )
+      expect(template.content.querySelector('.katex')?.closest('p')).toBeNull()
+      expect(result).toContain('<p>before</p>')
+      expect(result).toContain('<p>after</p>')
+    })
+
+    it('应该渲染 LaTeX 块级定界符 \\[…\\]', () => {
+      const result = md.render(String.raw`\[
+ActionWeight =
+\begin{cases}
+1.0, & 浏览 \\
+2.0, & 点赞 \\
+3.0, & 收藏
+\end{cases}
+\]`)
+      expect(result).toContain('class="katex"')
+    })
+
+    it('不应将单行方括号转义重解释为块级公式', () => {
+      const result = md.render(String.raw`\[TODO\]`)
+      expect(result).not.toContain('class="katex"')
+      expect(result).toContain('[TODO]')
+    })
+
+    it('正文后不留空行也应该开始 LaTeX 块级公式', () => {
+      const result = md.render([
+        'before',
+        String.raw`\[`,
+        'x^2',
+        String.raw`\]`,
+        'after',
+      ].join('\n'))
+      expect(result).toContain('class="katex"')
+      expect(result).toContain('<p>before</p>')
+      expect(result).toContain('<p>after</p>')
+    })
+
+    it('不应把代码块中的 LaTeX 定界符渲染为公式', () => {
+      const result = md.render([
+        '```text',
+        String.raw`\[E = mc^2\]`,
+        '```',
+      ].join('\n'))
+      expect(result).not.toContain('class="katex"')
+      expect(result).toContain('\\[E = mc^2\\]')
+    })
+
+    it('不应渲染缺少结束符的 LaTeX 块级公式', () => {
+      const result = md.render(String.raw`\[
+E = mc^2`)
+      expect(result).not.toContain('class="katex"')
+    })
+
+    it('块公式中的行首加减运算符不应被误判为 Markdown 列表', () => {
+      const result = md.render([
+        String.raw`\[`,
+        String.raw`Score = sim \times 0.45`,
+        String.raw`+ Frequency \times 0.40`,
+        String.raw`- Penalty \times 0.15`,
+        String.raw`\]`,
+      ].join('\n'))
+      expect(result).toContain('class="katex"')
+      expect(result).not.toContain('<ul>')
+    })
+
+    it('外层未闭合公式不应抑制引用块内的完整公式', () => {
+      const result = md.render([
+        String.raw`\[`,
+        String.raw`> \[`,
+        '> x^2',
+        String.raw`> \]`,
+      ].join('\n'))
+      expect(result).toContain('<p>[</p>')
+      expect(result).toContain('<blockquote>')
+      expect(result).toContain('class="katex"')
+    })
+
+    it('外层未闭合公式不应吞掉列表内的完整公式', () => {
+      const result = md.render([
+        String.raw`\[`,
+        String.raw`- \[`,
+        '  x^2',
+        String.raw`  \]`,
+      ].join('\n'))
+      expect(result).toContain('<p>[</p>')
+      expect(result).toContain('<ul>')
+      expect(result).toContain('class="katex"')
+    })
+
+    it('大量未闭合块级定界符不应重复扫描后续行', () => {
+      const separated = Array.from({ length: 12000 }, () => String.raw`\[`).join('\n\n')
+      const consecutive = Array.from({ length: 12000 }, () => String.raw`\[`).join('\n')
+      const startedAt = performance.now()
+      const separatedResult = md.render(separated)
+      const consecutiveResult = md.render(consecutive)
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+      expect(separatedResult).not.toContain('class="katex"')
+      expect(consecutiveResult).not.toContain('class="katex"')
     })
   })
 

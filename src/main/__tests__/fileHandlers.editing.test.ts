@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain } from 'electron'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import chokidar from 'chokidar'
@@ -21,6 +21,7 @@ vi.mock('chokidar', () => ({
     watch: vi.fn(() => ({
       on: vi.fn().mockReturnThis(),
       add: vi.fn(),
+      unwatch: vi.fn().mockResolvedValue(undefined),
       close: vi.fn(),
       getWatched: vi.fn(() => ({})),
     })),
@@ -49,7 +50,9 @@ const ctx = {
   folderHistoryManager: { addFolder: vi.fn(), getHistory: vi.fn<() => any[]>(() => []) },
   appDataManager: {
     getRecentFiles: vi.fn<() => any[]>(() => []),
-    getBookmarks: vi.fn<() => any[]>(() => [])
+    getBookmarks: vi.fn<() => any[]>(() => []),
+    relocateDocumentMarks: vi.fn(() => false),
+    removeDocumentMarks: vi.fn(() => false),
   },
   windowManager: {
     getWindowFolderPath: vi.fn<(id: number) => string | undefined>(() => '/docs'),
@@ -121,6 +124,18 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     resetSecurity()
     ctx.windowManager.getWindowFolderPath.mockReturnValue('/docs')
     registerFileHandlers(ctx as any)
+  })
+
+  it('opens the ordinary folder picker for the sender window', async () => {
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: true, filePaths: [] })
+    const openFolder = handler<(event: any) => Promise<any>>('dialog:openFolder')
+
+    await expect(openFolder(eventFor(1))).resolves.toBeNull()
+
+    const senderWindow = vi.mocked(BrowserWindow.fromWebContents).mock.results[0]?.value
+    expect(dialog.showOpenDialog).toHaveBeenCalledWith(senderWindow, {
+      properties: ['openDirectory'],
+    })
   })
 
   it('opens an editable Markdown file and authorizes only the sender window', async () => {
@@ -335,7 +350,195 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     await unwatchFolder({ sender: senderB }, 'workspace-b', 2)
   })
 
-  it('creates an individual watcher when an opened Markdown file is deeper than the directory watcher depth', async () => {
+  it('drops directory events after the subscribed workspace epoch or root changes', async () => {
+    mockRealpath.mockImplementation(async (p: string) => p)
+    mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    const workspace = {
+      id: 'workspace-a',
+      primaryRoot: '/Users/test/docs/project',
+      lifecycleEpoch: 1,
+    }
+    ctx.windowManager.getWorkspace.mockImplementation(() => ({ ...workspace }))
+    const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
+    const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
+    const watch = vi.mocked(chokidar.watch)
+    const sender = { id: 13, send: vi.fn(), isDestroyed: vi.fn(() => false) }
+
+    await watchFolder({ sender }, workspace.primaryRoot, workspace.id, workspace.lifecycleEpoch)
+    const watcher = watch.mock.results[0].value
+    const changeListener = watcher.on.mock.calls.find(([event]: [string]) => event === 'change')?.[1]
+
+    workspace.lifecycleEpoch = 2
+    workspace.primaryRoot = '/Users/test/docs/replacement'
+    changeListener('/Users/test/docs/project/a.md')
+
+    expect(sender.send).not.toHaveBeenCalled()
+    await unwatchFolder({ sender }, 'workspace-a', 1)
+  })
+
+  it('keeps concurrent directory atomic replaces isolated by path', async () => {
+    vi.useFakeTimers()
+    try {
+      mockRealpath.mockImplementation(async (p: string) => p)
+      mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+      mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+      ctx.windowManager.getWorkspace.mockReturnValue({
+        id: 'workspace-a',
+        primaryRoot: '/Users/test/docs/project',
+        lifecycleEpoch: 1,
+      })
+      const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
+      const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
+      const watch = vi.mocked(chokidar.watch)
+      const sender = { id: 22, send: vi.fn(), isDestroyed: vi.fn(() => false) }
+      const first = '/Users/test/docs/project/a.md'
+      const second = '/Users/test/docs/project/b.md'
+
+      await watchFolder({ sender }, '/Users/test/docs/project', 'workspace-a', 1)
+      const directoryWatcher = watch.mock.results[0].value
+      const unlinkListener = directoryWatcher.on.mock.calls.find(([event]: [string]) => event === 'unlink')?.[1]
+      const addListener = directoryWatcher.on.mock.calls.find(([event]: [string]) => event === 'add')?.[1]
+
+      unlinkListener(first)
+      unlinkListener(second)
+      addListener(first)
+      addListener(second)
+      await vi.advanceTimersByTimeAsync(600)
+
+      expect(sender.send).toHaveBeenCalledWith('file:changed', {
+        workspaceId: 'workspace-a', lifecycleEpoch: 1, path: first,
+      })
+      expect(sender.send).toHaveBeenCalledWith('file:changed', {
+        workspaceId: 'workspace-a', lifecycleEpoch: 1, path: second,
+      })
+      expect(sender.send).not.toHaveBeenCalledWith('file:renamed', expect.anything())
+      expect(sender.send).not.toHaveBeenCalledWith('file:removed', expect.anything())
+
+      await unwatchFolder({ sender }, 'workspace-a', 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not infer a rename when multiple directory unlink candidates are ambiguous', async () => {
+    vi.useFakeTimers()
+    try {
+      mockRealpath.mockImplementation(async (p: string) => p)
+      mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+      mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+      ctx.windowManager.getWorkspace.mockReturnValue({
+        id: 'workspace-a',
+        primaryRoot: '/Users/test/docs/project',
+        lifecycleEpoch: 1,
+      })
+      const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
+      const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
+      const watch = vi.mocked(chokidar.watch)
+      const sender = { id: 23, send: vi.fn(), isDestroyed: vi.fn(() => false) }
+      const first = '/Users/test/docs/project/a.md'
+      const second = '/Users/test/docs/project/b.md'
+      const added = '/Users/test/docs/project/c.md'
+
+      await watchFolder({ sender }, '/Users/test/docs/project', 'workspace-a', 1)
+      const directoryWatcher = watch.mock.results[0].value
+      const unlinkListener = directoryWatcher.on.mock.calls.find(([event]: [string]) => event === 'unlink')?.[1]
+      const addListener = directoryWatcher.on.mock.calls.find(([event]: [string]) => event === 'add')?.[1]
+
+      unlinkListener(first)
+      unlinkListener(second)
+      addListener(added)
+      await vi.advanceTimersByTimeAsync(600)
+
+      expect(sender.send).toHaveBeenCalledWith('file:added', {
+        workspaceId: 'workspace-a', lifecycleEpoch: 1, path: added,
+      })
+      expect(sender.send).toHaveBeenCalledWith('file:removed', {
+        workspaceId: 'workspace-a', lifecycleEpoch: 1, path: first,
+      })
+      expect(sender.send).toHaveBeenCalledWith('file:removed', {
+        workspaceId: 'workspace-a', lifecycleEpoch: 1, path: second,
+      })
+      expect(sender.send).not.toHaveBeenCalledWith('file:renamed', expect.anything())
+      expect(ctx.appDataManager.relocateDocumentMarks).not.toHaveBeenCalled()
+      expect(ctx.appDataManager.removeDocumentMarks).not.toHaveBeenCalled()
+
+      await unwatchFolder({ sender }, 'workspace-a', 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('treats pruned opened-file unlink/add at the same path as a change without a delayed remove', async () => {
+    vi.useFakeTimers()
+    try {
+      mockRealpath.mockImplementation(async (p: string) => p)
+      mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+      mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+      ctx.windowManager.getWindowFolderPath.mockReturnValue('/Users/test/docs/project')
+      ctx.windowManager.getWorkspace.mockReturnValue({
+        id: 'workspace-a',
+        primaryRoot: '/Users/test/docs/project',
+        lifecycleEpoch: 1,
+      })
+      const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
+      const watchFile = handler<(event: any, filePath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFile')
+      const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
+      const watch = vi.mocked(chokidar.watch)
+      const sender = { id: 21, send: vi.fn(), isDestroyed: vi.fn(() => false) }
+      const deepFile = '/Users/test/docs/project/.outside/deep.md'
+
+      await watchFolder({ sender }, '/Users/test/docs/project', 'workspace-a', 1)
+      await watchFile({ sender }, deepFile, 'workspace-a', 1)
+
+      const fileWatcher = watch.mock.results[1].value
+      const unlinkListener = fileWatcher.on.mock.calls.find(([event]: [string]) => event === 'unlink')?.[1]
+      const addListener = fileWatcher.on.mock.calls.find(([event]: [string]) => event === 'add')?.[1]
+      unlinkListener(deepFile)
+      addListener(deepFile)
+      await vi.advanceTimersByTimeAsync(600)
+
+      expect(sender.send).toHaveBeenCalledWith('file:changed', {
+        workspaceId: 'workspace-a', lifecycleEpoch: 1, path: deepFile,
+      })
+      expect(sender.send).not.toHaveBeenCalledWith('file:removed', expect.anything())
+
+      await unwatchFolder({ sender }, 'workspace-a', 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('unwatches an opened pruned file and closes the watcher after the last file detaches', async () => {
+    mockRealpath.mockImplementation(async (p: string) => p)
+    mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
+    ctx.windowManager.getWindowFolderPath.mockReturnValue('/Users/test/docs/project')
+    ctx.windowManager.getWorkspace.mockReturnValue({
+      id: 'workspace-a',
+      primaryRoot: '/Users/test/docs/project',
+      lifecycleEpoch: 1,
+    })
+    const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
+    const watchFile = handler<(event: any, filePath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFile')
+    const unwatchFile = handler<(event: any, filePath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFile')
+    const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
+    const watch = vi.mocked(chokidar.watch)
+    const sender = { id: 24, send: vi.fn(), isDestroyed: vi.fn(() => false) }
+    const deepFile = '/Users/test/docs/project/.outside/deep.md'
+
+    await watchFolder({ sender }, '/Users/test/docs/project', 'workspace-a', 1)
+    await watchFile({ sender }, deepFile, 'workspace-a', 1)
+    const fileWatcher = watch.mock.results[1].value
+
+    await expect(unwatchFile({ sender }, deepFile, 'workspace-a', 1)).resolves.toEqual({ success: true })
+    expect(fileWatcher.unwatch).toHaveBeenCalledWith(deepFile)
+    expect(fileWatcher.close).toHaveBeenCalledTimes(1)
+
+    await unwatchFolder({ sender }, 'workspace-a', 1)
+  })
+
+  it('uses the recursive root watcher for an opened deep Markdown file', async () => {
     mockRealpath.mockImplementation(async (p: string) => p)
     mockLstat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
     mockStat.mockResolvedValue({ isDirectory: () => true } as fs.Stats)
@@ -348,8 +551,8 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     await expect(watchFolder(eventFor(1), '/Users/test/docs/project')).resolves.toEqual({ success: true })
     await expect(watchFile(eventFor(1), '/Users/test/docs/project/a/b/c/deep.md')).resolves.toEqual({ success: true })
 
-    expect(watch).toHaveBeenCalledTimes(2)
-    expect(watch).toHaveBeenLastCalledWith('/Users/test/docs/project/a/b/c/deep.md', expect.objectContaining({
+    expect(watch).toHaveBeenCalledTimes(1)
+    expect(watch).toHaveBeenLastCalledWith('/Users/test/docs/project', expect.objectContaining({
       ignoreInitial: true,
       persistent: true,
     }))

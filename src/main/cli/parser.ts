@@ -14,11 +14,14 @@ const automationCommands = new Set<CliCommandName>([
   'inspect',
   'render',
   'links',
+  'diff',
+  'watch',
   'install-cli',
   'uninstall-cli',
 ])
 
 const previewablePathPattern = /[\\/]|\.m(?:d|arkdown|down|kd|dx)$/i
+const electronRuntimeFlagPattern = /^(?:--inspect(?:-brk)?(?:=|$)|--remote-debugging-port(?:=|$)|--user-data-dir(?:=|$)|--lang(?:=|$))/
 
 export function parseCliArgs(argv: string[]): CliParseResult {
   const args = stripRuntimeArgs(argv)
@@ -67,10 +70,15 @@ export function parseCliArgs(argv: string[]): CliParseResult {
 }
 
 function stripRuntimeArgs(argv: string[]): string[] {
-  if (argv.length >= 2 && /(?:electron|node|MD Viewer|md-viewer)$/i.test(argv[0])) {
-    return stripAppEntrypoint(argv.slice(1))
+  const args = argv.length >= 2 && /(?:electron|node|MD Viewer|md-viewer)$/i.test(argv[0])
+    ? stripAppEntrypoint(argv.slice(1))
+    : stripAppEntrypoint(argv)
+
+  let firstUserArg = 0
+  while (firstUserArg < args.length && electronRuntimeFlagPattern.test(args[firstUserArg])) {
+    firstUserArg += 1
   }
-  return stripAppEntrypoint(argv)
+  return args.slice(firstUserArg)
 }
 
 function stripAppEntrypoint(args: string[]): string[] {

@@ -71,9 +71,16 @@ export interface OpenDocumentTarget {
   highlightText?: string
 }
 
+export interface ExternalDocumentOpenOptions {
+  lineNumber?: number
+  highlightKeyword?: string
+  historyId?: string
+  recentFileId?: string
+}
+
 export interface OpenDocumentCommand {
   id: string
-  source: 'file-tree' | 'search' | 'toc' | 'bookmark' | 'recent' | 'external' | 'read-position'
+  source: 'file-tree' | 'search' | 'toc' | 'backlink' | 'bookmark' | 'recent' | 'external' | 'read-position'
   filePath: string
   canonicalPath: string
   target?: OpenDocumentTarget

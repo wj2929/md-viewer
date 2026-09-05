@@ -1557,19 +1557,13 @@ const codeBlockDoc = doc([
   text('code-note', 103, 100, 'Markdown fenced block', { width: 214, fontSize: 20, align: 'center', color: '#4b5563' }),
 ])
 
-const allReferenceCases = [
-  ...validFixtureCases,
-  ...errorFixtureCases,
-  { file: 'missing.excalidraw', title: '错误文件：文件不存在', alt: '缺失文件', missingOnly: true },
-]
-
-const referenceSections = allReferenceCases.map((fixture, index) => `## ${index + 2}. ${fixture.title}
+const referenceSections = validFixtureCases.map((fixture, index) => `## ${index + 2}. ${fixture.title}
 
 ![${fixture.alt}](./excalidraw/${fixture.file}${fixture.suffix ?? ''})`).join('\n\n')
 
 const markdown = `# Excalidraw 渲染测试
 
-本文档集中覆盖 Excalidraw 渲染器的正常路径、架构图样式、复杂布局、边界条件和错误降级。
+本文档集中覆盖 Excalidraw 渲染器的正常路径、架构图样式、复杂布局和可渲染边界条件。
 用例参考了 Excalidraw 官方 JSON 结构、Excalidraw Architect MCP 的图拓扑建议、mermaid-to-excalidraw 的转换覆盖，以及本项目已有 Mermaid / Graphviz / DrawIO fixture 的组织方式。
 
 ## 1. 基础代码块
@@ -1580,7 +1574,7 @@ ${JSON.stringify(codeBlockDoc, null, 2)}
 
 ${referenceSections}
 
-## ${allReferenceCases.length + 2}. 与 Mermaid 对比
+## ${validFixtureCases.length + 2}. 与 Mermaid 对比
 
 \`\`\`mermaid
 graph TD
@@ -1590,4 +1584,18 @@ graph TD
 
 writeFileSync(join(fixtureDir, 'test-excalidraw.md'), markdown, 'utf8')
 
-console.log(`Generated ${validFixtureCases.length + errorFixtureCases.length} .excalidraw fixture files`)
+const errorReferences = [
+  ...errorFixtureCases,
+  { file: 'missing.excalidraw', title: '文件不存在', alt: '缺失文件' },
+]
+const errorMarkdown = `# Excalidraw 错误降级测试
+
+本文档只覆盖 Excalidraw 文件引用的错误降级，不用于常规 DOCX 导出全量渲染验收。
+
+${errorReferences.map((fixture, index) => `## ${index + 1}. ${fixture.title.replace(/^错误文件：/, '')}
+
+![${fixture.alt}](./excalidraw/${fixture.file})`).join('\n\n')}
+`
+writeFileSync(join(fixtureDir, 'test-excalidraw-errors.md'), errorMarkdown, 'utf8')
+
+console.log(`Generated ${validFixtureCases.length} valid and ${errorFixtureCases.length} invalid .excalidraw fixture files`)

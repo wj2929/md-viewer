@@ -316,6 +316,8 @@ workspace "Realtime Collaboration" {
 
 ## 15. 数据湖治理
 
+<div id="md-case-structurizr-data-lake-governance"></div>
+
 ```structurizr
 workspace "Data Lake Governance" {
   model {

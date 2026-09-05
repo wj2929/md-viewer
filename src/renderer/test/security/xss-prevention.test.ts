@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+import DOMPurify from 'dompurify'
 import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../../src/utils/markdownRenderer'
 
 describe('XSS Prevention - v1.4.6', () => {
@@ -96,6 +97,14 @@ describe('XSS Prevention - v1.4.6', () => {
   })
 
   describe('阻止 CSS 注入', () => {
+    it('每次消毒前都应同步安装安全 hook', () => {
+      DOMPurify.removeAllHooks()
+      const html = sanitizeHtml('<div style="position:fixed;top:0;z-index:9999">overlay</div>')
+      expect(html).not.toContain('position')
+      expect(html).not.toContain('top')
+      expect(html).not.toContain('z-index')
+    })
+
     it('应阻止 position: fixed 覆盖攻击', () => {
       const input = '<div style="position:fixed;top:0;left:0;z-index:9999">overlay</div>'
       const html = sanitizeHtml(md.render(input))
@@ -114,6 +123,29 @@ describe('XSS Prevention - v1.4.6', () => {
       const input = '<div style="text-align:center">centered</div>'
       const html = sanitizeHtml(md.render(input))
       expect(html).toContain('text-align')
+    })
+
+    it('应保留 KaTeX vlist 子节点的有限 top 偏移', () => {
+      const input = '<span class="katex"><span class="vlist-t"><span class="vlist-r"><span class="vlist"><span style="top:-3.05em"><span class="mop">∑</span></span></span></span></span></span>'
+      const html = sanitizeHtml(md.render(input))
+      expect(html).toContain('top:-3.05em')
+    })
+
+    it('应保留 KaTeX 其他固定结构所需的有限定位', () => {
+      const input = '<span class="katex"><span class="accent"><span class="accent-body" style="left:-0.2em;top:.2em">^</span></span><span class="mop"><span class="mop op-symbol large-op" style="position:relative;top:-0.001em">∫</span></span><span class="mord rule" style="bottom:0.2em"></span><span class="cd-label-left" style="bottom:0.8em">L</span></span>'
+      const html = sanitizeHtml(md.render(input))
+      expect(html).toContain('left:-0.2em')
+      expect(html).toContain('top:.2em')
+      expect(html).toContain('position:relative')
+      expect(html).toContain('top:-0.001em')
+      expect(html).toContain('bottom:0.2em')
+      expect(html).toContain('bottom:0.8em')
+    })
+
+    it('应继续移除普通 Markdown HTML 的 top 偏移', () => {
+      const input = '<span style="top:-3.05em">overlay</span>'
+      const html = sanitizeHtml(md.render(input))
+      expect(html).not.toContain('top')
     })
   })
 
@@ -166,6 +198,15 @@ describe('XSS Prevention - v1.4.6', () => {
       const input = '<div class="evil-class">test</div>'
       const html = sanitizeHtml(md.render(input))
       expect(html).not.toContain('evil-class')
+    })
+
+    it('应仅在公式子树内保留完整 KaTeX 结构类', () => {
+      const inside = sanitizeHtml(md.render('<span class="katex"><span class="brace-left stretchy vbox">{</span></span>'))
+      const outside = sanitizeHtml(md.render('<span class="brace-left stretchy vbox">{</span>'))
+      expect(inside).toContain('brace-left stretchy vbox')
+      expect(outside).not.toContain('brace-left')
+      expect(outside).not.toContain('stretchy')
+      expect(outside).not.toContain('vbox')
     })
 
     it('应保留白名单 class，移除非白名单 class', () => {

@@ -12,6 +12,7 @@ import { getLastDocxExportPath } from './exportHandlers'
 import { openMarkdownInNewWindow } from '../openMarkdownInNewWindow'
 import { openFolderInNewWindow } from '../folderActivation'
 import * as fs from 'fs'
+import { getFileManagerLabels } from '../platformMenuLabels'
 
 // 文件信息接口（与 fileHandlers 共享）
 interface FileInfo {
@@ -150,90 +151,191 @@ ipcMain.handle('context-menu:bookmark', (_event, bookmark: {
 })
 
 // 最近文件右键菜单
-ipcMain.handle('context-menu:recent-file', (event, file: {
-  id: string
-  filePath: string
-  fileName: string
-}) => {
+ipcMain.handle('context-menu:recent-file', async (event, recentId: string) => {
   const window = BrowserWindow.fromWebContents(event.sender)
-  if (!window) return
+  if (!window) return { success: false, error: '无法获取窗口实例' }
+  if (typeof recentId !== 'string' || !recentId) {
+    return { success: false, error: '最近文件标识无效' }
+  }
 
-  const menu = Menu.buildFromTemplate([
+  const recentFile = ctx.appDataManager.getRecentFile(recentId)
+  if (!recentFile) return { success: false, error: '最近文件不存在' }
+
+  let canonicalFilePath: string | null = null
+  let openRoot: string | null = null
+  let relativePath: string | null = null
+  try {
+    const candidate = await validateSenderReadPath(ctx, event, recentFile.path)
+    const fileStat = await fs.promises.stat(candidate)
+    if (!fileStat.isFile()) throw new Error('目标不是文件')
+    canonicalFilePath = candidate
+    openRoot = await resolveRecentFolderRoot(ctx, event, candidate)
+  } catch {
+    // 失效记录仍允许从历史中移除
+  }
+
+  if (canonicalFilePath) {
+    try {
+      const canonicalRoot = await fs.promises.realpath(recentFile.folderPath)
+      const rootStat = await fs.promises.stat(canonicalRoot)
+      if (!rootStat.isDirectory()) throw new Error('记录的工作区根不是文件夹')
+      await validateSecurePathInBase(canonicalFilePath, canonicalRoot)
+      const candidate = path.relative(canonicalRoot, canonicalFilePath).split(path.sep).join('/')
+      if (candidate && !path.isAbsolute(candidate) && candidate !== '..' && !candidate.startsWith('../')) {
+        relativePath = candidate
+      }
+    } catch {
+      // 旧根失效时仅禁用相对路径
+    }
+  }
+
+  const fileManagerLabels = getFileManagerLabels()
+  const reportError = (action: string, error: unknown) => {
+    console.error(`[context-menu:recent-file] ${action}:`, error)
+    window.webContents.send('error:show', {
+      message: `${action}：${error instanceof Error ? error.message : '未知错误'}`,
+    })
+  }
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: `📂 ${fileManagerLabels.showInFolder}`,
+      enabled: Boolean(canonicalFilePath),
+      click: () => {
+        try {
+          shell.showItemInFolder(canonicalFilePath!)
+        } catch (error) {
+          reportError(`无法在 ${fileManagerLabels.fileManagerName} 中显示`, error)
+        }
+      },
+    },
+    {
+      label: '📋 复制路径',
+      enabled: Boolean(canonicalFilePath),
+      click: () => {
+        try {
+          clipboard.writeText(canonicalFilePath!)
+        } catch (error) {
+          reportError('复制路径失败', error)
+        }
+      },
+    },
+    {
+      label: '📎 复制相对路径',
+      enabled: Boolean(relativePath),
+      click: () => {
+        try {
+          clipboard.writeText(relativePath!)
+        } catch (error) {
+          reportError('复制相对路径失败', error)
+        }
+      },
+    },
+    { type: 'separator' },
     {
       label: '📐 在分屏中打开',
+      enabled: Boolean(canonicalFilePath),
       submenu: [
         {
           label: '向右分屏',
-          click: () => {
-            window.webContents.send('file:open-in-split', {
-              filePath: file.filePath,
-              direction: 'horizontal'
-            })
-          }
+          click: () => window.webContents.send('file:open-in-split', {
+            filePath: canonicalFilePath,
+            direction: 'horizontal',
+          }),
         },
         {
           label: '向下分屏',
-          click: () => {
-            window.webContents.send('file:open-in-split', {
-              filePath: file.filePath,
-              direction: 'vertical'
-            })
-          }
-        }
-      ]
+          click: () => window.webContents.send('file:open-in-split', {
+            filePath: canonicalFilePath,
+            direction: 'vertical',
+          }),
+        },
+      ],
     },
     {
       label: '🗔 在新窗口中打开',
+      enabled: Boolean(canonicalFilePath && openRoot),
       click: () => {
-        void (async () => {
-          try {
-            const recentFile = appDataManager.getRecentFile(file.id)
-            if (!recentFile) throw new Error('最近文件不存在')
-            const canonical = await validateSenderReadPath(ctx, event, recentFile.path)
-            const root = await resolveRecentFolderRoot(ctx, event, canonical)
-            await openMarkdownInNewWindow(ctx, canonical, root)
-          } catch (error) {
-            console.error('[context-menu:recent-file] 在新窗口打开失败:', error)
-          }
-        })()
-      }
+        void openMarkdownInNewWindow(ctx, canonicalFilePath!, openRoot!).catch(error => {
+          reportError('在新窗口中打开失败', error)
+        })
+      },
     },
     { type: 'separator' },
     {
       label: '🗑️ 从历史中移除',
-      click: () => window.webContents.send('recent-file:remove', file.filePath)
-    }
-  ])
+      click: () => window.webContents.send('recent-file:remove', recentFile.path),
+    },
+  ]
 
-  menu.popup({ window })
+  Menu.buildFromTemplate(template).popup({ window })
+  return { success: true }
 })
 
 // 最近文件夹右键菜单
-ipcMain.handle('context-menu:recent-folder', (event, folder: {
-  historyId: string
-  name: string
-}) => {
+ipcMain.handle('context-menu:recent-folder', async (event, historyId: string) => {
   const window = BrowserWindow.fromWebContents(event.sender)
-  if (!window) return
+  if (!window) return { success: false, error: '无法获取窗口实例' }
+  if (typeof historyId !== 'string' || !historyId) {
+    return { success: false, error: '最近文件夹标识无效' }
+  }
 
-  const menu = Menu.buildFromTemplate([
+  const historyItem = (await ctx.folderHistoryManager.getHistory()).find(item => item.id === historyId)
+  if (!historyItem) return { success: false, error: '最近文件夹不存在' }
+  let resolvedPath = await ctx.folderHistoryManager.resolveHistoryFolder(historyId)
+  if (resolvedPath) {
+    try {
+      resolvedPath = await validateSecurePathInBase(resolvedPath, resolvedPath)
+    } catch {
+      resolvedPath = null
+    }
+  }
+  const fileManagerLabels = getFileManagerLabels()
+  const reportError = (action: string, error: unknown) => {
+    console.error(`[context-menu:recent-folder] ${action}:`, error)
+    window.webContents.send('error:show', {
+      message: `${action}：${error instanceof Error ? error.message : '未知错误'}`,
+    })
+  }
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: `📂 ${fileManagerLabels.showInFolder}`,
+      enabled: Boolean(resolvedPath),
+      click: () => {
+        try {
+          shell.showItemInFolder(resolvedPath!)
+        } catch (error) {
+          reportError(`无法在 ${fileManagerLabels.fileManagerName} 中显示`, error)
+        }
+      },
+    },
+    {
+      label: '📋 复制路径',
+      enabled: Boolean(resolvedPath),
+      click: () => {
+        try {
+          clipboard.writeText(resolvedPath!)
+        } catch (error) {
+          reportError('复制路径失败', error)
+        }
+      },
+    },
+    { type: 'separator' },
     {
       label: '🗔 在新窗口中打开',
+      enabled: Boolean(resolvedPath),
       click: () => {
-        void (async () => {
-          try {
-            const resolvedPath = await ctx.folderHistoryManager.resolveHistoryFolder(folder.historyId)
-            if (!resolvedPath) throw new Error('历史目录不存在、不可访问或未经授权')
-            openFolderInNewWindow(ctx, resolvedPath)
-          } catch (error) {
-            console.error('[context-menu:recent-folder] 在新窗口打开失败:', error)
-          }
-        })()
-      }
-    }
-  ])
+        if (!resolvedPath) return
+        try {
+          openFolderInNewWindow(ctx, resolvedPath)
+        } catch (error) {
+          reportError('在新窗口中打开失败', error)
+        }
+      },
+    },
+  ]
 
-  menu.popup({ window })
+  Menu.buildFromTemplate(template).popup({ window })
+  return { success: true }
 })
 
 // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）

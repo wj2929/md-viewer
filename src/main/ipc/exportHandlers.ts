@@ -22,7 +22,10 @@ const KROKI_ENDPOINT = 'https://kroki.io'
 const KROKI_FORMATS = new Set(['pikchr', 'nomnoml', 'svgbob', 'bytefield', 'tikz', 'plantuml', 'erd', 'graphviz', 'd2'])
 const MAX_KROKI_SOURCE_LENGTH = 128_000
 const MAX_CHART_ZIP_IMAGES = 200
-const MAX_SVG_CAPTURE_DIMENSION = 12000
+const MAX_SVG_CAPTURE_DIMENSION = 4096
+const MAX_SVG_CAPTURE_PIXELS = 8_000_000
+const MIN_SVG_RENDER_WIDTH = 1
+const MAX_SVG_RENDER_WIDTH = 1800
 
 interface ChartZipImagePayload {
   filename: string
@@ -172,6 +175,7 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
     .markdown-body .plotly-container,
     .markdown-body .dbml-container,
     .markdown-body .antv-g6-container,
+    .markdown-body .svg-container,
     .markdown-body .kroki-container,
     .markdown-body .markmap-container,
     .markdown-body .infographic-container {
@@ -202,6 +206,7 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
     .markdown-body .plotly-container svg,
     .markdown-body .dbml-container svg,
     .markdown-body .antv-g6-container svg,
+    .markdown-body .svg-container svg,
     .markdown-body .kroki-container svg,
     .markdown-body .markmap-container svg,
     .markdown-body .infographic-container svg {
@@ -607,19 +612,33 @@ ipcMain.handle('render:codeBlockToPng', async (_, code: string) => {
 
 
 ipcMain.handle('render:svgToPng', async (_, svgString: string, width?: number) => {
+  let renderWindow: BrowserWindow | null = null
+  let tmpPath: string | null = null
   try {
-    const renderWidth = width || 1170
-    const renderWindow = new BrowserWindow({
+    if (typeof svgString !== 'string' || !svgString.includes('<svg') || Buffer.byteLength(svgString, 'utf8') > 2 * 1024 * 1024) {
+      return { success: false, error: 'Invalid SVG payload' }
+    }
+    const requestedWidth = Number.isFinite(width) ? Math.round(width as number) : 1170
+    const renderWidth = Math.min(MAX_SVG_RENDER_WIDTH, Math.max(MIN_SVG_RENDER_WIDTH, requestedWidth))
+    renderWindow = new BrowserWindow({
       show: false,
       width: renderWidth + 40,
       height: 800,
       frame: false,
       useContentSize: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true }
+      webPreferences: {
+        sandbox: true,
+        nodeIntegration: false,
+        contextIsolation: true,
+        webSecurity: true,
+      }
     })
+    renderWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    renderWindow.webContents.on('will-navigate', event => event.preventDefault())
 
     const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; script-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -646,9 +665,9 @@ html, body {
 </style></head>
 <body><div class="svg-container">${svgString}</div></body></html>`
 
-    const tmpPath = path.join(os.tmpdir(), `md-viewer-svg-${Date.now()}.html`)
+    tmpPath = path.join(os.tmpdir(), `md-viewer-svg-${Date.now()}.html`)
     await fs.writeFile(tmpPath, html, 'utf-8')
-    try { await renderWindow.loadFile(tmpPath) } finally { fs.remove(tmpPath).catch(() => {}) }
+    await renderWindow.loadFile(tmpPath)
 
     await new Promise(resolve => setTimeout(resolve, 300))
 
@@ -664,12 +683,18 @@ html, body {
       })()
     `)
 
+    const measuredWidth = Number(bounds?.width)
+    const measuredHeight = Number(bounds?.height)
+    if (!Number.isFinite(measuredWidth) || !Number.isFinite(measuredHeight) || measuredWidth <= 0 || measuredHeight <= 0) {
+      return { success: false, error: 'Invalid SVG dimensions' }
+    }
     const captureScale = Math.min(
       1,
-      MAX_SVG_CAPTURE_DIMENSION / Math.max(bounds.width, bounds.height)
+      MAX_SVG_CAPTURE_DIMENSION / Math.max(measuredWidth, measuredHeight),
+      Math.sqrt(MAX_SVG_CAPTURE_PIXELS / (measuredWidth * measuredHeight))
     )
-    const captureWidth = Math.max(1, Math.floor(bounds.width * captureScale))
-    const captureHeight = Math.max(1, Math.floor(bounds.height * captureScale))
+    const captureWidth = Math.max(1, Math.floor(measuredWidth * captureScale))
+    const captureHeight = Math.max(1, Math.floor(measuredHeight * captureScale))
     if (captureScale < 1) {
       await renderWindow.webContents.executeJavaScript(`
         document.querySelector('.svg-container')?.style.setProperty(
@@ -696,8 +721,6 @@ html, body {
       pngBuffer = image.toPNG()
     }
 
-    renderWindow.close()
-
     if (pngBuffer.length < 500) {
       return { success: false, error: 'Screenshot empty' }
     }
@@ -705,6 +728,9 @@ html, body {
     return { success: true, data: pngBuffer.toString('base64'), width: captureWidth, height: captureHeight }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    if (tmpPath) await fs.remove(tmpPath).catch(() => {})
+    if (renderWindow && !renderWindow.isDestroyed()) renderWindow.close()
   }
 })
 
@@ -727,6 +753,7 @@ ipcMain.handle('render:krokiSvg', async (_, payload: { format?: string; source?:
       method: 'POST',
       headers: { 'content-type': 'text/plain; charset=utf-8' },
       body: source,
+      signal: AbortSignal.timeout(8000),
     })
     const svg = await response.text()
     if (!response.ok) {
@@ -737,9 +764,12 @@ ipcMain.handle('render:krokiSvg', async (_, payload: { format?: string; source?:
     }
     return { ok: true, svg }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+        ? 'Kroki 服务请求超时，请检查网络连接'
+        : message,
     }
   }
 })

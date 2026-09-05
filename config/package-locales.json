@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "electronLanguages": [
+    "en-US",
+    "zh-CN",
+    "zh-TW"
+  ],
+  "expectedLocaleNames": {
+    "darwin": [
+      "en",
+      "zh_CN",
+      "zh_CN_FEMININE",
+      "zh_CN_MASCULINE",
+      "zh_CN_NEUTER",
+      "zh_TW",
+      "zh_TW_FEMININE",
+      "zh_TW_MASCULINE",
+      "zh_TW_NEUTER"
+    ],
+    "linux": [
+      "en-US",
+      "zh-CN",
+      "zh-TW"
+    ],
+    "win32": [
+      "en-US",
+      "zh-CN",
+      "zh-TW"
+    ]
+  }
+}

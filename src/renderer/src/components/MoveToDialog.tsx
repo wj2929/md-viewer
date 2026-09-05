@@ -5,8 +5,14 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type {
+  LinkImpactSummary,
+  LinkRewriteApplyFileResult,
+  LinkRewritePlanView,
+} from '../../../main/linking/types'
+import type { CrossRootMoveImpactReport } from '../../../shared/crossRootMoveImpact'
 import './MoveToDialog.css'
-import { getActiveWorkspaceOperationContext } from '../utils/workspaceOperationContext'
+import { getActiveWorkspaceLifecycleKey, getActiveWorkspaceOperationContext } from '../utils/workspaceOperationContext'
 
 interface FolderHistoryItem {
   id: string
@@ -22,6 +28,19 @@ interface MoveToDialogProps {
   onMoveSuccess?: (message: string) => void
   onMoveError?: (message: string) => void
 }
+
+interface MoveOperationItem {
+  sourcePath: string
+  status: 'success' | 'failed'
+  message?: string
+}
+
+interface MoveRepairResult {
+  files: LinkRewriteApplyFileResult[]
+  skippedChanges: number
+}
+
+type MoveStage = 'target' | 'moving' | 'move-result' | 'repair-diff' | 'repair-result'
 
 interface DirNode {
   name: string
@@ -149,6 +168,15 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
   const [selectedTarget, setSelectedTarget] = useState<SelectedMoveTarget | null>(null)
   const [moving, setMoving] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [stage, setStage] = useState<MoveStage>('target')
+  const [impacts, setImpacts] = useState<LinkImpactSummary[]>([])
+  const [impactLoading, setImpactLoading] = useState(false)
+  const [impactError, setImpactError] = useState<string | null>(null)
+  const [crossRootImpact, setCrossRootImpact] = useState<CrossRootMoveImpactReport | null>(null)
+  const [moveItems, setMoveItems] = useState<MoveOperationItem[]>([])
+  const [repairPlans, setRepairPlans] = useState<LinkRewritePlanView[]>([])
+  const [selectedChangeIds, setSelectedChangeIds] = useState<Set<string>>(new Set())
+  const [repairResult, setRepairResult] = useState<MoveRepairResult | null>(null)
   const rootRequestId = useRef(0)
 
   useEffect(() => {
@@ -161,6 +189,15 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
     setSelectedTarget(null)
     setMoving(false)
     setSearchQuery('')
+    setStage('target')
+    setImpacts([])
+    setImpactLoading(false)
+    setImpactError(null)
+    setCrossRootImpact(null)
+    setMoveItems([])
+    setRepairPlans([])
+    setSelectedChangeIds(new Set())
+    setRepairResult(null)
     window.api.getFolderHistory().then(setHistory).catch(() => setHistory([]))
   }, [isOpen])
 
@@ -210,39 +247,193 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
 
 
 
-  const handleMove = useCallback(async () => {
-    if (!selectedTarget) return
-    if (!window.confirm(`确定把 ${sources.length} 项移动到「${selectedTarget.displayLabel}」？`)) return
+  const lifecycle = getActiveWorkspaceLifecycleKey()
+  const currentRoot = lifecycle?.primaryRoot ? normSep(lifecycle.primaryRoot) : null
+  const targetRoot = selectedRoot ? normSep(selectedRoot.path) : null
+  const isSameRoot = Boolean(currentRoot && targetRoot && currentRoot === targetRoot)
+  const mappings = isSameRoot && currentRoot && selectedTarget
+    ? sources.flatMap(source => {
+        const oldRelativePath = relFromRoot(currentRoot, source)
+        if (oldRelativePath === null) return []
+        return [{
+          oldRelativePath,
+          newRelativePath: [selectedTarget.relPath, baseName(source)].filter(Boolean).join('/'),
+        }]
+      })
+    : []
+  const exactChanges = impacts.reduce((sum, impact) => sum + impact.exactChanges, 0)
+  const candidates = impacts.reduce((sum, impact) => sum + impact.candidates, 0)
 
-    setMoving(true)
+  useEffect(() => {
+    if (!isOpen || !selectedTarget || !isSameRoot || mappings.length === 0) {
+      setImpacts([])
+      setImpactLoading(false)
+      setImpactError(null)
+      return
+    }
     const operation = getActiveWorkspaceOperationContext()
     if (!operation) return
+    let cancelled = false
+    setImpacts([])
+    setImpactError(null)
+    setImpactLoading(true)
+    Promise.all(mappings.map(mapping => window.api.createLinkImpact(operation, mapping)))
+      .then(result => { if (!cancelled) setImpacts(result) })
+      .catch((error) => {
+        if (!cancelled) {
+          setImpacts([])
+          setImpactError(error instanceof Error ? error.message : '链接影响分析失败')
+        }
+      })
+      .finally(() => { if (!cancelled) setImpactLoading(false) })
+    return () => { cancelled = true }
+  }, [isOpen, selectedTarget?.absolutePath, isSameRoot, sources])
+
+  useEffect(() => {
+    if (!isOpen || !selectedTarget || isSameRoot) {
+      setCrossRootImpact(null)
+      return
+    }
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation || !window.api.previewCrossRootMoveImpact) return
+    let cancelled = false
+    setCrossRootImpact(null)
+    setImpactError(null)
+    setImpactLoading(true)
+    window.api.previewCrossRootMoveImpact(
+      sources, selectedTarget.historyId, selectedTarget.relPath, operation,
+    ).then(report => {
+      if (!cancelled) setCrossRootImpact(report)
+    }).catch(error => {
+      if (!cancelled) setImpactError(error instanceof Error ? error.message : '跨根链接影响分析失败')
+    }).finally(() => {
+      if (!cancelled) setImpactLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [isOpen, selectedTarget?.absolutePath, isSameRoot, sources])
+
+  const handleMove = useCallback(async () => {
+    if (!selectedTarget || impactLoading || (isSameRoot && impacts.length !== mappings.length)) return
+    setMoving(true)
+    setStage('moving')
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) {
+      setMoving(false)
+      return
+    }
     const succeeded: string[] = []
-    const failed: { path: string; error: string }[] = []
-    for (const src of sources) {
+    const operationReceipts = new Map<string, string>()
+    const items: MoveOperationItem[] = []
+    for (const [index, src] of sources.entries()) {
       try {
-        await window.api.moveFileToFolder(
-          src,
-          selectedTarget.historyId,
-          selectedTarget.relPath,
-          operation
-        )
+        if (isSameRoot && mappings[index] && impacts[index]) {
+          const execution = await window.api.executeLinkRewriteOperation(operation, {
+            impactId: impacts[index].impactId,
+            mapping: mappings[index],
+            reason: 'move',
+            confirm: true,
+          })
+          operationReceipts.set(normSep(src), execution.receipt.operationReceiptId)
+        } else {
+          await window.api.moveFileToFolder(
+            src,
+            selectedTarget.historyId,
+            selectedTarget.relPath,
+            operation
+          )
+        }
         succeeded.push(src)
+        items.push({ sourcePath: src, status: 'success' })
       } catch (error) {
-        failed.push({ path: src, error: error instanceof Error ? error.message : String(error) })
+        items.push({
+          sourcePath: src,
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        })
       }
     }
     setMoving(false)
+    setMoveItems(items)
+    setStage('move-result')
 
-    if (failed.length === 0) {
-      onMoveSuccess?.(`已移动 ${succeeded.length} 项到「${selectedTarget.displayLabel}」`)
-    } else if (succeeded.length === 0) {
-      onMoveError?.(`移动失败：${failed[0].error}`)
-    } else {
-      onMoveError?.(`已移动 ${succeeded.length} 项，${failed.length} 项失败：${failed[0].error}`)
+    if (isSameRoot && exactChanges > 0 && succeeded.length > 0) {
+      const repairMappings = mappings.flatMap((mapping, index) => {
+        const receiptId = operationReceipts.get(normSep(sources[index]))
+        return receiptId ? [{ mapping, receiptId }] : []
+      })
+      const plans = await Promise.all(repairMappings.map(({ mapping, receiptId }) =>
+        window.api.createLinkRepairPlan(operation, mapping, 'move', receiptId)
+      ))
+      const changes = plans.flatMap(plan => plan.changes)
+      setRepairPlans(plans)
+      setSelectedChangeIds(new Set(changes.map(change => change.changeId)))
     }
-    onClose()
-  }, [selectedTarget, sources, onMoveSuccess, onMoveError, onClose])
+    if (!isSameRoot || exactChanges === 0 || succeeded.length === 0) {
+      const failedCount = items.filter(item => item.status === 'failed').length
+      if (failedCount === 0) {
+        onMoveSuccess?.(`已移动 ${succeeded.length} 项到「${selectedTarget.displayLabel}」`)
+      } else if (succeeded.length === 0) {
+        onMoveError?.(`移动失败：${items.find(item => item.status === 'failed')?.message}`)
+      } else {
+        onMoveError?.(`已移动 ${succeeded.length} 项，${failedCount} 项失败`)
+      }
+    }
+  }, [selectedTarget, sources, isSameRoot, mappings, impacts, exactChanges, impactLoading, onMoveSuccess, onMoveError])
+
+  const showRepairDiff = useCallback(() => {
+    if (repairPlans.some(plan => plan.changes.length > 0)) setStage('repair-diff')
+  }, [repairPlans])
+
+  const skipRepair = useCallback(async () => {
+    const operation = getActiveWorkspaceOperationContext()
+    if (operation) {
+      await Promise.all(repairPlans.map(plan => window.api.discardLinkRepairPlan(operation, plan.planId)))
+    }
+    setRepairResult({ files: [], skippedChanges: repairPlans.flatMap(plan => plan.changes).length })
+    setStage('repair-result')
+    onMoveSuccess?.(`文件已移动，链接修复已跳过`)
+  }, [repairPlans, onMoveSuccess])
+
+  const applyRepair = useCallback(async () => {
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
+    const result = await window.api.applyLinkRepairPlans(operation, {
+      plans: repairPlans.map(plan => ({
+        planId: plan.planId,
+        operationReceiptId: plan.operationReceiptId,
+        selectedChangeIds: plan.changes
+          .filter(change => selectedChangeIds.has(change.changeId))
+          .map(change => change.changeId),
+      })),
+      confirm: true,
+    })
+    const files = result.files
+    const totalChanges = repairPlans.flatMap(plan => plan.changes).length
+    setRepairResult({ files, skippedChanges: totalChanges - selectedChangeIds.size })
+    setStage('repair-result')
+    onMoveSuccess?.(`链接修复完成`)
+  }, [repairPlans, selectedChangeIds, onMoveSuccess])
+
+  const regenerateConflictPlans = useCallback(async () => {
+    const operation = getActiveWorkspaceOperationContext()
+    if (!operation) return
+    const regenerated = await Promise.all(repairPlans.map(plan =>
+      window.api.regenerateLinkRepairPlan(operation, plan.planId)
+    ))
+    setRepairPlans(regenerated)
+    setSelectedChangeIds(new Set(regenerated.flatMap(plan => plan.changes.map(change => change.changeId))))
+    setRepairResult(null)
+    setStage('repair-diff')
+  }, [repairPlans])
+
+  const toggleRepairChange = useCallback((changeId: string) => {
+    setSelectedChangeIds(current => {
+      const next = new Set(current)
+      if (next.has(changeId)) next.delete(changeId)
+      else next.add(changeId)
+      return next
+    })
+  }, [])
 
   if (!isOpen) return null
 
@@ -255,16 +446,33 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
     : history
   const selectedPath = selectedTarget?.absolutePath ?? null
   const rootIsInvalid = selectedRoot ? isInvalidTarget(selectedRoot.path, sources) : false
-  const canMove = !!selectedTarget && !moving && !isInvalidTarget(selectedTarget.absolutePath, sources)
+  const canMove = !!selectedTarget && !moving && !impactLoading && !impactError &&
+    !isInvalidTarget(selectedTarget.absolutePath, sources) &&
+    (isSameRoot ? impacts.length === mappings.length : crossRootImpact !== null)
+  const repairChanges = repairPlans.flatMap(plan => plan.changes)
+  const repairFileCount = new Set(
+    repairChanges.filter(change => selectedChangeIds.has(change.changeId)).map(change => change.sourceRelativePath)
+  ).size
+  const successfulMoves = moveItems.filter(item => item.status === 'success').length
+  const failedMoves = moveItems.filter(item => item.status === 'failed').length
+  const updatedFiles = repairResult?.files.filter(file => file.status === 'updated').length ?? 0
+  const conflictFiles = repairResult?.files.filter(file => file.status === 'conflict').length ?? 0
+  const failedRepairFiles = repairResult?.files.filter(file => file.status === 'failed').length ?? 0
 
   return (
-    <div className="move-to-overlay" onClick={() => !moving && onClose()}>
-      <div className="move-to-dialog" onClick={(event) => event.stopPropagation()}>
+    <div className="move-to-overlay" onClick={() => stage === 'target' && !moving && onClose()}>
+      <div className="move-to-dialog" role="dialog" aria-modal="true" aria-labelledby="move-to-title" onClick={(event) => event.stopPropagation()}>
         <div className="move-to-header">
-          <h2>📦 移动到…</h2>
-          <button className="move-to-close" onClick={() => !moving && onClose()}>×</button>
+          <h2 id="move-to-title">📦 {
+            stage === 'target' ? '移动到…' :
+            stage === 'moving' ? '正在移动' :
+            stage === 'move-result' ? '移动结果' :
+            stage === 'repair-diff' ? '更新引用' : '链接修复结果'
+          }</h2>
+          <button className="move-to-close" aria-label="关闭" onClick={() => !moving && onClose()}>×</button>
         </div>
 
+        {stage === 'target' && <>
         <div className="move-to-summary">
           待移动：{sources.length} 项
           {sources.length <= 3 && `（${sources.map(baseName).join('、')}）`}
@@ -338,15 +546,127 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
           </>
         </div>
 
+        <div className="move-to-impact" aria-live="polite">
+          {selectedTarget && isSameRoot && impactLoading && '正在分析链接影响…'}
+          {selectedTarget && isSameRoot && impactError && <>⚠ 链接影响分析失败：{impactError}</>}
+          {selectedTarget && isSameRoot && !impactLoading && !impactError && (
+            exactChanges + candidates > 0
+              ? <>链接影响：{impacts.reduce((sum, impact) => sum + impact.affectedSourceFiles, 0)} 个来源文件，{exactChanges} 处可精确更新，{candidates} 处仅提示。</>
+              : '未发现链接影响。'
+          )}
+          {selectedTarget && !isSameRoot && impactLoading && '正在分析来源与目标工作区的链接影响…'}
+          {selectedTarget && !isSameRoot && impactError && <>⚠ 跨根链接影响分析失败：{impactError}</>}
+          {selectedTarget && !isSameRoot && crossRootImpact && (
+            <>
+              <strong>只读影响统计：</strong>
+              来源工作区将断开 {crossRootImpact.origin.linksBreakingAfterMove} 处链接；
+              移动文档将断开 {crossRootImpact.moved.linksBreakingAfterMove} 处、改变目标 {crossRootImpact.moved.linksChangingResolution} 处；
+              目标工作区将新增解析 {crossRootImpact.target.linksResolvingAfterMove} 处。
+              <br />不会自动修改来源或目标工作区中的任何链接。
+              {crossRootImpact.coverage.uncertainLinks > 0 && <> 有 {crossRootImpact.coverage.uncertainLinks} 处链接无法确定。</>}
+            </>
+          )}
+        </div>
+
         <div className="move-to-footer">
           <span className="move-to-target">目标：{selectedTarget?.displayLabel ?? '（未选）'}</span>
           <div className="move-to-actions">
             <button className="move-to-btn" onClick={() => !moving && onClose()} disabled={moving}>取消</button>
             <button className="move-to-btn primary" onClick={() => void handleMove()} disabled={!canMove}>
-              {moving ? '移动中…' : '移动'}
+              {impactLoading ? '分析影响中…' : `移动 ${sources.length} 项`}
             </button>
           </div>
         </div>
+        </>}
+
+        {stage === 'moving' && (
+          <div className="move-to-stage" aria-live="polite">
+            <div className="move-to-progress">正在执行物理移动…</div>
+            <p>此步骤只移动文件，不修改 Markdown 链接。</p>
+          </div>
+        )}
+
+        {stage === 'move-result' && (
+          <>
+            <div className="move-to-stage-list">
+              {moveItems.map(item => (
+                <div key={item.sourcePath} className={`move-to-result-row ${item.status}`}>
+                  <span>{item.status === 'success' ? '✓' : '✕'}</span>
+                  <strong>{baseName(item.sourcePath)}</strong>
+                  <span>{item.status === 'success' ? '已移动' : item.message}</span>
+                </div>
+              ))}
+            </div>
+            <div className="move-to-summary">{successfulMoves} 项成功 · {failedMoves} 项失败</div>
+            <div className="move-to-footer">
+              <span className="move-to-target">{repairChanges.length > 0 ? `可更新 ${repairChanges.length} 处链接` : '没有可自动修复的链接'}</span>
+              <div className="move-to-actions">
+                <button className="move-to-btn" onClick={() => repairChanges.length > 0 ? void skipRepair() : onClose()}>
+                  {repairChanges.length > 0 ? '关闭并跳过链接修复' : '完成'}
+                </button>
+                {repairChanges.length > 0 && (
+                  <button className="move-to-btn primary" onClick={showRepairDiff}>查看可更新的链接</button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {stage === 'repair-diff' && (
+          <>
+            <div className="move-to-stage-list repair-list">
+              {repairChanges.map(change => (
+                <label key={change.changeId} className="move-to-repair-change">
+                  <input
+                    type="checkbox"
+                    checked={selectedChangeIds.has(change.changeId)}
+                    onChange={() => toggleRepairChange(change.changeId)}
+                  />
+                  <span className="move-to-repair-path">{change.sourceRelativePath}:{change.lineStart}</span>
+                  <span className="move-to-repair-before">− {change.before}</span>
+                  <span className="move-to-repair-after">+ {change.after}</span>
+                </label>
+              ))}
+              {repairPlans.flatMap(plan => plan.warnings).map((warning, index) => (
+                <div key={`${warning}-${index}`} className="move-to-repair-warning">⚠ {warning}</div>
+              ))}
+            </div>
+            <div className="move-to-footer">
+              <span className="move-to-target">已选择 {repairFileCount} 个文件中的 {selectedChangeIds.size} 处链接</span>
+              <div className="move-to-actions">
+                <button className="move-to-btn" onClick={() => void skipRepair()}>跳过链接修复</button>
+                <button className="move-to-btn primary" disabled={selectedChangeIds.size === 0} onClick={() => void applyRepair()}>
+                  更新 {repairFileCount} 个文件中的 {selectedChangeIds.size} 处链接
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {stage === 'repair-result' && (
+          <>
+            <div className="move-to-stage-list">
+              {repairResult?.files.map(file => (
+                <div key={file.sourceRelativePath} className={`move-to-result-row ${file.status}`}>
+                  <span>{file.status === 'updated' ? '✓' : file.status === 'conflict' ? '⚠' : '✕'}</span>
+                  <strong>{file.sourceRelativePath}</strong>
+                  <span>{file.status === 'updated' ? `已更新 ${file.updatedChanges} 处` : file.message ?? file.status}</span>
+                </div>
+              ))}
+              {repairResult?.skippedChanges ? <div className="move-to-repair-warning">已跳过 {repairResult.skippedChanges} 处链接</div> : null}
+            </div>
+            <div className="move-to-summary">
+              文件移动：{successfulMoves} 成功 / {failedMoves} 失败 · 链接修复：{updatedFiles} 成功 / {conflictFiles} 冲突 / {failedRepairFiles} 失败
+            </div>
+            <div className="move-to-footer">
+              <span className="move-to-target">结果按文件 best-effort 应用；冲突文件未覆盖。</span>
+              <div className="move-to-actions">
+                {conflictFiles > 0 && <button className="move-to-btn" onClick={() => void regenerateConflictPlans()}>重新生成冲突文件预览</button>}
+                <button className="move-to-btn primary" onClick={onClose}>完成</button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

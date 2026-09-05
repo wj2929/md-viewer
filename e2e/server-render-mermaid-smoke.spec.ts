@@ -84,7 +84,21 @@ test('server render page produces KaTeX result', async ({ page }) => {
   await page.addInitScript(() => {
     window.__MDV_RENDER_INPUT__ = {
       schemaVersion: '1.0',
-      markdown: '# 公式\n\n$$\nx = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n$$\n\n行内公式 $E=mc^2$',
+      markdown: [
+        '# 公式',
+        '',
+        '$$',
+        'x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}',
+        '$$',
+        '',
+        '行内公式 $E=mc^2$',
+        '',
+        String.raw`\[`,
+        String.raw`y = \sum_{i=1}^{n} i`,
+        String.raw`\]`,
+        '',
+        String.raw`反斜杠行内公式 \(z^2\)`,
+      ].join('\n'),
       enabledRenderers: ['katex'],
       networkPolicy: 'blocked',
       timeoutMs: 15000,
@@ -99,7 +113,7 @@ test('server render page produces KaTeX result', async ({ page }) => {
 
     const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
     expect(result?.status).toMatch(/success|partial/)
-    expect(result?.images.filter((image: { type: string }) => image.type === 'katex')).toHaveLength(2)
+    expect(result?.images.filter((image: { type: string }) => image.type === 'katex')).toHaveLength(4)
   } finally {
     await server.close()
   }
@@ -260,12 +274,14 @@ test('server render page produces DrawIO result', async ({ page }) => {
       const element = document.querySelector(selector)
       return {
         tagName: element?.tagName.toLowerCase(),
-        className: element?.getAttribute('class') || '',
+        containerClassName: element?.closest('.drawio-container')?.getAttribute('class') || '',
+        exportControls: element?.querySelectorAll('.no-export').length || 0,
       }
     }, result?.images.find((image: { type: string }) => image.type === 'drawio')?.selector)
     expect(drawioTarget).toMatchObject({
-      tagName: 'div',
-      className: expect.stringContaining('drawio-container'),
+      tagName: 'svg',
+      containerClassName: expect.stringContaining('drawio-container'),
+      exportControls: 0,
     })
   } finally {
     await server.close()
@@ -417,12 +433,12 @@ test('server render page produces Graphviz result', async ({ page }) => {
       const element = document.querySelector(selector)
       return {
         tagName: element?.tagName.toLowerCase(),
-        className: element?.getAttribute('class') || '',
+        containerClassName: element?.closest('.graphviz-container')?.getAttribute('class') || '',
       }
     }, result?.images.find((image: { type: string }) => image.type === 'graphviz')?.selector)
     expect(graphvizTarget).toMatchObject({
-      tagName: 'div',
-      className: expect.stringContaining('graphviz-container'),
+      tagName: 'svg',
+      containerClassName: expect.stringContaining('graphviz-container'),
     })
   } finally {
     await server.close()
@@ -555,6 +571,56 @@ test('server render page produces RendererPlugin results', async ({ page }) => {
   }
 })
 
+test('server render counts completed D2 wrappers instead of nested SVG elements', async ({ page }) => {
+  const server = await serveOutRenderer()
+  const fixture = fs.readFileSync(path.resolve('e2e/fixtures/test-diagram-design.md'), 'utf8')
+  const d2Blocks = [...fixture.matchAll(/^```d2\b[^\n]*\n([\s\S]*?)^```\s*$/gim)]
+    .map(match => match[1].trim())
+  expect(d2Blocks).toHaveLength(15)
+  const markdown = d2Blocks.map(source => `\`\`\`d2\n${source}\n\`\`\``).join('\n\n')
+
+  await page.addInitScript((d2Markdown) => {
+    window.__MDV_RENDER_INPUT__ = {
+      schemaVersion: '1.0',
+      markdown: d2Markdown,
+      enabledRenderers: ['d2'],
+      networkPolicy: 'blocked',
+      timeoutMs: 60000,
+    }
+  }, markdown)
+
+  try {
+    await page.goto(server.url)
+    await expect.poll(() => page.evaluate(() => window.__MDV_RENDER_DONE__ === true), {
+      timeout: 65000,
+    }).toBe(true)
+
+    const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
+    const d2Images = result?.images.filter((image: { type: string }) => image.type === 'd2') || []
+    const d2Targets = await page.evaluate(
+      (selectors) => selectors.map(selector => document.querySelector(selector)?.getAttribute('class') || ''),
+      d2Images.map((image: { selector: string }) => image.selector),
+    )
+    const descendantSvgCount = await page.locator('.d2-wrapper .d2-container svg').count()
+
+    expect(descendantSvgCount).toBeGreaterThan(d2Blocks.length)
+    expect(d2Targets.every(className => className.includes('d2-svg'))).toBe(true)
+    expect(result?.ok).toBe(true)
+    expect(result?.status).toBe('success')
+    expect(result?.stats).toMatchObject({
+      totalBlocks: 15,
+      renderedBlocks: 15,
+      failedBlocks: 0,
+    })
+    expect(d2Images).toHaveLength(15)
+    expect(d2Images.map((image: { sourceIndex?: number }) => image.sourceIndex)).toEqual(
+      Array.from({ length: 15 }, (_, index) => index),
+    )
+  } finally {
+    await server.close()
+  }
+})
+
 test('server render page keeps disabled RendererPlugin blocks as source', async ({ page }) => {
   const server = await serveOutRenderer()
 
@@ -578,7 +644,7 @@ test('server render page keeps disabled RendererPlugin blocks as source', async 
     expect(result?.status).toBe('success')
     expect(result?.stats.totalBlocks).toBe(0)
     expect(result?.images.some((image: { type: string }) => image.type === 'd2')).toBe(false)
-    await expect(page.locator('pre.language-d2')).toBeVisible()
+    await expect(page.locator('.chart-export-placeholder[data-chart-type="d2"]')).toHaveText('[图表未渲染]')
   } finally {
     await server.close()
   }
@@ -618,8 +684,8 @@ test('server render page keeps disabled legacy renderer blocks as source', async
     expect(result?.status).toBe('success')
     expect(result?.stats.totalBlocks).toBe(0)
     expect(result?.images.some((image: { type: string }) => image.type === 'mermaid' || image.type === 'graphviz')).toBe(false)
-    await expect(page.locator('pre.language-mermaid')).toBeVisible()
-    await expect(page.locator('pre.language-graphviz')).toBeVisible()
+    await expect(page.locator('.chart-export-placeholder[data-chart-type="mermaid"]')).toHaveText('[图表未渲染]')
+    await expect(page.locator('.chart-export-placeholder[data-chart-type="graphviz"]')).toHaveText('[图表未渲染]')
   } finally {
     await server.close()
   }
@@ -658,7 +724,58 @@ test('server render page blocks PlantUML based renderers when network policy is 
     expect(result?.stats.renderedBlocks).toBe(0)
     expect(result?.stats.failedBlocks).toBe(1)
     expect(result?.images.some((image: { type: string }) => image.type === 'c4plantuml')).toBe(false)
-    await expect(page.locator('.c4plantuml-wrapper .plantuml-error')).toBeVisible()
+    await expect(page.locator('.chart-export-placeholder')).toHaveText('[图表未渲染]')
+  } finally {
+    await server.close()
+  }
+})
+
+test('server render page renders safe SVG and neutralizes rejected SVG source', async ({ page }) => {
+  const server = await serveOutRenderer()
+
+  await page.addInitScript(() => {
+    window.__MDV_RENDER_INPUT__ = {
+      schemaVersion: '1.0',
+      markdown: [
+        '# SVG',
+        '',
+        '```svg',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 160">',
+        '  <defs>',
+        '    <filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity=".16" /></filter>',
+        '    <style>.title { font: 700 24px -apple-system, "PingFang SC", sans-serif; fill: #172033; }</style>',
+        '  </defs>',
+        '  <rect x="10" y="10" width="300" height="140" rx="16" fill="#e8f1ff" filter="url(#shadow)" />',
+        '  <text class="title" x="32" y="86">受限 SVG</text>',
+        '</svg>',
+        '```',
+        '',
+        '```svg',
+        '<svg viewBox="0 0 10 10"><script>SVG_SERVER_LEAK</script></svg>',
+        '```',
+      ].join('\n'),
+      enabledRenderers: ['svg'],
+      networkPolicy: 'blocked',
+      timeoutMs: 15000,
+    }
+  })
+
+  try {
+    await page.goto(server.url)
+    await expect.poll(() => page.evaluate(() => window.__MDV_RENDER_DONE__ === true), {
+      timeout: 20000,
+    }).toBe(true)
+
+    const result = await page.evaluate(() => window.__MDV_RENDER_RESULT__)
+    expect(result?.status).toBe('partial')
+    expect(result?.stats).toMatchObject({ totalBlocks: 2, renderedBlocks: 1, failedBlocks: 1 })
+    const svgImages = result?.images.filter((image: { type: string }) => image.type === 'svg') || []
+    expect(svgImages).toHaveLength(1)
+    expect(svgImages[0]?.blockId).toMatch(/^mdv-svg-/)
+    expect(svgImages[0]?.sourceIndex).toBe(0)
+    expect(result?.html).not.toContain('SVG_SERVER_LEAK')
+    await expect(page.locator('.svg-wrapper .svg-container svg')).toBeVisible()
+    await expect(page.locator('.chart-export-placeholder')).toHaveText('[图表未渲染]')
   } finally {
     await server.close()
   }

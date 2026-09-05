@@ -68,6 +68,8 @@ open -> parse -> detect -> render -> capture -> replace -> export
 
 ## 4. 导出任务状态机
 
+<div id="md-case-d2-export-task-state"></div>
+
 ```d2
 direction: right
 

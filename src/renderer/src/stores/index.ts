@@ -18,7 +18,7 @@ export { useUIStore, FONT_SIZE } from './uiStore'
 export { useSearchHistoryStore } from './searchHistoryStore'
 
 // 轻量 Markdown 编辑 Store
-export { useEditSessionStore } from './editSessionStore'
+export { hasLocalEditActivity, useEditSessionStore } from './editSessionStore'
 export type {
   EditSession,
   EditConflictReason,
@@ -30,6 +30,8 @@ export type {
 export { useQuickEditPlacementStore } from './quickEditPlacementStore'
 export { useDocumentViewModeStore } from './documentViewModeStore'
 export type { DocumentViewMode, DocumentViewState } from './documentViewModeStore'
+
+export { useRemoteChartSettingsStore, remoteChartDocumentKey } from './remoteChartSettingsStore'
 
 // v1.6.0: 新增 Stores
 export { useFileStore } from './fileStore'

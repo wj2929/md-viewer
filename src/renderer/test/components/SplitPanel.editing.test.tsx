@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SplitPanel } from '../../src/components/SplitPanel'
 import type { Tab } from '../../src/components/TabBar'
 import type { PanelNode } from '../../src/utils/splitTree'
 import { useEditSessionStore } from '../../src/stores/editSessionStore'
 import { useQuickEditPlacementStore } from '../../src/stores/quickEditPlacementStore'
+import { getTemplatesForRenderer } from '../../src/components/settings/chartStarterTemplates'
 
 vi.mock('../../src/components/VirtualizedMarkdown', () => ({
   VirtualizedMarkdown: ({ content }: { content: string }) => <div>{content}</div>,
@@ -285,6 +286,59 @@ describe('SplitPanel lightweight editing', () => {
 
     expect(screen.getByLabelText('b.md 编辑工作区')).toBeInTheDocument()
     expect(screen.queryByLabelText('b.md 快速编辑')).not.toBeInTheDocument()
+  })
+
+  it('binds chart insertion to the split leaf that opened settings', async () => {
+    for (const [canonicalPath, fileName, content] of [
+      ['/real/docs/a.md', 'a.md', '# A'],
+      ['/real/docs/b.md', 'b.md', '# B'],
+    ] as const) {
+      useEditSessionStore.getState().openSession({
+        canonicalPath,
+        displayPath: `/docs/${fileName}`,
+        fileName,
+        content,
+        mtimeMs: 1000,
+        size: 3,
+        revisionToken: '1000:3',
+      })
+    }
+    const onOpenChartSettings = vi.fn()
+    render(
+      <SplitPanel
+        node={root}
+        tabs={tabs}
+        activeLeafId="leaf-a"
+        onSplitPanel={vi.fn()}
+        onClosePanel={vi.fn()}
+        onResizePanel={vi.fn()}
+        onSetActiveLeaf={vi.fn()}
+        onImageClick={vi.fn()}
+        onDropTab={vi.fn()}
+        getDocumentViewMode={() => 'compare'}
+        onDocumentViewModeChange={vi.fn()}
+        getQuickEditCanonicalPath={tab => `/real${tab.file.path}`}
+        onSaveQuickEdit={vi.fn()}
+        onCloseQuickEdit={vi.fn()}
+        onReloadQuickEdit={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onOpenChartSettings={onOpenChartSettings}
+      />
+    )
+
+    const workbenches = screen.getAllByRole('region', { name: /编辑工作区/ })
+    fireEvent.click(within(workbenches[0]).getByRole('button', { name: '插入图表' }))
+    expect(onOpenChartSettings).toHaveBeenCalledTimes(1)
+    const session = onOpenChartSettings.mock.calls[0][0].insertionSession
+    expect(session.targetKey).toBe('leaf-a:tab-a:/real/docs/a.md')
+
+    act(() => {
+      expect(session.insert(getTemplatesForRenderer('mermaid')[0])).toBe(true)
+    })
+    await waitFor(() => {
+      expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toContain('```mermaid')
+    })
+    expect(useEditSessionStore.getState().sessions['/real/docs/b.md'].draft).toBe('# B')
   })
 
   it('keeps only one writable workbench when the same file is edited in two split panels', async () => {

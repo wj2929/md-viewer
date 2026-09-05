@@ -1,0 +1,212 @@
+[
+  {
+    "id": "mermaid-flow",
+    "rendererType": "mermaid",
+    "title": "Mermaid 流程图",
+    "sourceKind": "fence",
+    "description": "适合流程、时序、状态变化和简单关系图。",
+    "prefix": "```mermaid\n",
+    "body": "flowchart LR\n  User([用户]) --> Check{源码有效?}\n  Check -->|是| Render[渲染图表]\n  Check -->|否| Edit[修正源码]\n  Edit --> Check\n  Render --> Export[(导出文档)]",
+    "suffix": "\n```"
+  },
+  {
+    "id": "echarts-bar",
+    "rendererType": "echarts",
+    "title": "ECharts 柱状图",
+    "sourceKind": "fence",
+    "description": "适合业务指标、统计趋势和组合图表。",
+    "prefix": "```echarts\n",
+    "body": "{\n  \"title\": { \"text\": \"月度交付趋势\", \"left\": \"center\" },\n  \"tooltip\": { \"trigger\": \"axis\" },\n  \"xAxis\": { \"type\": \"category\", \"data\": [\"1月\", \"2月\", \"3月\", \"4月\", \"5月\", \"6月\"] },\n  \"yAxis\": { \"type\": \"value\", \"name\": \"任务数\" },\n  \"series\": [{ \"name\": \"已完成\", \"type\": \"bar\", \"data\": [12, 18, 15, 26, 23, 31], \"itemStyle\": { \"color\": \"#4f8cff\" } }]\n}",
+    "suffix": "\n```"
+  },
+  {
+    "id": "markmap-tree",
+    "rendererType": "markmap",
+    "title": "Markmap 思维导图",
+    "sourceKind": "fence",
+    "description": "适合系统分解、知识结构和讨论提纲。",
+    "prefix": "```markmap\n",
+    "body": "# MD Viewer\n## 阅读\n- 文件夹与标签页\n- 搜索与反向链接\n## 图表\n- 架构与流程\n- 数据可视化\n## 交付\n- HTML / PDF\n- DOCX / 图片",
+    "suffix": "\n```"
+  },
+  {
+    "id": "graphviz-directed",
+    "rendererType": "graphviz",
+    "title": "Graphviz 有向图",
+    "sourceKind": "fence",
+    "description": "适合依赖层级、DAG、决策树和严格关系图。",
+    "prefix": "```graphviz\n",
+    "body": "digraph G {\n  rankdir=LR;\n  node [shape=box, style=\"rounded,filled\", fillcolor=\"#eef4ff\", color=\"#4f7ccf\"];\n  Source [label=\"Markdown\"];\n  Parse [label=\"解析\"];\n  Render [label=\"渲染\"];\n  Export [label=\"导出\", shape=folder, fillcolor=\"#eef8ef\"];\n  Source -> Parse -> Render -> Export;\n  Parse -> Source [label=\"修正\", style=dashed];\n}",
+    "suffix": "\n```"
+  },
+  {
+    "id": "plantuml-sequence",
+    "rendererType": "plantuml",
+    "title": "PlantUML 时序图",
+    "sourceKind": "fence",
+    "description": "适合 UML 时序图和类图；渲染需要 PlantUML 服务。",
+    "prefix": "```plantuml\n",
+    "body": "@startuml\nactor 用户\nparticipant \"MD Viewer\" as App\nparticipant \"图表服务\" as Service\n用户 -> App: 打开 Markdown\nApp -> Service: 提交图表源码\nactivate Service\nService --> App: 返回 SVG\nApp --> 用户: 展示并导出\n@enduml",
+    "suffix": "\n```"
+  },
+  {
+    "id": "drawio-node",
+    "rendererType": "drawio",
+    "title": "DrawIO 交付流程",
+    "sourceKind": "fence",
+    "description": "适合人工精确布局、复杂分区和交付级版式。",
+    "prefix": "```drawio\n",
+    "body": "<mxfile host=\"app.diagrams.net\">\n  <diagram name=\"Delivery\" id=\"delivery-flow\">\n    <mxGraphModel dx=\"1422\" dy=\"762\" grid=\"1\" gridSize=\"10\" guides=\"1\">\n      <root>\n        <mxCell id=\"0\"/>\n        <mxCell id=\"1\" parent=\"0\"/>\n        <mxCell id=\"2\" value=\"内容作者\" style=\"shape=actor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;\" vertex=\"1\" parent=\"1\">\n          <mxGeometry x=\"30\" y=\"115\" width=\"70\" height=\"90\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"3\" value=\"Markdown 源码\" style=\"shape=document;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#dae8fc;strokeColor=#6c8ebf;\" vertex=\"1\" parent=\"1\">\n          <mxGeometry x=\"150\" y=\"120\" width=\"130\" height=\"70\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"4\" value=\"RendererPlugin\" style=\"rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;\" vertex=\"1\" parent=\"1\">\n          <mxGeometry x=\"340\" y=\"120\" width=\"140\" height=\"70\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"5\" value=\"应用预览\" style=\"rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;\" vertex=\"1\" parent=\"1\">\n          <mxGeometry x=\"550\" y=\"70\" width=\"125\" height=\"55\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"6\" value=\"HTML / PDF\" style=\"rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;\" vertex=\"1\" parent=\"1\">\n          <mxGeometry x=\"550\" y=\"127\" width=\"125\" height=\"55\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"7\" value=\"DOCX\" style=\"rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;\" vertex=\"1\" parent=\"1\">\n          <mxGeometry x=\"550\" y=\"225\" width=\"125\" height=\"55\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"8\" value=\"编辑\" edge=\"1\" source=\"2\" target=\"3\" parent=\"1\">\n          <mxGeometry relative=\"1\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"9\" value=\"解析\" edge=\"1\" source=\"3\" target=\"4\" parent=\"1\">\n          <mxGeometry relative=\"1\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"10\" value=\"实时\" edge=\"1\" source=\"4\" target=\"5\" parent=\"1\">\n          <mxGeometry relative=\"1\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"11\" value=\"导出\" edge=\"1\" source=\"4\" target=\"6\" parent=\"1\">\n          <mxGeometry relative=\"1\" as=\"geometry\"/>\n        </mxCell>\n        <mxCell id=\"12\" value=\"服务\" edge=\"1\" source=\"4\" target=\"7\" parent=\"1\">\n          <mxGeometry relative=\"1\" as=\"geometry\"/>\n        </mxCell>\n      </root>\n    </mxGraphModel>\n  </diagram>\n</mxfile>",
+    "suffix": "\n```"
+  },
+  {
+    "id": "infographic-progress",
+    "rendererType": "infographic",
+    "title": "Infographic 信息图",
+    "sourceKind": "fence",
+    "description": "适合模板化指标、清单和信息摘要。",
+    "prefix": "```infographic\n",
+    "body": "infographic list-row-simple-horizontal-arrow\ndata\n  title 产品开发流程\n  desc 从需求到上线的完整研发链路\n  lists\n    - label 需求分析\n      desc 收集用户需求并确定优先级\n      value 95\n    - label UI设计\n      desc 完成交互原型与视觉稿\n      value 88\n    - label 编码开发\n      desc 前后端功能实现\n      value 75\n    - label 测试验收\n      desc 功能测试与回归验证\n      value 60\n    - label 部署上线\n      desc 灰度发布与全量推送\n      value 40",
+    "suffix": "\n```"
+  },
+  {
+    "id": "katex-inline",
+    "rendererType": "katex",
+    "title": "KaTeX 行内公式",
+    "sourceKind": "inlineMath",
+    "description": "适合正文中的短公式。",
+    "prefix": "$",
+    "body": "\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}",
+    "suffix": "$"
+  },
+  {
+    "id": "katex-block",
+    "rendererType": "katex",
+    "title": "KaTeX 块级公式",
+    "sourceKind": "blockMath",
+    "description": "适合独立展示的推导和长公式。",
+    "prefix": "$$\n",
+    "body": "\\begin{aligned}\nA &= \\pi r^2 \\\\\nV &= \\frac{4}{3}\\pi r^3\n\\end{aligned}",
+    "suffix": "\n$$"
+  },
+  {
+    "id": "excalidraw-shape",
+    "rendererType": "excalidraw",
+    "title": "Excalidraw 草图",
+    "sourceKind": "fence",
+    "description": "适合手绘风格的概念草图和说明图。",
+    "prefix": "```excalidraw\n",
+    "body": "{\n  \"type\": \"excalidraw\",\n  \"version\": 2,\n  \"source\": \"md-viewer-excalidraw-fixture\",\n  \"elements\": [\n    {\n      \"id\": \"code-card\",\n      \"type\": \"rectangle\",\n      \"x\": 0,\n      \"y\": 0,\n      \"width\": 420,\n      \"height\": 160,\n      \"angle\": 0,\n      \"strokeColor\": \"#1e1e1e\",\n      \"backgroundColor\": \"#e8f4ff\",\n      \"fillStyle\": \"solid\",\n      \"strokeWidth\": 2,\n      \"strokeStyle\": \"solid\",\n      \"roughness\": 1,\n      \"opacity\": 100,\n      \"groupIds\": [],\n      \"frameId\": null,\n      \"roundness\": {\n        \"type\": 3\n      },\n      \"seed\": 2079,\n      \"version\": 1,\n      \"versionNonce\": 2079,\n      \"isDeleted\": false,\n      \"boundElements\": null,\n      \"updated\": 1,\n      \"link\": null,\n      \"locked\": false\n    },\n    {\n      \"id\": \"code-title\",\n      \"type\": \"text\",\n      \"x\": 86,\n      \"y\": 38,\n      \"width\": 248,\n      \"height\": 45,\n      \"angle\": 0,\n      \"strokeColor\": \"#1e1e1e\",\n      \"backgroundColor\": \"transparent\",\n      \"fillStyle\": \"solid\",\n      \"strokeWidth\": 1,\n      \"strokeStyle\": \"solid\",\n      \"roughness\": 1,\n      \"opacity\": 100,\n      \"groupIds\": [],\n      \"frameId\": null,\n      \"roundness\": null,\n      \"seed\": 2080,\n      \"version\": 1,\n      \"versionNonce\": 2080,\n      \"isDeleted\": false,\n      \"boundElements\": null,\n      \"updated\": 1,\n      \"link\": null,\n      \"locked\": false,\n      \"fontSize\": 36,\n      \"fontFamily\": 5,\n      \"text\": \"代码块渲染\",\n      \"originalText\": \"代码块渲染\",\n      \"textAlign\": \"center\",\n      \"verticalAlign\": \"middle\",\n      \"containerId\": null,\n      \"lineHeight\": 1.25,\n      \"autoResize\": true\n    },\n    {\n      \"id\": \"code-note\",\n      \"type\": \"text\",\n      \"x\": 103,\n      \"y\": 100,\n      \"width\": 214,\n      \"height\": 25,\n      \"angle\": 0,\n      \"strokeColor\": \"#4b5563\",\n      \"backgroundColor\": \"transparent\",\n      \"fillStyle\": \"solid\",\n      \"strokeWidth\": 1,\n      \"strokeStyle\": \"solid\",\n      \"roughness\": 1,\n      \"opacity\": 100,\n      \"groupIds\": [],\n      \"frameId\": null,\n      \"roundness\": null,\n      \"seed\": 2081,\n      \"version\": 1,\n      \"versionNonce\": 2081,\n      \"isDeleted\": false,\n      \"boundElements\": null,\n      \"updated\": 1,\n      \"link\": null,\n      \"locked\": false,\n      \"fontSize\": 20,\n      \"fontFamily\": 5,\n      \"text\": \"Markdown fenced block\",\n      \"originalText\": \"Markdown fenced block\",\n      \"textAlign\": \"center\",\n      \"verticalAlign\": \"middle\",\n      \"containerId\": null,\n      \"lineHeight\": 1.25,\n      \"autoResize\": true\n    }\n  ],\n  \"appState\": {\n    \"viewBackgroundColor\": \"#ffffff\"\n  },\n  \"files\": {}\n}",
+    "suffix": "\n```"
+  },
+  {
+    "id": "vega-lite-bar",
+    "rendererType": "vega-lite",
+    "title": "Vega-Lite 声明式图表",
+    "sourceKind": "fence",
+    "description": "适合内联数据驱动的声明式统计图。",
+    "prefix": "```vega-lite\n",
+    "body": "{\n  \"data\": { \"values\": [\n    { \"stage\": \"发现\", \"count\": 20 },\n    { \"stage\": \"预览\", \"count\": 17 },\n    { \"stage\": \"导出\", \"count\": 15 },\n    { \"stage\": \"交付\", \"count\": 12 }\n  ] },\n  \"mark\": { \"type\": \"bar\", \"cornerRadiusEnd\": 4 },\n  \"encoding\": {\n    \"x\": { \"field\": \"stage\", \"type\": \"nominal\", \"axis\": { \"title\": \"工作阶段\" } },\n    \"y\": { \"field\": \"count\", \"type\": \"quantitative\", \"axis\": { \"title\": \"能力数\" } },\n    \"color\": { \"field\": \"stage\", \"type\": \"nominal\", \"legend\": null }\n  }\n}",
+    "suffix": "\n```"
+  },
+  {
+    "id": "d2-flow",
+    "rendererType": "d2",
+    "title": "D2 架构流程",
+    "sourceKind": "fence",
+    "description": "适合文本化架构图、分区和主路径。",
+    "prefix": "```d2\n",
+    "body": "direction: right\nuser: 用户 { shape: person }\nviewer: MD Viewer\nrenderer: RendererPlugin\nexporter: 导出链路 { shape: package }\nuser -> viewer: 打开 Markdown\nviewer -> renderer: 识别 fence\nrenderer -> viewer: 返回图表\nviewer -> exporter: HTML / PDF / DOCX",
+    "suffix": "\n```"
+  },
+  {
+    "id": "bpmn-process",
+    "rendererType": "bpmn",
+    "title": "BPMN 流程",
+    "sourceKind": "fence",
+    "description": "适合业务流程、事件、任务和网关。",
+    "prefix": "```bpmn\n",
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<bpmn:definitions xmlns:bpmn=\"http://www.omg.org/spec/BPMN/20100524/MODEL\" xmlns:bpmndi=\"http://www.omg.org/spec/BPMN/20100524/DI\" xmlns:dc=\"http://www.omg.org/spec/DD/20100524/DC\" xmlns:di=\"http://www.omg.org/spec/DD/20100524/DI\" id=\"Defs_1\" targetNamespace=\"http://bpmn.io/schema/bpmn\">\n  <bpmn:process id=\"Process_1\" isExecutable=\"false\">\n    <bpmn:startEvent id=\"StartEvent_1\" name=\"开始\">\n      <bpmn:outgoing>Flow_1</bpmn:outgoing>\n    </bpmn:startEvent>\n    <bpmn:task id=\"Task_1\" name=\"渲染 Markdown\">\n      <bpmn:incoming>Flow_1</bpmn:incoming>\n      <bpmn:outgoing>Flow_2</bpmn:outgoing>\n    </bpmn:task>\n    <bpmn:endEvent id=\"EndEvent_1\" name=\"完成\">\n      <bpmn:incoming>Flow_2</bpmn:incoming>\n    </bpmn:endEvent>\n    <bpmn:sequenceFlow id=\"Flow_1\" sourceRef=\"StartEvent_1\" targetRef=\"Task_1\" />\n    <bpmn:sequenceFlow id=\"Flow_2\" sourceRef=\"Task_1\" targetRef=\"EndEvent_1\" />\n  </bpmn:process>\n  <bpmndi:BPMNDiagram id=\"BPMNDiagram_1\">\n    <bpmndi:BPMNPlane id=\"BPMNPlane_1\" bpmnElement=\"Process_1\">\n      <bpmndi:BPMNShape id=\"StartEvent_1_di\" bpmnElement=\"StartEvent_1\">\n        <dc:Bounds x=\"120\" y=\"100\" width=\"36\" height=\"36\" />\n      </bpmndi:BPMNShape>\n      <bpmndi:BPMNShape id=\"Task_1_di\" bpmnElement=\"Task_1\">\n        <dc:Bounds x=\"220\" y=\"78\" width=\"120\" height=\"80\" />\n      </bpmndi:BPMNShape>\n      <bpmndi:BPMNShape id=\"EndEvent_1_di\" bpmnElement=\"EndEvent_1\">\n        <dc:Bounds x=\"420\" y=\"100\" width=\"36\" height=\"36\" />\n      </bpmndi:BPMNShape>\n      <bpmndi:BPMNEdge id=\"Flow_1_di\" bpmnElement=\"Flow_1\">\n        <di:waypoint x=\"156\" y=\"118\" />\n        <di:waypoint x=\"220\" y=\"118\" />\n      </bpmndi:BPMNEdge>\n      <bpmndi:BPMNEdge id=\"Flow_2_di\" bpmnElement=\"Flow_2\">\n        <di:waypoint x=\"340\" y=\"118\" />\n        <di:waypoint x=\"420\" y=\"118\" />\n      </bpmndi:BPMNEdge>\n    </bpmndi:BPMNPlane>\n  </bpmndi:BPMNDiagram>\n</bpmn:definitions>",
+    "suffix": "\n```"
+  },
+  {
+    "id": "wavedrom-handshake",
+    "rendererType": "wavedrom",
+    "title": "WaveDrom 握手时序",
+    "sourceKind": "fence",
+    "description": "适合数字电路、总线和协议时序。",
+    "prefix": "```wavedrom\n",
+    "body": "{ signal: [\n  { name: 'clk',  wave: 'p..P..p.' },\n  { name: 'req',  wave: '0.1..0..', data: ['请求'] },\n  { name: 'data', wave: 'x.3..x..', data: ['payload'] },\n  { name: 'ack',  wave: '0...1.0.' }\n], head: { text: '请求 / 应答时序' } }",
+    "suffix": "\n```"
+  },
+  {
+    "id": "c4plantuml-context",
+    "rendererType": "c4plantuml",
+    "title": "C4-PlantUML 上下文图",
+    "sourceKind": "fence",
+    "description": "适合 C4 上下文、容器和组件图；渲染需要 PlantUML 服务。",
+    "prefix": "```c4plantuml\n",
+    "body": "@startuml\nPerson(user, \"内容作者\", \"维护 Markdown 文档\")\nSystem(viewer, \"MD Viewer\", \"预览、检索和导出\")\nSystem_Ext(chart, \"图表服务\", \"生成远程图表 SVG\")\nSystem_Ext(docx, \"DOCX 服务\", \"生成 Word 文档\")\nRel(user, viewer, \"打开与编辑\")\nRel(viewer, chart, \"按需渲染\", \"HTTPS\")\nRel(viewer, docx, \"导出\", \"HTTPS\")\n@enduml",
+    "suffix": "\n```"
+  },
+  {
+    "id": "structurizr-context",
+    "rendererType": "structurizr",
+    "title": "Structurizr 系统上下文",
+    "sourceKind": "fence",
+    "description": "适合 C4 模型、架构视图和部署结构。",
+    "prefix": "```structurizr\n",
+    "body": "workspace \"All Charts Structurizr\" {\n  model {\n    user = person \"用户\"\n    app = softwareSystem \"MD Viewer\" {\n      renderer = container \"RendererPlugin\"\n      exporter = container \"Export Pipeline\"\n    }\n    service = softwareSystem \"DOCX Service\"\n    user -> app \"预览 Markdown\"\n    renderer -> exporter \"输出 SVG\"\n    exporter -> service \"生成 DOCX\"\n  }\n}",
+    "suffix": "\n```"
+  },
+  {
+    "id": "plotly-bar",
+    "rendererType": "plotly",
+    "title": "Plotly 柱状图",
+    "sourceKind": "fence",
+    "description": "适合 JSON 定义的交互式统计图。",
+    "prefix": "```plotly\n",
+    "body": "{\n  \"data\": [\n    { \"type\": \"bar\", \"name\": \"预览\", \"x\": [\"架构\", \"流程\", \"数据\"], \"y\": [18, 14, 11] },\n    { \"type\": \"bar\", \"name\": \"导出\", \"x\": [\"架构\", \"流程\", \"数据\"], \"y\": [16, 13, 10] }\n  ],\n  \"layout\": { \"title\": \"图表能力覆盖\", \"barmode\": \"group\", \"height\": 420 }\n}",
+    "suffix": "\n```"
+  },
+  {
+    "id": "dbml-table",
+    "rendererType": "dbml",
+    "title": "DBML 数据表",
+    "sourceKind": "fence",
+    "description": "适合数据库表、字段、索引和外键关系。",
+    "prefix": "```dbml\n",
+    "body": "Table users {\n  id int [pk, increment]\n  name varchar\n  email varchar [unique]\n}\nTable documents {\n  id int [pk, increment]\n  owner_id int [not null]\n  path varchar\n  updated_at datetime\n}\nTable export_tasks {\n  id int [pk, increment]\n  document_id int [not null]\n  format varchar\n}\nRef: documents.owner_id > users.id\nRef: export_tasks.document_id > documents.id",
+    "suffix": "\n```"
+  },
+  {
+    "id": "antv-g6-graph",
+    "rendererType": "antv-g6",
+    "title": "AntV G6 关系图",
+    "sourceKind": "fence",
+    "description": "适合节点、边和分组构成的运行时拓扑。",
+    "prefix": "```antv-g6\n",
+    "body": "{\n  \"title\": \"Markdown 处理拓扑\",\n  \"nodes\": [\n    { \"id\": \"source\", \"label\": \"Markdown\" },\n    { \"id\": \"parser\", \"label\": \"解析器\" },\n    { \"id\": \"renderer\", \"label\": \"RendererPlugin\" },\n    { \"id\": \"preview\", \"label\": \"预览\" },\n    { \"id\": \"export\", \"label\": \"导出\" }\n  ],\n  \"edges\": [\n    { \"source\": \"source\", \"target\": \"parser\" },\n    { \"source\": \"parser\", \"target\": \"renderer\" },\n    { \"source\": \"renderer\", \"target\": \"preview\" },\n    { \"source\": \"renderer\", \"target\": \"export\" }\n  ]\n}",
+    "suffix": "\n```"
+  },
+  {
+    "id": "svg-card",
+    "rendererType": "svg",
+    "title": "SVG（受限）交付链路",
+    "sourceKind": "fence",
+    "description": "适合自包含、精确布局的静态矢量图。",
+    "prefix": "```svg\n",
+    "body": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 760 320\" role=\"img\" aria-labelledby=\"svg-delivery-title svg-delivery-desc\">\n  <title id=\"svg-delivery-title\">Markdown 图表交付链路</title>\n  <desc id=\"svg-delivery-desc\">源码经过安全检查后进入预览，并导出为 HTML、PDF 或 DOCX。</desc>\n  <defs>\n    <linearGradient id=\"svg-delivery-bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">\n      <stop offset=\"0\" stop-color=\"#eef5ff\" />\n      <stop offset=\"1\" stop-color=\"#f4efff\" />\n    </linearGradient>\n    <marker id=\"svg-delivery-arrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\">\n      <path d=\"M0,0 L0,6 L9,3 z\" fill=\"#3974c6\" />\n    </marker>\n    <style>\n      .delivery-title { font: 700 24px -apple-system, \"PingFang SC\", sans-serif; fill: #172033; }\n      .delivery-label { font: 600 15px -apple-system, \"PingFang SC\", sans-serif; fill: #172033; text-anchor: middle; }\n      .delivery-meta { font: 12px -apple-system, \"PingFang SC\", sans-serif; fill: #536076; text-anchor: middle; }\n      .delivery-line { fill: none; stroke: #3974c6; stroke-width: 3; }\n      .delivery-chip { font: 600 12px -apple-system, \"PingFang SC\", sans-serif; fill: #25633b; text-anchor: middle; }\n    </style>\n  </defs>\n  <rect x=\"10\" y=\"10\" width=\"740\" height=\"300\" rx=\"22\" fill=\"url(#svg-delivery-bg)\" />\n  <text class=\"delivery-title\" x=\"42\" y=\"55\">Markdown 图表交付链路</text>\n\n  <rect x=\"42\" y=\"105\" width=\"145\" height=\"82\" rx=\"14\" fill=\"#ffffff\" stroke=\"#78a2e8\" stroke-width=\"2\" />\n  <text class=\"delivery-label\" x=\"114\" y=\"138\">图表源码</text>\n  <text class=\"delivery-meta\" x=\"114\" y=\"164\">Markdown fence</text>\n\n  <rect x=\"226\" y=\"105\" width=\"145\" height=\"82\" rx=\"14\" fill=\"#fff7db\" stroke=\"#d6a83e\" stroke-width=\"2\" />\n  <text class=\"delivery-label\" x=\"298\" y=\"138\">安全检查</text>\n  <text class=\"delivery-meta\" x=\"298\" y=\"164\">预算与白名单</text>\n\n  <rect x=\"410\" y=\"105\" width=\"145\" height=\"82\" rx=\"14\" fill=\"#eaf7ed\" stroke=\"#66a878\" stroke-width=\"2\" />\n  <text class=\"delivery-label\" x=\"482\" y=\"138\">应用预览</text>\n  <text class=\"delivery-meta\" x=\"482\" y=\"164\">缩放 · 全屏</text>\n\n  <rect x=\"594\" y=\"105\" width=\"124\" height=\"82\" rx=\"14\" fill=\"#f1eafb\" stroke=\"#9173bd\" stroke-width=\"2\" />\n  <text class=\"delivery-label\" x=\"656\" y=\"138\">文档导出</text>\n  <text class=\"delivery-meta\" x=\"656\" y=\"164\">复用渲染结果</text>\n\n  <path class=\"delivery-line\" d=\"M187 146 H218\" marker-end=\"url(#svg-delivery-arrow)\" />\n  <path class=\"delivery-line\" d=\"M371 146 H402\" marker-end=\"url(#svg-delivery-arrow)\" />\n  <path class=\"delivery-line\" d=\"M555 146 H586\" marker-end=\"url(#svg-delivery-arrow)\" />\n\n  <rect x=\"468\" y=\"226\" width=\"72\" height=\"30\" rx=\"15\" fill=\"#daf3df\" />\n  <rect x=\"550\" y=\"226\" width=\"72\" height=\"30\" rx=\"15\" fill=\"#daf3df\" />\n  <rect x=\"632\" y=\"226\" width=\"72\" height=\"30\" rx=\"15\" fill=\"#daf3df\" />\n  <text class=\"delivery-chip\" x=\"504\" y=\"246\">HTML</text>\n  <text class=\"delivery-chip\" x=\"586\" y=\"246\">PDF</text>\n  <text class=\"delivery-chip\" x=\"668\" y=\"246\">DOCX</text>\n</svg>",
+    "suffix": "\n```"
+  },
+  {
+    "id": "kroki-nomnoml",
+    "rendererType": "kroki",
+    "title": "Kroki Nomnoml",
+    "sourceKind": "fence",
+    "description": "适合长尾图表 DSL；渲染需要 Kroki 服务。",
+    "prefix": "```kroki\n",
+    "body": "format: nomnoml\n[用户] -> [MD Viewer]\n[MD Viewer] -> [Kroki 服务]\n[Kroki 服务] -> [SVG 预览]",
+    "suffix": "\n```"
+  }
+]

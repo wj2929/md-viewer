@@ -72,6 +72,10 @@ export function useIPC(options: UseIPCOptions): void {
   // 监听右键菜单事件 (v1.2 阶段 1)
   useEffect(() => {
     const unsubscribeDeleted = window.api.onFileDeleted((filePath: string) => {
+      const operation = getActiveWorkspaceOperationContext()
+      if (operation) {
+        void window.api.unwatchFile(filePath, operation.workspaceId, operation.lifecycleEpoch).catch(() => {})
+      }
       setTabs(prev => {
         const nextTabs = prev.filter(tab => tab.file.path !== filePath)
         setSplitState(split => reconcileSplitState(split, new Set(nextTabs.map(tab => tab.id))))
@@ -516,7 +520,11 @@ export function useIPC(options: UseIPCOptions): void {
           if (currentFolderPath) {
             window.api.addRecentFile({ path: filePath, name: fileName, folderPath: currentFolderPath }).catch(() => {})
           }
-          window.api.watchFile(filePath).catch(() => {})
+          void window.api.watchFile(
+            filePath,
+            operation.workspaceId,
+            operation.lifecycleEpoch,
+          ).catch(() => {})
         } catch (error) {
           console.error('Failed to read file for split:', error)
           toast.error(`无法在分屏中打开：${error instanceof Error ? error.message : '未知错误'}`)

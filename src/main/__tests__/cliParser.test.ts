@@ -84,6 +84,28 @@ describe('parseCliArgs', () => {
     })
   })
 
+  it('ignores Electron runtime flags before GUI paths', () => {
+    expect(parseCliArgs([
+      '--inspect=0',
+      '--remote-debugging-port=0',
+      '--user-data-dir=/tmp/md-viewer-test',
+      '--lang=zh-CN',
+      '/tmp/report.md',
+    ])).toEqual({
+      kind: 'gui',
+      argv: ['/tmp/report.md'],
+    })
+  })
+
+  it('keeps runtime-looking flags after an automation command', () => {
+    expect(parseCliArgs(['render', 'README.md', '--out', 'render.html', '--lang=zh-CN'])).toEqual({
+      kind: 'automation',
+      command: 'render',
+      positional: ['README.md'],
+      flags: { out: 'render.html', lang: 'zh-CN' },
+    })
+  })
+
   it('returns invalid for unknown automation commands', () => {
     expect(parseCliArgs(['unknown', '--json'])).toEqual({
       kind: 'invalid',
@@ -111,6 +133,18 @@ describe('parseCliArgs', () => {
       command: 'render',
       positional: ['README.md'],
       flags: { out: 'render.html' },
+    })
+    expect(parseCliArgs(['diff', 'before.md', 'after.md', '--fail-on-change', '--json'])).toEqual({
+      kind: 'automation',
+      command: 'diff',
+      positional: ['before.md', 'after.md'],
+      flags: { 'fail-on-change': true, json: true },
+    })
+    expect(parseCliArgs(['watch', 'docs', '--jsonl', '--max-events', '10'])).toEqual({
+      kind: 'automation',
+      command: 'watch',
+      positional: ['docs'],
+      flags: { jsonl: true, 'max-events': '10' },
     })
   })
 

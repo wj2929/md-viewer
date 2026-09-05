@@ -26,7 +26,20 @@ export async function activateFolderForWorkspace(
     throw new Error('安全错误：无法记录已验证的目录')
   }
 
+  const previousWorkspace = ctx.windowManager.getWorkspace(window.id, workspaceId)
+  const previousRoot = previousWorkspace?.primaryRoot ?? null
+  const previousEpoch = previousWorkspace?.lifecycleEpoch
   const workspace = ctx.windowManager.replaceWorkspaceRoot(window.id, workspaceId, resolvedPath)
+  if (previousEpoch !== undefined) {
+    ctx.linkRewritePlanner?.cleanupOwner(`${window.webContents.id}:${workspaceId}:${previousEpoch}`)
+  }
+  const indexConsumerId = `workspace:${window.webContents.id}:${workspaceId}`
+  if (previousRoot && previousRoot !== resolvedPath) {
+    void Promise.resolve(ctx.workspaceIndexService?.detach(previousRoot, indexConsumerId))
+      .catch(error => console.error('[WorkspaceIndex] Failed to detach previous folder:', error))
+  }
+  void ctx.workspaceIndexService?.attach(resolvedPath, indexConsumerId)
+    .catch(error => console.error('[WorkspaceIndex] Failed to attach activated folder:', error))
   ctx.store.set('lastOpenedFolder', resolvedPath)
 
   if (options.notifyRenderer) {
@@ -85,7 +98,17 @@ export async function activateFolderForWindow(
   if (!workspace) {
     throw new Error('工作区初始化失败')
   }
-  ctx.windowManager.replaceWorkspaceRoot(window.id, workspace.id, resolvedPath)
+  const previousRoot = workspace.primaryRoot
+  const previousEpoch = workspace.lifecycleEpoch
+  const replacedWorkspace = ctx.windowManager.replaceWorkspaceRoot(window.id, workspace.id, resolvedPath)
+  ctx.linkRewritePlanner?.cleanupOwner(`${window.webContents.id}:${workspace.id}:${previousEpoch}`)
+  const indexConsumerId = `workspace:${window.webContents.id}:${workspace.id}`
+  if (previousRoot && previousRoot !== resolvedPath) {
+    void Promise.resolve(ctx.workspaceIndexService?.detach(previousRoot, indexConsumerId))
+      .catch(error => console.error('[WorkspaceIndex] Failed to detach previous folder:', error))
+  }
+  void ctx.workspaceIndexService?.attach(resolvedPath, indexConsumerId)
+    .catch(error => console.error('[WorkspaceIndex] Failed to attach activated folder:', error))
   ctx.store.set('lastOpenedFolder', resolvedPath)
 
   const activation: FolderActivation = {
@@ -93,9 +116,9 @@ export async function activateFolderForWindow(
     path: resolvedPath,
     name: historyItem.name,
     workspace: {
-      id: workspace.id,
+      id: replacedWorkspace.id,
       primaryRoot: resolvedPath,
-      lifecycleEpoch: workspace.lifecycleEpoch,
+      lifecycleEpoch: replacedWorkspace.lifecycleEpoch,
     },
   }
 

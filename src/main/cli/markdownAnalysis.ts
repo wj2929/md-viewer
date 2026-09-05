@@ -2,6 +2,14 @@ import MarkdownIt from 'markdown-it'
 import type Token from 'markdown-it/lib/token.mjs'
 import { readFile, stat } from 'fs/promises'
 import path from 'path'
+import {
+  classifyMarkdownTarget,
+  createHeadingIdAllocator,
+  extractPlainHeadingText,
+  markdownAnchorMatches,
+  safeDecodeURIComponent,
+  splitMarkdownTarget,
+} from '../../shared/markdown/semantics'
 
 const chartLanguageAliases: Record<string, string> = {
   dot: 'graphviz',
@@ -37,6 +45,7 @@ const chartLanguageAliases: Record<string, string> = {
   structurizr: 'structurizr',
   plotly: 'plotly',
   dbml: 'dbml',
+  svg: 'svg',
   kroki: 'kroki',
   nomnoml: 'kroki',
   pikchr: 'kroki',
@@ -153,7 +162,7 @@ export async function analyzeMarkdown(markdown: string, filePath: string): Promi
 }
 
 function extractHeadings(tokens: Token[]): MarkdownHeadingInfo[] {
-  const usedSlugs = new Map<string, number>()
+  const allocateHeadingId = createHeadingIdAllocator()
   const headings: MarkdownHeadingInfo[] = []
 
   for (let index = 0; index < tokens.length; index += 1) {
@@ -161,12 +170,11 @@ function extractHeadings(tokens: Token[]): MarkdownHeadingInfo[] {
     if (token.type !== 'heading_open') continue
     const inlineToken = tokens[index + 1]
     if (!inlineToken || inlineToken.type !== 'inline') continue
-    const text = inlinePlainText(inlineToken)
-    if (!text) continue
+    const text = extractPlainHeadingText(inlineToken.children)
     headings.push({
       level: Number(token.tag.slice(1)) || 1,
       text,
-      id: uniqueSlugify(text, usedSlugs),
+      id: allocateHeadingId(text),
       lineStart: token.map ? token.map[0] + 1 : 0,
     })
   }
@@ -239,42 +247,45 @@ async function inspectLinkTarget(options: {
   currentAnchors: Set<string>
   lineStart: number
 }): Promise<MarkdownLinkInfo> {
-  const { cleanTarget, anchor } = splitTarget(options.target)
+  const splitTarget = splitMarkdownTarget(options.target)
+  const cleanTarget = splitTarget.decodedPath
+  const anchor = splitTarget.anchor
   if (!cleanTarget && anchor) {
     return {
       text: options.text,
-      target: safeDecode(options.target),
+      target: safeDecodeURIComponent(options.target),
       kind: 'anchor',
       anchor,
-      anchorExists: options.currentAnchors.has(normalizeAnchor(anchor)),
+      anchorExists: Array.from(options.currentAnchors).some(candidate => markdownAnchorMatches(candidate, anchor)),
       lineStart: options.lineStart,
     }
   }
 
-  if (isExternalTarget(cleanTarget)) {
+  const targetKind = classifyMarkdownTarget(options.target)
+  if (targetKind === 'external') {
     return {
       text: options.text,
-      target: safeDecode(options.target),
+      target: safeDecodeURIComponent(options.target),
       kind: 'external',
       lineStart: options.lineStart,
     }
   }
 
-  if (isUnsupportedTarget(cleanTarget)) {
+  if (targetKind === 'unsupported' || targetKind === 'data') {
     return {
       text: options.text,
-      target: safeDecode(options.target),
+      target: safeDecodeURIComponent(options.target),
       kind: 'unsupported',
       lineStart: options.lineStart,
     }
   }
 
-  const resolvedPath = path.resolve(options.baseDir, safeDecode(cleanTarget))
+  const resolvedPath = path.resolve(options.baseDir, cleanTarget)
   const exists = await pathExists(resolvedPath)
-  const kind = /\.m(?:d|arkdown|down|kd|dx)$/i.test(resolvedPath) ? 'markdown' : 'local-resource'
+  const kind = targetKind === 'markdown' ? 'markdown' : 'local-resource'
   const link: MarkdownLinkInfo = {
     text: options.text,
-    target: safeDecode(options.target),
+    target: safeDecodeURIComponent(options.target),
     kind,
     exists,
     resolvedPath,
@@ -293,18 +304,10 @@ async function targetFileHasAnchor(filePath: string, anchor: string): Promise<bo
   try {
     const markdown = await readFile(filePath, 'utf8')
     const headings = extractHeadings(md.parse(markdown, {}))
-    return headings.some(heading => heading.id === normalizeAnchor(anchor))
+    return headings.some(heading => markdownAnchorMatches(heading.id, anchor))
   } catch {
     return false
   }
-}
-
-function inlinePlainText(token: Token): string {
-  return (token.children ?? [])
-    .filter(child => child.type === 'text' || child.type === 'code_inline')
-    .map(child => child.content)
-    .join('')
-    .trim()
 }
 
 function collectLinkText(children: Token[], startIndex: number): string {
@@ -328,18 +331,20 @@ function normalizeChartType(language: string): string | undefined {
 }
 
 function classifyTarget(target: string, options: { image?: boolean } = {}): MarkdownImageInfo['kind'] {
-  if (/^data:/i.test(target)) return 'data'
-  if (isExternalTarget(target)) return 'external'
-  if (isUnsupportedTarget(target)) return 'unsupported'
+  const targetKind = classifyMarkdownTarget(target)
+  if (targetKind === 'data') return 'data'
+  if (targetKind === 'external') return 'external'
+  if (targetKind === 'unsupported') return 'unsupported'
   return options.image ? 'local' : 'unsupported'
 }
 
 async function resolveLocalTarget(baseDir: string, target: string): Promise<{ path: string; exists: boolean } | null> {
-  if (!target || isExternalTarget(target) || isUnsupportedTarget(target) || /^data:/i.test(target)) {
+  const targetKind = classifyMarkdownTarget(target)
+  if (targetKind === 'external' || targetKind === 'unsupported' || targetKind === 'data') {
     return null
   }
-  const cleanTarget = splitTarget(target).cleanTarget.trim().replace(/^<|>$/g, '')
-  const resolvedPath = path.resolve(baseDir, safeDecode(cleanTarget))
+  const cleanTarget = splitMarkdownTarget(target).decodedPath
+  const resolvedPath = path.resolve(baseDir, cleanTarget)
   return {
     path: resolvedPath,
     exists: await pathExists(resolvedPath),
@@ -353,54 +358,6 @@ async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-function splitTarget(target: string): { cleanTarget: string; anchor?: string } {
-  const hashIndex = target.indexOf('#')
-  if (hashIndex < 0) return { cleanTarget: target.replace(/^<|>$/g, '') }
-  const cleanTarget = target.slice(0, hashIndex).replace(/^<|>$/g, '')
-  const anchor = safeDecode(target.slice(hashIndex + 1)).trim()
-  return {
-    cleanTarget,
-    ...(anchor ? { anchor } : {}),
-  }
-}
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
-}
-
-function normalizeAnchor(anchor: string): string {
-  return safeDecode(anchor).trim()
-}
-
-function isExternalTarget(target: string): boolean {
-  return /^(?:https?:|mailto:)/i.test(target)
-}
-
-function isUnsupportedTarget(target: string): boolean {
-  return /^(?:data:|file:|javascript:|local-image:)/i.test(target)
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '') || 'heading'
-}
-
-function uniqueSlugify(text: string, usedSlugs: Map<string, number>): string {
-  const baseSlug = slugify(text)
-  const count = usedSlugs.get(baseSlug) ?? 0
-  usedSlugs.set(baseSlug, count + 1)
-  return count > 0 ? `${baseSlug}-${count}` : baseSlug
 }
 
 function countWords(markdown: string): number {

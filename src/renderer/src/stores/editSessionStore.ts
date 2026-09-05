@@ -52,6 +52,8 @@ export interface EditSession {
   writerId: string | null
   dirty: boolean
   saving: boolean
+  pendingInput: boolean
+  composing: boolean
   error: string | null
   baseRevisionToken: string
   lastKnownDiskRevisionToken: string | null
@@ -71,6 +73,8 @@ interface EditSessionState {
   releaseWriter: (canonicalPath: string, writerId: string) => void
   createSaveSnapshot: (canonicalPath: string, content?: string) => SaveSnapshot
   setSaving: (canonicalPath: string, saving: boolean) => void
+  setPendingInput: (canonicalPath: string, pendingInput: boolean) => void
+  setComposing: (canonicalPath: string, composing: boolean) => void
   setError: (canonicalPath: string, error: string | null) => void
   markSaved: (canonicalPath: string, content: string, revisionToken: string, savedDraftVersion?: number) => void
   markConflict: (canonicalPath: string, reason: EditConflictReason, diskRevisionToken?: string) => void
@@ -78,6 +82,15 @@ interface EditSessionState {
   exportPersistedDrafts: () => PersistedEditDraft[]
   restorePersistedDrafts: (drafts: PersistedEditDraft[]) => void
   reset: () => void
+}
+
+export function hasLocalEditActivity(session: EditSession | undefined): boolean {
+  return Boolean(session && (
+    session.dirty ||
+    session.pendingInput ||
+    session.composing ||
+    session.saving
+  ))
 }
 
 export const useEditSessionStore = create<EditSessionState>((set, get) => ({
@@ -103,6 +116,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
           writerId: null,
           dirty: false,
           saving: false,
+          pendingInput: false,
+          composing: false,
           error: null,
           baseRevisionToken: input.revisionToken,
           lastKnownDiskRevisionToken: input.revisionToken,
@@ -269,6 +284,34 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
     })
   },
 
+  setPendingInput: (canonicalPath, pendingInput) => {
+    set(state => {
+      const session = state.sessions[canonicalPath]
+      if (!session || session.pendingInput === pendingInput) return state
+
+      return {
+        sessions: {
+          ...state.sessions,
+          [canonicalPath]: { ...session, pendingInput },
+        },
+      }
+    })
+  },
+
+  setComposing: (canonicalPath, composing) => {
+    set(state => {
+      const session = state.sessions[canonicalPath]
+      if (!session || session.composing === composing) return state
+
+      return {
+        sessions: {
+          ...state.sessions,
+          [canonicalPath]: { ...session, composing },
+        },
+      }
+    })
+  },
+
   setError: (canonicalPath, error) => {
     set(state => {
       const session = state.sessions[canonicalPath]
@@ -398,6 +441,8 @@ export const useEditSessionStore = create<EditSessionState>((set, get) => ({
           writerId: null,
           dirty: true,
           saving: false,
+          pendingInput: false,
+          composing: false,
           error: null,
           baseRevisionToken: draft.baseRevisionToken,
           lastKnownDiskRevisionToken: draft.lastKnownDiskRevisionToken,

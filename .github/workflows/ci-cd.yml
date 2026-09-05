@@ -34,12 +34,17 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      - name: 生成并核验内置图表示例包
+        run: npm run chart-examples:generate && npm run chart-examples:check
+
       - name: 类型检查
         run: npm run typecheck
-        continue-on-error: true
 
-      - name: 运行单元测试
-        run: npm test -- --run
+      - name: ESLint
+        run: npm run lint
+
+      - name: 运行全量单元测试
+        run: npm run test:unit
 
       - name: 生成覆盖率报告
         run: npm run test:coverage
@@ -57,8 +62,8 @@ jobs:
   build:
     name: 构建
     needs: test
-    # 只在 tag 推送时构建打包
-    if: startsWith(github.ref, 'refs/tags/v')
+    # tag 发布前可通过 workflow_dispatch 在当前分支预跑三平台正式包；tag 仍是唯一发布入口。
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -86,28 +91,81 @@ jobs:
       - name: 构建应用
         run: npm run build
 
-      - name: 打包应用 (macOS)
+      - name: 核验内置图表示例包
+        run: npm run chart-examples:check
+
+      - name: 核验运行时依赖并准备 staged app
+        run: npm run prepare:package-app
+
+      - name: 核验 staged app 依赖闭包
+        run: npm run inspect:package-app
+
+      - name: 打包应用 (macOS arm64)
         if: matrix.platform == 'mac'
-        run: npx electron-builder --mac --x64 --arm64 --publish never
+        run: npx electron-builder --config electron-builder.staged.cjs --mac --arm64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: 打包应用 (Linux)
-        if: matrix.platform == 'linux'
-        run: npx electron-builder --linux --publish never
+      - name: 验证应用包 (macOS arm64)
+        if: matrix.platform == 'mac'
+        run: npm run verify:package
 
-      - name: 打包应用 (Windows)
-        if: matrix.platform == 'win'
-        run: npx electron-builder --win --publish never
-
-      - name: 上传构建产物 (macOS)
+      - name: 上传构建产物 (macOS arm64)
         if: matrix.platform == 'mac'
         uses: actions/upload-artifact@v4
         with:
-          name: md-viewer-mac
+          name: md-viewer-mac-arm64
           path: |
-            dist/*.dmg
-            dist/*.zip
+            dist/staged/*arm64*.dmg
+            dist/staged/*arm64*.zip
+          retention-days: 7
+
+      - name: 清理 macOS arm64 安装产物
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: find dist/staged -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) -delete
+
+      - name: 打包应用 (macOS x64)
+        if: matrix.platform == 'mac'
+        run: npx electron-builder --config electron-builder.staged.cjs --mac --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: 验证应用包 (macOS x64)
+        if: matrix.platform == 'mac'
+        env:
+          MD_VIEWER_PACKAGE_ARCH: x64
+          MD_VIEWER_SIZE_BUDGET_MODE: ${{ github.event_name == 'workflow_dispatch' && 'baseline' || 'enforce' }}
+        run: npm run verify:package
+
+      - name: 打包应用 (Linux)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --config electron-builder.staged.cjs --linux --publish never
+
+      - name: 验证应用包 (Linux)
+        if: matrix.platform == 'linux'
+        env:
+          MD_VIEWER_SIZE_BUDGET_MODE: ${{ github.event_name == 'workflow_dispatch' && 'baseline' || 'enforce' }}
+        run: xvfb-run --auto-servernum npm run verify:package
+
+      - name: 打包应用 (Windows)
+        if: matrix.platform == 'win'
+        run: npx electron-builder --config electron-builder.staged.cjs --win --publish never
+
+      - name: 验证应用包 (Windows)
+        if: matrix.platform == 'win'
+        env:
+          MD_VIEWER_SIZE_BUDGET_MODE: ${{ github.event_name == 'workflow_dispatch' && 'baseline' || 'enforce' }}
+        run: npm run verify:package
+
+      - name: 上传构建产物 (macOS x64)
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: md-viewer-mac-x64
+          path: |
+            dist/staged/*x64*.dmg
+            dist/staged/*x64*.zip
           retention-days: 7
 
       - name: 上传构建产物 (Linux)
@@ -116,8 +174,8 @@ jobs:
         with:
           name: md-viewer-linux
           path: |
-            dist/*.AppImage
-            dist/*.deb
+            dist/staged/*.AppImage
+            dist/staged/*.deb
           retention-days: 7
 
       - name: 上传构建产物 (Windows)
@@ -126,15 +184,15 @@ jobs:
         with:
           name: md-viewer-win
           path: |
-            dist/*.exe
-            dist/*.zip
+            dist/staged/*.exe
+            dist/staged/*.zip
           retention-days: 7
 
   release:
     name: 发布
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
 
     steps:
       - name: Checkout 代码
@@ -149,7 +207,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/md-viewer-mac/*
+            artifacts/md-viewer-mac-arm64/*
+            artifacts/md-viewer-mac-x64/*
             artifacts/md-viewer-linux/*
             artifacts/md-viewer-win/*
           draft: true

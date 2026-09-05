@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
 import { registerFileHandlers } from '../ipc/fileHandlers'
 
-const { validateSenderReadPath } = vi.hoisted(() => ({
+const { validateSenderReadPath, glob } = vi.hoisted(() => ({
   validateSenderReadPath: vi.fn(),
+  glob: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
@@ -19,6 +20,7 @@ vi.mock('../ipc/senderSecurity', () => ({
 }))
 
 vi.mock('chokidar', () => ({ default: { watch: vi.fn() } }))
+vi.mock('glob', () => ({ glob }))
 
 function handler<T extends (...args: any[]) => any>(channel: string): T {
   const registered = vi.mocked(ipcMain.handle).mock.calls.find(([name]) => name === channel)
@@ -29,6 +31,8 @@ function handler<T extends (...args: any[]) => any>(channel: string): T {
 describe('read-only file handler authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    validateSenderReadPath.mockImplementation(async (_ctx, _event, inputPath: string) => inputPath)
+    glob.mockResolvedValue([])
     registerFileHandlers({
       windowManager: { getWindowFolderPath: vi.fn(() => '/authorized') },
       folderHistoryManager: { addFolder: vi.fn() },
@@ -57,5 +61,36 @@ describe('read-only file handler authorization', () => {
     const searchReadDir = handler<(event: any, path: string) => Promise<unknown[]>>('search:readDir')
 
     await expect(searchReadDir({ sender: { id: 1 } }, '/untrusted')).rejects.toThrow('安全错误')
+  })
+
+  it('合并同一 canonical root 的并发文件树扫描但逐次执行授权', async () => {
+    let finishScan: ((paths: string[]) => void) | undefined
+    glob.mockImplementationOnce(() => new Promise<string[]>((resolve) => { finishScan = resolve }))
+    validateSenderReadPath.mockResolvedValue('/canonical/root')
+    const readDir = handler<(event: any, path: string) => Promise<unknown[]>>('fs:readDir')
+
+    const first = readDir({ sender: { id: 1 } }, '/alias-a')
+    const second = readDir({ sender: { id: 2 } }, '/alias-b')
+    await vi.waitFor(() => expect(glob).toHaveBeenCalledTimes(1))
+    finishScan?.(['docs/a.md'])
+
+    const [firstResult, secondResult] = await Promise.all([first, second])
+    expect(validateSenderReadPath).toHaveBeenCalledTimes(2)
+    expect(firstResult).toEqual(secondResult)
+    expect(firstResult).toEqual([
+      expect.objectContaining({ name: 'docs', isDirectory: true }),
+    ])
+  })
+
+  it('扫描失败后清理 single-flight 以允许重试', async () => {
+    validateSenderReadPath.mockResolvedValue('/canonical/root')
+    glob.mockRejectedValueOnce(new Error('scan failed')).mockResolvedValueOnce(['retry.md'])
+    const readDir = handler<(event: any, path: string) => Promise<unknown[]>>('fs:readDir')
+
+    await expect(readDir({ sender: { id: 1 } }, '/root')).resolves.toEqual([])
+    await expect(readDir({ sender: { id: 1 } }, '/root')).resolves.toEqual([
+      expect.objectContaining({ name: 'retry.md', isDirectory: false }),
+    ])
+    expect(glob).toHaveBeenCalledTimes(2)
   })
 })

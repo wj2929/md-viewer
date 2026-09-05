@@ -152,9 +152,8 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
                       onContextMenu={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        window.api.showRecentFolderContextMenu({
-                          historyId: item.id,
-                          name: item.name
+                        void window.api.showRecentFolderContextMenu(item.id).catch(error => {
+                          console.error('Failed to show recent folder context menu:', error)
                         })
                       }}
                     >

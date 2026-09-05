@@ -17,6 +17,7 @@ import { renderStructurizrToSvg } from './structurizrRenderer'
 import { renderPlotlyToSvg } from './plotlyRenderer'
 import { renderDbmlToSvg } from './dbmlRenderer'
 import { renderAntvG6ToSvg } from './antvG6Renderer'
+import { renderRestrictedSvgToSvg } from './restrictedSvgRenderer'
 import { renderKrokiToSvg } from './krokiRenderer'
 import { cleanUserFacingError } from './userFacingErrors'
 
@@ -32,7 +33,7 @@ export interface ChartRenderResult {
   warnings: string[]
 }
 
-type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio' | 'excalidraw' | 'infographic' | 'vega-lite' | 'd2' | 'bpmn' | 'wavedrom' | 'c4plantuml' | 'structurizr' | 'plotly' | 'dbml' | 'antv-g6' | 'kroki'
+type ChartType = 'echarts' | 'mermaid' | 'dot' | 'graphviz' | 'markmap' | 'plantuml' | 'drawio' | 'excalidraw' | 'infographic' | 'vega-lite' | 'd2' | 'bpmn' | 'wavedrom' | 'c4plantuml' | 'structurizr' | 'plotly' | 'dbml' | 'antv-g6' | 'svg' | 'kroki'
 
 export interface DocxChartRenderOptions {
   markdownFilePath?: string
@@ -42,12 +43,12 @@ export interface DocxChartRenderOptions {
 const CHART_LANGS = new Set<string>([
   'echarts', 'mermaid', 'dot', 'graphviz', 'markmap', 'plantuml', 'drawio', 'dio', 'excalidraw', 'excalidraw-json', 'infographic',
   'vega-lite', 'vegalite', 'd2', 'bpmn', 'wavedrom', 'c4', 'c4plantuml',
-  'structurizr', 'structurizr-dsl', 'plotly', 'plotly-json', 'dbml', 'antv-g6', 'g6',
+  'structurizr', 'structurizr-dsl', 'plotly', 'plotly-json', 'dbml', 'antv-g6', 'g6', 'svg',
   'kroki', 'kroki-pikchr', 'kroki-nomnoml', 'kroki-svgbob', 'kroki-bytefield', 'kroki-tikz',
   'pikchr', 'nomnoml', 'svgbob', 'bytefield', 'tikz',
 ])
 
-const CODE_BLOCK_RE = /```([\w-]+)\n([\s\S]*?)```/g
+const CODE_BLOCK_RE = /^(```|~~~)([\w-]+)\b[^\n]*\r?\n([\s\S]*?)^\1[ \t]*\r?$/gm
 const FENCED_BLOCK_RE = /(```|~~~)[^\n]*\n[\s\S]*?\1/g
 
 const CONTAINER_CLASS_MAP: Record<string, string> = {
@@ -69,6 +70,7 @@ const CONTAINER_CLASS_MAP: Record<string, string> = {
   plotly: 'plotly-container',
   dbml: 'dbml-container',
   'antv-g6': 'antv-g6-container',
+  svg: 'svg-container',
   kroki: 'kroki-container',
 }
 
@@ -883,6 +885,11 @@ async function renderChartCodeToPng(
             svgString = result.ok ? result.svg : null
             break
           }
+          case 'svg': {
+            const result = renderRestrictedSvgToSvg(code, `docx-export-${globalIndex}`)
+            svgString = result.ok ? result.svg : null
+            break
+          }
           case 'kroki': {
             const result = await renderKrokiToSvg(code, { language: options.sourceLanguage || 'kroki' })
             svgString = result.ok ? result.svg : null
@@ -954,12 +961,12 @@ export async function renderChartsForDocx(
   let match: RegExpExecArray | null
   const re = new RegExp(CODE_BLOCK_RE.source, CODE_BLOCK_RE.flags)
   while ((match = re.exec(markdown)) !== null) {
-    const lang = match[1].toLowerCase()
+    const lang = match[2].toLowerCase()
     if (CHART_LANGS.has(lang)) {
       blocks.push({
         fullMatch: match[0],
         lang,
-        code: match[2],
+        code: match[3],
         start: match.index,
         end: match.index + match[0].length,
       })
@@ -984,7 +991,10 @@ export async function renderChartsForDocx(
     options.onProgress?.(completedCharts, totalCharts, type)
 
     const typeIndex = typeIndexByStart.get(block.start) ?? 0
-    const result = await renderChartCodeToPng(type, block.code, i, typeIndex, { sourceLanguage: block.lang })
+    const result = await renderChartCodeToPng(type, block.code, i, typeIndex, {
+      sourceLanguage: block.lang,
+      allowDomFallback: type !== 'svg',
+    })
 
     if (result) {
       const placeholderId = generatePlaceholderId()
@@ -999,7 +1009,14 @@ export async function renderChartsForDocx(
         value: `![](${placeholderId})`,
       })
     } else {
-      warnings.push(`第 ${i + 1} 个 ${type} 图表渲染失败，已保留源码。`)
+      warnings.push(`第 ${i + 1} 个 ${type} 图表渲染失败，${type === 'svg' ? '已替换为中性占位' : '已保留源码'}。`)
+      if (type === 'svg') {
+        replacements.push({
+          start: block.start,
+          end: block.end,
+          value: '[SVG 图表未渲染]',
+        })
+      }
     }
   }
 

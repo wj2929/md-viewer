@@ -35,14 +35,12 @@ describe('slugify 工具函数测试', () => {
       expect(slugify('Chapter 1')).toBe('chapter-1')
     })
 
-    it('应该为空标题生成随机 ID', () => {
-      const slug = slugify('')
-      expect(slug).toMatch(/^heading-[a-z0-9]+$/)
+    it('应该为空标题生成稳定 ID', () => {
+      expect(slugify('')).toBe('heading')
     })
 
-    it('应该为只有特殊字符的标题生成随机 ID', () => {
-      const slug = slugify('!@#$%^&*()')
-      expect(slug).toMatch(/^heading-[a-z0-9]+$/)
+    it('应该为只有特殊字符的标题生成稳定 ID', () => {
+      expect(slugify('!@#$%^&*()')).toBe('heading')
     })
 
     it('应该保留连字符', () => {
@@ -72,6 +70,13 @@ describe('slugify 工具函数测试', () => {
       expect(uniqueSlugify('Hello', usedSlugs)).toBe('hello')
       expect(uniqueSlugify('World', usedSlugs)).toBe('world')
       expect(uniqueSlugify('Hello', usedSlugs)).toBe('hello-1')
+    })
+
+    it('应该避免自然数字后缀与重复标题碰撞', () => {
+      const usedSlugs = new Map<string, number>()
+      expect(uniqueSlugify('Foo', usedSlugs)).toBe('foo')
+      expect(uniqueSlugify('Foo', usedSlugs)).toBe('foo-1')
+      expect(uniqueSlugify('Foo-1', usedSlugs)).toBe('foo-1-1')
     })
 
     it('应该正确处理中文重复标题', () => {

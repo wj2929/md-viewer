@@ -9,6 +9,8 @@ import * as path from 'path'
 import * as fs from 'fs/promises'
 import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../shared/docxStyles'
 import type { ReadAloudSettings } from '../shared/ttsProviders'
+import type { FolderSplitLayoutV1 } from '../shared/folderTabSession'
+import { sanitizeFolderSplitLayout } from './folderTabSessionLayout'
 import {
   isDocumentMarkColor,
   isMarkdownPath,
@@ -75,6 +77,7 @@ export interface FolderTabSessionEntry {
 export interface FolderTabSession {
   tabs: FolderTabSessionEntry[]
   activeRelativePath: string | null
+  splitLayout?: FolderSplitLayoutV1
   updatedAt: number
 }
 
@@ -132,6 +135,7 @@ export interface AppSettings {
   maxRecentFiles?: number         // 最近文件上限（v1.5.2）
   maxFolderHistory?: number       // 文件夹历史上限（v1.5.2）
   showExportBranding?: boolean    // 导出文件显示署名（v1.5.3），默认 true
+  autoRenderRemoteCharts?: boolean // PlantUML/C4/Kroki 预览自动连接服务，默认 true
   searchBarHistory?: string[]     // 搜索栏历史
   inPageSearchHistory?: string[]  // 页内搜索历史
   docxExport?: {
@@ -209,7 +213,8 @@ class AppDataManager {
           bookmarkPanelCollapsed: true,
           bookmarkBarCollapsed: true,
           sidebarWidth: 280,
-          sidebarCollapsed: false
+          sidebarCollapsed: false,
+          autoRenderRemoteCharts: true
         }
       }
     })
@@ -890,7 +895,8 @@ class AppDataManager {
   saveFolderTabSession(
     folderPath: string,
     tabs: Array<{ filePath: string; isPinned?: boolean }>,
-    activeFilePath: string | null
+    activeFilePath: string | null,
+    splitLayout?: unknown
   ): void {
     const normalizedFolder = path.resolve(folderPath)
     const entries: FolderTabSessionEntry[] = []
@@ -925,7 +931,16 @@ class AppDataManager {
       }
     }
 
-    sessions[normalizedFolder] = { tabs: entries, activeRelativePath, updatedAt: Date.now() }
+    const sanitizedSplitLayout = sanitizeFolderSplitLayout(
+      splitLayout,
+      new Set(entries.map(entry => entry.relativePath)),
+    )
+    sessions[normalizedFolder] = {
+      tabs: entries,
+      activeRelativePath,
+      ...(sanitizedSplitLayout ? { splitLayout: sanitizedSplitLayout } : {}),
+      updatedAt: Date.now(),
+    }
     this.store.set('folderTabSessions', sessions)
     this.cleanupOldTabSessionFolders()
   }
@@ -936,7 +951,11 @@ class AppDataManager {
    */
   async getFolderTabSession(
     folderPath: string
-  ): Promise<{ tabs: Array<{ path: string; isPinned?: boolean }>; activePath: string | null }> {
+  ): Promise<{
+    tabs: Array<{ path: string; isPinned?: boolean }>
+    activePath: string | null
+    splitLayout?: FolderSplitLayoutV1
+  }> {
     const normalizedFolder = path.resolve(folderPath)
     const sessions = this.store.get('folderTabSessions', {})
     const session = sessions[normalizedFolder]
@@ -965,7 +984,13 @@ class AppDataManager {
     }
     if (!activePath && validTabs.length > 0) activePath = validTabs[0].path
 
-    return { tabs: validTabs.map(t => ({ path: t.path, isPinned: t.isPinned })), activePath }
+    const validRelativePaths = new Set(validTabs.map(tab => path.relative(normalizedFolder, tab.path)))
+    const splitLayout = sanitizeFolderSplitLayout(session.splitLayout, validRelativePaths)
+    return {
+      tabs: validTabs.map(t => ({ path: t.path, isPinned: t.isPinned })),
+      activePath,
+      ...(splitLayout ? { splitLayout } : {}),
+    }
   }
 
   /**

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.1",
+  "packageId": "md-viewer-chart-examples",
+  "packageVersion": "2.8.0-r4",
+  "displayName": "MD Viewer 图表示例",
+  "designReference": "e2e/fixtures/test-diagram-design.md",
+  "starterTemplates": "src/renderer/src/components/settings/chartStarterTemplates.json",
+  "galleryCatalog": "resources/examples/chart-examples.catalog.json",
+  "expectedCaseCount": 93,
+  "expectedLanguages": {
+    "d2": 15,
+    "graphviz": 13,
+    "mermaid": 16,
+    "structurizr": 9,
+    "dbml": 9,
+    "antv-g6": 5,
+    "drawio": 13,
+    "svg": 10,
+    "markmap": 3
+  }
+}

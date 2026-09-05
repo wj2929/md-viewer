@@ -141,6 +141,7 @@ export const commandSchemas: Partial<Record<CliCommandName | 'result', CliComman
     flags: {
       json: { type: 'boolean', description: '输出机器可读 JSON。' },
       'docx-service': { type: 'string', description: 'DOCX 服务地址。' },
+      bundle: { type: 'string', description: '生成本地脱敏诊断 ZIP。' },
     },
   },
   screenshot: {
@@ -195,6 +196,28 @@ export const commandSchemas: Partial<Record<CliCommandName | 'result', CliComman
     positional: [{ name: 'input', required: true, description: 'Markdown 文件路径。' }],
     flags: {
       json: { type: 'boolean', description: '输出机器可读 JSON。' },
+    },
+  },
+  diff: {
+    command: 'diff',
+    description: '比较两个 Markdown 文件的语义结构差异。',
+    positional: [
+      { name: 'before', required: true, description: '比较前的 Markdown 文件。' },
+      { name: 'after', required: true, description: '比较后的 Markdown 文件。' },
+    ],
+    flags: {
+      json: { type: 'boolean', description: '输出机器可读 JSON。' },
+      'fail-on-change': { type: 'boolean', description: '发现语义差异时返回非零退出码。' },
+    },
+  },
+  watch: {
+    command: 'watch',
+    description: '只读监听 Markdown 文件或目录并逐行输出 JSON。',
+    positional: [{ name: 'input', required: true, description: 'Markdown 文件或目录路径。' }],
+    flags: {
+      jsonl: { type: 'boolean', required: true, description: '逐行输出 versioned JSON 事件。' },
+      'max-events': { type: 'number', description: '收到指定数量的变化事件后停止。' },
+      timeout: { type: 'number', description: '达到指定毫秒数后停止。' },
     },
   },
   render: {

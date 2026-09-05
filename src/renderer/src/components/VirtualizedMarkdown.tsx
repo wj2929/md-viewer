@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, memo, useCallback, forwardRef, useState } from 'react'
+import { useEffect, useRef, useMemo, memo, useCallback, forwardRef, useState, useId } from 'react'
 import MarkdownIt from 'markdown-it'
 import debounce from 'lodash.debounce'
 import Mark from 'mark.js'
@@ -24,16 +24,26 @@ import {
   usePlotlyChart,
   useDbmlChart,
   useAntvG6Chart,
+  useRestrictedSvgChart,
   useKrokiChart,
 } from './charts'
+import type { RemoteChartPolicy } from './charts/remoteChartConsent'
 
 // v1.4.0: 页面内搜索
 import { useFileStore } from '../stores/fileStore'
+import { remoteChartDocumentKey, useRemoteChartSettingsStore } from '../stores/remoteChartSettingsStore'
 import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
 import { collectExportableChartPngs, countExportableCharts } from '../utils/chartUtils'
 import { createEditableBlockDecision, type EditableBlockKind } from '../utils/v24WorkflowContracts'
 import { openHelpLink, SOURCE_EDIT_HELP_URL } from '../utils/helpLinks'
+import {
+  classifyMarkdownTarget,
+  createHeadingIdAllocator,
+  markdownAnchorMatches,
+  safeDecodeURIComponent,
+  splitMarkdownTarget,
+} from '../../../shared/markdown/semantics'
 
 /**
  * v1.4.6: 已移除本地的 createMarkdownInstance
@@ -59,6 +69,7 @@ interface VirtualizedMarkdownProps {
   onSourceEditRequest?: (target: SourceEditRequest) => void
   onReadPositionChange?: (position: { scrollRatio: number; headingId?: string }) => void
   onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
+  remoteChartPolicy?: RemoteChartPolicy
 }
 
 let lastPreviewChartZipContext: {
@@ -80,6 +91,14 @@ export interface PreviewBlockEdit {
 export interface SourceEditRequest {
   sourceLine: number
   sourceEndLine?: number
+}
+
+const MAX_RENDERABLE_CONTENT_LENGTH = 750_000
+
+const REMOTE_CHART_FENCE = /^\s{0,3}(?:`{3,}|~{3,})\s*(?:plantuml|puml|c4|c4plantuml|kroki(?:-[a-z0-9-]+)?|pikchr|nomnoml|svgbob|bytefield|tikz)\b/gim
+
+function countRemoteChartBlocks(content: string): number {
+  return content.match(REMOTE_CHART_FENCE)?.length ?? 0
 }
 
 const CHART_CODE_LANGUAGES = new Set([
@@ -112,6 +131,7 @@ const CHART_CODE_LANGUAGES = new Set([
   'dbml',
   'antv-g6',
   'g6',
+  'svg',
   'kroki',
   'kroki-pikchr',
   'kroki-nomnoml',
@@ -125,40 +145,13 @@ const CHART_CODE_LANGUAGES = new Set([
   'tikz',
 ])
 
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
-}
-
-function createHeadingId(text: string, fallbackIndex: number): string {
-  const slug = text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-
-  return slug || `heading-${fallbackIndex + 1}`
-}
-
 function ensureHeadingIds(root: HTMLElement): void {
   const headings = Array.from(root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'))
-  const usedIds = new Set<string>()
+  const allocateHeadingId = createHeadingIdAllocator()
 
-  headings.forEach((heading, index) => {
-    const baseId = heading.id || createHeadingId(heading.textContent || '', index)
-    let uniqueId = baseId
-    let counter = 1
-    while (usedIds.has(uniqueId)) {
-      uniqueId = `${baseId}-${counter}`
-      counter++
-    }
-    usedIds.add(uniqueId)
-    if (heading.id !== uniqueId) heading.id = uniqueId
+  headings.forEach((heading) => {
+    const id = allocateHeadingId(heading.textContent || '')
+    if (heading.id !== id) heading.id = id
   })
 }
 
@@ -169,10 +162,8 @@ function findInPageAnchorTarget(root: HTMLElement, href: string): HTMLElement | 
   const exactMatch = root.querySelector<HTMLElement>(`#${CSS.escape(targetId)}`)
   if (exactMatch) return exactMatch
 
-  const normalize = (value: string) => value.replace(/[_-]/g, '').toLowerCase()
-  const normalizedTarget = normalize(targetId)
   for (const element of root.querySelectorAll<HTMLElement>('[id]')) {
-    if (normalize(element.id) === normalizedTarget) return element
+    if (markdownAnchorMatches(element.id, targetId)) return element
   }
 
   return null
@@ -308,7 +299,35 @@ function normalizeLocalImageSources(root: HTMLElement, markdownFilePath?: string
 /**
  * Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, scrollToRatio, onScrollToLineComplete, onScrollToRatioComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit, onSourceEditRequest, onReadPositionChange, onMarkdownLinkClick }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, scrollToRatio, onScrollToLineComplete, onScrollToRatioComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit, onSourceEditRequest, onReadPositionChange, onMarkdownLinkClick, remoteChartPolicy }: VirtualizedMarkdownProps): JSX.Element {
+  const markdownRootRef = useRef<HTMLDivElement>(null)
+  const localDocumentId = useId()
+  const documentKey = useMemo(
+    () => remoteChartDocumentKey(filePath, tabId) ?? `preview:${localDocumentId}`,
+    [filePath, localDocumentId, tabId],
+  )
+  const hydration = useRemoteChartSettingsStore(state => state.hydration)
+  const autoRenderRemoteCharts = useRemoteChartSettingsStore(state => state.autoRenderRemoteCharts)
+  const documentApproved = useRemoteChartSettingsStore(state => Boolean(state.approvedDocuments[documentKey]))
+  const hydrateRemoteChartSettings = useRemoteChartSettingsStore(state => state.hydrate)
+  const approveRemoteChartDocument = useRemoteChartSettingsStore(state => state.approveDocument)
+  const remoteChartCount = useMemo(() => countRemoteChartBlocks(content), [content])
+  const effectiveRemoteChartPolicy: RemoteChartPolicy = remoteChartPolicy ?? (
+    hydration === 'loading'
+      ? 'prompt'
+      : autoRenderRemoteCharts || documentApproved ? 'allow' : 'prompt'
+  )
+  const showRemoteChartPrompt = remoteChartPolicy === undefined
+    && hydration !== 'loading'
+    && effectiveRemoteChartPolicy === 'prompt'
+    && remoteChartCount > 0
+
+  useEffect(() => {
+    if (remoteChartPolicy === undefined) void hydrateRemoteChartSettings()
+  }, [hydrateRemoteChartSettings, remoteChartPolicy])
+  const resolvePreviewContainer = useCallback(() => (
+    markdownRootRef.current?.closest('.preview') as HTMLElement | null
+  ), [])
 
   // v1.3.7：右键菜单处理（添加书签 + 原有功能）
   const folderPath = useFileStore(state => state.folderPath)
@@ -342,13 +361,9 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
     if (anchor) {
       const href = anchor.getAttribute('href')
       if (href) {
-        const decoded = decodeURIComponent(href)
-        // 仅对本地 .md 链接提供分屏菜单，排除外部链接和锚点
-        if (!decoded.startsWith('http://') && !decoded.startsWith('https://') && !decoded.startsWith('#')) {
-          const clean = decoded.split('#')[0].split('?')[0]
-          if (clean.endsWith('.md')) {
-            linkHref = clean
-          }
+        const target = splitMarkdownTarget(href)
+        if (classifyMarkdownTarget(href) === 'markdown') {
+          linkHref = target.decodedPath
         }
       }
     }
@@ -406,8 +421,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
       const totalLines = content.split('\n').length
       if (totalLines === 0) return
 
-      // 找到 .preview 滚动容器
-      const previewContainer = document.querySelector('.preview')
+      const previewContainer = resolvePreviewContainer()
       if (!previewContainer) return
 
       // 按行号比例估算滚动位置
@@ -423,13 +437,13 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [scrollToLine, content, onScrollToLineComplete])
+  }, [scrollToLine, content, onScrollToLineComplete, resolvePreviewContainer])
 
   useEffect(() => {
     if (typeof scrollToRatio !== 'number' || !content) return
 
     const timer = setTimeout(() => {
-      const previewContainer = document.querySelector('.preview')
+      const previewContainer = resolvePreviewContainer()
       if (!previewContainer) return
 
       const ratio = Math.max(0, Math.min(1, scrollToRatio))
@@ -442,7 +456,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [scrollToRatio, content, onScrollToRatioComplete])
+  }, [scrollToRatio, content, onScrollToRatioComplete, resolvePreviewContainer])
 
   // v1.5.1: 高亮清理 ref
   const highlightCleanupRef = useRef<(() => void) | null>(null)
@@ -453,7 +467,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
 
     // 延迟执行，确保滚动完成后再高亮
     const highlightTimer = setTimeout(() => {
-      const container = document.querySelector('.preview')
+      const container = resolvePreviewContainer()
       if (!container) return
 
       const markInstance = new Mark(container as HTMLElement)
@@ -480,25 +494,40 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
       highlightCleanupRef.current?.()
       highlightCleanupRef.current = null
     }
-  }, [highlightKeyword, onHighlightKeywordComplete])
+  }, [highlightKeyword, onHighlightKeywordComplete, resolvePreviewContainer])
 
   // 直接渲染
   return (
-    <NonVirtualizedMarkdown
-      content={content}
-      md={md}
-      className={className}
-      filePath={filePath}
-      renderDebounceMs={renderDebounceMs}
-      onContextMenu={handleContextMenu}
-      onPreviewKeyDown={handleKeyDown}
-      onImageClick={onImageClick}
-      previewEditingEnabled={previewEditingEnabled}
-      onPreviewBlockEdit={onPreviewBlockEdit}
-      onSourceEditRequest={onSourceEditRequest}
-      onReadPositionChange={onReadPositionChange}
-      onMarkdownLinkClick={onMarkdownLinkClick}
-    />
+    <>
+      {showRemoteChartPrompt && (
+        <div className="remote-chart-document-consent no-export" role="note">
+          <div>
+            <strong>本篇包含 {remoteChartCount} 个联网图表</strong>
+            <span>PlantUML、C4-PlantUML 或 Kroki 源码尚未发送。确认后将渲染本篇全部联网图表。</span>
+          </div>
+          <button type="button" onClick={() => approveRemoteChartDocument(documentKey)}>
+            渲染本篇 {remoteChartCount} 个联网图表
+          </button>
+        </div>
+      )}
+      <NonVirtualizedMarkdown
+        content={content}
+        md={md}
+        className={className}
+        filePath={filePath}
+        renderDebounceMs={renderDebounceMs}
+        onContextMenu={handleContextMenu}
+        onPreviewKeyDown={handleKeyDown}
+        onImageClick={onImageClick}
+        previewEditingEnabled={previewEditingEnabled}
+        onPreviewBlockEdit={onPreviewBlockEdit}
+        onSourceEditRequest={onSourceEditRequest}
+        rootRef={markdownRootRef}
+        onReadPositionChange={onReadPositionChange}
+        onMarkdownLinkClick={onMarkdownLinkClick}
+        remoteChartPolicy={effectiveRemoteChartPolicy}
+      />
+    </>
   )
 }
 
@@ -519,8 +548,10 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   previewEditingEnabled,
   onPreviewBlockEdit,
   onSourceEditRequest,
+  rootRef,
   onReadPositionChange,
-  onMarkdownLinkClick
+  onMarkdownLinkClick,
+  remoteChartPolicy,
 }: {
   content: string
   md: MarkdownIt
@@ -533,10 +564,13 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   previewEditingEnabled: boolean
   onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
   onSourceEditRequest?: (target: SourceEditRequest) => void
+  rootRef?: React.RefObject<HTMLDivElement | null>
   onReadPositionChange?: (position: { scrollRatio: number; headingId?: string }) => void
   onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
+  remoteChartPolicy?: RemoteChartPolicy
 }) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const internalContainerRef = useRef<HTMLDivElement>(null)
+  const containerRef = rootRef ?? internalContainerRef
 
   // v1.4.3: 防抖状态 - 延迟渲染以提升性能
   const [debouncedContent, setDebouncedContent] = useState(content)
@@ -675,11 +709,11 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
       return '<p class="placeholder">文件内容为空</p>'
     }
 
-    if (debouncedContent.length > 500000) {
+    if (debouncedContent.length > MAX_RENDERABLE_CONTENT_LENGTH) {
       return `
         <div class="content-warning">
           <p><strong>文件过大，无法渲染</strong></p>
-          <p>文件大小: ${(debouncedContent.length / 1024).toFixed(2)} KB，最大支持: 500 KB</p>
+          <p>内容长度: ${(debouncedContent.length / 1000).toFixed(2)} K 字符，最大支持: ${MAX_RENDERABLE_CONTENT_LENGTH / 1000} K 字符</p>
         </div>
       `
     }
@@ -739,6 +773,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         onPreviewBlockEdit={onPreviewBlockEdit}
         onSourceEditRequest={onSourceEditRequest}
         onMarkdownLinkClick={onMarkdownLinkClick}
+        remoteChartPolicy={remoteChartPolicy}
       />
     </>
   )
@@ -762,7 +797,8 @@ const MarkdownContent = memo(
     onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
     onSourceEditRequest?: (target: SourceEditRequest) => void
     onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
-  }>(function MarkdownContent({ html, className, filePath, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit, onSourceEditRequest, onMarkdownLinkClick }, ref) {
+    remoteChartPolicy?: RemoteChartPolicy
+  }>(function MarkdownContent({ html, className, filePath, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit, onSourceEditRequest, onMarkdownLinkClick, remoteChartPolicy = 'prompt' }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
     const skippedFocusedRenderRef = useRef(false)
@@ -1132,7 +1168,7 @@ const MarkdownContent = memo(
     useMarkmapChart(combinedRef, chartRenderKey)
     useGraphvizChart(combinedRef, chartRenderKey)
     useDrawIOChart(combinedRef, chartRenderKey)
-    usePlantUMLChart(combinedRef, chartRenderKey)
+    usePlantUMLChart(combinedRef, chartRenderKey, true, undefined, remoteChartPolicy)
     useExcalidrawChart(combinedRef, chartRenderKey, { markdownFilePath: filePath })
     useVegaLiteChart(combinedRef, chartRenderKey)
     useD2Chart(combinedRef, chartRenderKey)
@@ -1142,7 +1178,8 @@ const MarkdownContent = memo(
     usePlotlyChart(combinedRef, chartRenderKey)
     useDbmlChart(combinedRef, chartRenderKey)
     useAntvG6Chart(combinedRef, chartRenderKey)
-    useKrokiChart(combinedRef, chartRenderKey)
+    useRestrictedSvgChart(combinedRef, chartRenderKey)
+    useKrokiChart(combinedRef, chartRenderKey, true, remoteChartPolicy)
 
     // 处理锚点链接点击
     useEffect(() => {
@@ -1197,17 +1234,21 @@ const MarkdownContent = memo(
           return
         }
 
-        // 3. v1.5.1: 本地 .md 链接：优先交给上层统一导航，兼容旧调用路径
-        const decodedHref = safeDecodeURIComponent(href)
-        if (decodedHref.endsWith('.md') || /\.md[#?]/.test(decodedHref)) {
+        // 3. v1.5.1: 本地 Markdown 链接：优先交给上层统一导航，兼容旧调用路径
+        const markdownTarget = splitMarkdownTarget(href)
+        if (classifyMarkdownTarget(href) === 'markdown') {
           e.preventDefault()
           if (filePath) {
             if (onMarkdownLinkClick) {
-              void onMarkdownLinkClick(decodedHref, filePath)
+              const navigationHref = [
+                markdownTarget.decodedPath,
+                markdownTarget.rawQuery === undefined ? '' : `?${markdownTarget.query ?? ''}`,
+                markdownTarget.rawAnchor === undefined ? '' : `#${markdownTarget.anchor ?? ''}`,
+              ].join('')
+              void onMarkdownLinkClick(navigationHref, filePath)
               return
             }
-            const cleanHref = decodedHref.split('#')[0].split('?')[0]
-            window.api.openMdLink(filePath, cleanHref).then((result) => {
+            window.api.openMdLink(filePath, markdownTarget.decodedPath).then((result) => {
               if (result && !result.success) {
                 // 通过自定义事件通知 App 显示 Toast
                 window.dispatchEvent(new CustomEvent('md-link-error', {
@@ -1236,13 +1277,13 @@ const MarkdownContent = memo(
       if (!combinedRef.current) return
 
       // 查找所有 pre > code 代码块，排除 Mermaid 和 ECharts（它们有自己的复制按钮）
-      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio):not(.language-plantuml):not(.language-excalidraw):not(.language-vega-lite):not(.language-d2):not(.language-bpmn):not(.language-wavedrom):not(.language-structurizr):not(.language-plotly):not(.language-dbml):not(.language-antv-g6):not(.language-kroki)')
+      const codeBlocks = combinedRef.current.querySelectorAll('pre:not(.language-mermaid):not(.language-echarts):not(.language-markmap):not(.language-graphviz):not(.language-drawio):not(.language-plantuml):not(.language-excalidraw):not(.language-vega-lite):not(.language-d2):not(.language-bpmn):not(.language-wavedrom):not(.language-structurizr):not(.language-plotly):not(.language-dbml):not(.language-antv-g6):not(.language-svg):not(.language-kroki)')
 
       codeBlocks.forEach((pre) => {
         // 跳过已经有复制按钮的代码块
         if (pre.querySelector('.copy-btn')) return
         // 跳过图表代码视图中的代码块（已有复制按钮）
-        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.vega-lite-code-view') || pre.closest('.d2-code-view') || pre.closest('.bpmn-code-view') || pre.closest('.wavedrom-code-view') || pre.closest('.structurizr-code-view') || pre.closest('.plotly-code-view') || pre.closest('.dbml-code-view') || pre.closest('.antv-g6-code-view') || pre.closest('.kroki-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view') || pre.closest('.plantuml-code-view') || pre.closest('.excalidraw-code-view')) return
+        if (pre.closest('.echarts-code-view') || pre.closest('.infographic-code-view') || pre.closest('.markmap-code-view') || pre.closest('.graphviz-code-view') || pre.closest('.vega-lite-code-view') || pre.closest('.d2-code-view') || pre.closest('.bpmn-code-view') || pre.closest('.wavedrom-code-view') || pre.closest('.structurizr-code-view') || pre.closest('.plotly-code-view') || pre.closest('.dbml-code-view') || pre.closest('.antv-g6-code-view') || pre.closest('.svg-code-view') || pre.closest('.kroki-code-view') || pre.closest('.drawio-code-view') || pre.closest('.mermaid-code-view') || pre.closest('.plantuml-code-view') || pre.closest('.excalidraw-code-view')) return
 
         const code = pre.querySelector('code')
         if (!code) return
@@ -1349,6 +1390,8 @@ const MarkdownContent = memo(
           textToCopy = decodeChartCode(target.closest('.dbml-wrapper'), 'data-dbml-code')
         } else if (target.closest('.antv-g6-code-view')) {
           textToCopy = decodeChartCode(target.closest('.antv-g6-wrapper'), 'data-antv-g6-code')
+        } else if (target.closest('.svg-code-view')) {
+          textToCopy = decodeChartCode(target.closest('.svg-wrapper'), 'data-svg-code')
         } else if (target.closest('.kroki-code-view')) {
           textToCopy = decodeChartCode(target.closest('.kroki-wrapper'), 'data-kroki-code')
         } else if (target.closest('.drawio-code-view')) {
@@ -1426,7 +1469,8 @@ const MarkdownContent = memo(
     prevProps.onImageClick === nextProps.onImageClick &&
     prevProps.onPreviewBlockEdit === nextProps.onPreviewBlockEdit &&
     prevProps.onSourceEditRequest === nextProps.onSourceEditRequest &&
-    prevProps.onMarkdownLinkClick === nextProps.onMarkdownLinkClick
+    prevProps.onMarkdownLinkClick === nextProps.onMarkdownLinkClick &&
+    prevProps.remoteChartPolicy === nextProps.remoteChartPolicy
 )
 
 export default memo(VirtualizedMarkdown)

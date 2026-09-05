@@ -27,6 +27,7 @@ const mockApi = {
   watchFolder: vi.fn().mockResolvedValue(undefined),
   unwatchFolder: vi.fn().mockResolvedValue(undefined),
   watchFile: vi.fn().mockResolvedValue(undefined),
+  unwatchFile: vi.fn().mockResolvedValue(undefined),
   openEditableMarkdown: vi.fn(),
   saveEditableMarkdown: vi.fn(),
   exportHTML: vi.fn(),
@@ -34,6 +35,14 @@ const mockApi = {
   searchReadFile: vi.fn(),
   showContextMenu: vi.fn().mockResolvedValue({ success: true }),
   renameFile: vi.fn().mockResolvedValue('/new/path'),
+  createLinkImpact: vi.fn().mockResolvedValue({ impactId: 'impact-test', affectedSourceFiles: 0, exactChanges: 0, candidates: 0, items: [] }),
+  executeLinkRewriteOperation: vi.fn().mockResolvedValue({
+    newPath: '/new/path',
+    receipt: { operationReceiptId: 'receipt-test' },
+  }),
+  createLinkRepairPlan: vi.fn().mockResolvedValue({ planId: 'plan-test', operationReceiptId: 'receipt-test', changes: [], warnings: [] }),
+  applyLinkRepairPlan: vi.fn().mockResolvedValue({ planId: 'plan-test', files: [] }),
+  discardLinkRepairPlan: vi.fn().mockResolvedValue(undefined),
   // v1.2 阶段 2：文件操作
   copyFile: vi.fn().mockResolvedValue('/new/path'),
   copyDir: vi.fn().mockResolvedValue('/new/path'),
@@ -180,6 +189,17 @@ const mockApi = {
     hasUpdate: false, currentVersion: '1.5.2', latestVersion: '1.5.2'
   }),
   openExternal: vi.fn().mockResolvedValue({ success: true }),
+  getChartExamplesStatus: vi.fn().mockResolvedValue({
+    state: 'ready',
+    packageVersion: '2.8.0',
+    appVersion: '2.8.0',
+    bytes: 101139,
+    caseCount: 93,
+    rendererCount: 20,
+    message: '内置离线示例包已就绪，无需联网。'
+  }),
+  installChartExamples: vi.fn().mockResolvedValue({ canceled: true }),
+  saveChartExamples: vi.fn().mockResolvedValue({ canceled: true }),
   resolveMdLink: vi.fn().mockResolvedValue({ success: false, error: '文件不存在' }),
   openMdLink: vi.fn().mockResolvedValue({ success: true })
 }
@@ -261,6 +281,38 @@ describe('App 集成测试', () => {
       expect(screen.getByText('欢迎使用 MD Viewer')).toBeInTheDocument()
       expect(screen.getByText('一个简洁的 Markdown 预览工具')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: '打开文件夹' })).toBeInTheDocument()
+    })
+
+    it('从欢迎页直达图表离线示例', async () => {
+      render(<App />)
+
+      fireEvent.click(screen.getByRole('button', { name: /图表与架构图/ }))
+
+      expect(screen.getByRole('tab', { name: '图表', exact: true })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tab', { name: /离线示例/ })).toHaveAttribute('aria-selected', 'true')
+      await waitFor(() => {
+        expect(screen.getByText('内置离线示例包已就绪，无需联网。')).toBeInTheDocument()
+      })
+    })
+
+    it('在 renderer 已更新但 preload 仍旧时明确提示重启', async () => {
+      const installChartExamples = mockApi.installChartExamples
+      ;(mockApi as any).installChartExamples = undefined
+      try {
+        render(<App />)
+        fireEvent.click(screen.getByRole('button', { name: /图表与架构图/ }))
+        const openButton = await screen.findByRole('button', { name: '打开离线示例…' })
+        await waitFor(() => expect(openButton).toBeEnabled())
+
+        fireEvent.click(openButton)
+
+        expect(await screen.findByText(
+          '应用后台功能尚未更新，请完全退出并重新启动 MD Viewer 后再试。'
+        )).toBeInTheDocument()
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+      } finally {
+        mockApi.installChartExamples = installChartExamples
+      }
     })
 
     it('可以收起并恢复文件树侧栏且保留展开宽度', async () => {
@@ -592,6 +644,48 @@ describe('App 集成测试', () => {
         expect(mockApi.readFile).toHaveBeenCalledTimes(2)
         expect(screen.getByRole('heading', { name: '新内容' })).toBeInTheDocument()
       })
+    })
+
+    it('编辑器输入仍在防抖窗口时外部修改不得覆盖本地输入', async () => {
+      let fileChangedHandler: ((event: { workspaceId: string; lifecycleEpoch: number; path: string }) => Promise<void>) | undefined
+      const file = { name: 'live.md', path: '/test/folder/live.md', isDirectory: false }
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
+      mockApi.readDir.mockResolvedValue([file])
+      mockApi.watchFolder.mockResolvedValue({ success: true })
+      mockApi.onFileChanged.mockImplementation((handler) => {
+        fileChangedHandler = handler
+        return vi.fn()
+      })
+      mockApi.readFile.mockResolvedValue('# 旧内容')
+
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+      fireEvent.click(await screen.findByText('live.md'))
+      await screen.findByRole('heading', { name: '旧内容' })
+
+      act(() => {
+        useEditSessionStore.getState().openSession({
+          canonicalPath: '/real/test/folder/live.md',
+          displayPath: file.path,
+          fileName: file.name,
+          content: '# 旧内容',
+          mtimeMs: 1000,
+          revisionToken: '1000:8',
+          workspaceId: 'test-workspace',
+          lifecycleEpoch: 1,
+        })
+        useEditSessionStore.getState().setPendingInput('/real/test/folder/live.md', true)
+      })
+
+      await act(async () => {
+        await fileChangedHandler?.({ workspaceId: 'test-workspace', lifecycleEpoch: 1, path: file.path })
+      })
+
+      const session = useEditSessionStore.getState().sessions['/real/test/folder/live.md']
+      expect(session.conflictReason).toBe('external_changed')
+      expect(session.pendingInput).toBe(true)
+      expect(mockApi.readFile).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('heading', { name: '旧内容' })).toBeInTheDocument()
     })
 
     it('文件监听失败时应该记录错误', async () => {

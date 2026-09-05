@@ -9,7 +9,15 @@ test.describe('文件树创建副本', () => {
 
     for (const expectedName of ['test1 - 副本.md', 'test1 - 副本 2.md', 'test1 - 副本 3.md']) {
       const result = await page.evaluate(
-        filePath => window.api.duplicatePath(filePath),
+        async filePath => {
+          const bootstrap = await window.api.getWorkspaceBootstrap()
+          const workspace = bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)
+          if (!workspace) throw new Error('活动工作区不存在')
+          return window.api.duplicatePath(filePath, {
+            workspaceId: workspace.id,
+            lifecycleEpoch: workspace.lifecycleEpoch,
+          })
+        },
         source
       )
       expect(result.newPath).toBe(join(testDir, expectedName))
@@ -24,7 +32,15 @@ test.describe('文件树创建副本', () => {
     await openFolderViaIPC(electronApp, testDir)
     const source = join(testDir, 'subfolder')
     const result = await page.evaluate(
-      filePath => window.api.duplicatePath(filePath),
+      async filePath => {
+        const bootstrap = await window.api.getWorkspaceBootstrap()
+        const workspace = bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)
+        if (!workspace) throw new Error('活动工作区不存在')
+        return window.api.duplicatePath(filePath, {
+          workspaceId: workspace.id,
+          lifecycleEpoch: workspace.lifecycleEpoch,
+        })
+      },
       source
     )
 

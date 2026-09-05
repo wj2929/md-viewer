@@ -2,6 +2,8 @@ import Store from 'electron-store'
 import { windowManager } from '../windowManager'
 import { folderHistoryManager } from '../folderHistoryManager'
 import { appDataManager } from '../appDataManager'
+import type { WorkspaceIndexService } from '../indexing/WorkspaceIndexService'
+import type { LinkRewritePlanner } from '../linking/LinkRewritePlanner'
 
 // 定义存储的数据结构
 export interface AppState {
@@ -24,5 +26,7 @@ export interface IPCContext {
   windowManager: typeof windowManager
   folderHistoryManager: typeof folderHistoryManager
   appDataManager: typeof appDataManager
+  workspaceIndexService?: WorkspaceIndexService
+  linkRewritePlanner?: LinkRewritePlanner
   openPathInWindow: (targetPath: string, type: 'md-file' | 'directory', targetWindow?: Electron.BrowserWindow) => void
 }

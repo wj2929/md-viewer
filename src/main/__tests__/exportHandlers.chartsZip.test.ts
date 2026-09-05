@@ -211,9 +211,12 @@ describe('chart zip export handler', () => {
     await exportPdf({ sender: {} }, [
       '<div class="drawio-container"><svg style="width:100%" viewBox="0 0 1200 800"></svg></div>',
       '<div class="kroki-container"><svg style="width:100%" viewBox="0 0 1200 800"></svg></div>',
+      '<div class="svg-container"><svg viewBox="0 0 1200 800"></svg></div>',
     ].join('\n'), 'charts.md')
 
     expect(loadedPdfHtml).toContain('.kroki-container')
+    expect(loadedPdfHtml).toContain('.markdown-body .svg-container,')
+    expect(loadedPdfHtml).toContain('.markdown-body .svg-container svg,')
     expect(loadedPdfHtml).toContain('page-break-inside: avoid')
     expect(loadedPdfHtml).toContain('justify-content: center !important')
     expect(loadedPdfHtml).toContain('text-align: center')

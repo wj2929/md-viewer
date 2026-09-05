@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 import { RecentFilesDropdown } from '../../src/components/RecentFilesDropdown'
@@ -43,7 +43,7 @@ describe('RecentFilesDropdown', () => {
     removeRecentFile.mockResolvedValue(undefined)
     clearRecentFiles.mockResolvedValue(undefined)
     onRecentFileRemove.mockReturnValue(() => undefined)
-    showRecentFileContextMenu.mockResolvedValue(undefined)
+    showRecentFileContextMenu.mockResolvedValue({ success: true })
     readFilePreview.mockResolvedValue('')
 
     window.api = {
@@ -74,6 +74,16 @@ describe('RecentFilesDropdown', () => {
     expect(screen.queryByText('直播说明.md')).not.toBeInTheDocument()
     expect(screen.getByText('apisix-cors-config.md')).toBeInTheDocument()
     expect(screen.getByText('~/Documents/github/OUCOnline/lms/identity/docs')).toBeInTheDocument()
+  })
+
+  it('右键菜单只向主进程发送最近文件 ID', async () => {
+    render(<RecentFilesDropdown onSelectFile={onSelectFile} />)
+    await userEvent.click(screen.getByRole('button', { name: '最近打开的文件' }))
+    await waitFor(() => expect(screen.getByText('cli.md')).toBeInTheDocument())
+
+    fireEvent.contextMenu(screen.getByText('cli.md').closest('.recent-file-item')!)
+
+    expect(showRecentFileContextMenu).toHaveBeenCalledWith('recent-cli')
   })
 
   it('没有匹配结果时显示空状态，并支持清空历史', async () => {

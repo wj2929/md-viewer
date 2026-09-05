@@ -82,6 +82,43 @@ Table orgs {
 Ref: users.org_id > orgs.id
 `
 
+const DBML_DENSE_SOURCE = `
+Table tenants {
+  id uuid [pk]
+  slug varchar [not null, unique]
+  display_name varchar [not null]
+  created_at timestamp [not null]
+}
+Table workspaces {
+  id uuid [pk]
+  tenant_id uuid [not null, ref: > tenants.id]
+  name varchar [not null]
+}
+Table documents {
+  id uuid [pk]
+  workspace_id uuid [not null, ref: > workspaces.id]
+  relative_path varchar [not null]
+  revision_sha256 char [not null]
+  updated_at timestamp [not null]
+}
+Table export_jobs {
+  id uuid [pk]
+  document_id uuid [not null, ref: > documents.id]
+  format varchar [not null]
+  status varchar [not null]
+  artifact_name varchar
+  created_at timestamp [not null]
+  finished_at timestamp
+}
+Table audit_events {
+  id bigint [pk]
+  tenant_id uuid [not null, ref: > tenants.id]
+  export_job_id uuid [ref: > export_jobs.id]
+  event_type varchar [not null]
+  occurred_at timestamp [not null]
+}
+`
+
 const G6_SOURCE = JSON.stringify({
   nodes: [
     { id: 'gateway', label: 'API Gateway', comboId: 'edge' },
@@ -155,6 +192,28 @@ function assertNodeRectsDoNotOverlap(svg: string): void {
     for (let j = i + 1; j < nodeRects.length; j += 1) {
       const a = nodeRects[i]
       const b = nodeRects[j]
+      const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
+      const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+      expect(overlapX * overlapY, `${a.html}\n${b.html}`).toBe(0)
+    }
+  }
+}
+
+function assertGroupRectsDoNotOverlap(svg: string): void {
+  const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
+  const groupRects = Array.from(doc.documentElement.querySelectorAll('rect[stroke-dasharray]'))
+    .map(rect => ({
+      x: Number(rect.getAttribute('x') || 0),
+      y: Number(rect.getAttribute('y') || 0),
+      width: Number(rect.getAttribute('width') || 0),
+      height: Number(rect.getAttribute('height') || 0),
+      html: rect.outerHTML,
+    }))
+
+  for (let i = 0; i < groupRects.length; i += 1) {
+    for (let j = i + 1; j < groupRects.length; j += 1) {
+      const a = groupRects[i]
+      const b = groupRects[j]
       const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
       const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
       expect(overlapX * overlapY, `${a.html}\n${b.html}`).toBe(0)
@@ -239,6 +298,15 @@ describe('next renderer suite', () => {
     expect(orgIdFieldY, 'second field should be below first field').toBeGreaterThan(usersIdFieldY + 18)
   })
 
+  it('lays out dense DBML tables in rows sized to their tallest table', () => {
+    const result = renderDbmlToSvg(DBML_DENSE_SOURCE)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    assertSvgRectAndTextInsideViewBox(result.svg)
+    assertNodeRectsDoNotOverlap(result.svg)
+  })
+
   it('renders compact one-line DBML table definitions with all fields', () => {
     const result = renderDbmlToSvg('Table users { id int [pk] org_id int [ref: > orgs.id] name varchar }\nTable orgs { id int [pk] name varchar }')
 
@@ -282,6 +350,9 @@ describe('next renderer suite', () => {
       expect(result.svg).toContain('<svg')
       expect(result.svg).toContain('API Gateway')
       expect(result.svg).toContain('Renderer Service')
+      assertSvgRectAndTextInsideViewBox(result.svg)
+      assertNodeRectsDoNotOverlap(result.svg)
+      assertGroupRectsDoNotOverlap(result.svg)
     }
 
     const html = await processAntvG6InHtml(`<pre class="language-antv-g6"><code>${G6_SOURCE}</code></pre>`)

@@ -88,6 +88,18 @@ describe('runCli', () => {
     })
   })
 
+  it('dispatches watch as JSONL stream instead of CliResult JSON', async () => {
+    const { io, stdout } = createIo()
+    const exitCode = await runCli(['watch', '--jsonl'], io)
+
+    expect(exitCode).toBe(2)
+    expect(JSON.parse(stdout[0])).toMatchObject({
+      schemaVersion: '1.0',
+      event: 'error',
+      code: 'INVALID_ARGUMENT',
+    })
+  })
+
   it('dispatches implemented screenshot and charts commands instead of NOT_IMPLEMENTED', async () => {
     const { io, stdout } = createIo()
 
@@ -113,10 +125,12 @@ describe('runCli', () => {
     const inspectExit = await runCli(['inspect', '--json'], io)
     const linksExit = await runCli(['links', '--json'], io)
     const renderExit = await runCli(['render', '--json'], io)
+    const diffExit = await runCli(['diff', '--json'], io)
 
     expect(inspectExit).toBe(2)
     expect(linksExit).toBe(2)
     expect(renderExit).toBe(2)
+    expect(diffExit).toBe(2)
     expect(JSON.parse(stdout[0])).toMatchObject({
       command: 'inspect',
       code: 'INVALID_ARGUMENT',
@@ -127,6 +141,10 @@ describe('runCli', () => {
     })
     expect(JSON.parse(stdout[2])).toMatchObject({
       command: 'render',
+      code: 'INVALID_ARGUMENT',
+    })
+    expect(JSON.parse(stdout[3])).toMatchObject({
+      command: 'diff',
       code: 'INVALID_ARGUMENT',
     })
     expect(stdout.join('\n')).not.toContain('NOT_IMPLEMENTED')

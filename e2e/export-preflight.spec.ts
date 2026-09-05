@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures/electron'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import AdmZip from 'adm-zip'
 
 const DOCX_SERVICE_URL = process.env.MD_VIEWER_DOCX_SERVICE_URL
@@ -43,7 +43,9 @@ test.afterAll(() => {
 
 async function openMarkdownFile(page: Page, filePath: string) {
   await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), filePath)
-  await page.waitForTimeout(500)
+  const fileName = basename(filePath)
+  await expect(page.locator('.tab.active', { hasText: fileName })).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.markdown-body')).toContainText(fileName === 'risky.md' ? '风险文档' : '干净文档')
 }
 
 async function mockSaveDialog(electronApp: ElectronApplication, filePath: string) {

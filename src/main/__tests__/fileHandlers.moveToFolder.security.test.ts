@@ -37,24 +37,26 @@ interface Fixture {
   targetRoot: string // 目标历史根（跨根）
   sourceFile: string
   sourceDir: string
+  targetSubDir: string
 }
 
 async function createFixture(): Promise<Fixture> {
-  const root = await fs.mkdtemp(path.join(os.homedir(), 'md-viewer-move-to-'))
+  const root = await fs.mkdtemp(path.join(os.homedir(), '.md-viewer-move-to-'))
   temporaryPaths.push(root)
 
   const sourceRoot = path.join(root, 'sourceRoot')
   const targetRoot = path.join(root, 'targetRoot')
   const sourceFile = path.join(sourceRoot, 'note.md')
   const sourceDir = path.join(sourceRoot, 'folder')
+  const targetSubDir = path.join(targetRoot, 'sub')
 
   await fs.ensureDir(sourceRoot)
-  await fs.ensureDir(path.join(targetRoot, 'sub'))
+  await fs.ensureDir(targetSubDir)
   await fs.ensureDir(sourceDir)
   await fs.writeFile(sourceFile, 'hello')
   await fs.writeFile(path.join(sourceDir, 'inner.md'), 'inner')
 
-  return { root, sourceRoot, targetRoot, sourceFile, sourceDir }
+  return { root, sourceRoot, targetRoot, sourceFile, sourceDir, targetSubDir }
 }
 
 afterEach(async () => {
@@ -86,9 +88,23 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
       id === 'valid' ? await fs.realpath(fixture.targetRoot) : null
     )
 
+    const indexDocuments = new Map<string, any[]>([
+      [await fs.realpath(fixture.sourceRoot), []],
+      [await fs.realpath(fixture.targetRoot), []],
+    ])
     registerFileHandlers({
       store: { set: vi.fn() },
-      folderHistoryManager: { addFolder: vi.fn(), resolveHistoryFolder },
+      folderHistoryManager: {
+        addFolder: vi.fn(),
+        resolveHistoryFolder,
+        getHistory: vi.fn(async () => [{ path: fixture.targetRoot }]),
+      },
+      workspaceIndexService: {
+        attach: vi.fn(async () => ({})),
+        waitUntilIdle: vi.fn(async () => {}),
+        getIndexedDocuments: vi.fn((rootPath: string) => indexDocuments.get(rootPath) ?? []),
+        detach: vi.fn(),
+      },
       windowManager: {
         getWindowFolderPath: vi.fn(() => fixture.sourceRoot),
         getAllWindowFolderRoots: vi.fn(() => [fixture.sourceRoot]),
@@ -102,6 +118,62 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
       (event: Electron.IpcMainInvokeEvent, src: string, targetHistoryId: string, subRelPath: string | undefined, operation: typeof OPERATION) => Promise<string>
     >('fs:moveFileToFolder')
   }
+
+  function invokePreview() {
+    return getHandler<
+      (event: Electron.IpcMainInvokeEvent, sources: string[], targetHistoryId: string, subRelPath: string | undefined, operation: typeof OPERATION) => Promise<any>
+    >('fs:previewCrossRootMoveImpact')
+  }
+
+  function invokeListChildDirs() {
+    return getHandler<
+      (event: Electron.IpcMainInvokeEvent, dirPath: string) => Promise<Array<{ name: string; path: string }>>
+    >('fs:listChildDirs')
+  }
+
+  it('历史根位于隐藏祖先目录时仍列出其直接子目录', async () => {
+    const listChildDirs = invokeListChildDirs()
+    const dirs = await listChildDirs(
+      createEvent() as Electron.IpcMainInvokeEvent,
+      fixture.targetRoot,
+    )
+
+    expect(dirs).toEqual([{ name: 'sub', path: fixture.targetSubDir }])
+  })
+
+  it('跨根预检只返回报告且不移动源文件', async () => {
+    const preview = invokePreview()
+    const report = await preview(
+      createEvent() as Electron.IpcMainInvokeEvent,
+      [fixture.sourceFile],
+      'valid',
+      undefined,
+      OPERATION,
+    )
+
+    expect(report.reportOnly).toBe(true)
+    expect(report).not.toHaveProperty('planId')
+    expect(report).not.toHaveProperty('changes')
+    expect(await fs.pathExists(fixture.sourceFile)).toBe(true)
+    expect(await fs.pathExists(path.join(fixture.targetRoot, 'note.md'))).toBe(false)
+  })
+
+  it('跨根预检拒绝逃逸子路径、无效历史 ID 和目录/子项重叠来源', async () => {
+    const preview = invokePreview()
+    await expect(preview(
+      createEvent() as Electron.IpcMainInvokeEvent, [fixture.sourceFile], 'valid', '../sourceRoot', OPERATION,
+    )).rejects.toThrow('安全错误')
+    await expect(preview(
+      createEvent() as Electron.IpcMainInvokeEvent, [fixture.sourceFile], 'bogus', undefined, OPERATION,
+    )).rejects.toThrow('目标目录无效')
+    await expect(preview(
+      createEvent() as Electron.IpcMainInvokeEvent,
+      [fixture.sourceDir, path.join(fixture.sourceDir, 'inner.md')],
+      'valid',
+      undefined,
+      OPERATION,
+    )).rejects.toThrow('同时移动目录及其内部项目')
+  })
 
   it('把文件跨根移动到目标历史根', async () => {
     const move = invokeMove()

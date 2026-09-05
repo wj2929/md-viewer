@@ -287,6 +287,19 @@ export const builtinRendererDefinitions: RendererDefinition[] = [
     },
   }),
   createDefinition({
+    type: 'svg',
+    displayName: 'SVG（受限）',
+    aliases: [],
+    languages: ['svg'],
+    sourceKinds: ['fence'],
+    renderMode: 'svg',
+    selectors: {
+      preview: 'pre.language-svg, .svg-wrapper, .svg-error',
+      ready: '.svg-wrapper .svg-container svg',
+      screenshotTarget: '.svg-wrapper .svg-container svg',
+    },
+  }),
+  createDefinition({
     type: 'kroki',
     displayName: 'Kroki',
     aliases: ['kroki-pikchr', 'kroki-nomnoml', 'kroki-svgbob', 'kroki-bytefield', 'kroki-tikz'],

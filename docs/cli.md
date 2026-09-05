@@ -256,12 +256,15 @@ md-viewer preflight README.md --format pdf --json
 md-viewer preflight README.md --format docx --docx-service http://127.0.0.1:3179 --json
 ```
 
-`doctor` 检查当前环境和服务：
+`doctor` 检查运行时基础信息和可选 DOCX 服务健康状态：
 
 ```bash
 md-viewer doctor --json
 md-viewer doctor --docx-service http://127.0.0.1:3179 --json
+md-viewer doctor --bundle diagnostics.zip --json
 ```
+
+`--bundle` 生成只保存到指定位置的脱敏诊断 ZIP。ZIP 不含 Markdown 正文、文件名、绝对路径、搜索词、语音文本、API Key、argv 或环境变量，也不会自动上传。
 
 建议在 DOCX 导出失败时先运行：
 
@@ -324,6 +327,27 @@ md-viewer render README.md --out render.html --json
 
 `render` 用于排查图表渲染数量、失败 warning 和图表 selector，不替代正式 `export html/pdf/docx`。
 
+`diff` 比较两个 Markdown 文件的语义结构，而不是逐字节或像素比较：
+
+```bash
+md-viewer diff before.md after.md --json
+md-viewer diff before.md after.md --fail-on-change --json
+```
+
+比较 front matter、标题、段落、链接、图片、代码块和图表块；默认忽略 BOM、CRLF/LF 与行尾空格。默认检测到差异仍返回成功；使用 `--fail-on-change` 时返回 `DIFF_FOUND` 和 exit code 4。仅接受 Markdown 文件，不接受 `.excalidraw`。
+
+`watch` 以只读 JSONL 流监听 Markdown 文件或目录：
+
+```bash
+md-viewer watch README.md --jsonl
+md-viewer watch docs --jsonl --max-events 10
+md-viewer watch docs --jsonl --timeout 30000
+```
+
+stdout 每行都是可独立 `JSON.parse` 的对象，事件包括 `initial`、`ready`、`added`、`changed`、`removed`、`renamed`、`error` 和 `stopped`。`renamed` 是启发式提示并携带 `inferred: true`；原始 `removed/added` 事件仍保留。支持 `SIGINT`、`SIGTERM`、`--max-events` 和 `--timeout` 正常结束。日志只写 stderr，不创建工作区索引或 GUI 业务设置。
+
+以上 `inspect`、`render`、`links`、`diff`、`watch` 当前均为 experimental，机器调用前应通过 `capabilities --json` 确认稳定性字段。
+
 ## 11. 批量回归
 
 `batch` 用于 fixture 或真实文档批量回归。
@@ -372,7 +396,7 @@ md-viewer batch e2e/local-real-docs.json --out /tmp/md-viewer-release-report.jso
 | `1` | 普通失败。 |
 | `2` | 参数错误。 |
 | `3` | 输入文件不存在或不可读。 |
-| `4` | 导出或诊断依赖不可用。 |
+| `4` | 使用 `diff --fail-on-change` 检测到语义差异，或导出/诊断依赖不可用（以结果 `code` 区分）。 |
 | `5` | 渲染失败。 |
 | `6` | 输出路径不可写。 |
 | `7` | 批量任务部分失败。 |
@@ -395,4 +419,4 @@ md-viewer batch e2e/local-real-docs.json --out /tmp/md-viewer-release-report.jso
 - `links` 默认不联网检查外链。
 - `render` 是诊断命令，不保证输出 HTML 适合作为最终交付文件。
 - DOCX 导出依赖 `md-viewer-docx-service`，服务版本、字体和 renderer artifact 会影响结果。
-- `watch`、`serve`、`diff`、`mcp`、`completion` 尚未产品化，属于后续版本范围。
+- `watch`、`diff` 已提供 experimental 契约；`serve`、`mcp`、`completion` 尚未产品化，属于后续版本范围。

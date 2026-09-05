@@ -61,9 +61,22 @@ export async function getExportStyles(): Promise<{ markdownCss: string; prismCss
   try {
     // 开发环境路径
     if (is.dev) {
-      const srcPath = join(__dirname, '../../src/renderer/src/assets')
-      markdownCss = await fs.readFile(join(srcPath, 'markdown.css'), 'utf-8')
-      prismCss = await fs.readFile(join(srcPath, 'prism-theme.css'), 'utf-8')
+      const sourceCandidates = [
+        join(app.getAppPath(), 'src/renderer/src/assets'),
+        join(app.getAppPath(), '../../src/renderer/src/assets'),
+      ]
+      let sourceError: unknown
+      for (const srcPath of sourceCandidates) {
+        try {
+          markdownCss = await fs.readFile(join(srcPath, 'markdown.css'), 'utf-8')
+          prismCss = await fs.readFile(join(srcPath, 'prism-theme.css'), 'utf-8')
+          sourceError = undefined
+          break
+        } catch (error) {
+          sourceError = error
+        }
+      }
+      if (sourceError) throw sourceError
     } else {
       // 生产环境：尝试多个可能的路径
       const possiblePaths = [

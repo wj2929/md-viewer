@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MarkdownEditWorkbench } from '../../src/components/editor/MarkdownEditWorkbench'
 import { useEditSessionStore } from '../../src/stores/editSessionStore'
+import { getTemplatesForRenderer } from '../../src/components/settings/chartStarterTemplates'
 
 vi.mock('../../src/components/VirtualizedMarkdown', () => ({
   VirtualizedMarkdown: ({
@@ -312,12 +313,14 @@ describe('MarkdownEditWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: '加粗' }))
 
     expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe(largeDraft)
+    expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].pendingInput).toBe(true)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500)
     })
 
     expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe(`**文本**${largeDraft}`)
+    expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].pendingInput).toBe(false)
     vi.useRealTimers()
   })
 
@@ -634,6 +637,74 @@ describe('MarkdownEditWorkbench', () => {
     for (const name of ['加粗', '斜体', '行内代码', '链接', '二级标题', '无序列表', '引用', '代码块']) {
       expect(screen.getByRole('button', { name })).toBeDisabled()
     }
+  })
+
+  it('opens a bound chart session and records template insertion as one draft undo step', async () => {
+    const onOpenChartSettings = vi.fn()
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={vi.fn()}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={vi.fn()}
+        onLocateComplete={vi.fn()}
+        onOpenChartSettings={onOpenChartSettings}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '插入图表' }))
+    const request = onOpenChartSettings.mock.calls[0][0]
+    expect(request.initialView).toBe('capabilities')
+    expect(request.insertionSession.targetKey).toBe('single:tab-a:/real/docs/a.md')
+    expect(request.insertionSession.isValid()).toBe(true)
+
+    act(() => {
+      expect(request.insertionSession.insert(getTemplatesForRenderer('mermaid')[0])).toBe(true)
+    })
+    await waitFor(() => {
+      expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe(
+        '```mermaid\nflowchart LR\n  User([用户]) --> Check{源码有效?}\n  Check -->|是| Render[渲染图表]\n  Check -->|否| Edit[修正源码]\n  Edit --> Check\n  Render --> Export[(导出文档)]\n```\n\n# A'
+      )
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销编辑' }))
+    expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe('# A')
+  })
+
+  it('invalidates a chart insertion session after mode changes or unmount', () => {
+    const onOpenChartSettings = vi.fn()
+    const commonProps = {
+      tab,
+      leafId: 'single',
+      canonicalPath: '/real/docs/a.md',
+      compareRatio: 0.5,
+      target: null,
+      onModeChange: vi.fn(),
+      onCompareRatioChange: vi.fn(),
+      onSave: vi.fn(),
+      onCopyDraft: vi.fn(),
+      onReloadFromDisk: vi.fn(),
+      onLocateComplete: vi.fn(),
+      onOpenChartSettings,
+    }
+    const view = render(<MarkdownEditWorkbench {...commonProps} mode="edit" />)
+    fireEvent.click(screen.getByRole('button', { name: '插入图表' }))
+    const session = onOpenChartSettings.mock.calls[0][0].insertionSession
+
+    view.rerender(<MarkdownEditWorkbench {...commonProps} mode="preview" />)
+    expect(screen.getByRole('button', { name: '插入图表' })).toBeDisabled()
+    expect(session.isValid()).toBe(false)
+    expect(session.insert(getTemplatesForRenderer('mermaid')[0])).toBe(false)
+
+    view.unmount()
+    expect(session.isValid()).toBe(false)
   })
 
   it('shows clear conflict guidance when disk changed externally', () => {

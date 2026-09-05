@@ -6,6 +6,7 @@
 
 import { BrowserWindow, Menu, shell, clipboard } from 'electron'
 import * as path from 'path'
+import { getFileManagerLabels } from './platformMenuLabels'
 
 /**
  * Tab 菜单上下文
@@ -26,6 +27,7 @@ export interface TabMenuContext {
  */
 export function showTabContextMenu(window: BrowserWindow, ctx: TabMenuContext): void {
   const { tabId, filePath, basePath, tabCount, tabIndex, isPinned } = ctx
+  const fileManagerLabels = getFileManagerLabels()
 
   const menu = Menu.buildFromTemplate([
     // v1.5.1：在分屏中打开（子菜单）
@@ -85,16 +87,15 @@ export function showTabContextMenu(window: BrowserWindow, ctx: TabMenuContext): 
     },
     { type: 'separator' },
     {
-      label: process.platform === 'darwin' ? '在 Finder 中显示' : process.platform === 'win32' ? '在资源管理器中显示' : '在文件管理器中显示',
+      label: fileManagerLabels.showInFolder,
       accelerator: 'CmdOrCtrl+Shift+R',
       click: () => {
-        const folderLabel = process.platform === 'darwin' ? 'Finder' : process.platform === 'win32' ? '资源管理器' : '文件管理器'
         try {
           shell.showItemInFolder(filePath)
         } catch (error) {
           console.error('[TAB_MENU] Failed to show in folder:', error)
           window.webContents.send('error:show', {
-            message: `无法在 ${folderLabel} 中显示：${error instanceof Error ? error.message : '未知错误'}`
+            message: `无法在 ${fileManagerLabels.fileManagerName} 中显示：${error instanceof Error ? error.message : '未知错误'}`
           })
         }
       }

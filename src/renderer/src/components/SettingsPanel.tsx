@@ -9,8 +9,9 @@ import { useUIStore, FONT_SIZE } from '../stores/uiStore'
 import { DocxSetupGuide } from './DocxSetupGuide'
 import { DocxStyleCards } from './DocxStyleCards'
 import ReadAloudSettingsTab from './ReadAloudSettingsTab'
-import { builtinRendererDefinitions } from '../renderers/builtin'
-import type { RendererDefinition, RendererTarget, RendererTargetCapability } from '../renderers/types'
+import { ChartsSettingsTab } from './settings/ChartsSettingsTab'
+import type { ChartsSettingsView, EditorInsertionSession } from './settings/chartSettingsTypes'
+import type { InstallChartExamplesResult } from '../../../shared/chartExamples'
 import {
   DEFAULT_DOCX_STYLE,
   DOCX_STYLE_LABELS,
@@ -26,9 +27,12 @@ import {
 
 type SettingsTab = 'appearance' | 'browsing' | 'export' | 'charts' | 'readAloud' | 'system' | 'about'
 
-type CapabilityColumn = {
-  key: RendererTarget | 'htmlPdf'
-  label: string
+interface SettingsPanelProps {
+  onClose: () => void
+  initialTab?: SettingsTab
+  initialChartsView?: ChartsSettingsView
+  insertionSession?: EditorInsertionSession
+  onOpenChartExamples?: () => Promise<InstallChartExamplesResult>
 }
 
 type UpdateStatus =
@@ -65,13 +69,6 @@ interface AppVersionInfo {
   arch: string
 }
 
-const RENDERER_CAPABILITY_COLUMNS: CapabilityColumn[] = [
-  { key: 'preview', label: '应用预览' },
-  { key: 'htmlPdf', label: 'HTML/PDF' },
-  { key: 'docxClient', label: 'DOCX' },
-  { key: 'docxService', label: 'DOCX 服务' },
-]
-
 const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'appearance', label: '外观' },
   { key: 'browsing', label: '浏览' },
@@ -82,31 +79,33 @@ const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'about', label: '关于' },
 ]
 
-function capabilityStateText(definition: RendererDefinition, column: CapabilityColumn): string {
-  const capabilities: RendererTargetCapability[] = column.key === 'htmlPdf'
-    ? [definition.capabilities.html, definition.capabilities.pdf]
-    : [definition.capabilities[column.key]]
-  if (capabilities.some(capability => !capability || capability.state === 'unsupported')) return '不支持'
-  if (capabilities.some(capability => capability.state === 'optional' || capability.state === 'disabledByDefault')) return '需配置'
-  if (definition.networkPolicy === 'explicitRemoteAllowed') return '需服务'
-  return '支持'
-}
-
 // ============================================================================
 // 主组件
 // ============================================================================
 
-export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({
+  onClose,
+  initialTab = 'appearance',
+  initialChartsView = 'capabilities',
+  insertionSession,
+  onOpenChartExamples = async () => ({ canceled: true }),
+}) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
   const activeTabLabel = SETTINGS_TABS.find(tab => tab.key === activeTab)?.label || '设置'
 
   return (
     <>
       <div className="settings-overlay" onClick={onClose}>
-        <div className="settings-panel" onClick={e => e.stopPropagation()}>
+        <div
+          className={`settings-panel ${activeTab === 'charts' ? 'settings-panel-charts' : ''}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-title"
+          onClick={e => e.stopPropagation()}
+        >
           <div className="settings-header">
-            <h2>设置</h2>
-            <button className="close-btn" onClick={onClose}>×</button>
+            <h2 id="settings-title">设置</h2>
+            <button type="button" className="close-btn" aria-label="关闭设置" onClick={onClose}>×</button>
           </div>
 
           {/* Tab 栏 */}
@@ -139,7 +138,13 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
             ) : activeTab === 'readAloud' ? (
               <ReadAloudSettingsTab />
             ) : (
-              <GeneralTab activeTab={activeTab} />
+              <GeneralTab
+                activeTab={activeTab}
+                initialChartsView={initialChartsView}
+                insertionSession={insertionSession}
+                onCloseSettings={onClose}
+                onOpenChartExamples={onOpenChartExamples}
+              />
             )}
           </div>
         </div>
@@ -152,7 +157,19 @@ export const SettingsPanel: React.FC<{ onClose: () => void }> = ({ onClose }) =>
 // 通用 Tab
 // ============================================================================
 
-function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about' | 'readAloud'> }) {
+function GeneralTab({
+  activeTab,
+  initialChartsView,
+  insertionSession,
+  onCloseSettings,
+  onOpenChartExamples,
+}: {
+  activeTab: Exclude<SettingsTab, 'about' | 'readAloud'>
+  initialChartsView: ChartsSettingsView
+  insertionSession?: EditorInsertionSession
+  onCloseSettings: () => void
+  onOpenChartExamples: () => Promise<InstallChartExamplesResult>
+}) {
   const { theme, setTheme } = useTheme()
   const { fontSize, setFontSize } = useUIStore()
   const [settings, setSettings] = useState<{ maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean }>({
@@ -170,11 +187,6 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about' | '
   const [cliStatus, setCliStatus] = useState<CliShimStatus | null>(null)
   const [cliLoading, setCliLoading] = useState(false)
   const [cliMessage, setCliMessage] = useState('')
-
-  // PlantUML 服务器配置
-  const [plantumlServer, setPlantumlServer] = useState('')
-  const [plantumlTestStatus, setPlantumlTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [showPlantumlGuide, setShowPlantumlGuide] = useState(false)
 
   // DOCX 远程服务配置
   const [docxEnabled, setDocxEnabled] = useState(false)
@@ -196,10 +208,6 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about' | '
     loadSettings()
     loadCtxStatus()
     loadCliStatus()
-    // 加载 PlantUML 服务器配置
-    try {
-      setPlantumlServer(localStorage.getItem('plantuml-server-url') || '')
-    } catch { /* ignore */ }
   }, [])
 
   const loadSettings = async () => {
@@ -815,85 +823,12 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about' | '
       )}
 
       {activeTab === 'charts' && (
-      <section className="settings-section">
-        <h3>图表</h3>
-        <div className="setting-item setting-row">
-          <label>PlantUML 服务器</label>
-          <button
-            className="btn-secondary btn-sm"
-            disabled={plantumlTestStatus === 'testing'}
-            onClick={async () => {
-              setPlantumlTestStatus('testing')
-              try {
-                const server = plantumlServer.trim().replace(/\/+$/, '') || 'https://www.plantuml.com/plantuml'
-                const res = await fetch(`${server}/svg/SoWkIImgAStDuNBAJrBGjLDmpCbCJbMmKiX8pSd9vt98pKi1IW80`, { signal: AbortSignal.timeout(5000) })
-                setPlantumlTestStatus(res.ok ? 'success' : 'error')
-              } catch {
-                setPlantumlTestStatus('error')
-              }
-            }}
-          >
-            {plantumlTestStatus === 'testing' ? '测试中...' : plantumlTestStatus === 'success' ? '已连接' : plantumlTestStatus === 'error' ? '连接失败' : '测试连接'}
-          </button>
-        </div>
-        <div className="setting-item setting-row" style={{ marginTop: '4px' }}>
-          <input
-            type="text"
-            className="settings-input"
-            style={{ width: '100%' }}
-            placeholder="默认：https://www.plantuml.com/plantuml"
-            value={plantumlServer}
-            onChange={e => {
-              setPlantumlServer(e.target.value)
-              setPlantumlTestStatus('idle')
-            }}
-            onBlur={() => {
-              try {
-                const val = plantumlServer.trim()
-                if (val) {
-                  localStorage.setItem('plantuml-server-url', val)
-                } else {
-                  localStorage.removeItem('plantuml-server-url')
-                }
-              } catch { /* ignore */ }
-            }}
-          />
-        </div>
-        <p className="setting-section-hint">留空使用官方服务器。<a href="#" className="setting-help-link" onClick={e => { e.preventDefault(); setShowPlantumlGuide(true) }}>如何配置本地服务器？</a></p>
-
-        <div className="renderer-capability-panel">
-          <div className="renderer-capability-title">渲染能力</div>
-          <div className="renderer-capability-table-wrap">
-            <table className="renderer-capability-table">
-              <thead>
-                <tr>
-                  <th scope="col">类型</th>
-                  {RENDERER_CAPABILITY_COLUMNS.map(column => (
-                    <th key={column.key} scope="col">{column.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {builtinRendererDefinitions.map(definition => (
-                  <tr key={definition.type}>
-                    <th scope="row">{definition.displayName}</th>
-                    {RENDERER_CAPABILITY_COLUMNS.map(column => {
-                      const text = capabilityStateText(definition, column)
-                      return (
-                        <td key={column.key}>
-                          <span className={`renderer-capability-state renderer-capability-state-${text === '支持' ? 'supported' : 'needs-setup'}`}>
-                            {text}
-                          </span>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+        <ChartsSettingsTab
+          initialView={initialChartsView}
+          insertionSession={insertionSession}
+          onCloseSettings={onCloseSettings}
+          onOpenChartExamples={onOpenChartExamples}
+        />
       )}
 
       {activeTab === 'system' && (
@@ -1028,45 +963,6 @@ function GeneralTab({ activeTab }: { activeTab: Exclude<SettingsTab, 'about' | '
         />
       )}
 
-      {/* PlantUML 本地服务器配置帮助 */}
-      {showPlantumlGuide && (
-        <div className="enable-guide-modal" onClick={() => setShowPlantumlGuide(false)}>
-          <div className="plantuml-guide-content" onClick={e => e.stopPropagation()}>
-            <h2>配置本地 PlantUML 服务器</h2>
-            <p className="guide-subtitle">本地服务器可实现离线渲染，保护代码隐私</p>
-
-            <div className="guide-section">
-              <h4>方式一：Docker（推荐）</h4>
-              <div className="guide-code-block">
-                <code>docker run -d -p 8080:8080 plantuml/plantuml-server:jetty</code>
-                <button className="guide-copy-btn" onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText('docker run -d -p 8080:8080 plantuml/plantuml-server:jetty')
-                  } catch { /* ignore */ }
-                }}>复制</button>
-              </div>
-              <p className="guide-note">服务器地址填写：<code>http://localhost:8080</code></p>
-            </div>
-
-            <div className="guide-section">
-              <h4>方式二：Java 直接运行</h4>
-              <div className="guide-code-block">
-                <code>java -jar plantuml.war</code>
-              </div>
-              <p className="guide-note">需要安装 Java 运行时和 Graphviz。从 <a href="#" onClick={e => { e.preventDefault(); window.api?.openExternal?.('https://plantuml.com/download') }}>plantuml.com/download</a> 下载 WAR 文件</p>
-            </div>
-
-            <div className="guide-section">
-              <h4>验证</h4>
-              <p className="guide-note">启动后在浏览器访问 <code>http://localhost:8080</code>，看到 PlantUML 页面即表示成功。然后在上方输入框填入地址并点击「测试连接」。</p>
-            </div>
-
-            <button onClick={() => setShowPlantumlGuide(false)} className="btn-primary" style={{ marginTop: '16px' }}>
-              知道了
-            </button>
-          </div>
-        </div>
-      )}
     </>
   )
 }

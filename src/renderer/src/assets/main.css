@@ -237,6 +237,43 @@ body {
   margin-top: 0;
 }
 
+.welcome-charts-card {
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.welcome-charts-card:hover {
+  border-color: var(--accent-color);
+  background: var(--bg-tertiary);
+}
+
+.welcome-charts-card > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.welcome-charts-card small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.welcome-charts-card-icon {
+  font-size: 24px;
+}
+
 /* 历史文件夹下拉菜单 */
 .folder-history-dropdown {
   position: relative;
@@ -1894,6 +1931,10 @@ body {
 }
 
 .search-degraded {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin: 8px 12px;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--warning-color, #d97706) 45%, var(--border-color));
@@ -1902,6 +1943,16 @@ body {
   background: color-mix(in srgb, var(--warning-color, #d97706) 8%, var(--bg-secondary));
   font-size: 12px;
   line-height: 1.4;
+}
+
+.search-degraded button {
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
 /* v1.5.1: 搜索结果分组 */
@@ -2470,6 +2521,32 @@ body {
   overflow: auto;
   box-sizing: border-box;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.settings-panel.settings-panel-charts {
+  display: flex;
+  width: min(1080px, calc(100vw - 48px));
+  max-height: min(880px, calc(100dvh - 48px));
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-panel-charts .settings-header,
+.settings-panel-charts .settings-tabs {
+  flex: 0 0 auto;
+}
+
+.settings-panel-charts .settings-content {
+  min-height: 0;
+  max-height: calc(100dvh - 160px);
+  overflow: auto;
+}
+
+@media (max-width: 620px) {
+  .settings-panel.settings-panel-charts {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
 }
 
 .settings-header {
@@ -3687,6 +3764,13 @@ body {
   transform: scale(0.95);
 }
 
+.floating-nav-count {
+  margin-left: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
 /* ============================================
    朗读控制条 (v2.7.0 TTS)
    ============================================ */
@@ -4003,6 +4087,410 @@ body {
   padding: 8px 0;
 }
 
+.backlinks-panel {
+  width: min(380px, calc(100vw - 88px));
+}
+
+.backlinks-panel-header {
+  align-items: flex-start;
+  padding: 13px 14px 11px;
+}
+
+.backlinks-panel-heading {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.backlinks-panel-heading .toc-panel-title {
+  margin: 0;
+}
+
+.backlinks-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.backlinks-count,
+.backlink-group-count {
+  display: inline-flex;
+  min-width: 20px;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-color) 11%, var(--bg-primary));
+  color: var(--accent-color);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.backlinks-target,
+.backlinks-target-directory {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlinks-target {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.backlinks-target-directory {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.backlinks-summary {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.backlinks-panel-content {
+  padding: 0;
+}
+
+.backlinks-panel-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.backlinks-panel-status strong {
+  color: var(--text-primary);
+}
+
+.backlinks-panel-status button {
+  align-self: flex-end;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.backlinks-indexing {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.backlinks-section {
+  padding: 12px 14px 4px;
+}
+
+.backlinks-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.backlinks-section-title span {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.backlink-mention {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlink-mention + .backlink-mention {
+  margin-top: 7px;
+}
+
+.backlink-mention:hover,
+.backlink-mention:focus-visible,
+.backlink-source-direct:hover,
+.backlink-source-direct:focus-visible,
+.backlink-position:hover,
+.backlink-position:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-color) 42%, var(--border-color));
+  background: var(--bg-tertiary);
+}
+
+.backlink-mention:focus,
+.backlink-source-direct:focus,
+.backlinks-disclosure:focus,
+.backlink-source-disclosure:focus,
+.backlink-position:focus {
+  outline: none;
+}
+
+.backlink-mention:focus-visible,
+.backlink-source-direct:focus-visible,
+.backlinks-disclosure:focus-visible,
+.backlink-source-disclosure:focus-visible,
+.backlink-position:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.backlink-mention-context {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.backlink-mention-meta {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.backlink-mention-meta > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.backlink-mention-meta strong,
+.backlink-mention-meta small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlink-mention-meta strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.backlink-mention-meta small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.backlink-mention-meta > span:last-child {
+  flex: 0 0 auto;
+  color: var(--accent-color);
+}
+
+.backlinks-no-mentions {
+  display: grid;
+  gap: 3px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.backlinks-no-mentions strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.backlinks-no-mentions span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.backlinks-other-section {
+  border-top: 1px solid var(--border-color);
+}
+
+.backlinks-no-mentions + .backlinks-other-section {
+  border-top: 0;
+}
+
+.backlinks-disclosure,
+.backlink-source-disclosure {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlinks-disclosure {
+  padding: 11px 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.backlinks-disclosure:hover,
+.backlinks-disclosure:focus-visible,
+.backlink-source-disclosure:hover,
+.backlink-source-disclosure:focus-visible {
+  background: var(--bg-tertiary);
+}
+
+.backlinks-disclosure > span:last-child,
+.backlink-source-disclosure > span:last-child {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.backlinks-disclosure b,
+.backlink-source-disclosure b {
+  display: inline-block;
+  margin-left: 3px;
+  transition: transform 0.12s ease;
+}
+
+.backlinks-disclosure[aria-expanded='true'] b,
+.backlink-source-disclosure[aria-expanded='true'] b {
+  transform: rotate(90deg);
+}
+
+.backlinks-other-groups {
+  border-top: 1px solid var(--border-color);
+}
+
+.backlink-other-group + .backlink-other-group {
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.backlink-source-direct {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 3px 10px;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlink-direct-location {
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.backlink-direct-location b {
+  margin-left: 3px;
+  color: var(--accent-color);
+}
+
+.backlink-source-direct .backlink-position-context {
+  grid-column: 1 / -1;
+}
+
+.backlink-source-disclosure {
+  align-items: flex-start;
+  padding: 9px 14px;
+}
+
+.backlink-group-identity {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.backlink-source,
+.backlink-directory {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlink-source {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.backlink-directory {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.backlink-positions {
+  display: grid;
+  gap: 5px;
+  padding: 0 14px 10px 24px;
+}
+
+.backlink-position {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlink-position-meta {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.backlink-position-meta b {
+  float: right;
+  color: var(--accent-color);
+}
+
+.backlink-position-context {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backlinks-disclosure b,
+  .backlink-source-disclosure b {
+    transition: none;
+  }
+}
+
 /* ============================================
    目录项样式 (v1.3.5)
    ============================================ */
@@ -4066,6 +4554,14 @@ body {
     height: 48px;
     border-radius: 50%;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .floating-nav.panel-open {
+    z-index: 110;
+  }
+
+  .floating-nav.panel-open > .floating-nav-btn {
+    display: none;
   }
 
   .toc-panel {
@@ -4589,6 +5085,7 @@ pre:hover .copy-btn,
 .plotly-code-view:hover .copy-btn,
 .dbml-code-view:hover .copy-btn,
 .antv-g6-code-view:hover .copy-btn,
+.svg-code-view:hover .copy-btn,
 .kroki-code-view:hover .copy-btn,
 .drawio-code-view:hover .copy-btn,
 .plantuml-code-view:hover .copy-btn,
@@ -4633,6 +5130,7 @@ pre:hover .copy-btn,
 .plotly-back-btn,
 .dbml-back-btn,
 .antv-g6-back-btn,
+.svg-back-btn,
 .kroki-back-btn,
 .drawio-back-btn,
 .plantuml-back-btn,
@@ -4667,6 +5165,7 @@ pre:hover .copy-btn,
 .plotly-code-view:hover .plotly-back-btn,
 .dbml-code-view:hover .dbml-back-btn,
 .antv-g6-code-view:hover .antv-g6-back-btn,
+.svg-code-view:hover .svg-back-btn,
 .kroki-code-view:hover .kroki-back-btn,
 .drawio-code-view:hover .drawio-back-btn,
 .plantuml-code-view:hover .plantuml-back-btn,
@@ -4688,6 +5187,7 @@ pre:hover .copy-btn,
 .plotly-back-btn:hover,
 .dbml-back-btn:hover,
 .antv-g6-back-btn:hover,
+.svg-back-btn:hover,
 .kroki-back-btn:hover,
 .drawio-back-btn:hover,
 .plantuml-back-btn:hover,
@@ -4988,6 +5488,7 @@ pre:hover .copy-btn,
 .plotly-wrapper,
 .dbml-wrapper,
 .antv-g6-wrapper,
+.svg-wrapper,
 .kroki-wrapper {
   position: relative;
   width: 100%;
@@ -5002,10 +5503,12 @@ pre:hover .copy-btn,
 .plotly-wrapper.zoomed-wrapper,
 .dbml-wrapper.zoomed-wrapper,
 .antv-g6-wrapper.zoomed-wrapper,
+.svg-wrapper.zoomed-wrapper,
 .kroki-wrapper.zoomed-wrapper {
   overflow: auto;
 }
 
+.svg-wrapper,
 .kroki-wrapper {
   overflow: visible;
 }
@@ -5014,6 +5517,7 @@ pre:hover .copy-btn,
 .plotly-wrapper .plotly-container,
 .dbml-wrapper .dbml-container,
 .antv-g6-wrapper .antv-g6-container,
+.svg-wrapper .svg-container,
 .kroki-wrapper .kroki-container {
   display: flex;
   align-items: center;
@@ -5030,6 +5534,7 @@ pre:hover .copy-btn,
 .plotly-wrapper .plotly-container svg,
 .dbml-wrapper .dbml-container svg,
 .antv-g6-wrapper .antv-g6-container svg,
+.svg-wrapper .svg-container svg,
 .kroki-wrapper .kroki-container svg {
   max-width: 100%;
   max-height: 70vh;
@@ -5037,10 +5542,16 @@ pre:hover .copy-btn,
   display: block;
 }
 
+.svg-wrapper .svg-container svg {
+  width: auto;
+  max-height: none;
+}
+
 .structurizr-toggle-bar,
 .plotly-toggle-bar,
 .dbml-toggle-bar,
 .antv-g6-toggle-bar,
+.svg-toggle-bar,
 .kroki-toggle-bar {
   display: flex;
   align-items: center;
@@ -5057,6 +5568,7 @@ pre:hover .copy-btn,
 .plotly-action-btn,
 .dbml-action-btn,
 .antv-g6-action-btn,
+.svg-action-btn,
 .kroki-action-btn {
   padding: 4px 8px;
   font-size: 13px;
@@ -5073,6 +5585,7 @@ pre:hover .copy-btn,
 .plotly-action-btn:hover,
 .dbml-action-btn:hover,
 .antv-g6-action-btn:hover,
+.svg-action-btn:hover,
 .kroki-action-btn:hover {
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -5082,6 +5595,7 @@ pre:hover .copy-btn,
 .plotly-action-btn:active,
 .dbml-action-btn:active,
 .antv-g6-action-btn:active,
+.svg-action-btn:active,
 .kroki-action-btn:active {
   background: var(--accent-color);
   color: white;
@@ -5091,6 +5605,7 @@ pre:hover .copy-btn,
 .plotly-code-view,
 .dbml-code-view,
 .antv-g6-code-view,
+.svg-code-view,
 .kroki-code-view {
   width: 100%;
   max-height: 600px;
@@ -5104,11 +5619,13 @@ pre:hover .copy-btn,
 .plotly-code-view pre,
 .dbml-code-view pre,
 .antv-g6-code-view pre,
+.svg-code-view pre,
 .kroki-code-view pre,
 .markdown-body .structurizr-code-view pre,
 .markdown-body .plotly-code-view pre,
 .markdown-body .dbml-code-view pre,
 .markdown-body .antv-g6-code-view pre,
+.markdown-body .svg-code-view pre,
 .markdown-body .kroki-code-view pre {
   margin: 0;
   padding: 48px 16px 16px;
@@ -5122,6 +5639,7 @@ pre:hover .copy-btn,
 .plotly-code-view code,
 .dbml-code-view code,
 .antv-g6-code-view code,
+.svg-code-view code,
 .kroki-code-view code {
   font-size: 13px;
   line-height: 1.6;
@@ -6267,6 +6785,7 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .plotly-toggle-bar,
 .dbml-toggle-bar,
 .antv-g6-toggle-bar,
+.svg-toggle-bar,
 .kroki-toggle-bar,
 .drawio-toggle-bar,
 .plantuml-toggle-bar,
@@ -6294,6 +6813,7 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .plotly-wrapper:hover .plotly-toggle-bar,
 .dbml-wrapper:hover .dbml-toggle-bar,
 .antv-g6-wrapper:hover .antv-g6-toggle-bar,
+.svg-wrapper:hover .svg-toggle-bar,
 .kroki-wrapper:hover .kroki-toggle-bar,
 .drawio-wrapper:hover .drawio-toggle-bar,
 .plantuml-wrapper:hover .plantuml-toggle-bar,
@@ -6311,6 +6831,7 @@ body > div[style*="z-index"][style*="height: 26px"][style*="margin-top: -26px"] 
 .plotly-wrapper:focus-within .plotly-toggle-bar,
 .dbml-wrapper:focus-within .dbml-toggle-bar,
 .antv-g6-wrapper:focus-within .antv-g6-toggle-bar,
+.svg-wrapper:focus-within .svg-toggle-bar,
 .kroki-wrapper:focus-within .kroki-toggle-bar,
 .drawio-wrapper:focus-within .drawio-toggle-bar,
 .plantuml-wrapper:focus-within .plantuml-toggle-bar,
@@ -6678,6 +7199,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen,
 .dbml-wrapper.chart-fullscreen,
 .antv-g6-wrapper.chart-fullscreen,
+.svg-wrapper.chart-fullscreen,
 .kroki-wrapper.chart-fullscreen {
   --chart-lightbox-margin: clamp(20px, 4vmin, 40px);
   position: fixed;
@@ -6697,6 +7219,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen .plotly-toggle-bar,
 .dbml-wrapper.chart-fullscreen .dbml-toggle-bar,
 .antv-g6-wrapper.chart-fullscreen .antv-g6-toggle-bar,
+.svg-wrapper.chart-fullscreen .svg-toggle-bar,
 .kroki-wrapper.chart-fullscreen .kroki-toggle-bar {
   position: fixed;
   top: auto;
@@ -6727,6 +7250,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen .plotly-action-btn,
 .dbml-wrapper.chart-fullscreen .dbml-action-btn,
 .antv-g6-wrapper.chart-fullscreen .antv-g6-action-btn,
+.svg-wrapper.chart-fullscreen .svg-action-btn,
 .kroki-wrapper.chart-fullscreen .kroki-action-btn {
   display: inline-flex;
   align-items: center;
@@ -6750,6 +7274,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen .plotly-action-btn img,
 .dbml-wrapper.chart-fullscreen .dbml-action-btn img,
 .antv-g6-wrapper.chart-fullscreen .antv-g6-action-btn img,
+.svg-wrapper.chart-fullscreen .svg-action-btn img,
 .kroki-wrapper.chart-fullscreen .kroki-action-btn img {
   width: 36px;
   height: 36px;
@@ -6762,6 +7287,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen .plotly-action-btn:hover,
 .dbml-wrapper.chart-fullscreen .dbml-action-btn:hover,
 .antv-g6-wrapper.chart-fullscreen .antv-g6-action-btn:hover,
+.svg-wrapper.chart-fullscreen .svg-action-btn:hover,
 .kroki-wrapper.chart-fullscreen .kroki-action-btn:hover {
   background: transparent;
   color: #ffffff;
@@ -6772,6 +7298,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen .plotly-container,
 .dbml-wrapper.chart-fullscreen .dbml-container,
 .antv-g6-wrapper.chart-fullscreen .antv-g6-container,
+.svg-wrapper.chart-fullscreen .svg-container,
 .kroki-wrapper.chart-fullscreen .kroki-container {
   position: absolute;
   inset: var(--chart-lightbox-margin);
@@ -6797,6 +7324,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen .plotly-code-view,
 .dbml-wrapper.chart-fullscreen .dbml-code-view,
 .antv-g6-wrapper.chart-fullscreen .antv-g6-code-view,
+.svg-wrapper.chart-fullscreen .svg-code-view,
 .kroki-wrapper.chart-fullscreen .kroki-code-view {
   max-height: calc(100vh - 50px);
 }
@@ -6805,6 +7333,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen .plotly-container svg,
 .dbml-wrapper.chart-fullscreen .dbml-container svg,
 .antv-g6-wrapper.chart-fullscreen .antv-g6-container svg,
+.svg-wrapper.chart-fullscreen .svg-container svg,
 .kroki-wrapper.chart-fullscreen .kroki-container svg {
   width: var(--chart-fullscreen-svg-width, auto) !important;
   height: var(--chart-fullscreen-svg-height, auto) !important;
@@ -6818,6 +7347,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen.zoomed-wrapper .plotly-container,
 .dbml-wrapper.chart-fullscreen.zoomed-wrapper .dbml-container,
 .antv-g6-wrapper.chart-fullscreen.zoomed-wrapper .antv-g6-container,
+.svg-wrapper.chart-fullscreen.zoomed-wrapper .svg-container,
 .kroki-wrapper.chart-fullscreen.zoomed-wrapper .kroki-container {
   align-items: flex-start;
   justify-content: flex-start;
@@ -6828,6 +7358,7 @@ body.chart-fullscreen-active {
 .plotly-wrapper.chart-fullscreen.zoomed-wrapper .plotly-container svg,
 .dbml-wrapper.chart-fullscreen.zoomed-wrapper .dbml-container svg,
 .antv-g6-wrapper.chart-fullscreen.zoomed-wrapper .antv-g6-container svg,
+.svg-wrapper.chart-fullscreen.zoomed-wrapper .svg-container svg,
 .kroki-wrapper.chart-fullscreen.zoomed-wrapper .kroki-container svg {
   max-width: none !important;
   max-height: none !important;
@@ -6976,6 +7507,80 @@ body.chart-fullscreen-active {
   border-radius: 0;
 }
 
+
+.remote-chart-document-consent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 35%, var(--border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-color) 8%, var(--bg-primary));
+}
+
+.remote-chart-document-consent > div {
+  display: grid;
+  gap: 3px;
+}
+
+.remote-chart-document-consent strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.remote-chart-document-consent span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.remote-chart-document-consent button {
+  flex: none;
+  padding: 7px 12px;
+  border: 1px solid var(--accent-color);
+  border-radius: 6px;
+  color: white;
+  background: var(--accent-color);
+  cursor: pointer;
+}
+
+@media (max-width: 700px) {
+  .remote-chart-document-consent {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.remote-chart-failure {
+  margin: 1.5em 0;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.remote-chart-error {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.remote-chart-retry-button {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.remote-chart-retry-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
 
 /* 错误样式 */
 .plantuml-error {

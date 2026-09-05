@@ -1,6 +1,7 @@
 import { rendererErrorHtml, serializeTemplate } from './d2Renderer'
 import { finishSvg, simpleError, type SimpleRenderResult } from './simpleSvgRenderer'
 import { cleanUserFacingError } from './userFacingErrors'
+import { createRemoteChartRequestKey, scheduleRemoteChartRequest } from './remoteChartRequestScheduler'
 
 const KROKI_ENDPOINT = 'https://kroki.io'
 const MAX_KROKI_SOURCE_LENGTH = 128_000
@@ -37,34 +38,33 @@ export async function renderKrokiToSvg(
   }
 
   const endpoint = (options.endpoint || KROKI_ENDPOINT).replace(/\/+$/, '')
+  const requestKey = createRemoteChartRequestKey('kroki', endpoint, format, body)
   try {
-    const bridge = !options.endpoint || endpoint === KROKI_ENDPOINT
-      ? getElectronKrokiBridge()
-      : undefined
-    if (bridge) {
-      const bridged = await bridge({ format, source: body })
-      if (!bridged.ok || !bridged.svg) {
-        return simpleError('KROKI_REMOTE_FAILED', bridged.error || 'Kroki 主进程渲染失败')
+    const svg = await scheduleRemoteChartRequest(requestKey, async () => {
+      const bridge = !options.endpoint || endpoint === KROKI_ENDPOINT
+        ? getElectronKrokiBridge()
+        : undefined
+      if (bridge) {
+        const bridged = await bridge({ format, source: body })
+        if (!bridged.ok || !bridged.svg) {
+          throw new Error(bridged.error || 'Kroki 主进程渲染失败')
+        }
+        if (!/<svg[\s>]/i.test(bridged.svg)) throw new Error('Kroki 服务未返回 SVG')
+        return finishSvg(bridged.svg, 1800)
       }
-      if (!/<svg[\s>]/i.test(bridged.svg)) {
-        return simpleError('KROKI_INVALID_SVG', 'Kroki 服务未返回 SVG')
-      }
-      return { ok: true, svg: finishSvg(bridged.svg, 1800) }
-    }
 
-    const response = await fetch(`${endpoint}/${format}/svg`, {
-      method: 'POST',
-      headers: { 'content-type': 'text/plain; charset=utf-8' },
-      body,
+      const response = await fetch(`${endpoint}/${format}/svg`, {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+        body,
+        signal: AbortSignal.timeout(8000),
+      })
+      const responseSvg = await response.text()
+      if (!response.ok) throw new Error(responseSvg || `Kroki 服务返回 ${response.status}`)
+      if (!/<svg[\s>]/i.test(responseSvg)) throw new Error('Kroki 服务未返回 SVG')
+      return finishSvg(responseSvg, 1800)
     })
-    const svg = await response.text()
-    if (!response.ok) {
-      return simpleError('KROKI_REMOTE_FAILED', svg || `Kroki 服务返回 ${response.status}`)
-    }
-    if (!/<svg[\s>]/i.test(svg)) {
-      return simpleError('KROKI_INVALID_SVG', 'Kroki 服务未返回 SVG')
-    }
-    return { ok: true, svg: finishSvg(svg, 1800) }
+    return { ok: true, svg }
   } catch (error) {
     return simpleError('KROKI_REMOTE_FAILED', cleanUserFacingError(error))
   }

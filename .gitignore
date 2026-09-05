@@ -7,7 +7,12 @@ yarn-error.log*
 # Build
 dist/
 out/
+.package-app/
 build/
+
+# Generated offline chart example package
+resources/examples/md-viewer-chart-examples.zip
+resources/examples/md-viewer-chart-examples.manifest.json
 
 # Electron
 *.log

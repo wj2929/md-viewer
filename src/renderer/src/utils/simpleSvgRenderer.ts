@@ -120,18 +120,76 @@ export function renderGraphSvg(input: {
         h: baseNodeHeight,
       })
     })
+  } else if (nodes.some(node => node.group)) {
+    const grouped = new Map<string, Array<{ node: SimpleNode; index: number }>>()
+    nodes.forEach((node, index) => {
+      const key = node.group || `__ungrouped-${index}`
+      grouped.set(key, [...(grouped.get(key) || []), { node, index }])
+    })
+    const groupEntries = Array.from(grouped.values())
+    const groupCols = Math.min(2, Math.max(1, groupEntries.length))
+    const groupGap = 72
+    const groupWidth = (width - 120 - (groupCols - 1) * groupGap) / groupCols
+    const innerGap = 56
+    const nodesPerGroupRow = Math.max(1, Math.min(2, Math.floor((groupWidth - 48 + innerGap) / (nodeWidth + innerGap))))
+    const groupHeights = groupEntries.map(items => {
+      const rows = Math.ceil(items.length / nodesPerGroupRow)
+      return 34 + rows * baseNodeHeight + Math.max(0, rows - 1) * 28 + 24
+    })
+    const groupRowHeights: number[] = []
+    groupHeights.forEach((height, index) => {
+      const row = Math.floor(index / groupCols)
+      groupRowHeights[row] = Math.max(groupRowHeights[row] || 0, height)
+    })
+    const groupRowTops: number[] = []
+    let nextGroupRowTop = 104
+    for (const rowHeight of groupRowHeights) {
+      groupRowTops.push(nextGroupRowTop)
+      nextGroupRowTop += rowHeight + groupGap
+    }
+
+    groupEntries.forEach((items, groupIndex) => {
+      const groupRow = Math.floor(groupIndex / groupCols)
+      const groupCol = groupIndex % groupCols
+      const groupX = 60 + groupCol * (groupWidth + groupGap)
+      const groupY = groupRowTops[groupRow]
+      items.forEach(({ node }, itemIndex) => {
+        const row = Math.floor(itemIndex / nodesPerGroupRow)
+        const col = itemIndex % nodesPerGroupRow
+        positions.set(node.id, {
+          x: groupX + 24 + col * (nodeWidth + innerGap),
+          y: groupY + 34 + row * (baseNodeHeight + 28),
+          w: nodeWidth,
+          h: baseNodeHeight,
+        })
+      })
+    })
   } else {
     const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(nodes.length))))
-    nodes.forEach((node, index) => {
+    const nodeHeights = nodes.map((node) => {
       const fieldsHeight = node.fields?.length ? Math.min(260, node.fields.length * 24 + 82) : 0
-      const h = Math.max(baseNodeHeight, fieldsHeight || baseNodeHeight)
+      return Math.max(baseNodeHeight, fieldsHeight || baseNodeHeight)
+    })
+    const rowHeights: number[] = []
+    for (let index = 0; index < nodes.length; index += 1) {
+      const row = Math.floor(index / cols)
+      rowHeights[row] = Math.max(rowHeights[row] || 0, nodeHeights[index])
+    }
+    const rowTops: number[] = []
+    let nextRowTop = 104
+    for (const rowHeight of rowHeights) {
+      rowTops.push(nextRowTop)
+      nextRowTop += rowHeight + 56
+    }
+
+    nodes.forEach((node, index) => {
       const row = Math.floor(index / cols)
       const col = index % cols
       positions.set(node.id, {
         x: 60 + col * ((width - 120) / cols),
-        y: 104 + row * 164,
+        y: rowTops[row],
         w: mode === 'erd' ? 220 : nodeWidth,
-        h,
+        h: nodeHeights[index],
       })
     })
   }

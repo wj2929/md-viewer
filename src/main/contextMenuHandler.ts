@@ -9,6 +9,7 @@ import { Menu, shell, clipboard, BrowserWindow, dialog } from 'electron'
 import * as path from 'path'
 import { validateSecurePathInBase } from './security'
 import { getClipboardState, syncClipboardState } from './clipboardState'
+import { getFileManagerLabels } from './platformMenuLabels'
 
 /**
  * 文件信息接口
@@ -69,15 +70,11 @@ export function showContextMenu(
   actions: ContextMenuActions = {}
 ): void {
   const platform = process.platform
+  const fileManagerLabels = getFileManagerLabels(platform)
 
   // 菜单文案国际化
   const i18n = {
-    showInFolder:
-      platform === 'darwin'
-        ? '📂 在 Finder 中显示'
-        : platform === 'win32'
-        ? '📂 在资源管理器中显示'
-        : '📂 在文件管理器中显示',
+    showInFolder: `📂 ${fileManagerLabels.showInFolder}`,
     copyPath: '📋 复制路径',
     copyRelativePath: '📎 复制相对路径',
     copy: '📄 复制',

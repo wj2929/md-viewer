@@ -59,7 +59,7 @@ export const P0_COMMANDS: CliCapability[] = [
     stability: 'stable',
     schema: 'schema doctor --json',
     requires: [],
-    examples: ['md-viewer doctor --json'],
+    examples: ['md-viewer doctor --json', 'md-viewer doctor --bundle diagnostics.zip --json'],
   },
   {
     name: 'screenshot',
@@ -128,6 +128,28 @@ export const P1_COMMANDS: CliCapability[] = [
     requires: [],
     examples: ['md-viewer links README.md --json'],
   },
+  {
+    name: 'diff',
+    description: '比较两个 Markdown 文件的语义结构差异。',
+    stability: 'experimental',
+    schema: 'schema diff --json',
+    requires: [],
+    examples: [
+      'md-viewer diff before.md after.md --json',
+      'md-viewer diff before.md after.md --fail-on-change --json',
+    ],
+  },
+  {
+    name: 'watch',
+    description: '以只读 JSONL 流监听 Markdown 文件或目录变化。',
+    stability: 'experimental',
+    schema: 'schema watch --json',
+    requires: [],
+    examples: [
+      'md-viewer watch docs --jsonl',
+      'md-viewer watch README.md --jsonl --max-events 10',
+    ],
+  },
 ]
 
 export function getRegisteredCapabilities(): CliCapabilities {
@@ -157,6 +179,7 @@ export function getRegisteredCapabilities(): CliCapabilities {
       'plotly',
       'dbml',
       'antv-g6',
+      'svg',
       'kroki',
     ],
     networkPolicy: 'disabled-by-default',

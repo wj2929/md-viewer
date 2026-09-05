@@ -27,6 +27,52 @@ function createTwoFolders(): { fileA: string; fileB: string; cleanup: () => void
 }
 
 test.describe('跨文件夹分屏打开', () => {
+  test('外根分屏文件自动刷新，关闭最后一个标签后解除独立监听', async ({ page, electronApp }) => {
+    const { fileA, fileB, cleanup } = createTwoFolders()
+    try {
+      await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fileB)
+      await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+      await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fileA)
+      await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+      await expect(page.locator('.markdown-body h1')).toHaveText('A')
+      await expect(page.locator('.tab', { hasText: 'a.md' })).toHaveAttribute('aria-selected', 'true')
+      const workspaceId = await page.evaluate(async () => {
+        const bootstrap = await window.api.getWorkspaceBootstrap()
+        if (!bootstrap.activeWorkspaceId) throw new Error('missing active workspace')
+        return bootstrap.activeWorkspaceId
+      })
+
+      await electronApp.evaluate(({ BrowserWindow }, filePath) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send('file:open-in-split', {
+          filePath,
+          direction: 'horizontal'
+        })
+      }, fileB)
+
+      const crossTab = page.locator('.tab', { hasText: 'cross.md' })
+      const crossPanel = page.locator('.split-leaf-panel', { hasText: 'cross.md' })
+      await expect(crossTab).toBeVisible({ timeout: 10000 })
+      await expect(crossPanel.locator('.markdown-body h1')).toHaveText('Cross')
+      await expect.poll(() => page.evaluate(
+        id => window.api.testGetOpenedFileWatcherCount?.(id),
+        workspaceId
+      )).toBe(1)
+
+      writeFileSync(fileB, '# Cross Updated\n\n外根自动刷新')
+      await expect(crossPanel.locator('.markdown-body h1')).toHaveText('Cross Updated')
+      await expect(crossPanel.locator('.markdown-body')).toContainText('外根自动刷新')
+
+      await crossTab.getByRole('button', { name: '关闭 cross.md' }).click()
+      await expect(crossTab).not.toBeVisible()
+      await expect.poll(() => page.evaluate(
+        id => window.api.testGetOpenedFileWatcherCount?.(id),
+        workspaceId
+      )).toBe(0)
+    } finally {
+      cleanup()
+    }
+  })
+
   test('已登记的其他文件夹文件可在当前窗口分屏渲染，不被拒绝', async ({ page, electronApp }) => {
     const { fileA, fileB, cleanup } = createTwoFolders()
     try {
@@ -35,6 +81,7 @@ test.describe('跨文件夹分屏打开', () => {
       await page.waitForSelector('.file-tree-container', { timeout: 10000 })
       await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fileA)
       await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+      await expect(page.locator('.markdown-body h1')).toHaveText('A')
 
       // main 侧向当前窗口 push 分屏打开事件，目标是另一个文件夹里已登记的 cross.md
       await electronApp.evaluate(({ BrowserWindow }, filePath) => {

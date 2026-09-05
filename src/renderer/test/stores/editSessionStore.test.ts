@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useEditSessionStore } from '../../src/stores/editSessionStore'
+import { hasLocalEditActivity, useEditSessionStore } from '../../src/stores/editSessionStore'
 
 const baseSession = {
   canonicalPath: '/real/docs/a.md',
@@ -44,6 +44,24 @@ describe('editSessionStore', () => {
     expect(session.dirty).toBe(false)
     expect(session.baseRevisionToken).toBe('2000:3')
     expect(session.conflictReason).toBeNull()
+  })
+
+  it('treats pending input, IME composition, and save-in-flight as local activity', () => {
+    useEditSessionStore.getState().openSession(baseSession)
+    const path = baseSession.canonicalPath
+
+    expect(hasLocalEditActivity(useEditSessionStore.getState().sessions[path])).toBe(false)
+
+    useEditSessionStore.getState().setPendingInput(path, true)
+    expect(hasLocalEditActivity(useEditSessionStore.getState().sessions[path])).toBe(true)
+    useEditSessionStore.getState().setPendingInput(path, false)
+
+    useEditSessionStore.getState().setComposing(path, true)
+    expect(hasLocalEditActivity(useEditSessionStore.getState().sessions[path])).toBe(true)
+    useEditSessionStore.getState().setComposing(path, false)
+
+    useEditSessionStore.getState().setSaving(path, true)
+    expect(hasLocalEditActivity(useEditSessionStore.getState().sessions[path])).toBe(true)
   })
 
   it('records conflicts without discarding the draft', () => {

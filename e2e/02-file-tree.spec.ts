@@ -1,6 +1,6 @@
 import { test, expect, openFolderViaIPC } from './fixtures/electron'
 import { join } from 'path'
-import { writeFileSync } from 'fs'
+import { mkdirSync, writeFileSync } from 'fs'
 
 /**
  * E2E 测试 2: 文件树功能
@@ -103,6 +103,47 @@ test.describe('文件树功能测试', () => {
     if (await searchResults.isVisible()) {
       await expect(searchResults.locator('.search-result-item:has-text("code.md")')).toBeVisible()
     }
+  })
+
+  test('搜索打开深层文档时应该展开祖先并滚动定位文件树', async ({ page, electronApp, testDir }) => {
+    const nestedDir = join(testDir, 'zz-reveal', 'level-two', 'level-three')
+    mkdirSync(nestedDir, { recursive: true })
+    writeFileSync(join(nestedDir, 'reveal-target.md'), '# Reveal Target\n')
+    for (let index = 0; index < 70; index += 1) {
+      writeFileSync(join(testDir, `aa-reveal-${String(index).padStart(2, '0')}.md`), `# Filler ${index}\n`)
+    }
+
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+
+    const rootFolder = page.locator('.file-tree-row.directory', { hasText: 'zz-reveal' })
+    const levelTwo = page.locator('.file-tree-row.directory', { hasText: 'level-two' })
+    const levelThree = page.locator('.file-tree-row.directory', { hasText: 'level-three' })
+    await expect(rootFolder).toHaveAttribute('aria-expanded', 'true')
+    await rootFolder.click()
+    await expect(rootFolder).toHaveAttribute('aria-expanded', 'false')
+
+    await page.click('.search-trigger')
+    await page.locator('.search-input').fill('reveal-target')
+    const result = page.locator('.search-result-item', { hasText: 'reveal-target.md' })
+    await expect(result).toBeVisible()
+    await result.click()
+
+    const targetRow = page.locator('.file-tree-row.file', { hasText: 'reveal-target.md' })
+    await expect(rootFolder).toHaveAttribute('aria-expanded', 'true')
+    await expect(levelTwo).toHaveAttribute('aria-expanded', 'true')
+    await expect(levelThree).toHaveAttribute('aria-expanded', 'true')
+    await expect(targetRow).toHaveClass(/selected/)
+    await expect(targetRow).toBeVisible()
+
+    const isInsideTreeViewport = await targetRow.evaluate((row) => {
+      const container = row.closest('.file-tree-container')
+      if (!container) return false
+      const rowRect = row.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      return rowRect.top >= containerRect.top && rowRect.bottom <= containerRect.bottom
+    })
+    expect(isInsideTreeViewport).toBe(true)
   })
 
   test('搜索弹窗应该支持中文文本输入', async ({ page, electronApp, testDir }) => {

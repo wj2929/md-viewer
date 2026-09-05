@@ -29,6 +29,7 @@ import { processStructurizrInHtml } from './structurizrRenderer'
 import { processPlotlyInHtml } from './plotlyRenderer'
 import { processDbmlInHtml } from './dbmlRenderer'
 import { processAntvG6InHtml } from './antvG6Renderer'
+import { processRestrictedSvgInHtml } from './restrictedSvgRenderer'
 import { processKrokiInHtml } from './krokiRenderer'
 import { cleanUserFacingError } from './userFacingErrors'
 
@@ -423,6 +424,7 @@ export async function buildExportHtmlContent(markdown: string, options: ExportHt
   html = await processPlotlyInHtml(html)
   html = await processDbmlInHtml(html)
   html = await processAntvG6InHtml(html)
+  html = processRestrictedSvgInHtml(html)
   html = await processKrokiInHtml(html)
   html = await embedLocalImagesInHtml(html, options)
 
@@ -443,6 +445,7 @@ export async function buildExportHtmlContent(markdown: string, options: ExportHt
     'plotly-container',
     'dbml-container',
     'antv-g6-container',
+    'svg-container',
     'kroki-container',
   ])
 

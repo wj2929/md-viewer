@@ -85,4 +85,79 @@ test.describe('文件夹 tab 会话记忆 + 懒加载', () => {
       cleanup()
     }
   })
+
+  test('切走再切回恢复同根分屏结构、活动叶子和独立阅读位置', async ({ page, electronApp }) => {
+    const { a1, a2, b1, cleanup } = createFolders()
+    writeFileSync(a2, [
+      '# Alpha Two',
+      '',
+      ...Array.from({ length: 220 }, (_, index) => `## 章节 ${index + 1}\n\n这是第 ${index + 1} 节的正文，用于验证同文档双 leaf 的独立阅读位置。`),
+    ].join('\n'))
+    try {
+      await page.evaluate(p => window.api.testOpenMarkdownFile?.(p), b1)
+      await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+      await page.evaluate(p => window.api.testOpenMarkdownFile?.(p), a1)
+      await expect(page.locator('.markdown-body')).toContainText('Alpha One', { timeout: 10000 })
+      await page.locator('.file-tree-row .file-name', { hasText: 'a2.md' }).click()
+      await expect(page.locator('.markdown-body')).toContainText('Alpha Two', { timeout: 10000 })
+
+      const tabId = await page.locator('.tab.active').getAttribute('data-tab-id')
+      expect(tabId).toBeTruthy()
+      await electronApp.evaluate(({ BrowserWindow }, payload) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send('tab:open-in-split', payload)
+      }, { tabId, direction: 'horizontal' })
+      await expect(page.locator('.split-leaf-panel')).toHaveCount(2)
+      const previews = page.locator('.split-leaf-panel .preview')
+      await expect(previews).toHaveCount(2)
+      await expect(page.locator('.split-leaf-panel .markdown-body')).toHaveCount(2)
+      await expect.poll(async () => previews.evaluateAll(elements =>
+        elements.every(element => element.scrollHeight > element.clientHeight)
+      )).toBe(true)
+      await page.evaluate(() => new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }))
+      await previews.nth(0).evaluate(element => {
+        const max = element.scrollHeight - element.clientHeight
+        element.scrollTop = max * 0.12
+        element.dispatchEvent(new Event('scroll'))
+      })
+      await previews.nth(1).evaluate(element => {
+        const max = element.scrollHeight - element.clientHeight
+        element.scrollTop = max * 0.78
+        element.dispatchEvent(new Event('scroll'))
+      })
+      await expect.poll(async () => previews.evaluateAll(elements => elements.map(element => {
+        const max = Math.max(1, element.scrollHeight - element.clientHeight)
+        return element.scrollTop / max
+      }))).toEqual([
+        expect.closeTo(0.12, 1),
+        expect.closeTo(0.78, 1),
+      ])
+      await page.waitForTimeout(700)
+      await page.locator('.split-leaf-panel').nth(1).click()
+      await expect(page.locator('.split-leaf-panel').nth(1)).toHaveClass(/active/)
+
+      await page.locator('.history-toggle-btn').click()
+      await page.locator('.history-menu .history-item', { hasText: 'beta' }).click()
+      await expect(page.locator('.split-leaf-panel')).toHaveCount(0)
+
+      await page.locator('.history-toggle-btn').click()
+      await page.locator('.history-menu .history-item', { hasText: 'alpha' }).click()
+      await expect(page.locator('.split-leaf-panel')).toHaveCount(2, { timeout: 10000 })
+      await expect(page.locator('.split-leaf-panel').nth(1)).toHaveClass(/active/)
+      await expect(page.locator('.split-leaf-panel .markdown-body')).toHaveCount(2, { timeout: 10000 })
+      await expect(page.locator('.split-leaf-panel .markdown-body').first()).toContainText('Alpha Two')
+      await expect(page.locator('.split-leaf-panel .markdown-body').nth(1)).toContainText('Alpha Two')
+      await expect(page.locator('.tab.active .tab-name')).toContainText('a2.md')
+      await expect.poll(async () => previews.evaluateAll(elements => elements.map(element => {
+        const max = Math.max(1, element.scrollHeight - element.clientHeight)
+        return element.scrollTop / max
+      })), { timeout: 10000 }).toEqual([
+        expect.closeTo(0.12, 1),
+        expect.closeTo(0.78, 1),
+      ])
+    } finally {
+      cleanup()
+    }
+  })
 })

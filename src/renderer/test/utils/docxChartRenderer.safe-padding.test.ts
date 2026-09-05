@@ -14,6 +14,7 @@ const mockRenderStructurizrToSvg = vi.hoisted(() => vi.fn())
 const mockRenderPlotlyToSvg = vi.hoisted(() => vi.fn())
 const mockRenderDbmlToSvg = vi.hoisted(() => vi.fn())
 const mockRenderAntvG6ToSvg = vi.hoisted(() => vi.fn())
+const mockRenderRestrictedSvgToSvg = vi.hoisted(() => vi.fn())
 const mockRenderKrokiToSvg = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/utils/excalidrawRenderer', () => ({
@@ -69,6 +70,10 @@ vi.mock('../../src/utils/dbmlRenderer', () => ({
 
 vi.mock('../../src/utils/antvG6Renderer', () => ({
   renderAntvG6ToSvg: mockRenderAntvG6ToSvg,
+}))
+
+vi.mock('../../src/utils/restrictedSvgRenderer', () => ({
+  renderRestrictedSvgToSvg: mockRenderRestrictedSvgToSvg,
 }))
 
 vi.mock('../../src/utils/krokiRenderer', () => ({
@@ -261,6 +266,7 @@ describe('DOCX Excalidraw chart rendering', () => {
     mockRenderPlotlyToSvg.mockResolvedValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
     mockRenderDbmlToSvg.mockReturnValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
     mockRenderAntvG6ToSvg.mockReturnValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
+    mockRenderRestrictedSvgToSvg.mockReturnValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
     mockRenderKrokiToSvg.mockResolvedValue({ ok: true, svg: '<svg viewBox="0 0 800 360"><rect width="800" height="360"></rect></svg>' })
     mockRenderDrawioInElement.mockImplementation(async (_code: string, container: HTMLElement) => {
       container.innerHTML = '<svg viewBox="0 0 320 140"><rect width="320" height="140"></rect></svg>'
@@ -408,6 +414,10 @@ describe('DOCX Excalidraw chart rendering', () => {
       '{"nodes":[{"id":"a"}],"edges":[]}',
       '```',
       '',
+      '```svg',
+      '<svg viewBox="0 0 10 10"><rect width="10" height="10" /></svg>',
+      '```',
+      '',
       '```nomnoml',
       '[A]->[B]',
       '```',
@@ -424,13 +434,61 @@ describe('DOCX Excalidraw chart rendering', () => {
     expect(mockRenderPlotlyToSvg).toHaveBeenCalled()
     expect(mockRenderDbmlToSvg).toHaveBeenCalled()
     expect(mockRenderAntvG6ToSvg).toHaveBeenCalled()
+    expect(mockRenderRestrictedSvgToSvg).toHaveBeenCalledWith(expect.any(String), 'docx-export-9')
     expect(mockRenderKrokiToSvg).toHaveBeenCalledWith(expect.any(String), { language: 'nomnoml' })
-    expect(result.images.length).toBe(10)
-    expect(result.modifiedMarkdown.match(/mdv__chart__/g)?.length).toBe(10)
+    expect(result.images.length).toBe(11)
+    expect(result.modifiedMarkdown.match(/mdv__chart__/g)?.length).toBe(11)
     expect(result.modifiedMarkdown).not.toContain('```vega-lite')
     expect(result.modifiedMarkdown).not.toContain('```c4')
     expect(result.modifiedMarkdown).not.toContain('```structurizr')
+    expect(result.modifiedMarkdown).not.toContain('```svg')
     expect(result.modifiedMarkdown).not.toContain('```nomnoml')
+  })
+
+  it('DOCX SVG 解析失败时不使用 DOM fallback，并中性化原始围栏', async () => {
+    document.body.innerHTML = '<div class="markdown-body"><div class="svg-container"><svg viewBox="0 0 10 10"></svg></div></div>'
+    mockRenderRestrictedSvgToSvg.mockReturnValue({
+      ok: false,
+      code: 'SVG_UNSUPPORTED_ELEMENT',
+      message: 'SVG 元素不受支持',
+    })
+
+    const result = await renderChartsForDocx('```svg\n<svg viewBox="0 0 10 10"><script>alert(1)</script></svg>\n```')
+
+    expect(result.images).toHaveLength(0)
+    expect(result.modifiedMarkdown).toBe('[SVG 图表未渲染]')
+    expect(result.modifiedMarkdown).not.toContain('<script')
+    expect(result.warnings.join('\n')).toContain('已替换为中性占位')
+  })
+
+  it('DOCX SVG 在 CRLF 文档中仍经过严格解析并中性化失败源码', async () => {
+    mockRenderRestrictedSvgToSvg.mockReturnValue({
+      ok: false,
+      code: 'SVG_UNSUPPORTED_ELEMENT',
+      message: 'SVG 元素不受支持',
+    })
+
+    const result = await renderChartsForDocx('```svg\r\n<svg viewBox="0 0 10 10"><script>SVG_CRLF_SECRET</script></svg>\r\n```\r\n')
+
+    expect(mockRenderRestrictedSvgToSvg).toHaveBeenCalled()
+    expect(result.images).toHaveLength(0)
+    expect(result.modifiedMarkdown).toBe('[SVG 图表未渲染]\n')
+    expect(result.modifiedMarkdown).not.toContain('SVG_CRLF_SECRET')
+  })
+
+  it('DOCX SVG 在 tilde 围栏中仍经过严格解析并中性化失败源码', async () => {
+    mockRenderRestrictedSvgToSvg.mockReturnValue({
+      ok: false,
+      code: 'SVG_UNSUPPORTED_ELEMENT',
+      message: 'SVG 元素不受支持',
+    })
+
+    const result = await renderChartsForDocx('~~~svg\n<svg viewBox="0 0 10 10"><script>SVG_TILDE_SECRET</script></svg>\n~~~\n')
+
+    expect(mockRenderRestrictedSvgToSvg).toHaveBeenCalled()
+    expect(result.images).toHaveLength(0)
+    expect(result.modifiedMarkdown).toBe('[SVG 图表未渲染]\n')
+    expect(result.modifiedMarkdown).not.toContain('SVG_TILDE_SECRET')
   })
 
   it('DOCX 图表管线在预览 DOM 缺失时主动离屏渲染 DrawIO', async () => {

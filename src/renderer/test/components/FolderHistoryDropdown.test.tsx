@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 import { FolderHistoryDropdown } from '../../src/components/FolderHistoryDropdown'
@@ -31,6 +31,7 @@ describe('FolderHistoryDropdown', () => {
   const getFolderHistory = vi.fn()
   const removeFolderFromHistory = vi.fn()
   const clearFolderHistory = vi.fn()
+  const showRecentFolderContextMenu = vi.fn()
 
   beforeEach(() => {
     onSelectFolder.mockClear()
@@ -38,12 +39,14 @@ describe('FolderHistoryDropdown', () => {
     getFolderHistory.mockResolvedValue(mockFolders)
     removeFolderFromHistory.mockResolvedValue(undefined)
     clearFolderHistory.mockResolvedValue(undefined)
+    showRecentFolderContextMenu.mockResolvedValue({ success: true })
 
     window.api = {
       ...(window.api || {}),
       getFolderHistory,
       removeFolderFromHistory,
       clearFolderHistory,
+      showRecentFolderContextMenu,
       platform: 'darwin',
     } as any
   })
@@ -65,6 +68,16 @@ describe('FolderHistoryDropdown', () => {
     expect(screen.queryByText('直播平台')).not.toBeInTheDocument()
     expect(screen.getByText('docs')).toBeInTheDocument()
     expect(screen.getByText('~/Documents/github/OUCOnline/lms/identity/docs')).toBeInTheDocument()
+  })
+
+  it('右键菜单只向主进程发送文件夹历史 ID', async () => {
+    render(<FolderHistoryDropdown onSelectFolder={onSelectFolder} onOpenFolder={onOpenFolder} />)
+    await userEvent.click(screen.getByLabelText('最近打开的文件夹'))
+    await waitFor(() => expect(screen.getByText('fixtures')).toBeInTheDocument())
+
+    fireEvent.contextMenu(screen.getByText('fixtures').closest('.history-item')!)
+
+    expect(showRecentFolderContextMenu).toHaveBeenCalledWith('history-fixtures')
   })
 
   it('没有匹配结果时显示空状态，并支持清空历史', async () => {

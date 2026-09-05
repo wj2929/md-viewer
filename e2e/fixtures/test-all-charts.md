@@ -78,6 +78,8 @@ stateDiagram-v2
 
 ### 1.6 甘特图
 
+<div id="md-case-mermaid-gantt-export-width"></div>
+
 ```mermaid
 gantt
     title 项目开发计划
@@ -1630,7 +1632,31 @@ Ref: export_tasks.document_id > documents.id
 {"title":"All Charts G6","nodes":[{"id":"preview","label":"Preview"},{"id":"renderer","label":"RendererPlugin"},{"id":"export","label":"Export"},{"id":"docx","label":"DOCX"}],"edges":[{"source":"preview","target":"renderer"},{"source":"renderer","target":"export"},{"source":"export","target":"docx"}]}
 ```
 
-### 8.11 Kroki 长尾格式
+### 8.11 受限 SVG
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240" role="img" aria-labelledby="svg-all-title">
+  <title id="svg-all-title">受限 SVG 全链路测试</title>
+  <defs>
+    <linearGradient id="svg-all-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dbeafe" />
+      <stop offset="1" stop-color="#e1d5e7" />
+    </linearGradient>
+    <marker id="svg-all-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#3974c6" />
+    </marker>
+    <style>
+      .svg-all-title { font: 700 24px -apple-system, "PingFang SC", sans-serif; fill: #172033; }
+      .svg-all-line { fill: none; stroke: #3974c6; stroke-width: 3; }
+    </style>
+  </defs>
+  <rect x="20" y="20" width="600" height="200" rx="20" fill="url(#svg-all-gradient)" />
+  <text class="svg-all-title" x="52" y="78">静态、安全、离线 SVG</text>
+  <path class="svg-all-line" d="M 60 140 L 560 140" marker-end="url(#svg-all-arrow)" />
+</svg>
+```
+
+### 8.12 Kroki 长尾格式
 
 ```nomnoml
 [Markdown] -> [Kroki]

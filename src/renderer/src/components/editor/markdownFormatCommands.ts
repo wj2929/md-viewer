@@ -69,6 +69,46 @@ function wrapCodeBlock(view: EditorView): void {
   view.focus()
 }
 
+export interface MarkdownInsertionTemplate {
+  prefix: string
+  body: string
+  suffix: string
+  block: boolean
+}
+
+function blockBoundaryBefore(view: EditorView, from: number): string {
+  if (from === 0) return ''
+  const before = view.state.sliceDoc(Math.max(0, from - 2), from)
+  if (before.endsWith('\n\n')) return ''
+  return before.endsWith('\n') ? '\n' : '\n\n'
+}
+
+function blockBoundaryAfter(view: EditorView, to: number): string {
+  if (to === view.state.doc.length) return ''
+  const after = view.state.sliceDoc(to, Math.min(view.state.doc.length, to + 2))
+  if (after.startsWith('\n\n')) return ''
+  return after.startsWith('\n') ? '\n' : '\n\n'
+}
+
+export function insertMarkdownTemplate(view: EditorView, template: MarkdownInsertionTemplate): void {
+  const selection = view.state.selection.main
+  const selected = view.state.sliceDoc(selection.from, selection.to)
+  const body = selected || template.body
+  const leading = template.block ? blockBoundaryBefore(view, selection.from) : ''
+  const trailing = template.block ? blockBoundaryAfter(view, selection.to) : ''
+  const insert = `${leading}${template.prefix}${body}${template.suffix}${trailing}`
+  const anchor = selection.from + leading.length + template.prefix.length
+  const head = anchor + body.length
+
+  view.dispatch({
+    changes: { from: selection.from, to: selection.to, insert },
+    selection: { anchor, head },
+    scrollIntoView: true,
+    userEvent: 'input',
+  })
+  view.focus()
+}
+
 export function applyMarkdownFormat(view: EditorView, command: MarkdownFormatCommand): void {
   switch (command) {
     case 'bold':

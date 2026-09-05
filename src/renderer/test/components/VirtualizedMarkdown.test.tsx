@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VirtualizedMarkdown } from '../../src/components/VirtualizedMarkdown'
+import { useRemoteChartSettingsStore } from '../../src/stores/remoteChartSettingsStore'
 
 const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
 const mockRenderVegaLiteToSvg = vi.hoisted(() => vi.fn())
@@ -10,6 +11,7 @@ const mockRenderD2ToSvg = vi.hoisted(() => vi.fn())
 const mockRenderBpmnToSvg = vi.hoisted(() => vi.fn())
 const mockRenderWaveDromToSvg = vi.hoisted(() => vi.fn())
 const mockRenderPlantUMLToSvg = vi.hoisted(() => vi.fn())
+const mockRenderKrokiToSvg = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/utils/excalidrawRenderer', () => ({
   renderExcalidrawToSvg: mockRenderExcalidrawToSvg,
@@ -38,6 +40,11 @@ vi.mock('../../src/utils/wavedromRenderer', () => ({
 vi.mock('../../src/utils/plantumlRenderer', () => ({
   validatePlantUMLCode: vi.fn(() => ({ valid: true })),
   renderPlantUMLToSvg: mockRenderPlantUMLToSvg,
+  getPlantUMLServerUrl: vi.fn(() => 'https://www.plantuml.com/plantuml'),
+}))
+vi.mock('../../src/utils/krokiRenderer', () => ({
+  renderKrokiToSvg: mockRenderKrokiToSvg,
+  resolveKrokiFormat: vi.fn((language: string) => language === 'kroki' ? 'nomnoml' : language),
 }))
 
 // Mock window.api
@@ -55,8 +62,15 @@ beforeEach(() => {
     openExternal: vi.fn().mockResolvedValue({ success: true }),
     openMdLink: vi.fn().mockResolvedValue({ success: true }),
     showMarkdownContextMenu: mockShowMarkdownContextMenu,
-    showPreviewContextMenu: mockShowPreviewContextMenu
+    showPreviewContextMenu: mockShowPreviewContextMenu,
+    getAppSettings: vi.fn().mockResolvedValue({ autoRenderRemoteCharts: true }),
+    updateAppSettings: vi.fn().mockResolvedValue(undefined),
   } as typeof window.api
+  useRemoteChartSettingsStore.setState({
+    hydration: 'ready',
+    autoRenderRemoteCharts: true,
+    approvedDocuments: {},
+  })
   mockRenderExcalidrawToSvg.mockResolvedValue({
     ok: true,
     svg: '<svg viewBox="0 0 100 50"><rect width="100" height="50"></rect></svg>',
@@ -84,6 +98,10 @@ beforeEach(() => {
     svg: '<svg viewBox="0 0 100 40"><text>WaveDrom</text></svg>',
   })
   mockRenderPlantUMLToSvg.mockResolvedValue('<svg viewBox="0 0 100 40"><text>C4</text></svg>')
+  mockRenderKrokiToSvg.mockResolvedValue({
+    ok: true,
+    svg: '<svg viewBox="0 0 100 40"><text>Kroki</text></svg>',
+  })
   // 默认没有选中文本
   vi.spyOn(window, 'getSelection').mockReturnValue(null)
 })
@@ -159,7 +177,7 @@ describe('VirtualizedMarkdown', () => {
         '```',
       ].join('\n')
 
-      render(<VirtualizedMarkdown content={content} renderDebounceMs={0} />)
+      render(<VirtualizedMarkdown content={content} renderDebounceMs={0} remoteChartPolicy="allow" />)
 
       await waitFor(() => {
         expect(document.querySelector('.vega-lite-container svg')).toBeTruthy()
@@ -174,6 +192,105 @@ describe('VirtualizedMarkdown', () => {
       expect(document.querySelector('.bpmn-toggle-bar .bpmn-action-btn[data-action="toggleCode"]')).toBeTruthy()
       expect(document.querySelector('.wavedrom-toggle-bar .wavedrom-action-btn[data-action="toggleCode"]')).toBeTruthy()
       expect(document.querySelector('.c4plantuml-wrapper .plantuml-toggle-bar .plantuml-action-btn[data-action="toggleCode"]')).toBeTruthy()
+    })
+
+    it('设置水合完成前不请求，默认开启后自动渲染整篇远程图表', async () => {
+      useRemoteChartSettingsStore.setState({ hydration: 'loading' })
+      let resolveSettings: (settings: { autoRenderRemoteCharts: boolean }) => void = () => {}
+      vi.mocked(window.api.getAppSettings).mockReturnValue(new Promise(resolve => { resolveSettings = resolve }))
+      const content = [
+        '```c4',
+        '@startuml',
+        'Person(user, "用户")',
+        '@enduml',
+        '```',
+        '',
+        '```kroki',
+        'format: nomnoml',
+        '[A] -> [B]',
+        '```',
+      ].join('\n')
+
+      const { container } = render(<VirtualizedMarkdown content={content} renderDebounceMs={0} />)
+      expect(mockRenderPlantUMLToSvg).not.toHaveBeenCalled()
+      expect(mockRenderKrokiToSvg).not.toHaveBeenCalled()
+      expect(container.querySelector('.remote-chart-document-consent')).toBeNull()
+
+      await act(async () => resolveSettings({ autoRenderRemoteCharts: true }))
+      await waitFor(() => {
+        expect(container.querySelector('.c4plantuml-wrapper .plantuml-container svg')).toBeTruthy()
+        expect(container.querySelector('.kroki-wrapper .kroki-container svg')).toBeTruthy()
+      })
+      expect(mockRenderPlantUMLToSvg).toHaveBeenCalledTimes(1)
+      expect(mockRenderKrokiToSvg).toHaveBeenCalledTimes(1)
+      expect(container.querySelector('.remote-chart-consent')).toBeNull()
+    })
+
+    it('关闭自动渲染后每篇只显示一个提示，一次确认放行全部图表', async () => {
+      useRemoteChartSettingsStore.setState({ hydration: 'loading' })
+      vi.mocked(window.api.getAppSettings).mockResolvedValue({ autoRenderRemoteCharts: false } as never)
+      mockRenderPlantUMLToSvg.mockResolvedValueOnce(
+        '<svg viewBox="0 0 100 40" onload="alert(1)"><script>alert(1)</script><text>C4</text></svg>',
+      )
+      const content = [
+        '```plantuml', '@startuml', 'A -> B', '@enduml', '```', '',
+        '```c4', '@startuml', 'Person(user, "用户")', '@enduml', '```', '',
+        '```kroki', 'format: nomnoml', '[A] -> [B]', '```',
+      ].join('\n')
+
+      const { container } = render(<VirtualizedMarkdown content={content} filePath="/docs/a.md" renderDebounceMs={0} />)
+      const button = await screen.findByRole('button', { name: '渲染本篇 3 个联网图表' })
+      expect(container.querySelectorAll('.remote-chart-document-consent')).toHaveLength(1)
+      expect(container.querySelectorAll('.remote-chart-consent')).toHaveLength(0)
+      expect(mockRenderPlantUMLToSvg).not.toHaveBeenCalled()
+      expect(mockRenderKrokiToSvg).not.toHaveBeenCalled()
+
+      fireEvent.click(button)
+      await waitFor(() => {
+        expect(container.querySelectorAll('.plantuml-container svg')).toHaveLength(2)
+        expect(container.querySelector('.kroki-container svg')).toBeTruthy()
+      })
+      expect(mockRenderPlantUMLToSvg).toHaveBeenCalledTimes(2)
+      expect(mockRenderKrokiToSvg).toHaveBeenCalledTimes(1)
+      expect(container.querySelector('.plantuml-container script')).toBeNull()
+      expect(container.querySelector('.plantuml-container svg')).not.toHaveAttribute('onload')
+    })
+
+    it('远程渲染失败时保留源码，并只在手工重试后再次请求', async () => {
+      mockRenderKrokiToSvg
+        .mockResolvedValueOnce({ ok: false, message: '<b>服务失败</b>' })
+        .mockResolvedValueOnce({ ok: true, svg: '<svg viewBox="0 0 100 40"><text>完成</text></svg>' })
+
+      const { container } = render(
+        <VirtualizedMarkdown content={'```kroki\nformat: nomnoml\n[A] -> [B]\n```'} renderDebounceMs={0} remoteChartPolicy="allow" />,
+      )
+
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('<b>服务失败</b>'))
+      expect(container.textContent).toContain('[A] -> [B]')
+      expect(container.querySelector('b')).toBeNull()
+      expect(mockRenderKrokiToSvg).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(screen.getByRole('button', { name: '重试当前图表' }))
+      await waitFor(() => expect(container.querySelector('.kroki-container svg')).toBeTruthy())
+      expect(mockRenderKrokiToSvg).toHaveBeenCalledTimes(2)
+    })
+
+    it('同一路径分屏共享文档批准，不同文档仍需单独确认', async () => {
+      useRemoteChartSettingsStore.setState({ hydration: 'loading' })
+      vi.mocked(window.api.getAppSettings).mockResolvedValue({ autoRenderRemoteCharts: false } as never)
+      const remoteContent = '```c4\n@startuml\nPerson(user, "用户")\n@enduml\n```'
+      render(<>
+        <VirtualizedMarkdown content={remoteContent} filePath="/docs/a.md" tabId="a-1" renderDebounceMs={0} />
+        <VirtualizedMarkdown content={remoteContent} filePath="/docs/a.md" tabId="a-2" renderDebounceMs={0} />
+        <VirtualizedMarkdown content={remoteContent} filePath="/docs/b.md" tabId="b" renderDebounceMs={0} />
+      </>)
+
+      const prompts = await screen.findAllByRole('button', { name: '渲染本篇 1 个联网图表' })
+      expect(prompts).toHaveLength(3)
+      fireEvent.click(prompts[0])
+
+      await waitFor(() => expect(mockRenderPlantUMLToSvg).toHaveBeenCalledTimes(2))
+      expect(screen.getAllByRole('button', { name: '渲染本篇 1 个联网图表' })).toHaveLength(1)
     })
 
     it('新增 SVG RendererPlugin 应支持源码视图切换', async () => {

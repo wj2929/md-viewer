@@ -2,8 +2,10 @@ import { BrowserWindow, ipcMain, dialog } from 'electron'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import * as os from 'os'
-import { createHash } from 'crypto'
-import chokidar from 'chokidar'
+import { createHash, randomUUID } from 'crypto'
+import { createCrossRootMoveImpactReport } from '../linking/CrossRootLinkImpactPlanner'
+import type { CrossRootMoveMapping } from '../../shared/crossRootMoveImpact'
+import { hasIgnoredPathSegment, isWatchPathSafe, workspaceWatchService } from '../watching/WorkspaceWatchService'
 import { IPCContext } from './context'
 import { validateNotProtected, validateSecurePathInBase } from '../security'
 import { isClipboardSourceAuthorized } from '../clipboardState'
@@ -28,10 +30,6 @@ interface FileInfo {
 
 // ============== 文件监听器状态 ==============
 
-let fileWatcher: ReturnType<typeof chokidar.watch> | null = null
-let watchedDir: string | null = null
-let _baseFolderPath: string | null = null
-const watchedFiles = new Set<string>()
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 const LOCAL_ASSET_MIME_TYPES = new Map<string, string>([
   ['.png', 'image/png'],
@@ -66,7 +64,7 @@ async function validateClipboardSourceOrWorkspaceRoot(
   }
 }
 
-async function broadcastDocumentMarksChanged(ctx: IPCContext, senderId?: number): Promise<void> {
+export async function broadcastDocumentMarksChanged(ctx: IPCContext, senderId?: number): Promise<void> {
   const senderWindow = senderId === undefined ? null : BrowserWindow.fromId(senderId)
   if (senderWindow) {
     ctx.windowManager.broadcastToOthers(senderWindow.id, 'document-marks:changed')
@@ -76,6 +74,17 @@ async function broadcastDocumentMarksChanged(ctx: IPCContext, senderId?: number)
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('document-marks:changed')
   }
+}
+
+function toStrictRelativePath(rootPath: string, filePath: string): string {
+  const relativePath = path.relative(rootPath, filePath)
+  if (
+    !relativePath ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) throw new Error('安全错误：路径不在指定根目录内')
+  return relativePath.split(path.sep).join('/')
 }
 
 function isSameOrChildPath(targetPath: string, parentPath: string): boolean {
@@ -145,58 +154,13 @@ async function duplicatePath(
   }
 }
 
-let watchedWebContentsId: number | null = null
-
-/**
- * 监听器不是广播总线。一个 BrowserWindow 可以有多个工作区，迟到的 A 事件
- * 绝不能在 B 已激活后更新当前 renderer facade，因此订阅以 workspace + epoch 为单位。
- */
-interface WorkspaceWatchContext {
-  workspaceId: string
-  lifecycleEpoch: number
-  strict: boolean
-}
-
-interface WorkspaceWatchEvent {
-  workspaceId: string
-  lifecycleEpoch: number
-  path?: string
-  oldPath?: string
-  newPath?: string
-}
-
-interface WatchSubscription extends WorkspaceWatchContext {
-  sender: Electron.WebContents
-}
-
-interface DirectoryWatcherState {
-  watcher: ReturnType<typeof chokidar.watch>
-  subscriptions: Map<string, WatchSubscription>
-  pendingUnlink: { path: string; timestamp: number } | null
-}
-
-interface WorkspaceFileWatcherState extends WatchSubscription {
-  watcher: ReturnType<typeof chokidar.watch>
-  files: Set<string>
-}
-
-// 目录 watcher 可由不同窗口/工作区共享；事件只定向投递给其订阅者。
-const dirWatchers = new Map<string, DirectoryWatcherState>()
-// 每个 (webContents, workspace) 只能有一个活动目录订阅。
-const workspaceWatchedDirs = new Map<string, string>()
-// 超过目录 watcher 深度的已打开文件，按 (webContents, workspace) 单独监听。
-const workspaceFileWatchers = new Map<string, WorkspaceFileWatcherState>()
-
-// 每个窗口独立的可编辑文件授权集合。必须先通过 fs:openEditableMarkdown 授权，
-// 才允许后续 fs:saveEditableMarkdown 写入。
 interface EditableFileGrant {
   workspaceId: string
   lifecycleEpoch: number
 }
 
 const windowEditableFiles = new Map<number, Map<string, EditableFileGrant>>()
-
-const RENAME_THRESHOLD_MS = 500
+let testEditableSaveDelayMs = 0
 
 function hashContent(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16)
@@ -221,9 +185,7 @@ function resolveMarkdownRelativePath(markdownFilePath: string, refPath: string):
   if (/^(?:[a-z]:[\\/]|[/\\])/i.test(cleanRefPath)) {
     return path.normalize(cleanRefPath)
   }
-
-  const markdownDir = path.dirname(markdownFilePath)
-  return path.normalize(path.join(markdownDir, cleanRefPath))
+  return path.normalize(path.join(path.dirname(markdownFilePath), cleanRefPath))
 }
 
 function parseRevisionToken(token: string): { mtimeMs: string; size: string; hash?: string } {
@@ -233,287 +195,59 @@ function parseRevisionToken(token: string): { mtimeMs: string; size: string; has
 
 function revisionTokenMatches(expectedRevisionToken: string, diskRevisionToken: string): boolean {
   if (expectedRevisionToken === diskRevisionToken) return true
-
   const expected = parseRevisionToken(expectedRevisionToken)
   const disk = parseRevisionToken(diskRevisionToken)
   if (!expected.hash && expected.mtimeMs === disk.mtimeMs && expected.size === disk.size) return true
   return Boolean(expected.hash && disk.hash && expected.hash === disk.hash)
 }
 
-// 配置常量
-const WATCHER_CONFIG = {
-  MAX_DEPTH: 2,
-  MIN_PATH_DEPTH: 3,
-  IGNORED_PATTERNS: [
-    '**/.*',
-    '**/node_modules/**',
-    '**/vendor/**',
-    '**/target/**',
-    '**/build/**',
-    '**/dist/**',
-    '**/__pycache__/**',
-    '**/venv/**',
-    '**/.venv/**',
-    '**/coverage/**',
-    '**/*.zip',
-    '**/*.tar.gz',
-    '**/batch*/**',
-  ],
-  // 需从递归监听中整枝剪除的目录名（含隐藏目录）。
-  // glob 的 '**/node_modules/**' 只匹配目录“内部”，不匹配目录本身，
-  // chokidar 仍会进入并铺满监听句柄、阻塞主进程——故按路径段名精确剪枝。
-  IGNORED_DIR_NAMES: new Set([
-    'node_modules', 'vendor', 'target', 'build', 'dist',
-    '__pycache__', 'venv', '.venv', 'env', 'coverage',
-  ]),
-}
+type WorkspaceWatchContext = import('../watching/WorkspaceWatchService').WorkspaceWatchContext
 
-// 路径任一段命中忽略目录名（或为隐藏目录 .xxx）即应剪枝
-export function hasIgnoredPathSegment(filePath: string): boolean {
-  // 同时按 / 和 \ 拆分：Windows 上 path.sep 为 \，但传入路径可能混用 /，
-  // 只按 path.sep 拆会漏判（跨平台缺陷）。
-  const segments = filePath.split(/[/\\]/)
-  for (const seg of segments) {
-    if (!seg) continue
-    if (WATCHER_CONFIG.IGNORED_DIR_NAMES.has(seg)) return true
-    // 隐藏目录（.git/.idea/.vscode 等），但放行 . 与 ..
-    if (seg.length > 1 && seg.startsWith('.') && seg !== '..') return true
-  }
-  return false
-}
-
-function isPreviewableFilePath(filePath: string): boolean {
-  return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
-}
-
-function isWithinDirectoryWatcherDepth(dirPath: string, filePath: string): boolean {
-  const relativePath = path.relative(dirPath, filePath)
-  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    return false
-  }
-  const directoryDepth = relativePath.split(path.sep).length - 1
-  return directoryDepth <= WATCHER_CONFIG.MAX_DEPTH
-}
-
-// 路径安全验证
-function isWatchPathSafe(targetPath: string): { safe: boolean; reason?: string } {
-  const resolved = path.resolve(targetPath)
-  const pathParts = resolved.split(path.sep).filter(Boolean)
-
-  if (pathParts.length < WATCHER_CONFIG.MIN_PATH_DEPTH) {
-    return { safe: false, reason: '目录层级过高，请选择更具体的项目目录' }
-  }
-
-  const homeDir = os.homedir()
-  if (resolved === homeDir) {
-    return { safe: false, reason: '不能监听用户主目录，请选择子目录' }
-  }
-
-  return { safe: true }
-}
+const watcherSubscriptions = new Map<string, import('../watching/WorkspaceWatchService').WorkspaceWatchSubscription>()
 
 function getWorkspaceWatcherKey(webContentsId: number, workspaceId: string): string {
   return `${webContentsId}:${workspaceId}`
 }
 
-function toWorkspaceWatchEvent(
+function createWatcherSubscription(
+  ctx: IPCContext,
+  sender: Electron.WebContents,
   context: WorkspaceWatchContext,
-  patch: Omit<WorkspaceWatchEvent, keyof WorkspaceWatchContext>
-): WorkspaceWatchEvent {
-  return {
-    workspaceId: context.workspaceId,
-    lifecycleEpoch: context.lifecycleEpoch,
-    ...patch,
+): import('../watching/WorkspaceWatchService').WorkspaceWatchSubscription {
+  const key = getWorkspaceWatcherKey(sender.id, context.workspaceId)
+  const subscription = {
+    key,
+    ...context,
+    deliver: (channel: import('../watching/WorkspaceWatchService').WorkspaceWatchChannel, event: import('../watching/WorkspaceWatchService').WorkspaceWatchEvent) => {
+      if (sender.isDestroyed()) return
+      if (context.strict) {
+        const window = BrowserWindow.fromWebContents(sender)
+        if (!window || (typeof window.isDestroyed === 'function' && window.isDestroyed())) return
+        const workspace = ctx.windowManager.getWorkspace(window.id, context.workspaceId)
+        if (!workspace || workspace.lifecycleEpoch !== context.lifecycleEpoch || workspace.primaryRoot !== context.primaryRoot) return
+      }
+      sender.send(channel, event)
+    },
+    onFolderRemoved: (rootPath: string, removedPath: string) => {
+      const changed = ctx.appDataManager?.removeDocumentMarks(rootPath, removedPath, true)
+      if (changed) void broadcastDocumentMarksChanged(ctx)
+    },
   }
-}
-
-function sendWorkspaceWatchEvent(
-  subscription: WatchSubscription,
-  channel: string,
-  patch: Omit<WorkspaceWatchEvent, keyof WorkspaceWatchContext>
-): void {
-  if (subscription.sender.isDestroyed()) return
-  subscription.sender.send(channel, toWorkspaceWatchEvent(subscription, patch))
-}
-
-function broadcastDirectoryEvent(
-  state: DirectoryWatcherState,
-  channel: string,
-  patch: Omit<WorkspaceWatchEvent, keyof WorkspaceWatchContext>
-): void {
-  for (const subscription of state.subscriptions.values()) {
-    sendWorkspaceWatchEvent(subscription, channel, patch)
-  }
-}
-
-function detachDirectorySubscription(key: string): void {
-  const dirPath = workspaceWatchedDirs.get(key)
-  if (!dirPath) return
-
-  workspaceWatchedDirs.delete(key)
-  const state = dirWatchers.get(dirPath)
-  if (!state) return
-  state.subscriptions.delete(key)
-  if (state.subscriptions.size > 0) return
-
-  console.log(`[WATCHER] Closing watcher for ${dirPath}`)
-  state.watcher.close()
-  dirWatchers.delete(dirPath)
-  if (fileWatcher === state.watcher) fileWatcher = null
-  if (watchedDir === dirPath) watchedDir = null
-}
-
-function closeWorkspaceFileWatcher(key: string): void {
-  const state = workspaceFileWatchers.get(key)
-  if (!state) return
-  console.log(`[WATCHER] Cleaning up opened-file watcher for ${key}`)
-  state.watcher.close()
-  workspaceFileWatchers.delete(key)
+  watcherSubscriptions.set(key, subscription)
+  return subscription
 }
 
 function cleanupWorkspaceWatchers(webContentsId: number, workspaceId?: string): void {
-  const keys = new Set<string>()
-  for (const key of workspaceWatchedDirs.keys()) {
-    if (key.startsWith(`${webContentsId}:`) && (!workspaceId || key === getWorkspaceWatcherKey(webContentsId, workspaceId))) {
-      keys.add(key)
-    }
-  }
-  for (const key of workspaceFileWatchers.keys()) {
-    if (key.startsWith(`${webContentsId}:`) && (!workspaceId || key === getWorkspaceWatcherKey(webContentsId, workspaceId))) {
-      keys.add(key)
-    }
-  }
-  for (const key of keys) {
-    detachDirectorySubscription(key)
-    closeWorkspaceFileWatcher(key)
+  const key = workspaceId ? getWorkspaceWatcherKey(webContentsId, workspaceId) : null
+  workspaceWatchService.cleanupWebContents(webContentsId, workspaceId)
+  for (const candidate of watcherSubscriptions.keys()) {
+    if (!candidate.startsWith(`${webContentsId}:`)) continue
+    if (key && candidate !== key) continue
+    watcherSubscriptions.delete(candidate)
   }
 }
 
-// 监听活动工作区根目录。多个订阅可以复用同一个 chokidar watcher，但绝不广播给无关工作区。
-function watchDirectory(
-  ctx: IPCContext,
-  dirPath: string,
-  sender: Electron.WebContents,
-  context: WorkspaceWatchContext
-): void {
-  watchedDir = dirPath
-  watchedWebContentsId = sender.id
-  const key = getWorkspaceWatcherKey(sender.id, context.workspaceId)
-  const previousDir = workspaceWatchedDirs.get(key)
-  if (previousDir && previousDir !== dirPath) {
-    detachDirectorySubscription(key)
-    closeWorkspaceFileWatcher(key)
-  }
-
-  let state = dirWatchers.get(dirPath)
-  if (!state) {
-    console.log(`[WATCHER] Watching directory: ${dirPath}`)
-    const watcher = chokidar.watch(dirPath, {
-      persistent: true,
-      ignoreInitial: true,
-      depth: WATCHER_CONFIG.MAX_DEPTH,
-      ignored: [
-        ...WATCHER_CONFIG.IGNORED_PATTERNS,
-        (filePath: string, stats?: fs.Stats) => {
-          if (hasIgnoredPathSegment(filePath)) return true
-          if (!stats) return false
-          if (stats.isDirectory()) return false
-          return !isPreviewableFilePath(filePath)
-        }
-      ],
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 }
-    })
-    state = { watcher, subscriptions: new Map(), pendingUnlink: null }
-    fileWatcher = watcher
-    dirWatchers.set(dirPath, state)
-
-    watcher.on('error', (error: unknown) => console.error('[WATCHER] Error:', error))
-    watcher.on('ready', () => {
-      const watched = watcher.getWatched() || {}
-      const fileCount = Object.values(watched).reduce((sum, entries) => sum + entries.length, 0)
-      console.log(`[WATCHER] Ready! Watching ${Object.keys(watched).length} directories, ${fileCount} files`)
-    })
-    watcher.on('change', (filePath: string) => {
-      console.log(`[WATCHER] File changed: ${filePath}`)
-      broadcastDirectoryEvent(state!, 'file:changed', { path: filePath })
-    })
-    watcher.on('add', (filePath: string) => {
-      const pending = state!.pendingUnlink
-      if (pending && Date.now() - pending.timestamp < RENAME_THRESHOLD_MS) {
-        if (pending.path === filePath) {
-          broadcastDirectoryEvent(state!, 'file:changed', { path: filePath })
-        } else {
-          const changed = ctx.appDataManager?.relocateDocumentMarks(dirPath, pending.path, filePath)
-          if (changed) void broadcastDocumentMarksChanged(ctx)
-          broadcastDirectoryEvent(state!, 'file:renamed', { oldPath: pending.path, newPath: filePath })
-        }
-        state!.pendingUnlink = null
-      } else {
-        broadcastDirectoryEvent(state!, 'file:added', { path: filePath })
-      }
-    })
-    watcher.on('unlink', (filePath: string) => {
-      state!.pendingUnlink = { path: filePath, timestamp: Date.now() }
-      setTimeout(() => {
-        if (state?.pendingUnlink?.path !== filePath) return
-        const changed = ctx.appDataManager?.removeDocumentMarks(dirPath, filePath)
-        if (changed) void broadcastDocumentMarksChanged(ctx)
-        broadcastDirectoryEvent(state, 'file:removed', { path: filePath })
-        watchedFiles.delete(filePath)
-        state.pendingUnlink = null
-      }, RENAME_THRESHOLD_MS + 50)
-    })
-    watcher.on('addDir', (addedDirPath: string) => {
-      if (addedDirPath !== dirPath) broadcastDirectoryEvent(state!, 'folder:added', { path: addedDirPath })
-    })
-    watcher.on('unlinkDir', (removedDirPath: string) => {
-      const changed = ctx.appDataManager?.removeDocumentMarks(dirPath, removedDirPath, true)
-      if (changed) void broadcastDocumentMarksChanged(ctx)
-      broadcastDirectoryEvent(state!, 'folder:removed', { path: removedDirPath })
-    })
-  }
-
-  state.subscriptions.set(key, { sender, ...context })
-  workspaceWatchedDirs.set(key, dirPath)
-}
-
-function watchOpenedFile(
-  filePath: string,
-  sender: Electron.WebContents,
-  context: WorkspaceWatchContext
-): void {
-  const key = getWorkspaceWatcherKey(sender.id, context.workspaceId)
-  const existing = workspaceFileWatchers.get(key)
-  if (existing) {
-    if (!existing.files.has(filePath)) {
-      existing.files.add(filePath)
-      existing.watcher.add(filePath)
-    }
-    return
-  }
-
-  const files = new Set([filePath])
-  const watcher = chokidar.watch(filePath, {
-    persistent: true,
-    ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 }
-  })
-  const state: WorkspaceFileWatcherState = { watcher, files, sender, ...context }
-  workspaceFileWatchers.set(key, state)
-  watcher.on('error', (error: unknown) => console.error('[WATCHER] Opened file watcher error:', error))
-  watcher.on('change', (changedPath: string) => {
-    if (state.files.has(changedPath)) sendWorkspaceWatchEvent(state, 'file:changed', { path: changedPath })
-  })
-  watcher.on('add', (addedPath: string) => {
-    if (state.files.has(addedPath)) sendWorkspaceWatchEvent(state, 'file:changed', { path: addedPath })
-  })
-  watcher.on('unlink', (removedPath: string) => {
-    if (!state.files.has(removedPath)) return
-    setTimeout(() => {
-      if (state.files.has(removedPath)) sendWorkspaceWatchEvent(state, 'file:removed', { path: removedPath })
-    }, RENAME_THRESHOLD_MS + 50)
-  })
-}
+const previewScanInFlight = new Map<string, Promise<FileInfo[]>>()
 
 // 使用 glob 快速扫描可预览文件
 async function scanPreviewableFiles(rootPath: string): Promise<FileInfo[]> {
@@ -528,6 +262,18 @@ async function scanPreviewableFiles(rootPath: string): Promise<FileInfo[]> {
   })
 
   return buildFileTree(rootPath, previewFiles)
+}
+
+function scanPreviewableFilesSingleFlight(rootPath: string): Promise<FileInfo[]> {
+  const existing = previewScanInFlight.get(rootPath)
+  if (existing) return existing
+
+  let scan: Promise<FileInfo[]>
+  scan = scanPreviewableFiles(rootPath).finally(() => {
+    if (previewScanInFlight.get(rootPath) === scan) previewScanInFlight.delete(rootPath)
+  })
+  previewScanInFlight.set(rootPath, scan)
+  return scan
 }
 
 // 从 glob 结果构建文件树
@@ -597,12 +343,11 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
   return sortTree(tree)
 }
 
+export { hasIgnoredPathSegment } from '../watching/WorkspaceWatchService'
+
 // 导出文件监听器状态，供 index.ts 窗口关闭清理使用
 export function getFileWatcherState() {
   return {
-    workspaceFileWatchers,
-    fileWatcher: () => fileWatcher,
-    watchedWebContentsId: () => watchedWebContentsId,
     cleanup: (webContentsId: number) => {
       cleanupWorkspaceWatchers(webContentsId)
     }
@@ -625,20 +370,30 @@ export function registerFileHandlers(ctx: IPCContext): void {
       }
       return true
     })
+    ipcMain.handle('test:setEditableSaveDelay', (_event, delayMs: number) => {
+      testEditableSaveDelayMs = Number.isFinite(delayMs)
+        ? Math.max(0, Math.min(5000, Math.floor(delayMs)))
+        : 0
+      return true
+    })
+    ipcMain.handle('test:getOpenedFileWatcherCount', (event, workspaceId: string) => {
+      const key = getWorkspaceWatcherKey(event.sender.id, workspaceId)
+      return workspaceWatchService.getOpenedFileCount(key)
+    })
   }
 
   // 打开文件夹对话框
   ipcMain.handle('dialog:openFolder', async (event) => {
-    const result = await dialog.showOpenDialog({
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) {
+      throw new Error('无法识别当前窗口')
+    }
+
+    const result = await dialog.showOpenDialog(window, {
       properties: ['openDirectory']
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null
-    }
-
-    const window = BrowserWindow.fromWebContents(event.sender)
-    if (!window) {
-      throw new Error('无法识别当前窗口')
     }
 
     return activateFolderForWindow(ctx, window, result.filePaths[0])
@@ -650,7 +405,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       const resolvedDirectory = await validateSenderReadPath(ctx, event, dirPath)
 
       const startTime = Date.now()
-      const result = await scanPreviewableFiles(resolvedDirectory)
+      const result = await scanPreviewableFilesSingleFlight(resolvedDirectory)
       console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
       return result
     } catch (error) {
@@ -673,7 +428,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
         if (entry.name.startsWith('.')) continue
-        if (hasIgnoredPathSegment(path.join(resolvedDirectory, entry.name))) continue
+        if (hasIgnoredPathSegment(path.join(resolvedDirectory, entry.name), resolvedDirectory)) continue
         dirs.push({ name: entry.name, path: path.join(resolvedDirectory, entry.name) })
       }
       dirs.sort((a, b) => a.name.localeCompare(b.name))
@@ -919,6 +674,9 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw new Error('未授权编辑此文件')
     }
     getSenderWorkspaceForOperation(ctx, event, operation)
+    if (process.env.NODE_ENV === 'test' && testEditableSaveDelayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, testEditableSaveDelayMs))
+    }
 
     const stats = await fs.stat(resolvedPath)
     if (!stats.isFile()) {
@@ -954,7 +712,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
   ): WorkspaceWatchContext => {
     if (workspaceId === undefined && lifecycleEpoch === undefined) {
       // 旧 renderer/test bridge 的兼容路径；新工作区 UI 必须传完整上下文。
-      return { workspaceId: `legacy-${event.sender.id}`, lifecycleEpoch: 0, strict: false }
+      return { workspaceId: `legacy-${event.sender.id}`, lifecycleEpoch: 0, primaryRoot: null, strict: false }
     }
     if (typeof workspaceId !== 'string' || !Number.isInteger(lifecycleEpoch)) {
       throw new Error('安全错误：监听请求缺少完整工作区上下文')
@@ -964,7 +722,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
     if (!allowStaleEpoch && workspace.lifecycleEpoch !== verifiedLifecycleEpoch) {
       throw new Error('安全错误：工作区已失效')
     }
-    return { workspaceId, lifecycleEpoch: verifiedLifecycleEpoch, strict: true }
+    return { workspaceId, lifecycleEpoch: verifiedLifecycleEpoch, primaryRoot: workspace.primaryRoot, strict: true }
   }
 
   // 只监听活动工作区主文件树；切回其他工作区时由 renderer 主动刷新。
@@ -982,9 +740,8 @@ export function registerFileHandlers(ctx: IPCContext): void {
           return { success: false, error: pathCheck.reason }
         }
 
-        _baseFolderPath = resolvedFolderPath
-        watchedFiles.clear()
-        watchDirectory(ctx, resolvedFolderPath, event.sender, context)
+        const subscription = createWatcherSubscription(ctx, event.sender, context)
+        workspaceWatchService.attachRoot(resolvedFolderPath, subscription)
         console.log(`[MAIN] Workspace ${context.workspaceId} watching: ${resolvedFolderPath}`)
         return { success: true }
       } catch (error) {
@@ -999,13 +756,23 @@ export function registerFileHandlers(ctx: IPCContext): void {
     async (event, filePath: string, workspaceId?: string, lifecycleEpoch?: number) => {
       const context = resolveWatchContext(event, workspaceId, lifecycleEpoch)
       const resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
-      watchedFiles.add(resolvedFilePath)
       const key = getWorkspaceWatcherKey(event.sender.id, context.workspaceId)
-      const watchedDirectory = workspaceWatchedDirs.get(key)
-      if (!watchedDirectory || !isWithinDirectoryWatcherDepth(watchedDirectory, resolvedFilePath)) {
-        watchOpenedFile(resolvedFilePath, event.sender, context)
+      const subscription = watcherSubscriptions.get(key) ?? createWatcherSubscription(ctx, event.sender, context)
+      if (!workspaceWatchService.hasRootSubscription(key, resolvedFilePath)) {
+        workspaceWatchService.watchOpenedFile(resolvedFilePath, subscription)
       }
       console.log(`[MAIN] Workspace ${context.workspaceId} opened: ${resolvedFilePath}`)
+      return { success: true }
+    }
+  )
+
+  ipcMain.handle(
+    'fs:unwatchFile',
+    async (event, filePath: string, workspaceId?: string, lifecycleEpoch?: number) => {
+      const context = resolveWatchContext(event, workspaceId, lifecycleEpoch, true)
+      const key = getWorkspaceWatcherKey(event.sender.id, context.workspaceId)
+      const resolvedFilePath = path.resolve(filePath)
+      await workspaceWatchService.unwatchOpenedFile(key, resolvedFilePath, context.lifecycleEpoch)
       return { success: true }
     }
   )
@@ -1193,6 +960,80 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw error
     }
   })
+
+  ipcMain.handle(
+    'fs:previewCrossRootMoveImpact',
+    async (
+      event,
+      sources: string[],
+      targetHistoryId: string,
+      subRelPath: string | undefined,
+      operation: WorkspaceOperationContext,
+    ) => {
+      if (!Array.isArray(sources) || sources.length === 0 || sources.length > 100) {
+        throw new Error('跨根移动来源无效')
+      }
+      const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+      if (!workspace.primaryRoot || !ctx.workspaceIndexService) throw new Error('当前工作区未绑定文件夹')
+      const originRoot = await fs.realpath(workspace.primaryRoot)
+      const targetRoot = await ctx.folderHistoryManager.resolveHistoryFolder(targetHistoryId)
+      if (!targetRoot) throw new Error('安全错误：目标目录无效或已失效')
+      if (originRoot === targetRoot) throw new Error('同根移动不使用跨根影响预览')
+
+      const normalizedSubRel = subRelPath ? path.normalize(subRelPath) : ''
+      const destinationDir = await validateSecurePathInBase(path.join(targetRoot, normalizedSubRel), targetRoot)
+      const canonicalSources = await Promise.all(sources.map(source =>
+        validateWorkspaceOperationPath(ctx, event, operation, source)
+      ))
+      if (new Set(canonicalSources).size !== canonicalSources.length) throw new Error('跨根移动来源重复')
+      for (const source of canonicalSources) {
+        if (canonicalSources.some(other => other !== source && isSameOrChildPath(source, other))) {
+          throw new Error('不能同时移动目录及其内部项目')
+        }
+      }
+
+      const mappings: CrossRootMoveMapping[] = []
+      const destinationPaths = new Set<string>()
+      for (const source of canonicalSources) {
+        const sourceStats = await fs.lstat(source)
+        if (sourceStats.isSymbolicLink()) throw new Error('安全错误：不支持通过符号链接移动')
+        if (sourceStats.isDirectory()) await rejectDirectorySymbolicLinks(source)
+        const destination = path.join(destinationDir, path.basename(source))
+        if (destinationPaths.has(destination)) throw new Error('跨根移动目标重复')
+        destinationPaths.add(destination)
+        if (await fs.pathExists(destination)) throw new Error(`目标文件已存在：${path.basename(destination)}`)
+        mappings.push({
+          sourceRelativePath: toStrictRelativePath(originRoot, source),
+          destinationRelativePath: toStrictRelativePath(targetRoot, destination),
+          isDirectory: sourceStats.isDirectory(),
+        })
+      }
+
+      const previewId = `cross-root-preview:${event.sender.id}:${randomUUID()}`
+      const originConsumer = `${previewId}:origin`
+      const targetConsumer = `${previewId}:target`
+      try {
+        await Promise.all([
+          ctx.workspaceIndexService.attach(originRoot, originConsumer),
+          ctx.workspaceIndexService.attach(targetRoot, targetConsumer),
+        ])
+        await Promise.all([
+          ctx.workspaceIndexService.waitUntilIdle(originRoot),
+          ctx.workspaceIndexService.waitUntilIdle(targetRoot),
+        ])
+        return createCrossRootMoveImpactReport({
+          originDocuments: ctx.workspaceIndexService.getIndexedDocuments(originRoot),
+          targetDocuments: ctx.workspaceIndexService.getIndexedDocuments(targetRoot),
+          mappings,
+        })
+      } finally {
+        await Promise.all([
+          ctx.workspaceIndexService.detach(originRoot, originConsumer),
+          ctx.workspaceIndexService.detach(targetRoot, targetConsumer),
+        ])
+      }
+    },
+  )
 
   // 跨根移动：把文件/文件夹移动到「文件夹历史」里的某个目录（及其子目录）。
   // 安全形态（继剪贴板源例外后的第二个刻意跨根写例外）：

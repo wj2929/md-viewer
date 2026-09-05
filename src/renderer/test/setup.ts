@@ -1,6 +1,7 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
 import { expect, afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
+import { clearRemoteChartResultCache } from '../src/utils/remoteChartRequestScheduler'
 import '@testing-library/jest-dom'
 
 const hasDom = typeof globalThis.window !== 'undefined' && typeof globalThis.document !== 'undefined'
@@ -8,6 +9,7 @@ const hasDom = typeof globalThis.window !== 'undefined' && typeof globalThis.doc
 // 每次测试后清理
 afterEach(() => {
   if (hasDom) cleanup()
+  clearRemoteChartResultCache()
 })
 
 if (hasDom) {

@@ -89,6 +89,10 @@ async function openMarkdownFile(page: Page, filePath: string): Promise<void> {
   await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), filePath)
 }
 
+function rendererCase(page: Page, caseId: string) {
+  return page.locator(`#md-case-${caseId}`).locator('xpath=following-sibling::*[1]')
+}
+
 async function mockPlantUMLFetch(page: Page): Promise<void> {
   await page.evaluate(() => {
     const originalFetch = window.fetch.bind(window)
@@ -467,7 +471,7 @@ async function getRendererToolbarState(page: Page, fixture: RendererToolbarFixtu
   }, fixture)
 }
 
-async function getD2FullscreenRegressionState(page: Page, d2Index: string): Promise<{
+async function getD2FullscreenRegressionState(page: Page, caseId: string): Promise<{
   viewportWidth: number
   viewportHeight: number
   originalInMarkdown: boolean
@@ -478,7 +482,7 @@ async function getD2FullscreenRegressionState(page: Page, d2Index: string): Prom
   fullscreenSvgHeight: number
   bodyDirectD2Count: number
 }> {
-  return page.evaluate((index) => {
+  return page.evaluate((id) => {
     const isVisible = (element: Element | null): boolean => {
       if (!element) return false
       const htmlElement = element as HTMLElement
@@ -487,7 +491,10 @@ async function getD2FullscreenRegressionState(page: Page, d2Index: string): Prom
       return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0
     }
 
-    const original = document.querySelector(`.markdown-body .d2-wrapper[data-d2-index="${index}"]`) as HTMLElement | null
+    const marker = document.querySelector(`#md-case-${id}`)
+    const original = marker?.nextElementSibling?.classList.contains('d2-wrapper')
+      ? marker.nextElementSibling as HTMLElement
+      : null
     const originalSvg = original?.querySelector('.d2-container svg') as SVGSVGElement | null
     const fullscreen = document.querySelector('.d2-wrapper.chart-fullscreen') as HTMLElement | null
     const fullscreenSvg = fullscreen?.querySelector('.d2-container svg') as SVGSVGElement | null
@@ -504,7 +511,7 @@ async function getD2FullscreenRegressionState(page: Page, d2Index: string): Prom
       fullscreenSvgHeight: fullscreenSvgBox?.height ?? 0,
       bodyDirectD2Count: Array.from(document.body.children).filter((element) => element.classList.contains('d2-wrapper')).length,
     }
-  }, d2Index)
+  }, caseId)
 }
 
 async function getD2FullscreenToolbarState(page: Page): Promise<{
@@ -1057,6 +1064,74 @@ test.describe('Markdown 渲染测试', () => {
     await expect(blockFormula).toBeVisible()
   })
 
+  test('应该兼容 LaTeX 反斜杠公式定界符', async ({ page, testDir }) => {
+    const filePath = join(testDir, 'math-latex-delimiters.md')
+    writeFileSync(filePath, [
+      '# LaTeX Delimiters',
+      '',
+      String.raw`Inline: \(w\)`,
+      '',
+      String.raw`\[`,
+      'ActionWeight =',
+      String.raw`\begin{cases}`,
+      String.raw`1.0, & 浏览 \\`,
+      String.raw`2.0, & 点赞 \\`,
+      '3.0, & 收藏',
+      String.raw`\end{cases}`,
+      String.raw`\]`,
+      '',
+      String.raw`\[`,
+      String.raw`FrequencyScore_w = \frac{\sum(ActionWeight)}{\max_w \sum(ActionWeight)}`,
+      String.raw`\]`,
+      '',
+      '```text',
+      String.raw`\[not math\]`,
+      '```',
+    ].join('\n'))
+
+    await openMarkdownFile(page, filePath)
+    await expect(page.locator('.katex')).toHaveCount(3)
+    await expect(page.locator('.katex-display')).toHaveCount(2)
+    await expect(page.locator('pre code')).toContainText(String.raw`\[not math\]`)
+    await expect(page.locator('pre code .katex')).toHaveCount(0)
+  })
+
+  test('KaTeX 完整字体族应使用 WOFF2 且无字体请求失败', async ({ page, electronApp, testDir }) => {
+    const fontFailures: string[] = []
+    page.on('requestfailed', request => {
+      if (request.url().includes('KaTeX_')) fontFailures.push(request.url())
+    })
+    writeFileSync(join(testDir, 'katex-font-families.md'), [
+      '# KaTeX Fonts',
+      '',
+      '$\\mathbb{R} \\mathcal{C} \\mathfrak{F} \\mathscr{S} \\mathbf{B} \\mathit{I}$',
+      '',
+      '$$\\sum_{i=1}^{n} \\frac{\\sqrt{x_i}}{2}$$',
+    ].join('\n'))
+
+    await openMarkdownFile(page, join(testDir, 'katex-font-families.md'))
+    await expect(page.locator('.katex').first()).toBeVisible()
+    await expect(page.locator('.mord.mathbb').first()).toBeVisible()
+    await expect(page.locator('.mord.mathcal').first()).toBeVisible()
+    await expect(page.locator('.mord.mathfrak').first()).toBeVisible()
+    await expect(page.locator('.mord.mathscr').first()).toBeVisible()
+
+    const families = await page.locator('.katex').first().evaluate(element => {
+      const selectors = ['.mathbb', '.mathcal', '.mathfrak', '.mathscr', '.mathbf', '.mathit']
+      return selectors.map(selector => {
+        const target = element.querySelector(selector)
+        return target ? getComputedStyle(target).fontFamily : ''
+      })
+    })
+    expect(families[0]).toContain('KaTeX_AMS')
+    expect(families[1]).toContain('KaTeX_Caligraphic')
+    expect(families[2]).toContain('KaTeX_Fraktur')
+    expect(families[3]).toContain('KaTeX_Script')
+    expect(families[4]).toContain('KaTeX_Main')
+    expect(families[5]).toMatch(/KaTeX_(?:Main|Math)/)
+    expect(fontFailures).toEqual([])
+  })
+
   test('应该正确渲染 Mermaid 图表', async ({ page, electronApp, testDir }) => {
     await openMarkdownFile(page, join(testDir, 'mermaid.md'))
     await page.waitForSelector('.markdown-body', { timeout: 10000 })
@@ -1465,70 +1540,70 @@ test.describe('Markdown 渲染测试', () => {
       {
         file: 'test-vega-lite.md',
         countSelector: '.vega-lite-wrapper',
-        renderSelector: '.vega-lite-wrapper .vega-lite-container svg',
+        renderSelector: '.vega-lite-container svg',
         errorSelector: '.vega-lite-error',
         expected: 50,
       },
       {
         file: 'test-d2.md',
         countSelector: '.d2-wrapper',
-        renderSelector: '.d2-wrapper .d2-container svg',
+        renderSelector: '.d2-container svg',
         errorSelector: '.d2-error',
         expected: 50,
       },
       {
         file: 'test-bpmn.md',
         countSelector: '.bpmn-wrapper',
-        renderSelector: '.bpmn-wrapper .bpmn-container svg',
+        renderSelector: '.bpmn-container svg',
         errorSelector: '.bpmn-error',
         expected: 44,
       },
       {
         file: 'test-wavedrom.md',
         countSelector: '.wavedrom-wrapper',
-        renderSelector: '.wavedrom-wrapper .wavedrom-container svg',
+        renderSelector: '.wavedrom-container svg',
         errorSelector: '.wavedrom-error',
         expected: 46,
       },
       {
         file: 'test-c4plantuml.md',
         countSelector: '.c4plantuml-wrapper',
-        renderSelector: '.c4plantuml-wrapper .plantuml-container svg',
+        renderSelector: '.plantuml-container svg',
         errorSelector: '.c4plantuml-wrapper .plantuml-error, .c4plantuml-error',
         expected: 50,
       },
       {
         file: 'test-structurizr.md',
         countSelector: '.structurizr-wrapper',
-        renderSelector: '.structurizr-wrapper .structurizr-container svg',
+        renderSelector: '.structurizr-container svg',
         errorSelector: '.structurizr-error',
         expected: 24,
       },
       {
         file: 'test-plotly.md',
         countSelector: '.plotly-wrapper',
-        renderSelector: '.plotly-wrapper .plotly-container svg',
+        renderSelector: '.plotly-container svg',
         errorSelector: '.plotly-error',
         expected: 24,
       },
       {
         file: 'test-dbml.md',
         countSelector: '.dbml-wrapper',
-        renderSelector: '.dbml-wrapper .dbml-container svg',
+        renderSelector: '.dbml-container svg',
         errorSelector: '.dbml-error',
         expected: 24,
       },
       {
         file: 'test-antv-g6.md',
         countSelector: '.antv-g6-wrapper',
-        renderSelector: '.antv-g6-wrapper .antv-g6-container svg',
+        renderSelector: '.antv-g6-container svg',
         errorSelector: '.antv-g6-error',
         expected: 24,
       },
       {
         file: 'test-kroki.md',
         countSelector: '.kroki-wrapper',
-        renderSelector: '.kroki-wrapper .kroki-container svg',
+        renderSelector: '.kroki-container svg',
         errorSelector: '.kroki-error',
         expected: 24,
       },
@@ -1537,13 +1612,31 @@ test.describe('Markdown 渲染测试', () => {
     for (const fixture of fixtures) {
       await openMarkdownFile(page, join(__dirname, `fixtures/${fixture.file}`))
       await page.waitForSelector('.markdown-body', { timeout: 10000 })
-      await expect(page.locator(fixture.countSelector), fixture.file).toHaveCount(fixture.expected, { timeout: 120000 })
+      const wrappers = page.locator(fixture.countSelector)
+      await expect(wrappers, fixture.file).toHaveCount(fixture.expected, { timeout: 120000 })
       await expect(page.locator(fixture.errorSelector), fixture.file).toHaveCount(0)
-      await expect(page.locator(fixture.renderSelector).first(), fixture.file).toBeVisible()
+      await expect.poll(
+        () => wrappers.evaluateAll((elements, selector) => elements.filter(element => element.querySelector(selector)).length, fixture.renderSelector),
+        { message: `${fixture.file} 每个 wrapper 都应产生 SVG`, timeout: 120000 },
+      ).toBe(fixture.expected)
 
-      const firstBox = await page.locator(fixture.renderSelector).first().boundingBox()
-      expect(firstBox?.width ?? 0, `${fixture.file} first rendered width`).toBeGreaterThan(20)
-      expect(firstBox?.height ?? 0, `${fixture.file} first rendered height`).toBeGreaterThan(8)
+      const rendered = await wrappers.evaluateAll((elements, selector) => elements.map((element, index) => {
+        const svg = element.querySelector(selector)
+        const box = svg?.getBoundingClientRect()
+        return {
+          index,
+          width: box?.width ?? 0,
+          height: box?.height ?? 0,
+          forbidden: svg?.querySelectorAll('script, iframe, object, embed').length ?? 0,
+        }
+      }), fixture.renderSelector)
+      for (const item of rendered) {
+        expect(Number.isFinite(item.width), `${fixture.file} #${item.index + 1} rendered width`).toBe(true)
+        expect(Number.isFinite(item.height), `${fixture.file} #${item.index + 1} rendered height`).toBe(true)
+        expect(item.width, `${fixture.file} #${item.index + 1} rendered width`).toBeGreaterThan(20)
+        expect(item.height, `${fixture.file} #${item.index + 1} rendered height`).toBeGreaterThan(8)
+        expect(item.forbidden, `${fixture.file} #${item.index + 1} forbidden descendants`).toBe(0)
+      }
     }
   })
 
@@ -1562,20 +1655,20 @@ test.describe('Markdown 渲染测试', () => {
     await expect(page.locator('.kroki-error')).toHaveCount(0)
 
     const cases = [
-      { index: 3, name: 'pikchr-timeline', minWidth: 520, minHeight: 36 },
-      { index: 6, name: 'svgbob-network', minWidth: 220, minHeight: 90 },
-      { index: 7, name: 'svgbob-flow', minWidth: 260, minHeight: 44 },
-      { index: 10, name: 'tikz-simple-flow', minWidth: 240, minHeight: 24 },
-      { index: 11, name: 'tikz-architecture', minWidth: 260, minHeight: 70 },
-      { index: 17, name: 'svgbob-service-network', minWidth: 320, minHeight: 160 },
-      { index: 18, name: 'svgbob-batch-topology', minWidth: 340, minHeight: 100 },
-      { index: 19, name: 'svgbob-data-lineage', minWidth: 280, minHeight: 100 },
-      { index: 22, name: 'tikz-layered-architecture', minWidth: 360, minHeight: 120 },
-      { index: 23, name: 'tikz-release-flow', minWidth: 360, minHeight: 34 },
+      { caseId: 'kroki-pikchr-timeline', name: 'pikchr-timeline', minWidth: 520, minHeight: 36 },
+      { caseId: 'kroki-svgbob-network', name: 'svgbob-network', minWidth: 220, minHeight: 90 },
+      { caseId: 'kroki-svgbob-flow', name: 'svgbob-flow', minWidth: 260, minHeight: 44 },
+      { caseId: 'kroki-tikz-simple-flow', name: 'tikz-simple-flow', minWidth: 240, minHeight: 24 },
+      { caseId: 'kroki-tikz-architecture', name: 'tikz-architecture', minWidth: 260, minHeight: 70 },
+      { caseId: 'kroki-svgbob-service-network', name: 'svgbob-service-network', minWidth: 320, minHeight: 160 },
+      { caseId: 'kroki-svgbob-batch-topology', name: 'svgbob-batch-topology', minWidth: 340, minHeight: 100 },
+      { caseId: 'kroki-svgbob-data-lineage', name: 'svgbob-data-lineage', minWidth: 280, minHeight: 100 },
+      { caseId: 'kroki-tikz-layered-architecture', name: 'tikz-layered-architecture', minWidth: 360, minHeight: 120 },
+      { caseId: 'kroki-tikz-release-flow', name: 'tikz-release-flow', minWidth: 360, minHeight: 34 },
     ]
 
     for (const item of cases) {
-      const wrapper = page.locator(`.kroki-wrapper[data-kroki-index="${item.index}"]`).first()
+      const wrapper = rendererCase(page, item.caseId)
       await expect(wrapper.locator('.kroki-container svg')).toBeVisible({ timeout: 120000 })
       await wrapper.scrollIntoViewIfNeeded()
 
@@ -1629,7 +1722,7 @@ test.describe('Markdown 渲染测试', () => {
 
     await openMarkdownFile(page, join(__dirname, 'fixtures/test-structurizr.md'))
     await page.waitForSelector('.markdown-body', { timeout: 10000 })
-    const wrapper = page.locator('.structurizr-wrapper[data-structurizr-index="14"]').first()
+    const wrapper = rendererCase(page, 'structurizr-data-lake-governance')
     await expect(wrapper.locator('.structurizr-container svg')).toBeVisible({ timeout: 90000 })
     await wrapper.scrollIntoViewIfNeeded()
 
@@ -2053,7 +2146,7 @@ test.describe('Markdown 渲染测试', () => {
       return metrics!
     }
 
-    const mermaidGantt = await downloadAndMeasure('.mermaid-wrapper', '.mermaid-action-btn[data-action="download"]', 5)
+    const mermaidGantt = await downloadAndMeasure('#md-case-mermaid-gantt-export-width + .mermaid-wrapper', '.mermaid-action-btn[data-action="download"]')
     expect(mermaidGantt.width, 'Mermaid 甘特图导出宽度不应来自异常 getBBox').toBeLessThan(3000)
     expect(mermaidGantt.width / mermaidGantt.height, 'Mermaid 甘特图导出比例不应异常拉宽').toBeLessThan(6)
 
@@ -2165,22 +2258,22 @@ test.describe('Markdown 渲染测试', () => {
     await page.waitForTimeout(300)
 
     await openMarkdownFile(page, join(__dirname, 'fixtures/test-d2.md'))
-    const target = page.locator('.d2-wrapper[data-d2-index="3"]')
+    const target = rendererCase(page, 'd2-export-task-state')
     await expect(target.locator('.d2-container > svg')).toBeVisible({ timeout: 120000 })
     await target.scrollIntoViewIfNeeded()
     await target.hover()
 
-    const before = await getD2FullscreenRegressionState(page, '3')
+    const before = await getD2FullscreenRegressionState(page, 'd2-export-task-state')
     expect(before.originalInMarkdown, 'D2 原图初始应在 Markdown 正文中').toBe(true)
     expect(before.originalSvgVisible, 'D2 原图初始 SVG 应可见').toBe(true)
 
     await target.locator('.d2-action-btn[data-action="fullscreen"]').click({ force: true })
     await expect.poll(
-      async () => (await getD2FullscreenRegressionState(page, '3')).fullscreenVisible,
+      async () => (await getD2FullscreenRegressionState(page, 'd2-export-task-state')).fullscreenVisible,
       { message: 'D2 应进入全屏' }
     ).toBe(true)
 
-    const fullscreen = await getD2FullscreenRegressionState(page, '3')
+    const fullscreen = await getD2FullscreenRegressionState(page, 'd2-export-task-state')
     expect(fullscreen.originalInMarkdown, 'D2 进入全屏后原图仍应保留在 Markdown 正文中').toBe(true)
     expect(fullscreen.originalSvgVisible, 'D2 进入全屏后原图 SVG 不应被移走').toBe(true)
     expect(
@@ -2190,11 +2283,11 @@ test.describe('Markdown 渲染测试', () => {
 
     await page.locator('.d2-wrapper.chart-fullscreen .chart-lightbox-close').click({ force: true })
     await expect.poll(
-      async () => (await getD2FullscreenRegressionState(page, '3')).fullscreenVisible,
+      async () => (await getD2FullscreenRegressionState(page, 'd2-export-task-state')).fullscreenVisible,
       { message: 'D2 应退出全屏' }
     ).toBe(false)
 
-    const after = await getD2FullscreenRegressionState(page, '3')
+    const after = await getD2FullscreenRegressionState(page, 'd2-export-task-state')
     expect(after.originalInMarkdown, 'D2 退出全屏后原图应回到 Markdown 正文中').toBe(true)
     expect(after.originalVisible, 'D2 退出全屏后原图容器应可见').toBe(true)
     expect(after.originalSvgVisible, 'D2 退出全屏后 SVG 应可见').toBe(true)
@@ -2210,7 +2303,7 @@ test.describe('Markdown 渲染测试', () => {
     await installChartDownloadSpy(page)
 
     await openMarkdownFile(page, join(__dirname, 'fixtures/test-d2.md'))
-    const target = page.locator('.d2-wrapper[data-d2-index="3"]')
+    const target = rendererCase(page, 'd2-export-task-state')
     await expect(target.locator('.d2-container > svg')).toBeVisible({ timeout: 120000 })
     await target.scrollIntoViewIfNeeded()
     await target.hover()
@@ -2279,7 +2372,7 @@ test.describe('Markdown 渲染测试', () => {
       }, { x: 0, y: 0, width: size.width, height: size.height })
       await page.waitForTimeout(300)
       await openMarkdownFile(page, join(__dirname, 'fixtures/test-d2.md'))
-      const target = page.locator('.d2-wrapper[data-d2-index="3"]')
+      const target = rendererCase(page, 'd2-export-task-state')
       await target.waitFor({ state: 'attached', timeout: 120000 })
       await target.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }))
       await page.waitForTimeout(300)
@@ -2288,11 +2381,11 @@ test.describe('Markdown 渲染测试', () => {
 
       await target.locator('.d2-action-btn[data-action="fullscreen"]').click({ force: true })
       await expect.poll(
-        async () => (await getD2FullscreenRegressionState(page, '3')).fullscreenVisible,
+        async () => (await getD2FullscreenRegressionState(page, 'd2-export-task-state')).fullscreenVisible,
         { message: `${size.name} 下 D2 应进入全屏` }
       ).toBe(true)
 
-      const state = await getD2FullscreenRegressionState(page, '3')
+      const state = await getD2FullscreenRegressionState(page, 'd2-export-task-state')
       const widthRatio = state.fullscreenSvgWidth / Math.max(state.viewportWidth, 1)
       expect(widthRatio, `${size.name} 下 D2 宽图全屏不应过小`).toBeGreaterThan(size.minRatio)
       expect(widthRatio, `${size.name} 下 D2 宽图全屏不应过度贴边`).toBeLessThan(size.maxRatio)
@@ -2300,7 +2393,7 @@ test.describe('Markdown 渲染测试', () => {
 
       await page.locator('.d2-wrapper.chart-fullscreen .chart-lightbox-close').click({ force: true })
       await expect.poll(
-        async () => (await getD2FullscreenRegressionState(page, '3')).fullscreenVisible,
+        async () => (await getD2FullscreenRegressionState(page, 'd2-export-task-state')).fullscreenVisible,
         { message: `${size.name} 下 D2 应退出全屏` }
       ).toBe(false)
     }

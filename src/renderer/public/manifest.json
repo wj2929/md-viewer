@@ -23,6 +23,7 @@
     "plotly",
     "dbml",
     "antv-g6",
+    "svg",
     "kroki"
   ],
   "minDocxServiceVersion": "0.2.0",
@@ -588,6 +589,37 @@
         "preview": "pre.language-antv-g6, .antv-g6-wrapper, .antv-g6-error",
         "ready": ".antv-g6-wrapper .antv-g6-container svg",
         "screenshotTarget": ".antv-g6-wrapper .antv-g6-container svg"
+      }
+    },
+    {
+      "type": "svg",
+      "displayName": "SVG（受限）",
+      "aliases": [],
+      "languages": ["svg"],
+      "sourceKinds": ["fence"],
+      "renderMode": "svg",
+      "capabilities": {
+        "preview": { "state": "supported" },
+        "html": { "state": "supported" },
+        "pdf": { "state": "supported" },
+        "docxClient": { "state": "supported" },
+        "serverRender": { "state": "supported" },
+        "docxService": { "state": "supported" }
+      },
+      "networkPolicy": "offlineOnly",
+      "fallbackPolicy": "allowSourceFallbackWithWarning",
+      "manifestVersion": "2.0",
+      "userHelp": {
+        "exampleFence": "svg",
+        "settingsDescription": "SVG（受限） renderer",
+        "failureHints": {}
+      },
+      "sanitizePolicy": { "classes": [], "attributes": [] },
+      "replacement": { "strategy": "blockId" },
+      "selectors": {
+        "preview": "pre.language-svg, .svg-wrapper, .svg-error",
+        "ready": ".svg-wrapper .svg-container svg",
+        "screenshotTarget": ".svg-wrapper .svg-container svg"
       }
     },
     {

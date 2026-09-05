@@ -32,6 +32,7 @@ describe('renderer registry', () => {
     expect(registry.resolveLanguage('dbml')?.type).toBe('dbml')
     expect(registry.resolveLanguage('antv-g6')?.type).toBe('antv-g6')
     expect(registry.resolveLanguage('g6')?.type).toBe('antv-g6')
+    expect(registry.resolveLanguage('svg')?.type).toBe('svg')
     expect(registry.resolveLanguage('kroki')?.type).toBe('kroki')
     expect(registry.resolveLanguage('nomnoml')?.type).toBe('kroki')
     expect(registry.resolveLanguage('pikchr')?.type).toBe('kroki')

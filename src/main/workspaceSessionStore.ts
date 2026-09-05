@@ -21,6 +21,7 @@ export interface DesktopSessionWorkspace {
 export interface DesktopSessionV1 {
   version: 1
   windows: DesktopSessionWindow[]
+  lastActiveWindowId?: string
 }
 
 export interface DesktopSessionRuntimeTab {
@@ -52,6 +53,18 @@ interface WorkspaceSessionStoreState {
 const MAX_WINDOWS = 12
 const MAX_WORKSPACES_PER_WINDOW = 12
 const MAX_TABS_PER_WORKSPACE = 100
+
+export function orderDesktopSessionWindows(session: DesktopSessionV1): DesktopSessionWindow[] {
+  if (session.windows.length < 2) return [...session.windows]
+  const foregroundId = session.lastActiveWindowId &&
+    session.windows.some((window) => window.id === session.lastActiveWindowId)
+    ? session.lastActiveWindowId
+    : session.windows.at(-1)?.id
+  const foreground = session.windows.find((window) => window.id === foregroundId)
+  return foreground
+    ? [foreground, ...session.windows.filter((window) => window.id !== foreground.id)]
+    : [...session.windows]
+}
 
 export class WorkspaceSessionStore {
   private restoredRuntimes = new Map<number, DesktopSessionWindow>()
@@ -89,7 +102,22 @@ export class WorkspaceSessionStore {
         }
       }
     }
-    this.store.set('desktopSession', session)
+    const lastActiveWindowId = session.lastActiveWindowId &&
+      session.windows.some((window) => window.id === session.lastActiveWindowId)
+      ? session.lastActiveWindowId
+      : undefined
+    this.store.set('desktopSession', { ...session, lastActiveWindowId })
+  }
+
+  markWindowActive(windowId: number): void {
+    const session = this.load()
+    if (!session) return
+    const snapshotId = this.getWindowSnapshotId(windowId)
+    if (
+      session.lastActiveWindowId === snapshotId ||
+      !session.windows.some((window) => window.id === snapshotId)
+    ) return
+    this.save({ ...session, lastActiveWindowId: snapshotId })
   }
 
   bindRestoredWindow(windowId: number, snapshotId: string): void {

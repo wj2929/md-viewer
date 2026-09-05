@@ -73,10 +73,8 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
   const handleContextMenu = (e: React.MouseEvent, file: RecentFile) => {
     e.preventDefault()
     e.stopPropagation()
-    window.api.showRecentFileContextMenu({
-      id: file.id,
-      filePath: file.path,
-      fileName: file.name
+    void window.api.showRecentFileContextMenu(file.id).catch(error => {
+      console.error('Failed to show recent file context menu:', error)
     })
   }
 

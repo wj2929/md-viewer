@@ -5,6 +5,7 @@ import { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
 import { getSenderWorkspaceForOperation, validateSenderReadPath, validateWorkspaceOperationPath, resolveRecentFolderRoot } from './senderSecurity'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
+import type { FolderSplitLayoutV1 } from '../../shared/folderTabSession'
 import { activateFolderForWindow, activateHistoryFolderForWindow } from '../folderActivation'
 import { syncClipboardState, getClipboardState } from '../clipboardState'
 import { readFilesFromSystemClipboard, writeFilesToSystemClipboard, hasFilesInSystemClipboard } from '../clipboardManager'
@@ -12,6 +13,13 @@ import * as contextMenuManager from '../contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from '../security/pathValidator'
 import { getCliShimStatus, installCliShim, uninstallCliShim } from '../cliShimInstaller'
 import { isDocumentMarkColor, isMarkdownPath } from '../../shared/documentMarks'
+import {
+  createHeadingIdAllocator,
+  extractPlainHeadingText,
+  markdownAnchorMatches,
+  splitMarkdownTarget,
+} from '../../shared/markdown/semantics'
+import MarkdownIt from 'markdown-it'
 
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 const MARKDOWN_LINK_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
@@ -42,80 +50,20 @@ function isPreviewableFilePath(filePath: string): boolean {
   return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
-}
-
-function splitMarkdownLinkHref(href: string): { cleanHref: string; headingId?: string } {
-  const decoded = safeDecodeURIComponent(href)
-  const hashIndex = decoded.indexOf('#')
-  const beforeHash = hashIndex >= 0 ? decoded.slice(0, hashIndex) : decoded
-  const rawHeading = hashIndex >= 0 ? decoded.slice(hashIndex + 1) : ''
-  const queryIndex = beforeHash.indexOf('?')
-  const cleanHref = (queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash).trim()
-  const headingId = safeDecodeURIComponent(rawHeading).trim()
-  return { cleanHref, headingId: headingId || undefined }
-}
-
-function slugifyHeading(text: string): string {
-  const slug = text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-
-  return slug || 'heading'
-}
-
-function normalizeHeadingText(value: string): string {
-  return value
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/_([^_]+)_/g, '$1')
-    .trim()
-}
+const headingMarkdownParser = new MarkdownIt({ html: true, linkify: false })
 
 function findHeadingLine(markdown: string, headingId: string): number | undefined {
-  const normalizedTarget = headingId.replace(/_/g, '').toLowerCase()
-  const usedSlugs = new Map<string, number>()
-  const lines = markdown.split(/\r?\n/)
-  let fence: string | null = null
+  const allocateHeadingId = createHeadingIdAllocator()
+  const tokens = headingMarkdownParser.parse(markdown, {})
 
-  for (let index = 0; index < lines.length; index++) {
-    const trimmed = lines[index].trim()
-    const fenceMatch = trimmed.match(/^(```+|~~~+)/)
-    if (fenceMatch) {
-      const marker = fenceMatch[1].startsWith('`') ? '```' : '~~~'
-      if (!fence) {
-        fence = marker
-      } else if (marker === fence) {
-        fence = null
-      }
-      continue
-    }
-
-    if (fence) continue
-
-    const headingMatch = lines[index].match(/^(#{1,6})\s+(.+?)\s*#*\s*$/)
-    if (!headingMatch) continue
-
-    const baseSlug = slugifyHeading(normalizeHeadingText(headingMatch[2]))
-    const count = usedSlugs.get(baseSlug) || 0
-    const slug = count > 0 ? `${baseSlug}-${count}` : baseSlug
-    usedSlugs.set(baseSlug, count + 1)
-
-    if (slug === headingId || slug.replace(/_/g, '').toLowerCase() === normalizedTarget) {
-      return index + 1
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token.type !== 'heading_open') continue
+    const inlineToken = tokens[index + 1]
+    if (!inlineToken || inlineToken.type !== 'inline') continue
+    const id = allocateHeadingId(extractPlainHeadingText(inlineToken.children))
+    if (markdownAnchorMatches(id, headingId)) {
+      return token.map ? token.map[0] + 1 : undefined
     }
   }
 
@@ -134,7 +82,9 @@ async function resolveMarkdownLinkTarget(
   headingId?: string
   error?: string
 }> {
-  const { cleanHref, headingId } = splitMarkdownLinkHref(href)
+  const target = splitMarkdownTarget(href)
+  const cleanHref = target.decodedPath
+  const headingId = target.anchor
   if (!cleanHref) return { success: false, error: '链接目标为空' }
 
   const canonicalCurrentFilePath = await validateSenderReadPath(ctx, event, currentFilePath)
@@ -175,6 +125,12 @@ export function sanitizeSettingsUpdates(updates: unknown): Record<string, unknow
     throw new Error('无效的应用设置')
   }
   const { readAloud: _ignored, ...safeUpdates } = updates as Record<string, unknown>
+  if (
+    Object.hasOwn(safeUpdates, 'autoRenderRemoteCharts')
+    && typeof safeUpdates.autoRenderRemoteCharts !== 'boolean'
+  ) {
+    throw new Error('联网图表自动渲染设置必须是布尔值')
+  }
   return safeUpdates
 }
 
@@ -443,7 +399,11 @@ ipcMain.handle('pinned-tabs:is-pinned', async (
 
 ipcMain.handle('folder-tab-session:save', async (
   event,
-  payload: { tabs: Array<{ filePath: string; isPinned?: boolean }>; activeFilePath: string | null },
+  payload: {
+    tabs: Array<{ filePath: string; isPinned?: boolean }>
+    activeFilePath: string | null
+    splitLayout?: FolderSplitLayoutV1
+  },
   operation: WorkspaceOperationContext
 ) => {
   const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
@@ -469,7 +429,12 @@ ipcMain.handle('folder-tab-session:save', async (
     }
   }
 
-  ctx.appDataManager.saveFolderTabSession(workspace.primaryRoot, validTabs, activeCanonical)
+  ctx.appDataManager.saveFolderTabSession(
+    workspace.primaryRoot,
+    validTabs,
+    activeCanonical,
+    payload.splitLayout,
+  )
 })
 
 ipcMain.handle('folder-tab-session:get-for-folder', async (event, folderPath: string) => {
@@ -549,8 +514,8 @@ ipcMain.handle('document-marks:set', async (
 })
 
 ipcMain.handle('read-position:get', async (event, filePath: string) => {
-  await validateSenderReadPath(ctx, event, filePath)
-  return ctx.appDataManager.getReadPosition(filePath)
+  const canonicalPath = await validateSenderReadPath(ctx, event, filePath)
+  return ctx.appDataManager.getReadPosition(canonicalPath)
 })
 
 ipcMain.handle('read-position:save', async (event, position: {

@@ -3,6 +3,7 @@ import type { MarkdownFormatCommand } from './markdownFormatCommands'
 interface MarkdownFormatToolbarProps {
   disabled: boolean
   onCommand: (command: MarkdownFormatCommand) => void
+  onOpenCharts?: () => void
 }
 
 const FORMAT_ACTIONS: Array<{ command: MarkdownFormatCommand; label: string; title: string }> = [
@@ -16,7 +17,7 @@ const FORMAT_ACTIONS: Array<{ command: MarkdownFormatCommand; label: string; tit
   { command: 'codeBlock', label: '{}', title: '代码块' },
 ]
 
-export function MarkdownFormatToolbar({ disabled, onCommand }: MarkdownFormatToolbarProps): JSX.Element {
+export function MarkdownFormatToolbar({ disabled, onCommand, onOpenCharts }: MarkdownFormatToolbarProps): JSX.Element {
   return (
     <div className="markdown-format-toolbar" aria-label="Markdown 格式工具">
       {FORMAT_ACTIONS.map(action => (
@@ -31,6 +32,17 @@ export function MarkdownFormatToolbar({ disabled, onCommand }: MarkdownFormatToo
           {action.label}
         </button>
       ))}
+      {onOpenCharts && (
+        <button
+          type="button"
+          title="插入图表"
+          aria-label="插入图表"
+          disabled={disabled}
+          onClick={onOpenCharts}
+        >
+          图表
+        </button>
+      )}
     </div>
   )
 }

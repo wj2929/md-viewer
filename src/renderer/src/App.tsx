@@ -1,8 +1,10 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, ReadAloudBar, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel, MoveToDialog, WorkspaceSwitcher, WorkspaceImportControl, LoadingPlaceholder } from './components'
+import { FileTree, FileInfo, VirtualizedMarkdown, TabBar, Tab, SearchBar, SearchBarHandle, ErrorBoundary, ToastContainer, ThemeToggle, FolderHistoryDropdown, RecentFilesDropdown, SettingsPanel, FloatingNav, ReadAloudBar, BookmarkPanel, Bookmark, BookmarkBar, Header, NavigationBar, ShortcutsHelpDialog, ImageLightbox, LightboxState, SplitPanel, ExportTaskView, QuickEditDrawer, MarkdownEditWorkbench, PreflightPanel, MoveToDialog, RenameRepairDialog, WorkspaceSwitcher, WorkspaceImportControl, LoadingPlaceholder, MissingFilePlaceholder } from './components'
+import type { FolderActivation } from '../../shared/workspace'
+import type { ChartsSettingsView, EditorInsertionSession, OpenChartSettingsRequest } from './components/settings/chartSettingsTypes'
 import { SplitState, PanelNode, createLeaf, splitLeaf, closeLeaf, updateRatio, updateLeafTab, findLeaf, getAllLeaves, findLeafByTabId, getTreeDepth, MAX_SPLIT_DEPTH, swapLeaves, reconcileSplitState } from './utils/splitTree'
 import { readPreviewContentWithCache, clearFileCache } from './utils/fileCache'
-import { ensureTabContentLoaded } from './utils/ensureTabContentLoaded'
+import { ensureTabContentLoaded, invalidateTabContentLoad } from './utils/ensureTabContentLoaded'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
@@ -11,18 +13,26 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useIPC } from './hooks/useIPC'
 import { useExport } from './hooks/useExport'
 import { useEditDraftPersistence } from './hooks/useEditDraftPersistence'
-import { useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore, useDocumentViewModeStore, useWorkspaceStore } from './stores'
+import { hasLocalEditActivity, useClipboardStore, useWindowStore, useUIStore, useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useEditSessionStore, useQuickEditPlacementStore, useDocumentViewModeStore, useWorkspaceStore } from './stores'
 import type { DocumentViewMode, EditConflictReason, EditSession } from './stores'
 import { useExportTaskStore } from './stores/exportTaskStore'
 import { useReadAloudStore } from './stores/readAloudStore'
 import type { QuickEditTarget } from './utils/quickEditTarget'
-import type { OpenDocumentCommand } from './utils/v24WorkflowContracts'
+import type { FileTreeRevealRequest } from './components/FileTree'
+import type { ExternalDocumentOpenOptions, OpenDocumentCommand } from './utils/v24WorkflowContracts'
+import { createOpenDocumentCommand } from './utils/v24WorkflowContracts'
+import type { BacklinkItem } from './components/BacklinksPanel'
 import {
   getActiveWorkspaceLifecycleKey,
   getActiveWorkspaceOperationContext,
   isActiveWorkspaceLifecycleKey,
 } from './utils/workspaceOperationContext'
 import { createWorkspacePresentation, hasOwnedDraft } from './utils/workspacePresentation'
+import {
+  restoreFolderSplitLayout,
+  serializeFolderSplitLayout,
+  type FolderSplitLeafPositions,
+} from './utils/folderSplitLayout'
 import type { WorkspacePresentationSummary } from './utils/workspacePresentation'
 
 function findEditSessionForPath(sessions: Record<string, EditSession>, filePath: string): EditSession | undefined {
@@ -159,6 +169,53 @@ function App(): React.JSX.Element {
   const workspacePresentationInFlightRef = useRef(false)
   const workspacePresentationPendingRef = useRef<WorkspacePresentationSummary[] | null>(null)
   const workspacePruneInFlightRef = useRef(false)
+  const [fileTreeRevealRequest, setFileTreeRevealRequest] = useState<FileTreeRevealRequest | null>(null)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'charts'>('appearance')
+  const [settingsChartsView, setSettingsChartsView] = useState<ChartsSettingsView>('capabilities')
+  const [settingsInsertionSession, setSettingsInsertionSession] = useState<EditorInsertionSession | undefined>()
+  const openSettings = useCallback((options?: {
+    tab?: 'appearance' | 'charts'
+    chartsView?: ChartsSettingsView
+    insertionSession?: EditorInsertionSession
+  }) => {
+    setSettingsInitialTab(options?.tab ?? 'appearance')
+    setSettingsChartsView(options?.chartsView ?? 'capabilities')
+    setSettingsInsertionSession(options?.insertionSession)
+    setShowSettings(true)
+  }, [setShowSettings])
+  const closeSettings = useCallback(() => {
+    setShowSettings(false)
+    setSettingsInitialTab('appearance')
+    setSettingsChartsView('capabilities')
+    setSettingsInsertionSession(undefined)
+  }, [setShowSettings])
+  const handleOpenChartSettings = useCallback((request: OpenChartSettingsRequest) => {
+    openSettings({
+      tab: 'charts',
+      chartsView: request.initialView,
+      insertionSession: request.insertionSession,
+    })
+  }, [openSettings])
+  const fileTreeRevealSequenceRef = useRef(0)
+  const requestFileTreeReveal = useCallback((filePath: string) => {
+    const lifecycle = getActiveWorkspaceLifecycleKey()
+    const currentFolderPath = useFileStore.getState().folderPath
+    if (
+      !lifecycle?.primaryRoot
+      || !currentFolderPath
+      || lifecycle.primaryRoot !== currentFolderPath
+      || !isPathInsideFolder(filePath, currentFolderPath)
+    ) return
+
+    fileTreeRevealSequenceRef.current += 1
+    setFileTreeRevealRequest({
+      id: fileTreeRevealSequenceRef.current,
+      filePath,
+      basePath: currentFolderPath,
+      workspaceId: lifecycle.workspaceId,
+      lifecycleEpoch: lifecycle.lifecycleEpoch,
+    })
+  }, [])
 
   const prunableWorkspaceIds = useMemo(() => new Set(
     workspacePresentations
@@ -597,6 +654,7 @@ function App(): React.JSX.Element {
   tabsRef.current = tabs
   const splitStateRef = useRef<SplitState>(splitState)
   splitStateRef.current = splitState
+  const splitLeafPositionsRef = useRef<FolderSplitLeafPositions>({})
   const searchBarRef = useRef<SearchBarHandle>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(null)
@@ -610,6 +668,13 @@ function App(): React.JSX.Element {
     })
   }, [setPendingWorkspaceTransfer])
   const [moveToSources, setMoveToSources] = useState<string[] | null>(null)
+  const [renameRepairRequest, setRenameRepairRequest] = useState<{
+    operation: { workspaceId: string; lifecycleEpoch: number }
+    oldPath: string
+    newName: string
+    mapping: { oldRelativePath: string; newRelativePath: string }
+    impact: Awaited<ReturnType<typeof window.api.createLinkImpact>>
+  } | null>(null)
   const dirtyLeaveDecisionRef = useRef<{
     activeTabId: string
     canonicalPath: string
@@ -916,14 +981,11 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  const keepPinnedAndSplitTabsForFolderSwitch = useCallback(() => {
-    const splitTabIds = new Set(
-      splitStateRef.current.root
-        ? getAllLeaves(splitStateRef.current.root).map(l => l.tabId).filter(Boolean)
-        : []
-    )
-    setTabs(prev => prev.filter(tab => tab.isPinned || splitTabIds.has(tab.id)))
-  }, [setTabs])
+  const keepPinnedTabsForFolderSwitch = useCallback(() => {
+    setTabs(prev => prev.filter(tab => tab.isPinned))
+    setSplitState({ root: null, activeLeafId: '' })
+    splitLeafPositionsRef.current = {}
+  }, [setSplitState, setTabs])
 
   // v2.8.0：切走当前文件夹前，把实时 tab 列表 + 当前文档归档到 folderTabSessions。
   // 必须在触发切换的 activation IPC（会替换主进程工作区根）之前调用，否则旧路径会按新根校验被拒。
@@ -940,6 +1002,12 @@ function App(): React.JSX.Element {
         {
           tabs: currentTabs.map(tab => ({ filePath: tab.file.path, isPinned: tab.isPinned })),
           activeFilePath: activeTab?.file.path ?? null,
+          splitLayout: serializeFolderSplitLayout(
+            splitStateRef.current,
+            currentTabs,
+            oldFolderPath,
+            splitLeafPositionsRef.current,
+          ),
         },
         operation
       )
@@ -954,6 +1022,8 @@ function App(): React.JSX.Element {
     try {
       const session = await window.api.getFolderTabSession(targetFolderPath)
       if (session.tabs.length === 0) {
+        splitLeafPositionsRef.current = {}
+        setSplitState({ root: null, activeLeafId: '' })
         await restorePinnedTabs(targetFolderPath)
         return
       }
@@ -967,6 +1037,7 @@ function App(): React.JSX.Element {
       }))
       const targetActivePath = session.activePath ?? session.tabs[0]?.path ?? null
       let activeId: string | null = null
+      let finalTabs: Tab[] = []
       setTabs(prev => {
         const existingPaths = new Set(prev.map(tab => tab.file.path))
         const merged = [...prev]
@@ -978,8 +1049,32 @@ function App(): React.JSX.Element {
         if (targetActivePath) {
           activeId = merged.find(tab => tab.file.path === targetActivePath)?.id ?? null
         }
+        finalTabs = merged
         return merged
       })
+      const restoredSplit = restoreFolderSplitLayout(session.splitLayout, finalTabs, targetFolderPath)
+      if (restoredSplit) {
+        splitLeafPositionsRef.current = Object.fromEntries(
+          Object.entries(restoredSplit.leafViewStates)
+            .filter(([, viewState]) => typeof viewState.scrollRatio === 'number')
+            .map(([leafId, viewState]) => {
+              const leaf = findLeaf(restoredSplit.splitState.root, leafId)
+              const tab = leaf ? finalTabs.find(item => item.id === leaf.tabId) : undefined
+              return [leafId, {
+                filePath: tab?.file.path ?? '',
+                scrollRatio: viewState.scrollRatio ?? 0,
+                ...(viewState.headingId ? { headingId: viewState.headingId } : {}),
+                ...(viewState.contentHash ? { contentHash: viewState.contentHash } : {}),
+              }]
+            })
+        )
+        setSplitState(restoredSplit.splitState)
+        const activeLeaf = findLeaf(restoredSplit.splitState.root, restoredSplit.splitState.activeLeafId)
+        if (activeLeaf) activeId = activeLeaf.tabId
+      } else {
+        splitLeafPositionsRef.current = {}
+        setSplitState({ root: null, activeLeafId: '' })
+      }
       if (activeId) setActiveTabId(activeId)
     } catch (error) {
       console.error('[App] Failed to restore folder tab session:', error)
@@ -1006,26 +1101,35 @@ function App(): React.JSX.Element {
     }
   }, [setActiveTabId, setTabs, toast])
 
+  const applyFolderActivation = useCallback(async (activation: FolderActivation): Promise<void> => {
+    upsertWorkspace({
+      ...activation.workspace,
+      name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
+    })
+    setFolderPath(activation.path)
+    keepPinnedTabsForFolderSwitch()
+    setActiveTabId(null)
+    await restoreFolderTabSession(activation.path)
+  }, [keepPinnedTabsForFolderSwitch, restoreFolderTabSession, upsertWorkspace])
+
   // 打开文件夹
-  const handleOpenFolder = useCallback(async () => {
-    if (!confirmLeaveDirtyActiveTab()) return
+  const openFolder = useCallback(async (): Promise<FolderActivation | null> => {
+    if (!confirmLeaveDirtyActiveTab()) return null
     await archiveCurrentFolderTabs()
     try {
       const activation = await window.api.openFolder()
-      if (activation) {
-        upsertWorkspace({
-          ...activation.workspace,
-          name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
-        })
-        setFolderPath(activation.path)
-        keepPinnedAndSplitTabsForFolderSwitch()
-        setActiveTabId(null)
-        await restoreFolderTabSession(activation.path)
-      }
+      if (!activation) return null
+      await applyFolderActivation(activation)
+      return activation
     } catch (error) {
       console.error('Failed to open folder:', error)
+      return null
     }
-  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedAndSplitTabsForFolderSwitch, restoreFolderTabSession, upsertWorkspace])
+  }, [applyFolderActivation, archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab])
+
+  const handleOpenFolder = useCallback(async () => {
+    await openFolder()
+  }, [openFolder])
 
   // 从历史选择文件夹
   const handleSelectHistoryFolder = useCallback(async (historyId: string) => {
@@ -1037,13 +1141,13 @@ function App(): React.JSX.Element {
       name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
     })
     setFolderPath(activation.path)
-    keepPinnedAndSplitTabsForFolderSwitch()
+    keepPinnedTabsForFolderSwitch()
     setActiveTabId(null)
     await restoreFolderTabSession(activation.path)
-  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedAndSplitTabsForFolderSwitch, restoreFolderTabSession, upsertWorkspace])
+  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedTabsForFolderSwitch, restoreFolderTabSession, upsertWorkspace])
 
   // 从主进程持有的最近文件记录激活；renderer 不再推导或授权根目录。
-  const handleSelectRecentFile = useCallback(async (recentId: string) => {
+  const handleSelectRecentFile = useCallback(async (recentId: string, options?: ExternalDocumentOpenOptions) => {
     if (!confirmLeaveDirtyActiveTab()) return
     await archiveCurrentFolderTabs()
     try {
@@ -1053,7 +1157,7 @@ function App(): React.JSX.Element {
         name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
       })
       setFolderPath(activation.path)
-      keepPinnedAndSplitTabsForFolderSwitch()
+      keepPinnedTabsForFolderSwitch()
       setActiveTabId(null)
       await restoreFolderTabSession(activation.path)
 
@@ -1077,13 +1181,16 @@ function App(): React.JSX.Element {
         return [...prev, shell]
       })
       if (targetId) {
+        setScrollToLine(options?.lineNumber)
+        setScrollToRatio(undefined)
+        setHighlightKeyword(options?.highlightKeyword)
         setActiveTabId(targetId)
         void ensureTabContentLoaded(targetId)
       }
     } catch (error) {
       toast.error(`无法打开最近文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedAndSplitTabsForFolderSwitch, restoreFolderTabSession, toast, upsertWorkspace])
+  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, keepPinnedTabsForFolderSwitch, restoreFolderTabSession, setHighlightKeyword, setScrollToLine, setScrollToRatio, toast, upsertWorkspace])
 
   // 加载文件列表
   useEffect(() => {
@@ -1125,20 +1232,19 @@ function App(): React.JSX.Element {
   const handleFileRenamed = useCallback(async (oldPath: string, newName: string) => {
     try {
       const operation = getActiveWorkspaceOperationContext()
-      if (!operation) throw new Error('工作区尚未就绪')
-      const newPath = await window.api.renameFile(oldPath, newName, operation)
-      if (!newPath) throw new Error('重命名失败')
-      setTabs(prev => prev.map(tab =>
-        tab.file.path === oldPath
-          ? { ...tab, file: { ...tab.file, name: newName, path: newPath } }
-          : tab
-      ))
-      await handleRefreshFiles()
+      const lifecycle = getActiveWorkspaceLifecycleKey()
+      if (!operation || !lifecycle?.primaryRoot) throw new Error('工作区尚未就绪')
+      const root = lifecycle.primaryRoot.replace(/[\\/]+$/, '')
+      const oldRelativePath = oldPath.slice(root.length + 1).replace(/\\/g, '/')
+      const parent = oldRelativePath.includes('/') ? oldRelativePath.slice(0, oldRelativePath.lastIndexOf('/') + 1) : ''
+      const mapping = { oldRelativePath, newRelativePath: `${parent}${newName}` }
+      const impact = await window.api.createLinkImpact(operation, mapping)
+      setRenameRepairRequest({ operation, oldPath, newName, mapping, impact })
     } catch (error) {
       console.error('Failed to rename file:', error)
       toast.error(`重命名失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [activeWorkspaceId, handleRefreshFiles, toast, workspaces])
+  }, [activeWorkspaceId, toast, workspaces])
 
   const confirmCloseDirtyTab = useCallback((tab: Tab): boolean => {
     const session = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
@@ -1170,6 +1276,24 @@ function App(): React.JSX.Element {
     })
   }, [])
 
+  const handleSplitReadPositionChange = useCallback((
+    leafId: string,
+    filePath: string,
+    position: { scrollRatio: number; headingId?: string },
+  ) => {
+    splitLeafPositionsRef.current[leafId] = { filePath, ...position }
+    handleReadPositionChange(filePath, position)
+  }, [handleReadPositionChange])
+
+  const getRestoredSplitLeafViewState = useCallback((leafId: string, filePath: string) => {
+    const state = splitLeafPositionsRef.current[leafId]
+    return state?.filePath === filePath ? state : undefined
+  }, [])
+
+  const clearRestoredSplitLeafViewState = useCallback((leafId: string) => {
+    delete splitLeafPositionsRef.current[leafId]
+  }, [])
+
   const removeTabsFromSession = useCallback((predicate: (tab: Tab) => boolean) => {
     setTabs(prev => {
       const nextTabs = prev.filter(predicate)
@@ -1183,10 +1307,58 @@ function App(): React.JSX.Element {
     })
   }, [setActiveTabId, setSplitState, setTabs])
 
+  const recoverMissingTab = useCallback(async (tabId: string, candidatePath?: string) => {
+    const tab = tabsRef.current.find(item => item.id === tabId)
+    if (!tab) return
+    const targetPath = candidatePath ?? tab.file.path
+    try {
+      clearFileCache(targetPath)
+      const operation = getActiveWorkspaceOperationContext()
+      const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, tab.file.path)
+      const editable = editSession && operation
+        ? await window.api.openEditableMarkdown(targetPath, operation)
+        : null
+      const content = editable?.content ?? await window.api.readFile(targetPath)
+      if (editSession && editable) {
+        useEditSessionStore.getState().closeSession(editSession.canonicalPath)
+        useEditSessionStore.getState().openSession({
+          ...editable,
+          workspaceId: operation!.workspaceId,
+          lifecycleEpoch: operation!.lifecycleEpoch,
+        })
+      }
+      if (candidatePath && operation) {
+        void window.api.unwatchFile(tab.file.path, operation.workspaceId, operation.lifecycleEpoch).catch(() => {})
+        void window.api.watchFile(targetPath, operation.workspaceId, operation.lifecycleEpoch).catch(() => {})
+      }
+      setTabs(prev => prev.map(item => item.id === tabId && item.file.path === tab.file.path
+        ? {
+            ...item,
+            content,
+            missing: false,
+            renameCandidatePath: undefined,
+            file: candidatePath
+              ? { ...item.file, path: targetPath, name: getFileNameFromPath(targetPath) }
+              : item.file,
+          }
+        : item))
+    } catch (error) {
+      console.error('Failed to recover missing file:', error)
+    }
+  }, [setTabs])
+
   // 关闭标签
   const handleTabClose = useCallback((tabId: string) => {
     const closingTab = tabsRef.current.find(tab => tab.id === tabId)
     if (closingTab && !confirmCloseDirtyTab(closingTab)) return
+    const operation = getActiveWorkspaceOperationContext()
+    if (closingTab && operation) {
+      void window.api.unwatchFile(
+        closingTab.file.path,
+        operation.workspaceId,
+        operation.lifecycleEpoch
+      ).catch(() => {})
+    }
 
     setTabs(prev => {
       const closingTab = prev.find(tab => tab.id === tabId)
@@ -1270,19 +1442,78 @@ function App(): React.JSX.Element {
 
   const handleOpenDocumentCommand = useCallback(async (command: OpenDocumentCommand, file: FileInfo) => {
     if (command.dirtyPolicy === 'block' && !confirmLeaveDirtyActiveTab(command.filePath)) return
+    const previousActiveTabId = useTabStore.getState().activeTabId
+    const wasAlreadyActive = tabsRef.current.some(tab => tab.id === previousActiveTabId && tab.file.path === file.path)
     const targetLine = command.target?.kind === 'line' || command.target?.kind === 'match'
       ? command.target.lineNumber
       : undefined
     await handleFileSelect(file, targetLine, command.target?.highlightText)
-  }, [confirmLeaveDirtyActiveTab, handleFileSelect])
+    const currentActiveTabId = useTabStore.getState().activeTabId
+    if (wasAlreadyActive && tabsRef.current.some(tab => tab.id === currentActiveTabId && tab.file.path === file.path)) {
+      requestFileTreeReveal(file.path)
+    }
+  }, [confirmLeaveDirtyActiveTab, handleFileSelect, requestFileTreeReveal])
 
-  // 打开外部文件（跨文件夹搜索结果）：直接打开到 tab，不切换文件夹
-  const handleExternalFileOpen = useCallback(async (filePath: string, lineNumber?: number) => {
+  const handleBacklinkSelect = useCallback(async (item: BacklinkItem, sourceFilePath: string) => {
+    const file: FileInfo = {
+      name: item.sourceDisplayName,
+      path: sourceFilePath,
+      isDirectory: false,
+    }
+    await handleOpenDocumentCommand(createOpenDocumentCommand({
+      source: 'backlink',
+      filePath: sourceFilePath,
+      canonicalPath: sourceFilePath,
+      target: { kind: 'line', lineNumber: item.lineStart },
+      preserveFilter: true,
+      fallback: 'top',
+    }), file)
+  }, [handleOpenDocumentCommand])
+
+  // 打开外部文件。搜索结果携带 opaque id 时先安全激活所属工作区，再由文件树定位。
+  const handleExternalFileOpen = useCallback(async (
+    filePath: string,
+    options: ExternalDocumentOpenOptions = {},
+  ) => {
+    if (options.recentFileId) {
+      await handleSelectRecentFile(options.recentFileId, options)
+      return
+    }
+
+    if (options.historyId) {
+      if (!confirmLeaveDirtyActiveTab(filePath)) return
+      await archiveCurrentFolderTabs()
+      try {
+        const activation = await window.api.activateHistoryFolder(options.historyId)
+        if (!isPathInsideFolder(filePath, activation.path)) {
+          throw new Error('搜索结果不属于目标工作区')
+        }
+        upsertWorkspace({
+          ...activation.workspace,
+          name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
+        })
+        setFolderPath(activation.path)
+        keepPinnedTabsForFolderSwitch()
+        setActiveTabId(null)
+        await restoreFolderTabSession(activation.path)
+        await handleFileSelect(
+          { name: getFileNameFromPath(filePath), path: filePath, isDirectory: false },
+          options.lineNumber,
+          options.highlightKeyword,
+        )
+      } catch (error) {
+        toast.error(`无法打开搜索结果：${error instanceof Error ? error.message : '未知错误'}`)
+      }
+      return
+    }
+
     if (!confirmLeaveDirtyActiveTab(filePath)) return
     const fileName = getFileNameFromPath(filePath)
     const existingTab = tabsRef.current.find(tab => tab.file.path === filePath)
     if (existingTab) {
-      setScrollToLine(lineNumber)
+      setScrollToLine(options.lineNumber)
+      setScrollToRatio(undefined)
+      setHighlightKeyword(options.highlightKeyword)
       await refreshExistingTabContent(existingTab, async () =>
         buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
       )
@@ -1290,7 +1521,9 @@ function App(): React.JSX.Element {
     }
     try {
       const content = buildPreviewContentForFile(filePath, await window.api.searchReadFile(filePath))
-      setScrollToLine(lineNumber)
+      setScrollToLine(options.lineNumber)
+      setScrollToRatio(undefined)
+      setHighlightKeyword(options.highlightKeyword)
       const newTab: Tab = {
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         file: { name: fileName, path: filePath, isDirectory: false },
@@ -1299,12 +1532,17 @@ function App(): React.JSX.Element {
       }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(newTab.id)
+      const operation = getActiveWorkspaceOperationContext()
+      if (operation) {
+        void window.api.watchFile(filePath, operation.workspaceId, operation.lifecycleEpoch)
+          .catch(err => console.error('Failed to watch external file:', err))
+      }
       const fileFolder = filePath.slice(0, Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')))
       window.api.addRecentFile({ path: filePath, name: fileName, folderPath: fileFolder }).catch(() => {})
     } catch (error) {
       toast.error(`无法打开文件：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [confirmLeaveDirtyActiveTab, refreshExistingTabContent, setScrollToLine, toast])
+  }, [archiveCurrentFolderTabs, confirmLeaveDirtyActiveTab, handleFileSelect, handleSelectRecentFile, keepPinnedTabsForFolderSwitch, refreshExistingTabContent, restoreFolderTabSession, setHighlightKeyword, setScrollToLine, setScrollToRatio, toast, upsertWorkspace])
 
   const handleMarkdownLinkClick = useCallback(async (href: string, currentFilePath: string) => {
     try {
@@ -1323,7 +1561,7 @@ function App(): React.JSX.Element {
       if (folderPath && isPathInsideFolder(result.targetPath, folderPath)) {
         await handleFileSelect(targetFile, result.targetLine)
       } else {
-        await handleExternalFileOpen(result.targetPath, result.targetLine)
+        await handleExternalFileOpen(result.targetPath, { lineNumber: result.targetLine })
       }
     } catch (error) {
       toast.error(`链接跳转失败：${error instanceof Error ? error.message : '未知错误'}`)
@@ -1339,6 +1577,9 @@ function App(): React.JSX.Element {
 
   // 获取当前活动标签
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId), [tabs, activeTabId])
+  useEffect(() => {
+    if (activeTab?.file.path) requestFileTreeReveal(activeTab.file.path)
+  }, [activeTab?.file.path, activeWorkspaceEpoch, activeWorkspaceId, folderPath, requestFileTreeReveal])
   const activeViewState = activeTab ? documentViews[`${SINGLE_LEAF_ID}:${activeTab.id}`] ?? getDocumentViewState(SINGLE_LEAF_ID, activeTab.id) : null
   const editSessionList = useMemo(() => Object.values(editSessions), [editSessions])
   const getQuickEditCanonicalPath = useCallback((tab: Tab): string | null => {
@@ -1369,7 +1610,10 @@ function App(): React.JSX.Element {
         if (leaf.tabId) ids.add(leaf.tabId)
       }
     }
-    for (const id of ids) void ensureTabContentLoaded(id)
+    for (const id of ids) {
+      const tab = tabs.find(item => item.id === id)
+      if (!tab?.missing) void ensureTabContentLoaded(id)
+    }
   }, [activeTabId, splitState, tabs])
 
   const updateTabsForEditSession = useCallback((session: EditSession, content: string) => {
@@ -1526,6 +1770,8 @@ function App(): React.JSX.Element {
     if (!activeTabId) return
     setSplitState(prev => {
       if (!prev.root || !prev.activeLeafId) return prev
+      const currentLeaf = findLeaf(prev.root, prev.activeLeafId)
+      if (currentLeaf?.tabId === activeTabId) return prev
       // 如果该 tabId 已经在某个面板中显示，则切换活跃面板到那个面板
       const existingLeaf = findLeafByTabId(prev.root, activeTabId)
       if (existingLeaf) {
@@ -1574,28 +1820,38 @@ function App(): React.JSX.Element {
 
   const handleSelectBookmark = useCallback(async (bookmark: Bookmark) => {
     try {
+      await archiveCurrentFolderTabs()
       const activation = await window.api.activateBookmark(bookmark.id)
       upsertWorkspace({
         ...activation.workspace,
         name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
       })
       setFolderPath(activation.path)
-      keepPinnedAndSplitTabsForFolderSwitch()
+      keepPinnedTabsForFolderSwitch()
       setActiveTabId(null)
 
       const content = await readPreviewContentWithCache(activation.filePath)
-      const newTab: Tab = {
-        id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        file: { name: activation.fileName, path: activation.filePath, isDirectory: false },
-        content
-      }
-      setTabs(prev => prev.some(tab => tab.file.path === activation.filePath) ? prev : [...prev, newTab])
-      setActiveTabId(newTab.id)
+      let targetId: string | null = null
+      setTabs(prev => {
+        const existing = prev.find(tab => tab.file.path === activation.filePath)
+        if (existing) {
+          targetId = existing.id
+          return prev.map(tab => tab.id === existing.id ? { ...tab, content } : tab)
+        }
+        const newTab: Tab = {
+          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file: { name: activation.fileName, path: activation.filePath, isDirectory: false },
+          content
+        }
+        targetId = newTab.id
+        return [...prev, newTab]
+      })
+      if (targetId) setActiveTabId(targetId)
       setTimeout(() => navigateToBookmarkPosition(bookmark), 0)
     } catch (error) {
       toast.error(`无法打开书签：${error instanceof Error ? error.message : '未知错误'}`)
     }
-  }, [keepPinnedAndSplitTabsForFolderSwitch, toast, upsertWorkspace])
+  }, [archiveCurrentFolderTabs, keepPinnedTabsForFolderSwitch, toast, upsertWorkspace])
 
   const navigateToBookmarkPosition = useCallback((bookmark: Bookmark) => {
     if (!previewRef.current) return
@@ -1661,14 +1917,24 @@ function App(): React.JSX.Element {
       })
     }
 
+    const isCurrentSubscription = (): boolean => {
+      if (!hasWorkspaceContext) return useFileStore.getState().folderPath === folderPath
+      const currentWorkspaceState = useWorkspaceStore.getState()
+      const currentWorkspace = currentWorkspaceState.workspaces.find(item => item.id === workspaceId)
+      return currentWorkspaceState.activeWorkspaceId === workspaceId &&
+        currentWorkspace?.lifecycleEpoch === lifecycleEpoch &&
+        currentWorkspace?.primaryRoot === folderPath &&
+        useFileStore.getState().folderPath === folderPath
+    }
+
     // 严格工作区 payload 是新协议；字符串分支只保留给尚未升级的测试/旧 bridge。
     const acceptsEvent = (event: unknown): event is { workspaceId: string; lifecycleEpoch: number; path?: string; oldPath?: string; newPath?: string } => {
-      if (typeof event === 'string') return !hasWorkspaceContext
+      if (typeof event === 'string') return !hasWorkspaceContext && isCurrentSubscription()
       if (!event || typeof event !== 'object') return false
       const data = event as { workspaceId?: unknown; lifecycleEpoch?: unknown }
       return data.workspaceId === workspaceId &&
         data.lifecycleEpoch === lifecycleEpoch &&
-        useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+        isCurrentSubscription()
     }
     const eventPath = (event: unknown): string | null => {
       if (typeof event === 'string') return event
@@ -1683,8 +1949,11 @@ function App(): React.JSX.Element {
       const changedPath = eventPath(event)
       if (!changedPath) return
       clearFileCache(changedPath)
+      for (const tab of tabsRef.current) {
+        if (tab.file.path === changedPath) invalidateTabContentLoad(tab.id)
+      }
       const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, changedPath)
-      if (editSession?.dirty) {
+      if (editSession && hasLocalEditActivity(editSession)) {
         useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'external_changed')
         return
       }
@@ -1695,6 +1964,8 @@ function App(): React.JSX.Element {
             workspaceId: editSession.workspaceId,
             lifecycleEpoch: editSession.lifecycleEpoch as number,
           })
+          const currentSession = useEditSessionStore.getState().sessions[editSession.canonicalPath]
+          if (!isCurrentSubscription() || !currentSession || hasLocalEditActivity(currentSession)) return
           replaceEditSessionFromDisk(editSession.canonicalPath, result.content, result.revisionToken)
           setTabs(prev => prev.map(tab =>
             tab.file.path === editSession.displayPath || tab.file.path === editSession.canonicalPath
@@ -1712,7 +1983,10 @@ function App(): React.JSX.Element {
         // 壳 tab（content===null）尚未 materialize，不 eager 回写；激活时会读到最新内容
         try {
           const newContent = await window.api.readFile(changedPath)
-          setTabs(prev => prev.map(tab => tab.file.path === changedPath ? { ...tab, content: newContent } : tab))
+          if (!isCurrentSubscription()) return
+          setTabs(prev => prev.map(tab => tab.id === affectedTab.id && tab.file.path === changedPath
+            ? { ...tab, content: newContent, missing: false, renameCandidatePath: undefined }
+            : tab))
         } catch (error) {
           console.error('Failed to reload file:', error)
         }
@@ -1722,6 +1996,7 @@ function App(): React.JSX.Element {
     const refreshFiles = async () => {
       try {
         const fileList = await window.api.readDir(folderPath)
+        if (!isCurrentSubscription()) return
         setFiles(fileList)
       } catch (error) {
         console.error('Failed to refresh file list:', error)
@@ -1733,16 +2008,32 @@ function App(): React.JSX.Element {
       const addedPath = eventPath(event)
       if (!addedPath) return
       clearFileCache(addedPath)
+      for (const tab of tabsRef.current) {
+        if (tab.file.path === addedPath) invalidateTabContentLoad(tab.id)
+      }
       const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, addedPath)
-      if (editSession?.dirty) useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'external_changed')
+      const hasLocalActivity = hasLocalEditActivity(editSession)
+      if (hasLocalActivity && editSession) useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'external_changed')
       const affectedTab = tabsRef.current.find(tab => tab.file.path === addedPath)
-      if (editSession && !editSession.dirty) {
+      if (affectedTab?.missing && !hasLocalActivity) {
+        try {
+          const newContent = await window.api.readFile(addedPath)
+          if (!isCurrentSubscription()) return
+          setTabs(prev => prev.map(tab => tab.id === affectedTab.id && tab.file.path === addedPath
+            ? { ...tab, content: newContent, missing: false, renameCandidatePath: undefined }
+            : tab))
+        } catch (error) {
+          console.error('Failed to recover recreated file:', error)
+        }
+      } else if (editSession && !hasLocalActivity) {
         try {
           if (!editSession.workspaceId || !Number.isInteger(editSession.lifecycleEpoch)) return
           const result = await window.api.openEditableMarkdown(editSession.displayPath, {
             workspaceId: editSession.workspaceId,
             lifecycleEpoch: editSession.lifecycleEpoch as number,
           })
+          const currentSession = useEditSessionStore.getState().sessions[editSession.canonicalPath]
+          if (!isCurrentSubscription() || !currentSession || hasLocalEditActivity(currentSession)) return
           replaceEditSessionFromDisk(editSession.canonicalPath, result.content, result.revisionToken)
           setTabs(prev => prev.map(tab =>
             tab.file.path === editSession.displayPath || tab.file.path === editSession.canonicalPath
@@ -1752,10 +2043,13 @@ function App(): React.JSX.Element {
         } catch (error) {
           console.error('Failed to reload clean edit session after add:', error)
         }
-      } else if (affectedTab && affectedTab.content !== null && !editSession?.dirty) {
+      } else if (affectedTab && affectedTab.content !== null && !hasLocalActivity) {
         try {
           const newContent = await window.api.readFile(addedPath)
-          setTabs(prev => prev.map(tab => tab.file.path === addedPath ? { ...tab, content: newContent } : tab))
+          if (!isCurrentSubscription()) return
+          setTabs(prev => prev.map(tab => tab.id === affectedTab.id && tab.file.path === addedPath
+            ? { ...tab, content: newContent }
+            : tab))
         } catch (error) {
           console.error('Failed to reload added file:', error)
         }
@@ -1767,11 +2061,17 @@ function App(): React.JSX.Element {
       if (!acceptsEvent(event)) return
       const removedPath = eventPath(event)
       if (!removedPath) return
-      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, removedPath)
-      if (dirtySession?.dirty) {
-        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'missing')
+      clearFileCache(removedPath)
+      for (const tab of tabsRef.current) {
+        if (tab.file.path === removedPath) invalidateTabContentLoad(tab.id)
+      }
+      const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, removedPath)
+      if (editSession && hasLocalEditActivity(editSession)) {
+        useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'missing')
       } else {
-        removeTabsFromSession(tab => tab.file.path !== removedPath)
+        setTabs(prev => prev.map(tab => tab.file.path === removedPath
+          ? { ...tab, missing: true, renameCandidatePath: undefined }
+          : tab))
       }
       await refreshFiles()
     })
@@ -1792,32 +2092,21 @@ function App(): React.JSX.Element {
       if (!acceptsEvent(event) || typeof event === 'string') return
       const { oldPath, newPath } = event
       if (!oldPath || !newPath) return
+      clearFileCache(oldPath)
       clearFileCache(newPath)
-      const dirtySession = findEditSessionForPath(useEditSessionStore.getState().sessions, oldPath)
-      if (dirtySession?.dirty) {
-        useEditSessionStore.getState().markConflict(dirtySession.canonicalPath, 'renamed')
+      for (const tab of tabsRef.current) {
+        if (tab.file.path === oldPath || tab.file.path === newPath) invalidateTabContentLoad(tab.id)
+      }
+      const editSession = findEditSessionForPath(useEditSessionStore.getState().sessions, oldPath)
+      const hasLocalActivity = hasLocalEditActivity(editSession)
+      if (hasLocalActivity && editSession) {
+        useEditSessionStore.getState().markConflict(editSession.canonicalPath, 'renamed')
       }
       const affectedTab = tabsRef.current.find(tab => tab.file.path === oldPath)
-      if (affectedTab && !dirtySession?.dirty) {
-        const renamePathOnly = (prev: Tab[]) => prev.map(tab => tab.file.path === oldPath
-          ? { ...tab, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
-          : tab
-        )
-        if (affectedTab.content === null) {
-          // 壳 tab：只跟随新路径，内容保持懒加载
-          setTabs(renamePathOnly)
-        } else {
-          try {
-            const newContent = await window.api.readFile(newPath)
-            setTabs(prev => prev.map(tab => tab.file.path === oldPath
-              ? { ...tab, content: newContent, file: { ...tab.file, path: newPath, name: newPath.split(/[/\\]/).pop() || tab.file.name } }
-              : tab
-            ))
-          } catch (error) {
-            console.error('Failed to reload renamed file:', error)
-            setTabs(renamePathOnly)
-          }
-        }
+      if (affectedTab && !hasLocalActivity) {
+        setTabs(prev => prev.map(tab => tab.id === affectedTab.id && tab.file.path === oldPath
+          ? { ...tab, missing: true, renameCandidatePath: newPath }
+          : tab))
       }
       await refreshFiles()
     })
@@ -2002,7 +2291,7 @@ function App(): React.JSX.Element {
       <ToastContainer messages={toast.messages} onClose={toast.close} />
       <ExportTaskView
         onShowInFolder={async (p) => { try { await window.api.showItemInFolder(p) } catch {} }}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => openSettings()}
       />
       <PreflightPanel />
       {pendingTransferNonce && <>
@@ -2019,7 +2308,39 @@ function App(): React.JSX.Element {
         </div>
       )}
 
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsPanel
+          onClose={closeSettings}
+          initialTab={settingsInitialTab}
+          initialChartsView={settingsChartsView}
+          insertionSession={settingsInsertionSession}
+          onOpenChartExamples={async () => {
+            if (typeof window.api.installChartExamples !== 'function') {
+              return {
+                canceled: false,
+                error: {
+                  code: 'RESTART_REQUIRED',
+                  message: '应用后台功能尚未更新，请完全退出并重新启动 MD Viewer 后再试。',
+                },
+              }
+            }
+            if (!confirmLeaveDirtyActiveTab()) return { canceled: true }
+            await archiveCurrentFolderTabs()
+            const result = await window.api.installChartExamples()
+            if (result.canceled || 'error' in result) return result
+
+            await applyFolderActivation(result.activation)
+            await handleFileSelect({
+              name: 'README.md',
+              path: result.entryFilePath,
+              treePath: 'README.md',
+              isDirectory: false,
+            })
+            closeSettings()
+            return result
+          }}
+        />
+      )}
       <ShortcutsHelpDialog
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
@@ -2032,6 +2353,20 @@ function App(): React.JSX.Element {
         onMoveSuccess={(msg) => toast.success(msg)}
         onMoveError={(msg) => toast.error(msg)}
       />
+      {renameRepairRequest && (
+        <RenameRepairDialog
+          {...renameRepairRequest}
+          onMoved={async (newPath) => {
+            setTabs(prev => prev.map(tab =>
+              tab.file.path === renameRepairRequest.oldPath
+                ? { ...tab, file: { ...tab.file, name: renameRepairRequest.newName, path: newPath } }
+                : tab
+            ))
+            await handleRefreshFiles()
+          }}
+          onClose={() => setRenameRepairRequest(null)}
+        />
+      )}
 
       <main className="main-content">
         {!folderPath ? (
@@ -2050,7 +2385,7 @@ function App(): React.JSX.Element {
                 onFileSelect={handleFileSelect}
                 onExternalFileOpen={handleExternalFileOpen}
                 onOpenDocumentCommand={handleOpenDocumentCommand}
-                onSettingsClick={() => setShowSettings(true)}
+                onSettingsClick={() => openSettings()}
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
@@ -2077,6 +2412,18 @@ function App(): React.JSX.Element {
                 />
                 <RecentFilesDropdown onSelectFile={handleSelectRecentFile} />
               </div>
+              <button
+                type="button"
+                className="welcome-charts-card"
+                onClick={() => openSettings({ tab: 'charts', chartsView: 'examples' })}
+              >
+                <span className="welcome-charts-card-icon">📊</span>
+                <span>
+                  <strong>图表与架构图</strong>
+                  <small>查看支持能力，获取内置离线示例包</small>
+                </span>
+                <span aria-hidden="true">→</span>
+              </button>
             </div>
           </div>
         ) : (
@@ -2095,7 +2442,7 @@ function App(): React.JSX.Element {
                 onFileSelect={handleFileSelect}
                 onExternalFileOpen={handleExternalFileOpen}
                 onOpenDocumentCommand={handleOpenDocumentCommand}
-                onSettingsClick={() => setShowSettings(true)}
+                onSettingsClick={() => openSettings()}
                 onThemeChange={setTheme}
                 onRefreshFiles={handleRefreshFiles}
                 isLoading={isLoading}
@@ -2172,6 +2519,7 @@ function App(): React.JSX.Element {
                       files={files}
                       onFileSelect={handleFileSelect}
                       selectedPath={activeTab?.file.path}
+                      revealRequest={fileTreeRevealRequest}
                       basePath={folderPath}
                       onFileRenamed={handleFileRenamed}
                       selectedPaths={selectedPaths}
@@ -2215,16 +2563,22 @@ function App(): React.JSX.Element {
                     onCloseQuickEdit={handleCloseQuickEditPlacement}
                     onReloadQuickEdit={handleReloadQuickEdit}
                     onCopyDraft={handleCopyQuickEditDraft}
+                    onOpenChartSettings={handleOpenChartSettings}
                     scrollToLine={scrollToLine}
                     onScrollToLineComplete={() => setScrollToLine(undefined)}
                     scrollToRatio={scrollToRatio}
                     onScrollToRatioComplete={() => setScrollToRatio(undefined)}
-                    onReadPositionChange={handleReadPositionChange}
+                    getRestoredLeafViewState={getRestoredSplitLeafViewState}
+                    onRestoredLeafViewStateComplete={clearRestoredSplitLeafViewState}
+                    onReadPositionChange={handleSplitReadPositionChange}
                     onMarkdownLinkClick={handleMarkdownLinkClick}
+                    onBacklinkSelect={handleBacklinkSelect}
+                    onRecoverMissingTab={(tabId, candidatePath) => void recoverMissingTab(tabId, candidatePath)}
+                    onCloseTab={handleTabClose}
                   />
                 ) : (
                   <div className={`preview-container ${activeQuickEditCanonicalPath && activeViewState?.mode === 'preview' ? 'with-quick-edit' : ''}`}>
-                    {activeTab && activeViewState && activeViewState.mode !== 'preview' && activeQuickEditSession ? (
+                    {activeTab && !activeTab.missing && activeViewState && activeViewState.mode !== 'preview' && activeQuickEditSession ? (
                       <MarkdownEditWorkbench
                         tab={activeTab}
                         leafId={SINGLE_LEAF_ID}
@@ -2237,6 +2591,7 @@ function App(): React.JSX.Element {
                         onSave={handleSaveQuickEdit}
                         onCopyDraft={handleCopyQuickEditDraft}
                         onReloadFromDisk={handleReloadQuickEdit}
+                        onOpenChartSettings={handleOpenChartSettings}
                         onLocateComplete={(located) => {
                           if (located) toast.success('已定位到源码附近')
                           else toast.info('未能精确定位，已打开编辑器')
@@ -2252,7 +2607,16 @@ function App(): React.JSX.Element {
                             )}
                             <div className="preview" ref={setPreviewNode}>
                               {activeTab ? (
-                                isActiveContentLoading ? (
+                                activeTab.missing ? (
+                                  <MissingFilePlaceholder
+                                    candidatePath={activeTab.renameCandidatePath}
+                                    onRetry={() => void recoverMissingTab(activeTab.id)}
+                                    onUseCandidate={activeTab.renameCandidatePath
+                                      ? () => void recoverMissingTab(activeTab.id, activeTab.renameCandidatePath)
+                                      : undefined}
+                                    onClose={() => handleTabClose(activeTab.id)}
+                                  />
+                                ) : isActiveContentLoading ? (
                                   <LoadingPlaceholder />
                                 ) : (
                                 <VirtualizedMarkdown
@@ -2280,6 +2644,8 @@ function App(): React.JSX.Element {
                               <FloatingNav
                                 containerRef={previewRef}
                                 markdown={activePreviewContent}
+                                filePath={activeTab.file.path}
+                                onBacklinkSelect={handleBacklinkSelect}
                               />
                             )}
                             {activeTab && isMarkdownFile(activeTab.file.path) && (

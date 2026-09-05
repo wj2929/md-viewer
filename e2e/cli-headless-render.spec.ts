@@ -377,6 +377,54 @@ test('CLI charts export writes chart PNG files to a directory', async () => {
   }
 })
 
+test('CLI charts export captures the exact chart bounds without adjacent markdown', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'mdv-cli-chart-bounds-'))
+  const inputPath = join(tempDir, 'chart-bounds.md')
+  const outDir = join(tempDir, 'charts')
+  writeFileSync(inputPath, [
+    '# Chart bounds',
+    '',
+    '上方正文不应进入图表截图。'.repeat(300),
+    '',
+    '```graphviz',
+    'digraph G { rankdir=LR; A [label="输入"]; B [label="输出"]; A -> B; }',
+    '```',
+    '',
+    '下方正文不应进入图表截图。'.repeat(300),
+  ].join('\n'), 'utf8')
+
+  try {
+    const { exitCode, stdout, stderr } = await runElectronCli([
+      'charts',
+      'export',
+      inputPath,
+      '--out-dir',
+      outDir,
+      '--json',
+    ])
+
+    expect(exitCode, stderr).toBe(0)
+    const payload = JSON.parse(stdout)
+    expect(payload.summary).toMatchObject({
+      totalCharts: 1,
+      renderedCharts: 1,
+      exportedCharts: 1,
+    })
+
+    const chart = payload.results.charts[0]
+    const png = readFileSync(payload.artifacts[0].path)
+    const width = png.readUInt32BE(16)
+    const height = png.readUInt32BE(20)
+    const scaleX = width / chart.widthPx
+    const scaleY = height / chart.heightPx
+
+    expect(Math.abs(scaleX - scaleY)).toBeLessThan(0.02)
+    expect([1, 2].some(scale => Math.abs(scaleX - scale) < 0.02)).toBe(true)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
 test('CLI batch runs configured jobs and writes reports', async () => {
   const { tempDir, inputPath } = createChartFixture()
   const configPath = join(tempDir, 'batch.json')

@@ -106,6 +106,38 @@ export async function buildChartsResult(
     })
   }
 
+  const renderComplete = renderResult.ok
+    && renderResult.status === 'success'
+    && renderResult.stats.failedBlocks === 0
+    && renderResult.stats.totalBlocks === renderResult.stats.renderedBlocks
+    && renderResult.stats.renderedBlocks === renderResult.images.length
+  if (!renderComplete) {
+    return createFailureResult('charts', {
+      code: 'CHART_RENDER_INCOMPLETE',
+      message: '图表渲染不完整，未生成导出文件',
+      target: validation.normalizedPath,
+      summary: {
+        action,
+        input: validation.normalizedPath,
+        outputDir: outDir,
+        outputZip: outZip,
+        exportedCharts: 0,
+        ...buildRenderSummary(renderResult),
+      },
+      results: {
+        charts: buildChartList(renderResult),
+      },
+      warnings: renderResult.warnings.map(mapRenderWarning),
+      actions: [
+        {
+          label: '检查图表源码或增加渲染超时',
+          target: validation.normalizedPath,
+          risk: 'safe',
+        },
+      ],
+    })
+  }
+
   const captureDir = outDir ?? await mkdtemp(path.join(tmpdir(), 'mdv-cli-charts-export-'))
   const capture = options.capture ?? captureMarkdownScreenshot
   const artifacts: CliArtifact[] = []

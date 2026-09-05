@@ -58,7 +58,7 @@ describe('workspacePresentation', () => {
     const draft = {
       canonicalPath: '/docs/videos/draft.md', workspaceId: descriptor.id, lifecycleEpoch: 2,
       displayPath: '/docs/videos/draft.md', fileName: 'draft.md', status: 'dirty', original: '', draft: 'x',
-      draftVersion: 1, writerId: null, dirty: true, saving: false, error: null,
+      draftVersion: 1, writerId: null, dirty: true, saving: false, pendingInput: false, composing: false, error: null,
       baseRevisionToken: 'a', lastKnownDiskRevisionToken: 'a', conflictReason: null, undoStack: [], redoStack: [],
     } satisfies EditSession
     expect(hasOwnedDraft(descriptor, { [draft.canonicalPath]: draft })).toBe(true)

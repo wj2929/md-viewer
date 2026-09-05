@@ -6,6 +6,10 @@ import { registerMenuHandlers } from './menuHandlers'
 import { registerDataHandlers } from './dataHandlers'
 import { registerTtsHandlers } from './ttsHandlers'
 import { registerLocalImageHandlers } from './localImageHandlers'
+import { registerWorkspaceIndexHandlers } from './workspaceIndexHandlers'
+import { registerLinkRewriteHandlers } from './linkRewriteHandlers'
+import { registerDiagnosticsHandlers } from './diagnosticsHandlers'
+import { registerExampleHandlers } from './exampleHandlers'
 
 export type { IPCContext, AppState } from './context'
 export { getFileWatcherState } from './fileHandlers'
@@ -21,4 +25,8 @@ export function registerAllHandlers(ctx: IPCContext): void {
   registerDataHandlers(ctx)
   registerTtsHandlers(ctx)
   registerLocalImageHandlers(ctx)
+  registerWorkspaceIndexHandlers(ctx)
+  registerLinkRewriteHandlers(ctx)
+  registerDiagnosticsHandlers(ctx)
+  registerExampleHandlers(ctx)
 }

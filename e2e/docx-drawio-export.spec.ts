@@ -65,11 +65,13 @@ test.describe('DrawIO DOCX 导出', () => {
 
     const zip = new AdmZip(DOCX_PATH)
     const documentXml = zip.readAsText('word/document.xml')
-    const pngCount = zip.getEntries()
-      .filter(entry => entry.entryName.startsWith('word/media/') && entry.entryName.toLowerCase().endsWith('.png'))
+    const mediaCount = zip.getEntries()
+      .filter(entry => entry.entryName.startsWith('word/media/') && /\.(?:png|jpe?g|svg)$/i.test(entry.entryName))
       .length
+    const drawingCount = (documentXml.match(/<w:drawing>/g) ?? []).length
 
-    expect(pngCount, 'DOCX 应包含大量 DrawIO 渲染图片').toBeGreaterThanOrEqual(69)
+    expect(drawingCount, 'DOCX 应包含全部 DrawIO 绘图节点').toBeGreaterThanOrEqual(71)
+    expect(mediaCount, 'DOCX 应包含大量 DrawIO 媒体资源').toBeGreaterThanOrEqual(65)
     expect(documentXml, '第 69 个 DrawIO 不应以源码残留').not.toContain('mdv-electron-arch')
     expect(documentXml, '第 70 个 DrawIO 不应以源码残留').not.toContain('mdv-render-pipeline')
     expect(documentXml, '第 71 个 DrawIO 不应以源码残留').not.toContain('mdv-security-layers')

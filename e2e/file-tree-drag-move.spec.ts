@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { existsSync } from 'fs'
+import { existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { test, expect, openFolderViaIPC } from './fixtures/electron'
 
@@ -63,6 +63,10 @@ test.describe('文件树拖放移动', () => {
 
     const { located } = await dragRowToTarget(page, 'test1.md', { dirName: 'subfolder' })
     expect(located).toBe(true)
+    await expect(page.getByRole('heading', { name: /移动影响/ })).toBeVisible()
+    expect(existsSync(source)).toBe(true)
+    await page.getByRole('button', { name: '移动 1 项' }).click()
+    await expect(page.getByRole('heading', { name: /移动结果/ })).toBeVisible()
 
     await expect.poll(() => existsSync(destination), { timeout: 8000 }).toBe(true)
     expect(existsSync(source)).toBe(false)
@@ -92,9 +96,47 @@ test.describe('文件树拖放移动', () => {
       bar.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }))
       bar.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
     })
+    await expect(page.getByRole('heading', { name: /移动影响/ })).toBeVisible()
+    expect(existsSync(source)).toBe(true)
+    await page.getByRole('button', { name: '移动 1 项' }).click()
+    await expect(page.getByRole('heading', { name: /移动结果/ })).toBeVisible()
 
     await expect.poll(() => existsSync(destination), { timeout: 8000 }).toBe(true)
     expect(existsSync(source)).toBe(false)
+  })
+
+  test('批量拖放部分失败时保留逐项结果且只移动成功项', async ({ page, electronApp, testDir }) => {
+    const sourceA = join(testDir, 'batch-a.md')
+    const sourceB = join(testDir, 'batch-b.md')
+    const destinationA = join(testDir, 'subfolder', 'batch-a.md')
+    const destinationB = join(testDir, 'subfolder', 'batch-b.md')
+    writeFileSync(sourceA, '# Batch A')
+    writeFileSync(sourceB, '# Batch B')
+    writeFileSync(destinationB, '# Existing B')
+    await openFolderViaIPC(electronApp, testDir)
+    await page.waitForSelector('.file-tree-row')
+
+    const batchARow = page.locator('.file-tree-row').filter({ has: page.locator('.file-name', { hasText: 'batch-a.md' }) })
+    const batchBRow = page.locator('.file-tree-row').filter({ has: page.locator('.file-name', { hasText: 'batch-b.md' }) }).last()
+    await batchARow.click({ modifiers: ['Meta'] })
+    await batchBRow.click({ modifiers: ['Meta'] })
+
+    const { located } = await dragRowToTarget(page, 'batch-a.md', { dirName: 'subfolder' })
+    expect(located).toBe(true)
+
+    await expect(page.getByRole('heading', { name: /移动影响/ })).toBeVisible()
+    await page.getByRole('button', { name: '移动 2 项' }).click()
+    const dialog = page.locator('.move-to-dialog')
+    await expect(dialog.getByRole('heading', { name: /移动结果/ })).toBeVisible()
+    await expect(dialog).toContainText('1 项成功 · 1 项失败')
+    await expect(dialog).toContainText('batch-a.md')
+    await expect(dialog).toContainText('已移动')
+    await expect(dialog).toContainText('batch-b.md')
+    await expect(dialog).toContainText('目标文件已存在')
+    expect(existsSync(sourceA)).toBe(false)
+    expect(existsSync(destinationA)).toBe(true)
+    expect(existsSync(sourceB)).toBe(true)
+    expect(existsSync(destinationB)).toBe(true)
   })
 
   test('拖目录到其自身 → 不移动（前端预防）', async ({ page, electronApp, testDir }) => {

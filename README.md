@@ -20,7 +20,8 @@ MD Viewer 用于浏览本地 Markdown 文档目录。它支持文件树、多标
 - 支持 Markdown 正文语音朗读，提供系统离线声、Edge 免费语音、OpenAI 兼容服务和 Azure；支持逐句高亮、阅读跟随、睡眠定时，以及同一 OpenAI 服务下的多个“模型 + 音色”声音方案。
 - 默认预览优先，可切换到 Markdown 编辑模式；段落、标题、引用、列表、表格单元格和普通代码块支持渲染区直接编辑，图表和复杂嵌入通过源码编辑处理。
 - 实时预览 Markdown，支持表格、任务列表、代码高亮、数学公式、图片预览和图表密集型文档。
-- 支持 Mermaid、ECharts、Markmap、Graphviz、PlantUML、DrawIO、Infographic、KaTeX、Excalidraw、Vega-Lite、D2、BPMN、WaveDrom、C4-PlantUML、Structurizr、Plotly、DBML、AntV G6、Kroki 等图表或公式渲染。
+- 支持 Mermaid、ECharts、Markmap、Graphviz、PlantUML、DrawIO、Infographic、KaTeX、Excalidraw、Vega-Lite、D2、BPMN、WaveDrom、C4-PlantUML、Structurizr、Plotly、DBML、AntV G6、受限 SVG、Kroki 等 20 类图表或公式渲染。
+- “设置 → 图表”提供“模板库 / 离线示例 / 渲染服务”三个任务入口；模板可搜索、真实预览并查看 HTML、PDF、DOCX 格式支持，欢迎页可一键准备并打开随应用安装的离线示例。内容版本 `2.8.0-r4` 包含 21 个快速入门模板、93 个设计核心案例和 885 个从 renderer 专项 fixture 明确筛选的正例，共 978 个案例；根目录、设计参考、专项分类和 renderer 页面提供分层使用说明、选型提示、稳定案例 ID、返回/分页导航、联网与导出边界及失败排查。负例与压力输入不进入用户包。专项案例默认每个 renderer 一个 Markdown，仅对隐藏性能实测超限的重型 renderer 固定分页。PlantUML、C4-PlantUML、Kroki 默认自动渲染，可在图表设置中关闭；关闭后每篇文档只确认一次。也可单独导出 ZIP 用于分享或备份。
 - 支持文件名搜索、全文搜索和页面内搜索。
 - 支持递归分屏、目录导航、字体大小调节、窗口置顶和全屏阅读。
 - 支持按根目录保存文件树折叠状态，重新打开常用目录时保留用户整理过的展开状态。
@@ -133,7 +134,7 @@ macOS、Windows 和 Linux 用户如果还没有 `md-viewer` 命令，可以先�
 | PlantUML | <code>```plantuml</code> | UML 图，PlantUML 服务地址可配置 |
 | DrawIO | <code>```drawio</code> | DrawIO / diagrams.net 图表 |
 | Infographic | <code>```infographic</code> | AntV Infographic 信息图 |
-| KaTeX | `$...$` / `$$...$$` | 行内公式和块级公式 |
+| KaTeX | `$...$` / `\(...\)`（行内），`$$...$$` / `\[...\]`（块级） | 行内公式和块级公式 |
 | Excalidraw | <code>```excalidraw</code> / `.excalidraw` 文件 | 静态画板预览和导出 |
 | Vega-Lite | <code>```vega-lite</code> | 声明式统计图、分析图和仪表板图表 |
 | D2 | <code>```d2</code> | 架构图、流程图和系统关系图 |
@@ -144,6 +145,7 @@ macOS、Windows 和 Linux 用户如果还没有 `md-viewer` 命令，可以先�
 | Plotly | <code>```plotly</code> | PPT 型复杂图表、统计图和 3D 图表 |
 | DBML | <code>```dbml</code> | 数据库 ERD |
 | AntV G6 | <code>```antv-g6</code> | 复杂关系、拓扑和知识图谱 |
+| SVG（受限） | <code>```svg</code> | 安全、自包含的静态矢量图 |
 | Kroki | <code>```kroki</code> / <code>```nomnoml</code> 等 | 长尾图表格式入口 |
 
 Excalidraw 文件也可以通过 Markdown 图片语法引用：

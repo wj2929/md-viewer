@@ -69,6 +69,8 @@ export function renderHumanHelp(): string {
     '  md-viewer charts list README.md --json',
     '  md-viewer inspect README.md --json',
     '  md-viewer links README.md --json',
+    '  md-viewer diff before.md after.md --json',
+    '  md-viewer watch docs --jsonl',
     '  md-viewer render README.md --out render.html --json',
     '  md-viewer install-cli --json',
     '  md-viewer preflight README.md --format docx --json',

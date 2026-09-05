@@ -4,13 +4,14 @@ import { FileInfo } from './FileTree'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useSearchHistoryStore } from '../stores'
 import type { SearchRequest, SearchResponse, SearchResult } from '../workers/searchWorker'
-import { applySearchInputLimits, createOpenDocumentCommand, type OpenDocumentCommand } from '../utils/v24WorkflowContracts'
+import { getActiveWorkspaceLifecycleKey, isActiveWorkspaceLifecycleKey } from '../utils/workspaceOperationContext'
+import { applySearchInputLimits, createOpenDocumentCommand, type ExternalDocumentOpenOptions, type OpenDocumentCommand } from '../utils/v24WorkflowContracts'
 
 interface SearchBarProps {
   files: FileInfo[]
   folderPath: string | null
   onFileSelect: (file: FileInfo, scrollToLine?: number, highlightKeyword?: string) => void
-  onExternalFileOpen: (filePath: string) => void
+  onExternalFileOpen: (filePath: string, options?: ExternalDocumentOpenOptions) => void
   onOpenDocumentCommand?: (command: OpenDocumentCommand, file: FileInfo) => void
 }
 
@@ -115,7 +116,9 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
 
   // 外部数据源状态
   const [recentFilesList, setRecentFilesList] = useState<FileInfo[]>([])
+  const [recentFileIds, setRecentFileIds] = useState<string[]>([])
   const [recentFolderFiles, setRecentFolderFiles] = useState<FileInfo[]>([])
+  const [recentFolderIds, setRecentFolderIds] = useState<string[]>([])
   const [isLoadingExternal, setIsLoadingExternal] = useState(false)
   const [loadingProgress, setLoadingProgress] = useState('')
   const loadRequestIdRef = useRef(0)
@@ -180,7 +183,9 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
 
     if (searchScope === 'currentFolder') {
       setRecentFilesList([])
+      setRecentFileIds([])
       setRecentFolderFiles([])
+      setRecentFolderIds([])
       setIsLoadingExternal(false)
       return
     }
@@ -193,9 +198,15 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
         // 加载最近文件
         const recentFiles = await window.api.getRecentFiles()
         if (requestId !== loadRequestIdRef.current) return
+        setRecentFileIds(recentFiles.map((file: { id: string }) => file.id))
         setRecentFilesList(
           recentFiles
-            .map((f: { name: string; path: string }) => ({ name: f.name, path: f.path, isDirectory: false }))
+            .map((f: { id: string; name: string; path: string }) => ({
+              name: f.name,
+              path: f.path,
+              isDirectory: false,
+              recentFileId: f.id,
+            }))
             .filter((f: FileInfo) => !currentPaths.has(f.path))
         )
 
@@ -205,6 +216,12 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
         const top5 = folders
           .filter((f: { path: string }) => f.path !== folderPath)
           .slice(0, 5)
+        setRecentFolderIds(top5.map((folder: { id: string }) => folder.id))
+
+        if (searchMode === 'content' && typeof window.api.queryWorkspaceHistoryIndexes === 'function') {
+          setRecentFolderFiles([])
+          return
+        }
 
         const allFolderFiles: FileInfo[] = []
         for (let i = 0; i < top5.length; i++) {
@@ -212,7 +229,10 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
           try {
             const tree = await window.api.searchReadDir(top5[i].path)
             if (requestId !== loadRequestIdRef.current) return
-            allFolderFiles.push(...flattenTree(tree).slice(0, 500))
+            allFolderFiles.push(...flattenTree(tree).slice(0, 500).map(file => ({
+              ...file,
+              historyId: top5[i].id,
+            })))
           } catch { /* 文件夹不存在，跳过 */ }
         }
         if (requestId !== loadRequestIdRef.current) return
@@ -231,7 +251,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
       }
     }
     load()
-  }, [isOpen, folderPath, searchScope])
+  }, [isOpen, folderPath, searchScope, searchMode])
 
   // 用于追踪已加载内容的文件路径集合
   const loadedPathsRef = useRef<Set<string>>(new Set())
@@ -261,6 +281,11 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
     if (searchMode === 'filename') {
       contentLoadWarningRef.current = null
     }
+    if (
+      searchMode === 'content' &&
+      typeof window.api.queryWorkspaceIndex === 'function' &&
+      (searchScope === 'currentFolder' || typeof window.api.queryWorkspaceHistoryIndexes === 'function')
+    ) return
     if (searchMode === 'content' && filesWithContent.length === 0) {
       const filesToLoad = searchScope === 'currentFolder'
         ? flatFiles
@@ -487,6 +512,140 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
     const searchId = ++searchIdCounter
     currentSearchIdRef.current = searchId
 
+    if (
+      searchMode === 'content' &&
+      searchScope === 'currentFolder' &&
+      window.api.queryWorkspaceIndex &&
+      window.api.getWorkspaceIndexStatus
+    ) {
+      const lifecycle = getActiveWorkspaceLifecycleKey()
+      if (!lifecycle?.primaryRoot) {
+        setSearchResults([])
+        setTotalCount(0)
+        setSearchWarning('内容搜索暂不可用；文档仍可正常打开')
+        setIsSearching(false)
+        return
+      }
+      setIsSearching(true)
+      setSearchWarning('正在查询本地内容索引…')
+      void Promise.all([
+        window.api.queryWorkspaceIndex(lifecycle, debouncedQuery, 60),
+        window.api.getWorkspaceIndexStatus(lifecycle),
+      ]).then(([indexedResults, status]) => {
+        if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
+        const results: SearchResult[] = indexedResults.map(result => ({
+          file: {
+            name: result.displayName,
+            path: `${lifecycle.primaryRoot}/${result.relativePath}`.replace(/\/+/g, '/'),
+            isDirectory: false,
+          },
+          score: -result.score,
+          matches: [{
+            key: 'content',
+            value: result.snippet,
+            indices: [],
+            lineNumber: result.lineStart,
+          }],
+        }))
+        setSearchResults(results)
+        setTotalCount(results.length)
+        setExpandedFiles(new Set(results.map(result => result.file.path)))
+        setSelectedIndex(-1)
+        setSearchWarning(
+          status.state === 'building' || status.state === 'updating'
+            ? '正在建立内容索引，结果可能不完整'
+            : status.state === 'degraded'
+              ? '部分文件未建立索引；当前结果可能不完整'
+              : status.state === 'error'
+                ? '内容搜索暂不可用；文档仍可正常打开'
+                : status.state === 'read-only'
+                  ? '索引正以只读模式运行；结果可用，但不会保存到磁盘'
+                  : null
+        )
+      }).catch(() => {
+        if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
+        setSearchResults([])
+        setTotalCount(0)
+        setSearchWarning('内容搜索暂不可用；文档仍可正常打开')
+      }).finally(() => {
+        if (currentSearchIdRef.current === searchId && isActiveWorkspaceLifecycleKey(lifecycle)) {
+          setIsSearching(false)
+        }
+      })
+      return
+    }
+
+    if (
+      searchMode === 'content' &&
+      searchScope === 'all' &&
+      typeof window.api.queryWorkspaceIndex === 'function' &&
+      typeof window.api.queryWorkspaceHistoryIndexes === 'function'
+    ) {
+      const lifecycle = getActiveWorkspaceLifecycleKey()
+      if (!lifecycle?.primaryRoot) {
+        setSearchResults([])
+        setTotalCount(0)
+        setSearchWarning('内容搜索暂不可用；文档仍可正常打开')
+        setIsSearching(false)
+        return
+      }
+      setIsSearching(true)
+      setSearchWarning('正在查询已记录工作区索引…')
+      void Promise.all([
+        window.api.queryWorkspaceIndex(lifecycle, debouncedQuery, 60),
+        window.api.queryWorkspaceHistoryIndexes(lifecycle, debouncedQuery, recentFolderIds, recentFileIds, 60),
+        window.api.getWorkspaceIndexStatus(lifecycle),
+      ]).then(([currentResults, historyResults, status]) => {
+        if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
+        const seen = new Set<string>()
+        const results: SearchResult[] = []
+        const append = (result: { historyId?: string; recentFileId?: string; filePath: string; displayName: string; score: number; lineStart: number; snippet: string }): void => {
+          if (seen.has(result.filePath)) return
+          seen.add(result.filePath)
+          results.push({
+            file: {
+              name: result.displayName,
+              path: result.filePath,
+              isDirectory: false,
+              historyId: result.historyId,
+              recentFileId: result.recentFileId,
+            },
+            score: -result.score,
+            matches: [{ key: 'content', value: result.snippet, indices: [], lineNumber: result.lineStart }],
+          })
+        }
+        currentResults.forEach(result => append({
+          ...result,
+          filePath: `${lifecycle.primaryRoot}/${result.relativePath}`.replace(/\/+/g, '/'),
+        }))
+        historyResults.forEach(append)
+        const ranked = results.sort((left, right) => (left.score ?? 0) - (right.score ?? 0)).slice(0, 60)
+        setSearchResults(ranked)
+        setTotalCount(ranked.length)
+        setExpandedFiles(new Set(ranked.map(result => result.file.path)))
+        setSelectedIndex(-1)
+        setSearchWarning(
+          status.state === 'building' || status.state === 'updating'
+            ? '正在建立内容索引，结果可能不完整'
+            : status.state === 'degraded'
+              ? '部分文件未建立索引；当前结果可能不完整'
+              : status.state === 'error'
+                ? '当前工作区内容搜索暂不可用；其他已记录工作区结果仍可显示'
+                : status.state === 'read-only'
+                  ? '当前工作区索引以只读模式运行；结果可用，但不会保存到磁盘'
+                  : null
+        )
+      }).catch(() => {
+        if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
+        setSearchResults([])
+        setTotalCount(0)
+        setSearchWarning('内容搜索暂不可用；文档仍可正常打开')
+      }).finally(() => {
+        if (currentSearchIdRef.current === searchId && isActiveWorkspaceLifecycleKey(lifecycle)) setIsSearching(false)
+      })
+      return
+    }
+
     // 优先使用 Worker
     if (workerRef.current) {
       setIsSearching(true)
@@ -507,7 +666,9 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
           name: f.name,
           path: f.path,
           isDirectory: f.isDirectory,
-          content: (f as FileWithContent).content
+          content: (f as FileWithContent).content,
+          historyId: f.historyId,
+          recentFileId: f.recentFileId
         })),
         searchMode
       }
@@ -529,7 +690,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
         }
       }, 0)
     }
-  }, [debouncedQuery, searchMode, flatFiles, recentFilesList, recentFolderFiles, filesWithContent, searchInMainThread, searchScope])
+  }, [debouncedQuery, searchMode, flatFiles, recentFilesList, recentFileIds, recentFolderFiles, recentFolderIds, filesWithContent, searchInMainThread, searchScope])
 
   // v1.5.1: 展开/折叠状态（按文件路径）
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
@@ -562,7 +723,12 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
         onFileSelect(file, lineNumber, debouncedQuery.trim() || undefined)
       }
     } else {
-      onExternalFileOpen(file.path)
+      onExternalFileOpen(file.path, {
+        lineNumber,
+        highlightKeyword: keyword || undefined,
+        historyId: file.historyId,
+        recentFileId: file.recentFileId,
+      })
     }
     setQuery('')
     setSearchResults([])
@@ -763,6 +929,22 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
     )
   }
 
+  const handleRebuildIndex = useCallback(async (): Promise<void> => {
+    const lifecycle = getActiveWorkspaceLifecycleKey()
+    if (!lifecycle?.primaryRoot || !window.api.rebuildWorkspaceIndex) return
+    setIsSearching(true)
+    setSearchWarning('正在重建内容索引…')
+    try {
+      await window.api.rebuildWorkspaceIndex(lifecycle)
+      if (!isActiveWorkspaceLifecycleKey(lifecycle)) return
+      setSearchWarning('内容索引已重建，请重新搜索')
+    } catch {
+      if (isActiveWorkspaceLifecycleKey(lifecycle)) setSearchWarning('索引重建失败；文档仍可正常打开')
+    } finally {
+      if (isActiveWorkspaceLifecycleKey(lifecycle)) setIsSearching(false)
+    }
+  }, [])
+
   return (
     <div className="search-bar">
       <button
@@ -947,7 +1129,10 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
                     })()}
                     {searchWarning && (
                       <div className="search-degraded" role="status">
-                        {searchWarning}
+                        <span>{searchWarning}</span>
+                        {searchMode === 'content' && /暂不可用|未建立索引/.test(searchWarning) && (
+                          <button type="button" onClick={() => void handleRebuildIndex()}>重建索引</button>
+                        )}
                       </div>
                     )}
                     {/* 渲染搜索结果 */}
@@ -1044,7 +1229,10 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
                   <div className="search-no-results">
                     {searchWarning && (
                       <div className="search-degraded" role="status">
-                        {searchWarning}
+                        <span>{searchWarning}</span>
+                        {searchMode === 'content' && /暂不可用|未建立索引/.test(searchWarning) && (
+                          <button type="button" onClick={() => void handleRebuildIndex()}>重建索引</button>
+                        )}
                       </div>
                     )}
                     <p>没有找到匹配的{searchMode === 'filename' ? '文件' : '内容'}</p>

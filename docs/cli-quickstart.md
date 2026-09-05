@@ -204,7 +204,35 @@ md-viewer render report.md --out render.html --json
 
 注意：`render` 是诊断命令，不是最终导出。正式交付请用 `export`。
 
-## 9. 我想批量测试多个 Markdown
+## 9. 我想比较或监听 Markdown
+
+语义比较两个 Markdown 文件：
+
+```bash
+md-viewer diff before.md after.md --json
+md-viewer diff before.md after.md --fail-on-change --json
+```
+
+`diff` 比较 front matter、标题、段落、链接、图片、代码和图表，不是逐字节 diff。`--fail-on-change` 检测到差异时返回 `DIFF_FOUND`，适合 CI。
+
+只读监听文件或目录，每行输出一个 JSON 事件：
+
+```bash
+md-viewer watch docs --jsonl
+md-viewer watch docs --jsonl --max-events 10
+```
+
+rename 是带 `inferred: true` 的启发式提示，不会修改文件；原始 added/removed 事件仍会保留。`diff` 和 `watch` 当前属于 experimental，自动化调用前请读取 `capabilities --json`。
+
+生成本地脱敏诊断包：
+
+```bash
+md-viewer doctor --bundle diagnostics.zip --json
+```
+
+诊断包不含正文、文件名、绝对路径、密钥、搜索词或语音内容，也不会上传。
+
+## 10. 我想批量测试多个 Markdown
 
 创建一个本地配置文件，例如 `e2e/local-real-docs.json`：
 
@@ -231,7 +259,7 @@ md-viewer batch e2e/local-real-docs.json --out /tmp/md-viewer-report.json --arti
 
 建议把真实私有文档配置和导出产物放在 `/tmp` 或 git 忽略目录，避免提交本地路径。
 
-## 10. 给 AI Agent 使用
+## 11. 给 AI Agent 使用
 
 你可以把下面这段发给 AI：
 
@@ -248,7 +276,7 @@ md-viewer preflight report.md --format docx --json
 md-viewer export report.md --format docx --docx-style preview --out report.docx
 ```
 
-## 11. 下一步看哪里
+## 12. 下一步看哪里
 
 - 完整参数、JSON 契约和 exit code：见 [CLI 使用指南](cli.md)。
 - 图形界面完整说明：见 [MD Viewer 使用手册](user-manual.md)。

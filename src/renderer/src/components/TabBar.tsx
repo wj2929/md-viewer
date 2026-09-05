@@ -6,6 +6,8 @@ export interface Tab {
   file: FileInfo
   content: string | null  // null = 懒加载壳，尚未从磁盘读入
   isPinned?: boolean  // v1.3.6 新增：是否固定
+  missing?: boolean
+  renameCandidatePath?: string
 }
 
 interface TabBarProps {

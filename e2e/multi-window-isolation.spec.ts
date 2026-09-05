@@ -71,6 +71,132 @@ async function tryReadFile(page: Page, filePath: string): Promise<{ ok: boolean;
 }
 
 test.describe('多窗口读授权边界', () => {
+  test('同一文件在两个窗口中都应收到外部刷新', async ({ page, electronApp }) => {
+    const folders = createFolders()
+    try {
+      await bindWindowToFolderFile(page, folders.fileA)
+      await expect(page.locator('.markdown-body h1')).toHaveText('A')
+
+      const windowCountBefore = electronApp.windows().length
+      await page.evaluate(() => window.api.newWindow())
+      await expect.poll(() => electronApp.windows().length).toBe(windowCountBefore + 1)
+      const windowB = electronApp.windows()[electronApp.windows().length - 1]
+      await windowB.waitForLoadState('domcontentloaded')
+      await windowB.waitForSelector('.app', { timeout: 10000 })
+      await bindWindowToFolderFile(windowB, folders.fileA)
+      await expect(windowB.locator('.markdown-body h1')).toHaveText('A')
+
+      writeFileSync(folders.fileA, '# Shared Updated\n\n两个窗口都应刷新')
+
+      await expect(page.locator('.markdown-body h1')).toHaveText('Shared Updated')
+      await expect(windowB.locator('.markdown-body h1')).toHaveText('Shared Updated')
+      await expect(page.locator('.markdown-body')).toContainText('两个窗口都应刷新')
+      await expect(windowB.locator('.markdown-body')).toContainText('两个窗口都应刷新')
+    } finally {
+      folders.cleanup()
+    }
+  })
+
+  test('链接影响 capability 不能被另一窗口使用', async ({ page, electronApp }) => {
+    const folders = createFolders()
+    try {
+      writeFileSync(folders.fileA, '# A\n\n[Self](./a.md)')
+      await bindWindowToFolderFile(page, folders.fileA)
+      const operation = await page.evaluate(async () => {
+        const bootstrap = await window.api.getWorkspaceBootstrap()
+        const workspace = bootstrap.workspaces.find(item => item.primaryRoot)
+        if (!workspace) throw new Error('missing workspace')
+        return { workspaceId: workspace.id, lifecycleEpoch: workspace.lifecycleEpoch }
+      })
+      const impact = await page.evaluate(async ({ operation }) =>
+        window.api.createLinkImpact(operation, {
+          oldRelativePath: 'a.md',
+          newRelativePath: 'archive/a.md',
+        }), { operation })
+
+      const windowCountBefore = electronApp.windows().length
+      await page.evaluate(() => window.api.newWindow())
+      await expect.poll(() => electronApp.windows().length).toBe(windowCountBefore + 1)
+      const windowB = electronApp.windows()[electronApp.windows().length - 1]
+      await windowB.waitForLoadState('domcontentloaded')
+      await windowB.waitForSelector('.app', { timeout: 10000 })
+      await bindWindowToFolderFile(windowB, folders.fileA)
+      const operationB = await windowB.evaluate(async () => {
+        const bootstrap = await window.api.getWorkspaceBootstrap()
+        const workspace = bootstrap.workspaces.find(item => item.primaryRoot)
+        if (!workspace) throw new Error('missing workspace')
+        return { workspaceId: workspace.id, lifecycleEpoch: workspace.lifecycleEpoch }
+      })
+
+      const stolen = await windowB.evaluate(async ({ operation, impactId }) => {
+        try {
+          await window.api.executeLinkRewriteOperation(operation, {
+            impactId,
+            mapping: { oldRelativePath: 'a.md', newRelativePath: 'archive/a.md' },
+            reason: 'move',
+            confirm: true,
+          })
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        }
+      }, { operation: operationB, impactId: impact.impactId })
+
+      expect(stolen.ok).toBe(false)
+      expect(stolen.message).toContain('链接影响预览无效或已过期')
+    } finally {
+      folders.cleanup()
+    }
+  })
+
+  test('root replacement 后旧 capability 和旧 epoch 均不可用', async ({ page }) => {
+    const folders = createFolders()
+    try {
+      writeFileSync(folders.fileA, '# A\n\n[Self](./a.md)')
+      await bindWindowToFolderFile(page, folders.fileA)
+      const stale = await page.evaluate(async () => {
+        const bootstrap = await window.api.getWorkspaceBootstrap()
+        const workspace = bootstrap.workspaces.find(item => item.primaryRoot)
+        if (!workspace) throw new Error('missing workspace')
+        const operation = { workspaceId: workspace.id, lifecycleEpoch: workspace.lifecycleEpoch }
+        const impact = await window.api.createLinkImpact(operation, {
+          oldRelativePath: 'a.md',
+          newRelativePath: 'archive/a.md',
+        })
+        return { operation, impactId: impact.impactId }
+      })
+
+      await bindWindowToFolderFile(page, folders.fileB)
+      const current = await page.evaluate(async () => {
+        const bootstrap = await window.api.getWorkspaceBootstrap()
+        const workspace = bootstrap.workspaces.find(item => item.primaryRoot)
+        if (!workspace) throw new Error('missing workspace')
+        return { workspaceId: workspace.id, lifecycleEpoch: workspace.lifecycleEpoch }
+      })
+      expect(current.workspaceId).toBe(stale.operation.workspaceId)
+      expect(current.lifecycleEpoch).toBeGreaterThan(stale.operation.lifecycleEpoch)
+
+      const result = await page.evaluate(async ({ operation, impactId }) => {
+        try {
+          await window.api.executeLinkRewriteOperation(operation, {
+            impactId,
+            mapping: { oldRelativePath: 'a.md', newRelativePath: 'archive/a.md' },
+            reason: 'move',
+            confirm: true,
+          })
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        }
+      }, stale)
+
+      expect(result.ok).toBe(false)
+      expect(result.message).toContain('工作区已失效')
+    } finally {
+      folders.cleanup()
+    }
+  })
+
   test('读放宽到任一已打开文件夹，但拒绝未登记文件夹与受保护路径', async ({ page, electronApp }) => {
     const folders = createFolders()
     try {

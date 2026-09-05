@@ -18,6 +18,10 @@
 | Mermaid | MIT | Mermaid 图表渲染 |
 | ECharts | Apache-2.0 | 交互式图表渲染 |
 | Markmap | MIT | 思维导图渲染 |
+| Vega / Vega-Lite | BSD-3-Clause | 声明式可视化渲染 |
+| D2 | MPL-2.0 | D2 图表渲染 |
+| BPMN.js | MIT with bpmn.io watermark condition | BPMN 图表渲染 |
+| WaveDrom | MIT | 数字时序图渲染 |
 | hpcc-js/wasm-graphviz | Apache-2.0 | Graphviz DOT 图表渲染 |
 | PlantUML Encoder | MIT | PlantUML 文本编码 |
 | Excalidraw | MIT | Excalidraw 静态画板渲染 |
@@ -28,6 +32,8 @@
 | Fuse.js | Apache-2.0 | 模糊搜索 |
 | Zustand | MIT | 状态管理 |
 | electron-store | MIT | 本地设置持久化 |
+| AdmZip | MIT | 图表与本地诊断 ZIP 生成 |
+| msedge-tts | MIT | Edge 免费语音合成适配 |
 
 ## 说明
 

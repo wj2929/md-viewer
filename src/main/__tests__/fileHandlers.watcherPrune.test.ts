@@ -46,6 +46,15 @@ describe('hasIgnoredPathSegment（watcher 递归剪枝）', () => {
     expect(hasIgnoredPathSegment('./a.md')).toBe(false)
   })
 
+  it('只按 watcher root 下的相对后代剪枝，不忽略主动选择的隐藏祖先根', () => {
+    const root = '/Users/me/.claude/plans'
+
+    expect(hasIgnoredPathSegment(root, root)).toBe(false)
+    expect(hasIgnoredPathSegment(`${root}/bubbly-puzzling-pearl.md`, root)).toBe(false)
+    expect(hasIgnoredPathSegment(`${root}/.cache/state.md`, root)).toBe(true)
+    expect(hasIgnoredPathSegment(`${root}/node_modules/pkg/readme.md`, root)).toBe(true)
+  })
+
   it('普通含点文件名不触发隐藏目录规则（仅路径段以 . 开头才算）', () => {
     // 段 "a.md" 以 a 开头，不以 . 开头，应放行
     expect(hasIgnoredPathSegment('/Users/me/proj/a.md')).toBe(false)

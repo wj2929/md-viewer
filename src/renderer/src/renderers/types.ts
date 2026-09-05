@@ -18,6 +18,7 @@ export type RendererType =
   | 'dbml'
   | 'antv-g6'
   | 'kroki'
+  | 'svg'
 
 export type RendererSourceKind = 'fence' | 'inlineMath' | 'blockMath' | 'imageRef' | 'fileResource'
 

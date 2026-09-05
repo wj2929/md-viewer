@@ -25,6 +25,8 @@ interface FileWithContent {
   path: string
   isDirectory: boolean
   content?: string
+  historyId?: string
+  recentFileId?: string
 }
 
 interface SearchMatch {

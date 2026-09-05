@@ -15,9 +15,11 @@ echo "========================================="
 echo "🔍 MD Viewer Release Check"
 echo "========================================="
 echo ""
-echo "v2.3 本地门禁："
+echo "本地门禁："
 echo "   日常修复：scripts/release-smoke.sh quick"
-echo "   发版前：  scripts/release-smoke.sh full"
+echo "   后台完整：scripts/release-smoke.sh full"
+echo "   发版前：  scripts/release-smoke.sh full-interactive"
+echo "   正式包：  npm run verify:package"
 echo ""
 
 # 检查是否在项目根目录
@@ -28,7 +30,7 @@ fi
 
 # 1. 检查 package.json 版本号
 echo "📦 [1/6] 检查 package.json 版本号..."
-PACKAGE_VERSION=$(cat package.json | grep '"version"' | sed 's/.*"version": "\(.*\)".*/\1/')
+PACKAGE_VERSION=$(node -p "require('./package.json').version")
 echo "   package.json 版本: $PACKAGE_VERSION"
 
 # 2. 检查 Git tag

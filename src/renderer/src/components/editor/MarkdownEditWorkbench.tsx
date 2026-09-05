@@ -11,6 +11,8 @@ import { DocumentModeSwitch } from './DocumentModeSwitch'
 import { MarkdownFormatToolbar } from './MarkdownFormatToolbar'
 import { MarkdownEditorPane, type MarkdownEditorPaneHandle } from './MarkdownEditorPane'
 import type { MarkdownFormatCommand } from './markdownFormatCommands'
+import { toInsertionTemplate } from '../settings/chartStarterTemplates'
+import type { OpenChartSettingsRequest } from '../settings/chartSettingsTypes'
 import './MarkdownEditWorkbench.css'
 
 interface MarkdownEditWorkbenchProps {
@@ -32,6 +34,7 @@ interface MarkdownEditWorkbenchProps {
   onCopyDraft: (content: string) => void
   onReloadFromDisk: (canonicalPath: string) => Promise<void>
   onLocateComplete: (located: boolean) => void
+  onOpenChartSettings?: (request: OpenChartSettingsRequest) => void
 }
 
 function getDraftPreviewDebounceMs(content: string): number {
@@ -106,6 +109,7 @@ export function MarkdownEditWorkbench({
   onCopyDraft,
   onReloadFromDisk,
   onLocateComplete,
+  onOpenChartSettings,
 }: MarkdownEditWorkbenchProps): JSX.Element {
   const writerId = `${leafId}:${tab.id}`
   const editorRef = useRef<MarkdownEditorPaneHandle | null>(null)
@@ -116,6 +120,8 @@ export function MarkdownEditWorkbench({
   const pendingSourceDraftRef = useRef<string | null>(null)
   const pendingSourceRecordUndoRef = useRef(false)
   const sourceDraftCommitTimerRef = useRef<number | null>(null)
+  const mountedRef = useRef(true)
+  const chartInsertionStateRef = useRef({ targetKey: '', canInsert: false })
   const [previewResetVersion, setPreviewResetVersion] = useState(0)
   const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true)
   const [hasPendingSourceDraft, setHasPendingSourceDraft] = useState(false)
@@ -128,7 +134,16 @@ export function MarkdownEditWorkbench({
   const closeSession = useEditSessionStore(state => state.closeSession)
   const createSaveSnapshot = useEditSessionStore(state => state.createSaveSnapshot)
   const setSaving = useEditSessionStore(state => state.setSaving)
+  const setPendingInput = useEditSessionStore(state => state.setPendingInput)
+  const setComposing = useEditSessionStore(state => state.setComposing)
   const setError = useEditSessionStore(state => state.setError)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     claimWriter(canonicalPath, writerId)
@@ -141,6 +156,11 @@ export function MarkdownEditWorkbench({
   const dirty = Boolean(session?.dirty) || hasPendingSourceDraft
   const hasConflict = Boolean(session?.conflictReason)
   const conflictMessage = getConflictMessage(session?.conflictReason)
+  const chartTargetKey = `${writerId}:${canonicalPath}`
+  chartInsertionStateRef.current = {
+    targetKey: chartTargetKey,
+    canInsert: !readOnly && mode !== 'preview',
+  }
   const boundedCompareRatio = Math.min(0.8, Math.max(0.2, compareRatio))
   const { status: scrollSyncStatus } = useMarkdownWorkbenchScrollSync({
     enabled: scrollSyncEnabled,
@@ -196,16 +216,18 @@ export function MarkdownEditWorkbench({
     pendingSourceDraftRef.current = null
     pendingSourceRecordUndoRef.current = false
     setHasPendingSourceDraft(false)
+    setPendingInput(canonicalPath, false)
     updateDraft(canonicalPath, nextContent, { writerId, recordUndo })
     return nextContent
-  }, [canonicalPath, clearSourceDraftCommitTimer, updateDraft, writerId])
+  }, [canonicalPath, clearSourceDraftCommitTimer, setPendingInput, updateDraft, writerId])
 
   const discardPendingSourceDraft = useCallback(() => {
     clearSourceDraftCommitTimer()
     pendingSourceDraftRef.current = null
     pendingSourceRecordUndoRef.current = false
     setHasPendingSourceDraft(false)
-  }, [clearSourceDraftCommitTimer])
+    setPendingInput(canonicalPath, false)
+  }, [canonicalPath, clearSourceDraftCommitTimer, setPendingInput])
 
   const flushPendingSourceDraft = useCallback(() => {
     const pendingDraft = pendingSourceDraftRef.current
@@ -228,8 +250,10 @@ export function MarkdownEditWorkbench({
       pendingSourceDraftRef.current = null
       pendingSourceRecordUndoRef.current = false
       sourceDraftCommitTimerRef.current = null
+      setPendingInput(canonicalPath, false)
+      setComposing(canonicalPath, false)
     }
-  }, [canonicalPath, updateDraft, writerId])
+  }, [canonicalPath, setComposing, setPendingInput, updateDraft, writerId])
 
   const handleChange = useCallback((nextContent: string) => {
     const recordUndo = pendingFormatUndoDraftRef.current !== null && pendingFormatUndoDraftRef.current !== nextContent
@@ -237,6 +261,7 @@ export function MarkdownEditWorkbench({
     pendingSourceDraftRef.current = nextContent
     pendingSourceRecordUndoRef.current = pendingSourceRecordUndoRef.current || recordUndo
     setHasPendingSourceDraft(true)
+    setPendingInput(canonicalPath, true)
     clearSourceDraftCommitTimer()
 
     const delay = nextContent.length >= LARGE_SOURCE_EDIT_DRAFT_THRESHOLD
@@ -247,7 +272,7 @@ export function MarkdownEditWorkbench({
       if (pendingDraft === null) return
       commitSourceDraft(pendingDraft, pendingSourceRecordUndoRef.current)
     }, delay)
-  }, [clearSourceDraftCommitTimer, commitSourceDraft])
+  }, [canonicalPath, clearSourceDraftCommitTimer, commitSourceDraft, setPendingInput])
 
   const handleSave = useCallback(async (contentFromEditor?: string, force = false) => {
     if (!session || readOnly) return
@@ -271,6 +296,28 @@ export function MarkdownEditWorkbench({
     pendingFormatUndoDraftRef.current = editorRef.current?.getCurrentDoc() ?? content
     editorRef.current?.applyFormat(command)
   }, [content, readOnly])
+
+  const handleOpenCharts = useCallback(() => {
+    if (!onOpenChartSettings || readOnly || mode === 'preview' || !editorRef.current) return
+    const targetKey = chartTargetKey
+    const isValid = () => mountedRef.current &&
+      chartInsertionStateRef.current.targetKey === targetKey &&
+      chartInsertionStateRef.current.canInsert &&
+      editorRef.current !== null
+    onOpenChartSettings({
+      initialView: 'capabilities',
+      insertionSession: {
+        targetKey,
+        targetLabel: tab.file.name,
+        isValid,
+        insert: (template) => {
+          if (!isValid()) return false
+          pendingFormatUndoDraftRef.current = editorRef.current?.getCurrentDoc() ?? content
+          return editorRef.current?.insertTemplate(toInsertionTemplate(template)) ?? false
+        },
+      },
+    })
+  }, [chartTargetKey, content, mode, onOpenChartSettings, readOnly, tab.file.name])
 
   const rememberRenderedEditScrollTop = useCallback(() => {
     pendingRenderedEditScrollTopRef.current = previewRef.current?.scrollTop ?? null
@@ -432,7 +479,11 @@ export function MarkdownEditWorkbench({
       <header className="markdown-workbench-toolbar">
         <div className="markdown-workbench-toolbar-left">
           <DocumentModeSwitch mode={mode} dirty={dirty} onChange={onModeChange} />
-          <MarkdownFormatToolbar disabled={readOnly || mode === 'preview'} onCommand={handleFormatCommand} />
+          <MarkdownFormatToolbar
+            disabled={readOnly || mode === 'preview'}
+            onCommand={handleFormatCommand}
+            onOpenCharts={onOpenChartSettings ? handleOpenCharts : undefined}
+          />
           {mode === 'compare' && (
             <label className="markdown-workbench-scroll-sync" title={`同步状态：${scrollSyncStatus}`}>
               <input
@@ -538,6 +589,7 @@ export function MarkdownEditWorkbench({
             target={target}
             onChange={handleChange}
             onSave={(nextContent) => handleSave(nextContent)}
+            onCompositionChange={composing => setComposing(canonicalPath, composing)}
             onLocateComplete={onLocateComplete}
           />
         )}

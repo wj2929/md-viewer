@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { SearchBar } from '../../src/components/SearchBar'
 import { FileInfo } from '../../src/components/FileTree'
 import { SEARCH_LIMITS } from '../../src/utils/v24WorkflowContracts'
+import { useWorkspaceStore } from '../../src/stores/workspaceStore'
 
 // Mock window.api
 const mockReadFile = vi.fn()
@@ -13,7 +14,9 @@ global.window.api = {
   getRecentFiles: vi.fn().mockResolvedValue([]),
   getFolderHistory: vi.fn().mockResolvedValue([]),
   searchReadDir: vi.fn().mockResolvedValue([]),
-  searchReadFile: vi.fn().mockResolvedValue('')
+  searchReadFile: vi.fn().mockResolvedValue(''),
+  queryWorkspaceIndex: vi.fn(),
+  getWorkspaceIndexStatus: vi.fn(),
 } as any
 
 describe('SearchBar', () => {
@@ -39,6 +42,13 @@ describe('SearchBar', () => {
     mockOnExternalFileOpen.mockClear()
     mockOnOpenDocumentCommand.mockClear()
     mockReadFile.mockClear()
+    delete (window.api as any).queryWorkspaceHistoryIndexes
+    ;(window.api.queryWorkspaceIndex as any).mockReset()
+    if (window.api.queryWorkspaceHistoryIndexes) {
+      ;(window.api.queryWorkspaceHistoryIndexes as any).mockReset()
+    }
+    ;(window.api.getWorkspaceIndexStatus as any).mockReset()
+    useWorkspaceStore.setState({ workspaces: [], activeWorkspaceId: null, runtimes: {} })
   })
 
   describe('基础渲染', () => {
@@ -150,6 +160,82 @@ describe('SearchBar', () => {
         }
         return Promise.resolve('')
       })
+    })
+
+    it('当前文件夹全文搜索使用主进程索引而不把正文读入 renderer', async () => {
+      useWorkspaceStore.setState({
+        workspaces: [{ id: 'workspace-a', primaryRoot: '/test', lifecycleEpoch: 4, name: 'test' }],
+        activeWorkspaceId: 'workspace-a',
+        runtimes: {},
+      })
+      ;(window.api.queryWorkspaceIndex as any).mockResolvedValue([{
+        relativePath: 'readme.md',
+        displayName: 'readme.md',
+        score: 3,
+        lineStart: 2,
+        snippet: '这是一个 Markdown 预览器',
+        revisionToken: 'v2:full-sha256:test',
+      }])
+      ;(window.api.getWorkspaceIndexStatus as any).mockResolvedValue({
+        state: 'ready', generation: 1, indexedDocuments: 2, totalDocuments: 2, pendingDocuments: 0, errors: 0,
+      })
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
+      await userEvent.click(screen.getByRole('button', { name: /搜索文件/i }))
+      await userEvent.click(screen.getByRole('button', { name: '搜索全部数据源' }))
+      await userEvent.click(screen.getByText('全文'))
+      await userEvent.type(screen.getByPlaceholderText('搜索当前文件夹...'), '预览器')
+
+      await waitFor(() => expect(screen.getByText('readme.md')).toBeInTheDocument())
+      expect(window.api.queryWorkspaceIndex).toHaveBeenCalledWith({ workspaceId: 'workspace-a', lifecycleEpoch: 4, primaryRoot: '/test' }, '预览器', 60)
+      expect(mockReadFile).not.toHaveBeenCalled()
+    })
+
+    it('全部记录全文搜索通过 opaque history ids 查询主进程索引', async () => {
+      useWorkspaceStore.setState({
+        workspaces: [{ id: 'workspace-a', primaryRoot: '/test', lifecycleEpoch: 4, name: 'test' }],
+        activeWorkspaceId: 'workspace-a',
+        runtimes: {},
+      })
+      window.api.queryWorkspaceHistoryIndexes = vi.fn().mockResolvedValue([{
+        historyId: 'history-a',
+        filePath: '/history/docs/guide.md',
+        relativePath: 'docs/guide.md',
+        displayName: 'guide.md',
+        score: 4,
+        lineStart: 7,
+        snippet: '历史索引命中',
+        revisionToken: 'v2:full-sha256:test',
+      }]) as any
+      ;(window.api.queryWorkspaceIndex as any).mockResolvedValue([])
+      ;(window.api.getWorkspaceIndexStatus as any).mockResolvedValue({
+        state: 'ready', generation: 1, indexedDocuments: 2, totalDocuments: 2, pendingDocuments: 0, errors: 0,
+      })
+      ;(window.api.getFolderHistory as any).mockResolvedValue([{
+        id: 'history-a', path: '/history', name: 'history', lastOpened: 1,
+      }])
+
+      render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
+      await userEvent.click(screen.getByRole('button', { name: /搜索文件/i }))
+      await userEvent.click(screen.getByText('全文'))
+      await userEvent.type(screen.getByPlaceholderText('搜索文件内容...'), '历史索引')
+
+      await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+      expect(window.api.queryWorkspaceHistoryIndexes).toHaveBeenCalledWith(
+        { workspaceId: 'workspace-a', lifecycleEpoch: 4, primaryRoot: '/test' },
+        '历史索引',
+        ['history-a'],
+        [],
+        60,
+      )
+      await userEvent.click(screen.getByText('历史索引命中'))
+      expect(mockOnExternalFileOpen).toHaveBeenCalledWith('/history/docs/guide.md', {
+        lineNumber: 7,
+        highlightKeyword: '历史索引',
+        historyId: 'history-a',
+        recentFileId: undefined,
+      })
+      expect(mockReadFile).not.toHaveBeenCalled()
+      delete (window.api as any).queryWorkspaceHistoryIndexes
     })
 
     it('应该显示搜索模式切换按钮', async () => {

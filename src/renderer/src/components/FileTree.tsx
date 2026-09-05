@@ -3,6 +3,9 @@ import { useClipboardStore } from '../stores/clipboardStore'
 import { useFilePreview } from '../hooks/useFilePreview'
 import { FilePreviewTooltip } from './FilePreviewTooltip'
 import { getActiveWorkspaceOperationContext } from '../utils/workspaceOperationContext'
+import { FileTreeMoveRepairDialog } from './FileTreeMoveRepairDialog'
+import type { LinkImpactSummary } from '../../../main/linking/types'
+import type { WorkspaceOperationContext } from '../../../shared/workspace'
 import { type DocumentMarkColor } from '../../../shared/documentMarks'
 
 interface FileInfo {
@@ -11,12 +14,31 @@ interface FileInfo {
   treePath?: string
   isDirectory: boolean
   children?: FileInfo[]
+  historyId?: string
+  recentFileId?: string
+}
+
+export interface FileTreeRevealRequest {
+  id: number
+  filePath: string
+  basePath: string
+  workspaceId: string
+  lifecycleEpoch: number
+}
+
+interface PendingDragMove {
+  operation: WorkspaceOperationContext
+  sources: string[]
+  targetDir: string
+  mappings: Array<{ oldRelativePath: string; newRelativePath: string }>
+  impacts: LinkImpactSummary[]
 }
 
 interface FileTreeProps {
   files: FileInfo[]
   onFileSelect: (file: FileInfo) => void
   selectedPath?: string
+  revealRequest?: FileTreeRevealRequest | null
   basePath: string
   onFileRenamed?: (oldPath: string, newName: string) => void
   // v1.3 阶段 5：多选支持
@@ -62,7 +84,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
-  const isSelected = selectedPath === item.path
+  const isSelected = selectedPath ? sameFilePath(selectedPath, item.path) : false
   const isExpanded = item.isDirectory
     ? forceExpanded || (treeStateLoaded && item.treePath ? collapsedFolders[item.treePath] !== false : false)
     : false
@@ -185,6 +207,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
         aria-selected={isSelected || isMultiSelected}
         aria-describedby={!item.isDirectory && item.path.endsWith('.md') ? 'file-preview-tooltip' : undefined}
         data-flat-index={flatIndex}
+        data-file-path={item.path}
       >
         {/* 展开/折叠图标 */}
         {item.isDirectory && (
@@ -283,6 +306,34 @@ function flattenFileTree(files: FileInfo[]): FileInfo[] {
 const DRAG_MIME = 'application/x-md-viewer-paths'
 const ROOT_DROP_KEY = '__filetree_root__'
 
+function comparablePath(p: string): string {
+  const normalized = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
+function sameFilePath(left: string, right: string): boolean {
+  return comparablePath(left) === comparablePath(right)
+}
+
+function findFileTreeAncestors(files: FileInfo[], targetPath: string): string[] | null {
+  const visit = (items: FileInfo[], ancestors: string[]): string[] | null => {
+    for (const item of items) {
+      if (sameFilePath(item.path, targetPath)) return ancestors
+      if (!item.isDirectory || !item.children) continue
+      const nextAncestors = item.treePath ? [...ancestors, item.treePath] : ancestors
+      const found = visit(item.children, nextAncestors)
+      if (found) return found
+    }
+    return null
+  }
+
+  return visit(files, [])
+}
+
+function fileTreeContainsPath(files: FileInfo[], targetPath: string): boolean {
+  return flattenFileTree(files).some(item => sameFilePath(item.path, targetPath))
+}
+
 function pathBasename(p: string): string {
   return p.split(/[/\\]/).pop() || p
 }
@@ -295,6 +346,10 @@ function pathDirname(p: string): string {
 
 function joinDest(dir: string, name: string): string {
   return `${dir.replace(/[/\\]+$/, '')}/${name}`
+}
+
+function normPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
 // 目标是否为源自身或其子目录（前端预防，后端 isSameOrChildPath 亦兜底）
@@ -357,9 +412,11 @@ function isReactImeComposingEvent(e: React.KeyboardEvent): boolean {
 }
 
 // 文件树组件
-export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onSelectionChange, onMoveSuccess, onMoveError }: FileTreeProps): JSX.Element {
+export function FileTree({ files, onFileSelect, selectedPath, revealRequest, basePath, onFileRenamed, selectedPaths, onSelectionChange, onMoveSuccess, onMoveError }: FileTreeProps): JSX.Element {
   const [filterQuery, setFilterQuery] = useState('')
   const filterInputRef = useRef<HTMLInputElement>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  const lastHandledRevealIdRef = useRef<number | null>(null)
   const trimmedFilterQuery = filterQuery.trim()
   const isFilteringFileTree = trimmedFilterQuery.length > 0
   const visibleFiles = useMemo(
@@ -435,6 +492,7 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
   const [isMoving, setIsMoving] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [pendingDragMove, setPendingDragMove] = useState<PendingDragMove | null>(null)
   const draggedPathsRef = useRef<string[]>([])
   const dragRafRef = useRef<number | null>(null)
 
@@ -506,29 +564,29 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
 
     setIsMoving(true)
     const operation = getActiveWorkspaceOperationContext()
-    if (!operation) return
-    const succeeded: string[] = []
-    const failed: { path: string; error: string }[] = []
-    for (const src of sources) {
-      try {
-        await window.api.moveFile(src, joinDest(targetDir.path, pathBasename(src)), operation)
-        succeeded.push(src)
-      } catch (error) {
-        failed.push({ path: src, error: error instanceof Error ? error.message : String(error) })
-      }
+    if (!operation) {
+      setIsMoving(false)
+      return
     }
-    setIsMoving(false)
-    draggedPathsRef.current = []
-
-    const targetName = pathBasename(targetDir.path)
-    if (failed.length === 0) {
-      onMoveSuccess?.(`已移动 ${succeeded.length} 项到“${targetName}”`)
-    } else if (succeeded.length === 0) {
-      onMoveError?.(`移动失败：${failed[0].error}`)
-    } else {
-      onMoveError?.(`已移动 ${succeeded.length} 项，${failed.length} 项失败：${failed[0].error}`)
+    const root = basePath ? normPath(basePath) : null
+    const mappings = root ? sources.flatMap(source => {
+      const normalizedSource = normPath(source)
+      if (!normalizedSource.startsWith(`${root}/`)) return []
+      return [{
+        oldRelativePath: normalizedSource.slice(root.length + 1),
+        newRelativePath: normPath(joinDest(targetDir.path, pathBasename(source))).slice(root.length + 1),
+      }]
+    }) : []
+    try {
+      const impacts = await Promise.all(mappings.map(mapping => window.api.createLinkImpact(operation, mapping)))
+      setPendingDragMove({ operation, sources, targetDir: targetDir.path, mappings, impacts })
+    } catch (error) {
+      onMoveError?.(`链接影响分析失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setIsMoving(false)
+      draggedPathsRef.current = []
     }
-  }, [canDropInto, onMoveSuccess, onMoveError])
+  }, [basePath, canDropInto, onMoveError])
 
   // 根目录（当前 basePath）作为 drop 目标——从子目录把文件/文件夹拖回根
   const handleRootDragOver = useCallback((event: React.DragEvent) => {
@@ -642,6 +700,60 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
       return next
     })
   }, [scheduleSaveCollapsedFolders])
+
+  useEffect(() => {
+    if (
+      !revealRequest
+      || lastHandledRevealIdRef.current === revealRequest.id
+      || !treeStateLoaded
+      || loadedBasePath !== basePath
+      || revealRequest.basePath !== basePath
+    ) return
+
+    const operation = getActiveWorkspaceOperationContext()
+    if (
+      !operation
+      || operation.workspaceId !== revealRequest.workspaceId
+      || operation.lifecycleEpoch !== revealRequest.lifecycleEpoch
+    ) return
+
+    const ancestors = findFileTreeAncestors(files, revealRequest.filePath)
+    if (!ancestors) return
+
+    if (trimmedFilterQuery && !fileTreeContainsPath(visibleFiles, revealRequest.filePath)) {
+      setFilterQuery('')
+    }
+
+    setCollapsedFolders(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const treePath of ancestors) {
+        if (next[treePath] === false) {
+          delete next[treePath]
+          changed = true
+        }
+      }
+      if (!changed) return prev
+      scheduleSaveCollapsedFolders(next)
+      return next
+    })
+
+    let innerFrame: number | null = null
+    const outerFrame = window.requestAnimationFrame(() => {
+      innerFrame = window.requestAnimationFrame(() => {
+        const row = Array.from(treeRef.current?.querySelectorAll<HTMLElement>('.file-tree-row') ?? [])
+          .find(element => sameFilePath(element.dataset.filePath || '', revealRequest.filePath))
+        if (!row) return
+        row.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+        lastHandledRevealIdRef.current = revealRequest.id
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(outerFrame)
+      if (innerFrame !== null) window.cancelAnimationFrame(innerFrame)
+    }
+  }, [basePath, files, loadedBasePath, revealRequest, scheduleSaveCollapsedFolders, treeStateLoaded, trimmedFilterQuery, visibleFiles])
 
   const handleResetFolderTreeState = useCallback(async () => {
     if (saveTimerRef.current) {
@@ -867,6 +979,7 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
         </div>
       )}
       <div
+        ref={treeRef}
         className="file-tree"
         role="tree"
         aria-label="文件列表"
@@ -917,6 +1030,14 @@ export function FileTree({ files, onFileSelect, selectedPath, basePath, onFileRe
         onMouseEnter={handleTooltipMouseEnter}
         onMouseLeave={handleTooltipMouseLeave}
       />
+      {pendingDragMove && (
+        <FileTreeMoveRepairDialog
+          {...pendingDragMove}
+          onMoveSuccess={onMoveSuccess}
+          onMoveError={onMoveError}
+          onClose={() => setPendingDragMove(null)}
+        />
+      )}
     </div>
   )
 }

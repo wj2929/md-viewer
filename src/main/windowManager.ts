@@ -1,4 +1,5 @@
-import { BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { is } from '@electron-toolkit/utils'
@@ -24,6 +25,8 @@ export interface WindowCreateOptions {
     y?: number
   }
   alwaysOnTop?: boolean
+  isMaximized?: boolean
+  showInactive?: boolean
 }
 
 export interface MainWorkspaceSession {
@@ -90,7 +93,9 @@ export class WindowManager {
         : {}),
       webPreferences: {
         partition: sessionPartition,
-        preload: join(__dirname, '../preload/index.js'),
+        preload: existsSync(join(__dirname, '../preload/index.js'))
+          ? join(__dirname, '../preload/index.js')
+          : join(__dirname, '../../preload/index.js'),
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -116,13 +121,17 @@ export class WindowManager {
     this.broadcastToOthers(winId, 'workspace:merge-sources-changed')
 
     win.on('ready-to-show', () => {
-      win.show()
+      const shouldShowWindow = process.env.MD_VIEWER_E2E_VISIBLE === '1' ||
+        (process.env.MD_VIEWER_E2E_VISIBLE !== '0' && process.env.NODE_ENV !== 'test')
+      if (options?.isMaximized) win.maximize()
+      if (options?.alwaysOnTop && shouldShowWindow) win.setAlwaysOnTop(true)
 
-      if (options?.alwaysOnTop) {
-        win.setAlwaysOnTop(true)
+      if (shouldShowWindow) {
+        if (options?.showInactive) win.showInactive()
+        else win.show()
       }
 
-      if (is.dev && process.env.NODE_ENV !== 'test') {
+      if (is.dev && process.env.NODE_ENV !== 'test' && !options?.showInactive) {
         win.webContents.openDevTools()
       }
 
@@ -182,7 +191,9 @@ export class WindowManager {
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
       win.loadURL(process.env['ELECTRON_RENDERER_URL'])
     } else {
-      win.loadFile(join(__dirname, '../renderer/index.html'))
+      const appRootRenderer = join(app.getAppPath(), 'out/renderer/index.html')
+      const chunkRelativeRenderer = join(__dirname, '../../renderer/index.html')
+      win.loadFile(existsSync(appRootRenderer) ? appRootRenderer : chunkRelativeRenderer)
     }
 
     console.log(`[WindowManager] Window ${winId} created, total: ${this.windows.size}`)

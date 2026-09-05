@@ -6,7 +6,7 @@ vi.mock('../../src/utils/fileCache', () => ({
   readPreviewContentWithCache: (...args: unknown[]) => readPreviewContentWithCache(...args)
 }))
 
-const { ensureTabContentLoaded } = await import('../../src/utils/ensureTabContentLoaded')
+const { ensureTabContentLoaded, invalidateTabContentLoad } = await import('../../src/utils/ensureTabContentLoaded')
 const { useTabStore } = await import('../../src/stores/tabStore')
 
 function makeTab(id: string, path: string, content: string | null) {
@@ -58,13 +58,39 @@ describe('ensureTabContentLoaded 懒加载工具', () => {
     expect(readPreviewContentWithCache).toHaveBeenCalledTimes(1)
   })
 
-  it('读盘失败时置空串占位，避免死循环', async () => {
-    readPreviewContentWithCache.mockRejectedValue(new Error('ENOENT'))
+  it('路径变化后丢弃旧读取结果，并读取新路径最新内容', async () => {
+    let resolveOld: (value: string) => void = () => {}
+    readPreviewContentWithCache
+      .mockImplementationOnce(() => new Promise<string>(resolve => { resolveOld = resolve }))
+      .mockResolvedValueOnce('# 新路径内容')
+    useTabStore.setState({ tabs: [makeTab('t1', '/ws/old.md', null)] } as any)
+
+    const loading = ensureTabContentLoaded('t1')
+    useTabStore.setState({
+      tabs: [makeTab('t1', '/ws/new.md', null)]
+    } as any)
+    invalidateTabContentLoad('t1')
+    resolveOld('# 旧路径内容')
+    await loading
+    await vi.waitFor(() => {
+      expect(useTabStore.getState().tabs.find(t => t.id === 't1')?.content).toBe('# 新路径内容')
+    })
+
+    expect(readPreviewContentWithCache).toHaveBeenNthCalledWith(1, '/ws/old.md')
+    expect(readPreviewContentWithCache).toHaveBeenNthCalledWith(2, '/ws/new.md')
+  })
+
+  it('读盘失败时保持壳状态，允许后续重试', async () => {
+    readPreviewContentWithCache
+      .mockRejectedValueOnce(new Error('ENOENT'))
+      .mockResolvedValueOnce('# 恢复内容')
     useTabStore.setState({ tabs: [makeTab('t1', '/ws/gone.md', null)] } as any)
 
     await ensureTabContentLoaded('t1')
+    expect(useTabStore.getState().tabs.find(t => t.id === 't1')?.content).toBeNull()
 
-    expect(useTabStore.getState().tabs.find(t => t.id === 't1')?.content).toBe('')
+    await ensureTabContentLoaded('t1')
+    expect(useTabStore.getState().tabs.find(t => t.id === 't1')?.content).toBe('# 恢复内容')
   })
 
   it('未知 tabId 直接返回，不读盘', async () => {

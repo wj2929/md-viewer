@@ -24,6 +24,21 @@ describe('content security policy', () => {
     expect(connectDirective).not.toContain('connect-src *')
   })
 
+  it('allows D2 Blob Workers in development and packaged builds without broadening script-src', () => {
+    for (const dev of [true, false]) {
+      const policy = createContentSecurityPolicy(dev)
+      const workerDirective = policy.split(';').find(part => part.trim().startsWith('worker-src')) || ''
+
+      expect(workerDirective).toContain("'self'")
+      expect(workerDirective).toContain('blob:')
+    }
+
+    const productionScriptDirective = createContentSecurityPolicy(false)
+      .split(';')
+      .find(part => part.trim().startsWith('script-src')) || ''
+    expect(productionScriptDirective).not.toContain('blob:')
+  })
+
   it('allows TTS audio playback via media-src (blob/data) without broadening connect-src to third-party TTS', () => {
     const policy = createContentSecurityPolicy(false)
     const mediaDirective = policy.split(';').find(part => part.trim().startsWith('media-src')) || ''

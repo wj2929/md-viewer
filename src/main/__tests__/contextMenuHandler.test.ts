@@ -251,7 +251,7 @@ describe('contextMenuHandler', () => {
       expect(showInFolderItem.label).toBe('📂 在 Finder 中显示')
     })
 
-    it('Windows 应该显示 "在资源管理器中显示"', () => {
+    it('Windows 应该显示 "在文件资源管理器中显示"', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
 
       const file = {
@@ -263,10 +263,10 @@ describe('contextMenuHandler', () => {
       showContextMenu(mockWindow, file, 'C:\\Users\\test\\documents')
 
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
-      const showInFolderItem = template.find((item: any) => item.label?.endsWith('在资源管理器中显示'))
+      const showInFolderItem = template.find((item: any) => item.label?.endsWith('在文件资源管理器中显示'))
 
       expect(showInFolderItem).toBeDefined()
-      expect(showInFolderItem.label).toBe('📂 在资源管理器中显示')
+      expect(showInFolderItem.label).toBe('📂 在文件资源管理器中显示')
     })
 
     it('Linux 应该显示 "在文件管理器中显示"', () => {

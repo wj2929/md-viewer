@@ -1,19 +1,40 @@
 {
   "name": "md-viewer",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "A simple and powerful Markdown preview tool with Mermaid diagrams and file watching",
   "main": "./out/main/index.js",
   "scripts": {
+    "predev": "npm run chart-examples:generate",
     "dev": "electron-vite dev",
+    "prebuild": "npm run chart-examples:generate",
     "build": "electron-vite build",
+    "chart-examples:generate": "node scripts/generate-chart-examples.mjs",
+    "chart-examples:check": "node scripts/generate-chart-examples.mjs --check",
+    "generate:katex-css": "node scripts/generate-katex-woff2-css.mjs",
+    "verify:katex-css": "node scripts/generate-katex-woff2-css.mjs --check",
+    "verify:runtime": "node scripts/verify-runtime-dependencies.mjs",
+    "prepare:package-app": "npm run verify:runtime && node scripts/prepare-package-app.mjs",
+    "inspect:package-app": "node scripts/inspect-package-app.mjs",
+    "package:staged:dir": "npm run build && npm run prepare:package-app && electron-builder --config electron-builder.staged.cjs --dir",
+    "build:staged:mac": "npm run build && npm run prepare:package-app && electron-builder --config electron-builder.staged.cjs --mac",
+    "build:staged:win": "npm run build && npm run prepare:package-app && electron-builder --config electron-builder.staged.cjs --win",
+    "build:staged:linux": "npm run build && npm run prepare:package-app && electron-builder --config electron-builder.staged.cjs --linux",
+    "verify:package": "npm run inspect:package-app && node scripts/inspect-packaged-app.mjs && node scripts/smoke-packaged-app.mjs && node scripts/check-artifact-sizes.mjs && npm run test:e2e:packaged",
+    "test:e2e:packaged": "node scripts/run-packaged-e2e.mjs",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest",
+    "test:renderer": "vitest --run src/renderer src/shared",
+    "test:main": "vitest --config vitest.main.config.ts --run",
+    "test:unit": "npm run test:renderer && npm run test:main",
+    "test:e2e:release": "playwright test",
+    "test:e2e:interactive": "node scripts/run-interactive-e2e.mjs",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:chart-benchmark": "node scripts/run-chart-gallery-benchmark.mjs",
     "test:e2e:ui": "playwright test --ui",
     "build:mac": "npm run build && electron-builder --mac",
     "build:win": "npm run build && electron-builder --win",
@@ -95,6 +116,14 @@
       {
         "from": "resources/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "resources/examples/md-viewer-chart-examples.zip",
+        "to": "examples/md-viewer-chart-examples.zip"
+      },
+      {
+        "from": "resources/examples/md-viewer-chart-examples.manifest.json",
+        "to": "examples/md-viewer-chart-examples.manifest.json"
       }
     ],
     "mac": {
@@ -195,7 +224,7 @@
     "@vitest/ui": "^4.0.16",
     "dompurify": "^3.3.1",
     "electron": "^39.2.7",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.15.7",
     "electron-vite": "^5.0.0",
     "eslint": "^10.3.0",
     "globals": "^17.6.0",

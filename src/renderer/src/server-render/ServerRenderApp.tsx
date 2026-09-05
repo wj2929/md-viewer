@@ -16,6 +16,7 @@ import { useStructurizrChart } from '../components/charts/useStructurizrChart'
 import { usePlotlyChart } from '../components/charts/usePlotlyChart'
 import { useDbmlChart } from '../components/charts/useDbmlChart'
 import { useAntvG6Chart } from '../components/charts/useAntvG6Chart'
+import { useRestrictedSvgChart } from '../components/charts/useRestrictedSvgChart'
 import { useKrokiChart } from '../components/charts/useKrokiChart'
 import { createBrowserResourceHost } from '../render-core/browserResourceHost'
 import { builtinRendererDefinitions } from '../renderers/builtin'
@@ -26,7 +27,7 @@ import type { BrowserPageRenderResult, ServerRenderInput } from './contracts'
 import '../assets/main.css'
 import '../assets/markdown.css'
 import '../assets/prism-theme.css'
-import 'katex/dist/katex.min.css'
+import '../assets/katex-woff2.css'
 
 const rendererRegistry = createRendererRegistry(builtinRendererDefinitions)
 
@@ -51,6 +52,17 @@ function countSelector(root: HTMLElement | null, selector: string): number {
   return root?.querySelectorAll(selector).length || 0
 }
 
+function countRenderedWrappers(
+  root: HTMLElement | null,
+  wrapperSelector: string,
+  renderedSelector: string,
+): number {
+  if (!root) return 0
+  return Array.from(root.querySelectorAll(wrapperSelector))
+    .filter(wrapper => wrapper.querySelector(renderedSelector))
+    .length
+}
+
 function countRenderableBlocks(root: HTMLElement | null): Record<string, number> {
   return {
     mermaid: countSelector(root, 'pre.language-mermaid') + countSelector(root, '.mermaid-wrapper') + countSelector(root, '.mermaid-error'),
@@ -71,6 +83,7 @@ function countRenderableBlocks(root: HTMLElement | null): Record<string, number>
     plotly: countSelector(root, 'pre.language-plotly') + countSelector(root, '.plotly-wrapper') + countSelector(root, '.plotly-error'),
     dbml: countSelector(root, 'pre.language-dbml') + countSelector(root, '.dbml-wrapper') + countSelector(root, '.dbml-error'),
     'antv-g6': countSelector(root, 'pre.language-antv-g6') + countSelector(root, '.antv-g6-wrapper') + countSelector(root, '.antv-g6-error'),
+    svg: countSelector(root, 'pre.language-svg') + countSelector(root, '.svg-wrapper') + countSelector(root, '.svg-error'),
     kroki: countSelector(root, 'pre.language-kroki') + countSelector(root, '.kroki-wrapper') + countSelector(root, '.kroki-error'),
   }
 }
@@ -97,6 +110,7 @@ function renderElementType(element: Element): string {
   if (element.classList.contains('plotly-wrapper')) return 'plotly'
   if (element.classList.contains('dbml-wrapper')) return 'dbml'
   if (element.classList.contains('antv-g6-wrapper')) return 'antv-g6'
+  if (element.classList.contains('svg-wrapper')) return 'svg'
   if (element.classList.contains('kroki-wrapper')) return 'kroki'
   return 'katex'
 }
@@ -119,6 +133,7 @@ function isSuccessfulRenderElement(element: Element): boolean {
     '.plotly-error',
     '.dbml-error',
     '.antv-g6-error',
+    '.svg-error',
     '.kroki-error',
   ].join(', '))
 }
@@ -218,7 +233,7 @@ export function ServerRenderApp(): React.JSX.Element {
   usePlantUMLChart(rootRef, html, isRendererEnabled(input, 'plantuml') || isRendererEnabled(input, 'c4plantuml'), {
     plantuml: isRendererEnabled(input, 'plantuml'),
     c4plantuml: isRendererEnabled(input, 'c4plantuml'),
-  }, input.networkPolicy !== 'blocked')
+  }, input.networkPolicy !== 'blocked' ? 'allow' : 'block')
   useVegaLiteChart(rootRef, html, isRendererEnabled(input, 'vega-lite'))
   useD2Chart(rootRef, html, isRendererEnabled(input, 'd2'))
   useBpmnChart(rootRef, html, {
@@ -230,7 +245,13 @@ export function ServerRenderApp(): React.JSX.Element {
   usePlotlyChart(rootRef, html, isRendererEnabled(input, 'plotly'))
   useDbmlChart(rootRef, html, isRendererEnabled(input, 'dbml'))
   useAntvG6Chart(rootRef, html, isRendererEnabled(input, 'antv-g6'))
-  useKrokiChart(rootRef, html, isRendererEnabled(input, 'kroki') && input.networkPolicy !== 'blocked')
+  useRestrictedSvgChart(rootRef, html, isRendererEnabled(input, 'svg'))
+  useKrokiChart(
+    rootRef,
+    html,
+    isRendererEnabled(input, 'kroki'),
+    input.networkPolicy !== 'blocked' ? 'allow' : 'block',
+  )
   useExcalidrawChart(rootRef, html, {
     markdownFilePath: input.markdownFilePath || 'index.md',
     resourceHost,
@@ -255,25 +276,26 @@ export function ServerRenderApp(): React.JSX.Element {
     const timer = window.setInterval(() => {
       attempts += 1
       const root = rootRef.current
-      const mermaidCount = countSelector(root, '.mermaid-wrapper svg')
+      const mermaidCount = countRenderedWrappers(root, '.mermaid-wrapper', 'svg')
       const katexCount = countSelector(root, '.katex')
-      const excalidrawCount = countSelector(root, '.excalidraw-wrapper svg')
-      const drawioCount = countSelector(root, '.drawio-container[data-drawio-ready="true"] svg')
-      const echartsCount = countSelector(root, '.echarts-wrapper .echarts-container svg')
-      const markmapCount = countSelector(root, '.markmap-wrapper .markmap-container svg')
-      const graphvizCount = countSelector(root, '.graphviz-wrapper .graphviz-container svg')
-      const infographicCount = countSelector(root, '.infographic-wrapper .infographic-container svg')
-      const plantumlCount = countSelector(root, '.plantuml-wrapper .plantuml-container svg')
-      const vegaLiteCount = countSelector(root, '.vega-lite-wrapper .vega-lite-container svg')
-      const d2Count = countSelector(root, '.d2-wrapper .d2-container svg')
-      const bpmnCount = countSelector(root, '.bpmn-wrapper .bpmn-container svg')
-      const waveDromCount = countSelector(root, '.wavedrom-wrapper .wavedrom-container svg')
-      const c4PlantumlCount = countSelector(root, '.c4plantuml-wrapper .plantuml-container svg')
-      const structurizrCount = countSelector(root, '.structurizr-wrapper .structurizr-container svg')
-      const plotlyCount = countSelector(root, '.plotly-wrapper .plotly-container svg')
-      const dbmlCount = countSelector(root, '.dbml-wrapper .dbml-container svg')
-      const antvG6Count = countSelector(root, '.antv-g6-wrapper .antv-g6-container svg')
-      const krokiCount = countSelector(root, '.kroki-wrapper .kroki-container svg')
+      const excalidrawCount = countRenderedWrappers(root, '.excalidraw-wrapper', 'svg')
+      const drawioCount = countRenderedWrappers(root, '.drawio-wrapper', '.drawio-container[data-drawio-ready="true"] svg')
+      const echartsCount = countRenderedWrappers(root, '.echarts-wrapper', '.echarts-container svg')
+      const markmapCount = countRenderedWrappers(root, '.markmap-wrapper', '.markmap-container svg')
+      const graphvizCount = countRenderedWrappers(root, '.graphviz-wrapper', '.graphviz-container svg')
+      const infographicCount = countRenderedWrappers(root, '.infographic-wrapper', '.infographic-container svg')
+      const plantumlCount = countRenderedWrappers(root, '.plantuml-wrapper', '.plantuml-container svg')
+      const vegaLiteCount = countRenderedWrappers(root, '.vega-lite-wrapper', '.vega-lite-container svg')
+      const d2Count = countRenderedWrappers(root, '.d2-wrapper', '.d2-container > svg')
+      const bpmnCount = countRenderedWrappers(root, '.bpmn-wrapper', '.bpmn-container svg')
+      const waveDromCount = countRenderedWrappers(root, '.wavedrom-wrapper', '.wavedrom-container svg')
+      const c4PlantumlCount = countRenderedWrappers(root, '.c4plantuml-wrapper', '.plantuml-container svg')
+      const structurizrCount = countRenderedWrappers(root, '.structurizr-wrapper', '.structurizr-container svg')
+      const plotlyCount = countRenderedWrappers(root, '.plotly-wrapper', '.plotly-container svg')
+      const dbmlCount = countRenderedWrappers(root, '.dbml-wrapper', '.dbml-container svg')
+      const antvG6Count = countRenderedWrappers(root, '.antv-g6-wrapper', '.antv-g6-container svg')
+      const svgCount = countRenderedWrappers(root, '.svg-wrapper', '.svg-container svg')
+      const krokiCount = countRenderedWrappers(root, '.kroki-wrapper', '.kroki-container svg')
       const mermaidFailed = countSelector(root, '.mermaid-error')
       const excalidrawFailed = countSelector(root, '.excalidraw-error')
       const drawioFailed = countSelector(root, '.drawio-error')
@@ -291,6 +313,7 @@ export function ServerRenderApp(): React.JSX.Element {
       const plotlyFailed = countSelector(root, '.plotly-error')
       const dbmlFailed = countSelector(root, '.dbml-error')
       const antvG6Failed = countSelector(root, '.antv-g6-error')
+      const svgFailed = countSelector(root, '.svg-error')
       const krokiFailed = countSelector(root, '.kroki-error')
       const renderedBlocks = [
         ['mermaid', mermaidCount],
@@ -311,6 +334,7 @@ export function ServerRenderApp(): React.JSX.Element {
         ['plotly', plotlyCount],
         ['dbml', dbmlCount],
         ['antv-g6', antvG6Count],
+        ['svg', svgCount],
         ['kroki', krokiCount],
       ].reduce((sum, [type, count]) => sum + (isRendererEnabled(input, String(type)) ? Number(count) : 0), 0)
       const failedBlocks = [
@@ -331,6 +355,7 @@ export function ServerRenderApp(): React.JSX.Element {
         ['plotly', plotlyFailed],
         ['dbml', dbmlFailed],
         ['antv-g6', antvG6Failed],
+        ['svg', svgFailed],
         ['kroki', krokiFailed],
       ].reduce((sum, [type, count]) => sum + (isRendererEnabled(input, String(type)) ? Number(count) : 0), 0)
       const elapsed = Date.now() - startedAt
@@ -353,6 +378,7 @@ export function ServerRenderApp(): React.JSX.Element {
         && plotlyCount + plotlyFailed >= expected.plotly
         && dbmlCount + dbmlFailed >= expected.dbml
         && antvG6Count + antvG6Failed >= expected['antv-g6']
+        && svgCount + svgFailed >= expected.svg
         && krokiCount + krokiFailed >= expected.kroki
       )
 
@@ -370,7 +396,7 @@ export function ServerRenderApp(): React.JSX.Element {
           ok: finished && failedBlocks === 0,
           status: finished ? (failedBlocks > 0 ? 'partial' : 'success') : 'timeout',
           html: rootRef.current?.innerHTML || html,
-          images: Array.from(rootRef.current?.querySelectorAll('.mermaid-wrapper, .katex, .excalidraw-wrapper, .drawio-wrapper, .echarts-wrapper, .markmap-wrapper, .graphviz-wrapper, .infographic-wrapper, .plantuml-wrapper, .vega-lite-wrapper, .d2-wrapper, .bpmn-wrapper, .wavedrom-wrapper, .c4plantuml-wrapper, .structurizr-wrapper, .plotly-wrapper, .dbml-wrapper, .antv-g6-wrapper, .kroki-wrapper') || [])
+          images: Array.from(rootRef.current?.querySelectorAll('.mermaid-wrapper, .katex, .excalidraw-wrapper, .drawio-wrapper, .echarts-wrapper, .markmap-wrapper, .graphviz-wrapper, .infographic-wrapper, .plantuml-wrapper, .vega-lite-wrapper, .d2-wrapper, .bpmn-wrapper, .wavedrom-wrapper, .c4plantuml-wrapper, .structurizr-wrapper, .plotly-wrapper, .dbml-wrapper, .antv-g6-wrapper, .svg-wrapper, .kroki-wrapper') || [])
             .filter(element => isRendererEnabled(input, renderElementType(element)))
             .filter(isSuccessfulRenderElement)
             .map((element, index) => {
@@ -391,6 +417,7 @@ export function ServerRenderApp(): React.JSX.Element {
             const isPlotly = element.classList.contains('plotly-wrapper')
             const isDbml = element.classList.contains('dbml-wrapper')
             const isAntvG6 = element.classList.contains('antv-g6-wrapper')
+            const isSvg = element.classList.contains('svg-wrapper')
             const isKroki = element.classList.contains('kroki-wrapper')
             const echartsContainer = element.querySelector('.echarts-container')
             const drawioContainer = element.querySelector('.drawio-container')
@@ -406,6 +433,7 @@ export function ServerRenderApp(): React.JSX.Element {
             const plotlyContainer = element.querySelector('.plotly-container')
             const dbmlContainer = element.querySelector('.dbml-container')
             const antvG6Container = element.querySelector('.antv-g6-container')
+            const svgContainer = element.querySelector('.svg-container')
             const krokiContainer = element.querySelector('.kroki-container')
             const target = (
               isMermaid
@@ -413,13 +441,13 @@ export function ServerRenderApp(): React.JSX.Element {
                 : isExcalidraw
                   ? element.querySelector('.excalidraw-container svg')
                   : isDrawio
-                    ? drawioContainer
+                    ? drawioContainer?.querySelector('svg')
                     : isECharts
                       ? echartsContainer
                       : isMarkmap
                         ? markmapContainer?.querySelector('svg')
                         : isGraphviz
-                          ? graphvizContainer
+                          ? graphvizContainer?.querySelector('svg')
                           : isInfographic
                           ? infographicContainer?.querySelector('svg')
                           : isPlantuml
@@ -427,7 +455,7 @@ export function ServerRenderApp(): React.JSX.Element {
                             : isVegaLite
                               ? vegaLiteContainer?.querySelector('svg')
                               : isD2
-                                ? d2Container?.querySelector('svg')
+                                ? d2Container?.querySelector(':scope > svg > svg') || d2Container?.querySelector(':scope > svg')
                                 : isBpmn
                                   ? bpmnContainer?.querySelector('svg')
                                   : isWaveDrom
@@ -442,9 +470,11 @@ export function ServerRenderApp(): React.JSX.Element {
                                             ? dbmlContainer?.querySelector('svg')
                                             : isAntvG6
                                               ? antvG6Container?.querySelector('svg')
-                                              : isKroki
-                                                ? krokiContainer?.querySelector('svg')
-                                                : element.querySelector('.katex-html') || element
+                                              : isSvg
+                                                ? svgContainer?.querySelector('svg')
+                                                : isKroki
+                                                  ? krokiContainer?.querySelector('svg')
+                                                  : element.querySelector('.katex-html') || element
             ) as HTMLElement | SVGSVGElement | null
             const sourceIndex = isMermaid
               ? readNumberAttribute(element, 'data-mermaid-index')
@@ -480,26 +510,48 @@ export function ServerRenderApp(): React.JSX.Element {
                                             ? readNumberAttribute(element, 'data-dbml-index')
                                             : isAntvG6
                                               ? readNumberAttribute(element, 'data-antv-g6-index')
-                                              : isKroki
-                                                ? readNumberAttribute(element, 'data-kroki-index')
-                                                : undefined
+                                              : isSvg
+                                                ? readNumberAttribute(element, 'data-svg-index')
+                                                : isKroki
+                                                  ? readNumberAttribute(element, 'data-kroki-index')
+                                                  : undefined
             const id = `mdv__chart__${index.toString(16).padStart(8, '0')}__`
-            const rendererType = isMermaid ? 'mermaid' : isExcalidraw ? 'excalidraw' : isDrawio ? 'drawio' : isECharts ? 'echarts' : isMarkmap ? 'markmap' : isGraphviz ? 'graphviz' : isInfographic ? 'infographic' : isPlantuml ? 'plantuml' : isVegaLite ? 'vega-lite' : isD2 ? 'd2' : isBpmn ? 'bpmn' : isWaveDrom ? 'wavedrom' : isC4Plantuml ? 'c4plantuml' : isStructurizr ? 'structurizr' : isPlotly ? 'plotly' : isDbml ? 'dbml' : isAntvG6 ? 'antv-g6' : isKroki ? 'kroki' : 'katex'
+            const rendererType = isMermaid ? 'mermaid' : isExcalidraw ? 'excalidraw' : isDrawio ? 'drawio' : isECharts ? 'echarts' : isMarkmap ? 'markmap' : isGraphviz ? 'graphviz' : isInfographic ? 'infographic' : isPlantuml ? 'plantuml' : isVegaLite ? 'vega-lite' : isD2 ? 'd2' : isBpmn ? 'bpmn' : isWaveDrom ? 'wavedrom' : isC4Plantuml ? 'c4plantuml' : isStructurizr ? 'structurizr' : isPlotly ? 'plotly' : isDbml ? 'dbml' : isAntvG6 ? 'antv-g6' : isSvg ? 'svg' : isKroki ? 'kroki' : 'katex'
             const blockId = sourceLocators.find(locator => (
               locator.rendererType === rendererType && locator.sourceIndex === sourceIndex
             ))?.blockId
-            if (!isMermaid && !isExcalidraw && !isDrawio && !isECharts && !isMarkmap && !isGraphviz && !isInfographic && !isPlantuml && !isVegaLite && !isD2 && !isBpmn && !isWaveDrom && !isC4Plantuml && !isStructurizr && !isPlotly && !isDbml && !isAntvG6 && !isKroki && target instanceof HTMLElement) {
+            if (!isMermaid && !isExcalidraw && !isDrawio && !isECharts && !isMarkmap && !isGraphviz && !isInfographic && !isPlantuml && !isVegaLite && !isD2 && !isBpmn && !isWaveDrom && !isC4Plantuml && !isStructurizr && !isPlotly && !isDbml && !isAntvG6 && !isSvg && !isKroki && target instanceof HTMLElement) {
               target.style.display = 'inline-block'
               target.style.width = 'max-content'
             }
-            if ((isDrawio || isGraphviz) && target instanceof HTMLElement) {
-              const svg = target.querySelector('svg')
-              if (svg) {
-                svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
-                svg.style.width = '100%'
-                svg.style.height = 'auto'
-                svg.style.display = 'block'
+            if (isD2 && d2Container instanceof HTMLElement) {
+              d2Container.style.maxHeight = 'none'
+              d2Container.style.height = 'auto'
+              d2Container.style.overflow = 'visible'
+              const outerSvg = d2Container.querySelector(':scope > svg')
+              if (outerSvg instanceof SVGSVGElement) {
+                outerSvg.style.maxHeight = 'none'
+                outerSvg.style.width = 'auto'
+                outerSvg.style.height = 'auto'
+                outerSvg.style.overflow = 'visible'
               }
+            }
+            if (isDrawio && target instanceof SVGSVGElement) {
+              const width = target.getBoundingClientRect().width
+              target.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+              if (Number.isFinite(width) && width > 0) {
+                target.style.width = `${width}px`
+                target.style.maxWidth = 'none'
+              }
+              target.style.height = 'auto'
+              target.style.display = 'block'
+            }
+            if (isGraphviz && target instanceof SVGSVGElement) {
+              target.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+              target.style.maxWidth = '100%'
+              target.style.width = 'auto'
+              target.style.height = 'auto'
+              target.style.display = 'block'
             }
             target?.setAttribute('data-mdv-render-id', id)
             const rect = target?.getBoundingClientRect()
@@ -510,7 +562,7 @@ export function ServerRenderApp(): React.JSX.Element {
               selector: `[data-mdv-render-id="${id}"]`,
               widthPx: Math.max(1, Math.round(rect?.width || 800)),
               heightPx: Math.max(1, Math.round(rect?.height || 400)),
-              widthCm: isMermaid || isExcalidraw || isDrawio || isECharts || isMarkmap || isGraphviz || isInfographic || isPlantuml || isVegaLite || isD2 || isBpmn || isWaveDrom || isC4Plantuml || isStructurizr || isPlotly || isDbml || isAntvG6 || isKroki ? renderedWidthCm : 12,
+              widthCm: isMermaid || isExcalidraw || isDrawio || isECharts || isMarkmap || isGraphviz || isInfographic || isPlantuml || isVegaLite || isD2 || isBpmn || isWaveDrom || isC4Plantuml || isStructurizr || isPlotly || isDbml || isAntvG6 || isSvg || isKroki ? renderedWidthCm : 12,
               durationMs: elapsed,
               sourceIndex,
               ...(blockId ? { blockId } : {}),

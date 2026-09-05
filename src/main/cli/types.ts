@@ -14,6 +14,8 @@ export type CliCommandName =
   | 'inspect'
   | 'render'
   | 'links'
+  | 'diff'
+  | 'watch'
   | 'install-cli'
   | 'uninstall-cli'
 

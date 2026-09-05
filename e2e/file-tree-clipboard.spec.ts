@@ -17,6 +17,28 @@ async function triggerFileTreeMenuAction(
   expect(result).toEqual({ success: true })
 }
 
+function escapeAppleScriptString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+async function pasteInFinder(destinationDir: string, destination: string, move = false): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3 && !existsSync(destination); attempt += 1) {
+    try {
+      execFileSync('osascript', [
+        '-e', `set destinationFolder to POSIX file "${escapeAppleScriptString(destinationDir)}" as alias`,
+        '-e', 'set clipboardItem to (the clipboard as «class furl») as alias',
+        '-e', `tell application "Finder" to ${move ? 'move' : 'duplicate'} clipboardItem to destinationFolder`,
+      ])
+      lastError = undefined
+    } catch (error) {
+      lastError = error
+    }
+    await expect.poll(() => existsSync(destination), { timeout: 3000 }).toBe(true).catch(() => undefined)
+  }
+  if (!existsSync(destination) && lastError) throw lastError
+}
+
 test.describe('文件树右键菜单复制和剪切', () => {
   test('复制菜单动作应复制文件且保留源文件', async ({ page, electronApp, testDir }) => {
     await openFolderViaIPC(electronApp, testDir)
@@ -52,18 +74,11 @@ test.describe('文件树右键菜单复制和剪切', () => {
     execFileSync('mkdir', ['-p', destinationDir])
 
     await triggerFileTreeMenuAction(page, 'copy', [source])
-    execFileSync('osascript', [
-      '-e',
-      `tell application "Finder" to activate`,
-      '-e',
-      `tell application "Finder" to set target of front window to POSIX file "${destinationDir}"`,
-      '-e',
-      `tell application "System Events" to keystroke "v" using command down`
-    ])
+    await pasteInFinder(destinationDir, destination)
 
     await expect.poll(() => existsSync(destination), { timeout: 10000 }).toBe(true)
   })
-  test('macOS Finder 剪切后使用 Option-Command-V 应移动文件', async ({ page, electronApp, testDir }) => {
+  test('macOS 文件剪贴板应支持 Finder 移动文件', async ({ page, electronApp, testDir }) => {
     test.skip(platform() !== 'darwin', '仅在 macOS 上验证 Finder 文件剪贴板')
     await openFolderViaIPC(electronApp, testDir)
 
@@ -73,14 +88,7 @@ test.describe('文件树右键菜单复制和剪切', () => {
     execFileSync('mkdir', ['-p', destinationDir])
 
     await triggerFileTreeMenuAction(page, 'cut', [source])
-    execFileSync('osascript', [
-      '-e',
-      `tell application "Finder" to activate`,
-      '-e',
-      `tell application "Finder" to set target of front window to POSIX file "${destinationDir}"`,
-      '-e',
-      `tell application "System Events" to keystroke "v" using {command down, option down}`
-    ])
+    await pasteInFinder(destinationDir, destination, true)
 
     await expect.poll(() => existsSync(destination), { timeout: 10000 }).toBe(true)
     expect(existsSync(source)).toBe(false)

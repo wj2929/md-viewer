@@ -85,23 +85,27 @@ describe('SettingsPanel DOCX service styles', () => {
     expect(screen.queryByText(/当前服务不支持“正式公文”/)).not.toBeInTheDocument()
   })
 
-  it('shows renderer capability matrix with new RendererPlugin types', async () => {
+  it('shows renderer catalog backed by RendererPlugin types', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('tab', { name: '图表' }))
 
     await waitFor(() => {
-      expect(screen.getByText('渲染能力')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /模板库/ })).toHaveAttribute('aria-selected', 'true')
     })
 
-    expect(screen.getByText('Vega-Lite')).toBeInTheDocument()
-    expect(screen.getByText('D2')).toBeInTheDocument()
-    expect(screen.getByText('BPMN')).toBeInTheDocument()
-    expect(screen.getByText('WaveDrom')).toBeInTheDocument()
-    expect(screen.getByText('C4-PlantUML')).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: '应用预览' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'HTML/PDF' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'DOCX' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Vega-Lite/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /D2/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /BPMN/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /WaveDrom/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /C4-PlantUML/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Vega-Lite/ }))
+    expect(screen.getByText('格式支持')).toBeInTheDocument()
+    expect(screen.getByText('应用预览')).toBeInTheDocument()
+    expect(screen.getByText('HTML')).toBeInTheDocument()
+    expect(screen.getByText('PDF')).toBeInTheDocument()
+    expect(screen.getByText('DOCX')).toBeInTheDocument()
   })
 
   it('splits settings into task-focused tabs', async () => {
@@ -125,7 +129,9 @@ describe('SettingsPanel DOCX service styles', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '图表' }))
     expect(screen.getByRole('tabpanel', { name: '图表' })).toBeInTheDocument()
-    expect(screen.getByText('PlantUML 服务器')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /模板库/ })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: /渲染服务/ }))
+    expect(screen.getAllByText('PlantUML').length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('tab', { name: '系统' }))
     await waitFor(() => {

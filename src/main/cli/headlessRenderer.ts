@@ -119,7 +119,7 @@ export const captureMarkdownScreenshot: MarkdownScreenshotCapture = async (optio
       renderWindow.webContents.setZoomFactor(viewport.scaleFactor * captureScale)
       await new Promise(resolve => setTimeout(resolve, 150))
     }
-    const bounds = constrainCaptureBounds(
+    let bounds = constrainCaptureBounds(
       captureScale < 1
         ? applyPreferredCaptureSize(await getElementCaptureBounds(renderWindow, selector) ?? initialBounds, target)
         : initialBounds,
@@ -132,6 +132,54 @@ export const captureMarkdownScreenshot: MarkdownScreenshotCapture = async (optio
       Math.max(viewport.height, Math.ceil(bounds.y + bounds.height + 24)),
     )
     await new Promise(resolve => setTimeout(resolve, 100))
+
+    // 调整窗口尺寸可能触发滚动位置钳制；重新定位并测量，避免截图混入目标上方正文。
+    await scrollElementIntoView(renderWindow, selector)
+    const refreshedBounds = await getElementCaptureBounds(renderWindow, selector)
+    if (refreshedBounds) {
+      const preferredBounds = applyPreferredCaptureSize(refreshedBounds, target)
+      bounds = constrainCaptureBounds(options.chartIndex !== undefined
+        ? {
+            x: refreshedBounds.x,
+            y: refreshedBounds.y,
+            width: Math.ceil(refreshedBounds.width),
+            height: Math.ceil(refreshedBounds.height),
+          }
+        : {
+            x: refreshedBounds.x,
+            y: refreshedBounds.y,
+            width: Math.max(preferredBounds.width, Math.ceil(refreshedBounds.width)),
+            height: Math.max(preferredBounds.height, Math.ceil(refreshedBounds.height)),
+          }, maxCssCaptureDimension)
+
+      const [contentWidth, contentHeight] = renderWindow.getContentSize()
+      const requiredWidth = Math.max(viewport.width, Math.ceil(bounds.x + bounds.width + 24))
+      const requiredHeight = Math.max(viewport.height, Math.ceil(bounds.y + bounds.height + 24))
+      if (requiredWidth > contentWidth || requiredHeight > contentHeight) {
+        renderWindow.setContentSize(
+          Math.max(contentWidth, requiredWidth),
+          Math.max(contentHeight, requiredHeight),
+        )
+        await new Promise(resolve => setTimeout(resolve, 100))
+        await scrollElementIntoView(renderWindow, selector)
+        const finalBounds = await getElementCaptureBounds(renderWindow, selector)
+        if (finalBounds) {
+          bounds = constrainCaptureBounds(options.chartIndex !== undefined
+            ? {
+                x: finalBounds.x,
+                y: finalBounds.y,
+                width: Math.ceil(finalBounds.width),
+                height: Math.ceil(finalBounds.height),
+              }
+            : {
+                x: finalBounds.x,
+                y: finalBounds.y,
+                width: Math.max(bounds.width, Math.ceil(finalBounds.width)),
+                height: Math.max(bounds.height, Math.ceil(finalBounds.height)),
+              }, maxCssCaptureDimension)
+        }
+      }
+    }
 
     let image = await renderWindow.webContents.capturePage(bounds)
     let pngBuffer = image.toPNG()
@@ -236,8 +284,24 @@ async function createServerRenderWindow(
 }
 
 async function createServerRenderWrapper(input: ServerRenderInput): Promise<string> {
-  const rendererRoot = join(__dirname, '../renderer')
-  const serverRenderHtml = await readFile(join(rendererRoot, 'server-render.html'), 'utf8')
+  const rendererCandidates = [
+    join(app.getAppPath(), 'out/renderer'),
+    join(app.getAppPath(), '../renderer'),
+  ]
+  let rendererRoot = ''
+  let serverRenderHtml = ''
+  for (const candidate of rendererCandidates) {
+    try {
+      serverRenderHtml = await readFile(join(candidate, 'server-render.html'), 'utf8')
+      rendererRoot = candidate
+      break
+    } catch {
+      // 兼容源码、electron-vite 构建和 packaged app 的 appPath 差异。
+    }
+  }
+  if (!rendererRoot) {
+    throw new Error('无法定位 server-render.html')
+  }
   const assetTags = extractAssetTags(serverRenderHtml)
   const wrapperPath = join(tmpdir(), `md-viewer-server-render-${process.pid}-${Date.now()}.html`)
   await writeFile(wrapperPath, `<!doctype html>

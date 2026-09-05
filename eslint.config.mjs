@@ -16,6 +16,8 @@ export default [
   {
     ignores: [
       'coverage/**',
+      '.claude/**',
+      '.package-app/**',
       'dist/**',
       'node_modules/**',
       'out/**',

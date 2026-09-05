@@ -16,46 +16,36 @@
 
 // @ts-expect-error plantuml-encoder 没有类型定义
 import plantumlEncoder from 'plantuml-encoder'
+import {
+  clearRemoteChartRequestState,
+  createRemoteChartRequestKey,
+  scheduleRemoteChartRequest,
+} from './remoteChartRequestScheduler'
 
 const PLANTUML_CONFIG = {
   MAX_CODE_SIZE: 50000, // 50KB
   DEFAULT_SERVER: 'https://www.plantuml.com/plantuml',
   FETCH_TIMEOUT: 8000, // 8s
   MAX_GET_LENGTH: 4000, // 编码后超过此长度改用 POST
-  MAX_CACHE_SIZE: 100, // SVG 缓存最大条目数
 }
 
-/** SVG 缓存：key = code hash, value = SVG string */
-const svgCache = new Map<string, string>()
-
-/**
- * 清除 SVG 缓存（用于测试）
- */
+/** 清除共享远程图表缓存（用于测试） */
 export function clearSvgCache(): void {
-  svgCache.clear()
-}
-
-/**
- * 简单字符串哈希（用于缓存 key）
- */
-function hashCode(str: string): string {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash + char) | 0
-  }
-  return hash.toString(36)
+  clearRemoteChartRequestState()
 }
 
 /**
  * 获取 PlantUML 服务器地址
  */
-function getServerUrl(): string {
+export function getPlantUMLServerUrl(): string {
   try {
     // 尝试从 localStorage 读取用户配置的服务器地址
     const customServer = localStorage.getItem('plantuml-server-url')
     if (customServer && customServer.trim()) {
-      return customServer.trim().replace(/\/+$/, '')
+      const url = new URL(customServer.trim())
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        return url.toString().replace(/\/+$/, '')
+      }
     }
   } catch {
     // localStorage 不可用时使用默认值
@@ -118,61 +108,46 @@ export function normalizePlantUMLCode(code: string, diagramType: PlantUMLDiagram
  */
 export async function renderPlantUMLToSvg(code: string, diagramType: PlantUMLDiagramType = 'plantuml'): Promise<string> {
   const normalizedCode = normalizePlantUMLCode(code, diagramType)
-  const cacheKey = hashCode(`${diagramType}:${normalizedCode}`)
+  const serverUrl = getPlantUMLServerUrl()
+  const requestKey = createRemoteChartRequestKey('plantuml', serverUrl, diagramType, normalizedCode)
 
-  // 检查缓存
-  const cached = svgCache.get(cacheKey)
-  if (cached) return cached
+  return scheduleRemoteChartRequest(requestKey, async () => {
+    const encoded = encodePlantUML(normalizedCode)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), PLANTUML_CONFIG.FETCH_TIMEOUT)
 
-  const encoded = encodePlantUML(normalizedCode)
-  const serverUrl = getServerUrl()
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), PLANTUML_CONFIG.FETCH_TIMEOUT)
+    try {
+      let response: Response
 
-  try {
-    let response: Response
+      if (encoded.length <= PLANTUML_CONFIG.MAX_GET_LENGTH) {
+        response = await fetch(`${serverUrl}/svg/${encoded}`, {
+          signal: controller.signal,
+        })
+      } else {
+        response = await fetch(`${serverUrl}/svg`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: normalizedCode,
+          signal: controller.signal,
+        })
+      }
 
-    if (encoded.length <= PLANTUML_CONFIG.MAX_GET_LENGTH) {
-      // GET 请求
-      response = await fetch(`${serverUrl}/svg/${encoded}`, {
-        signal: controller.signal,
-      })
-    } else {
-      // POST 请求（大型图表）
-      response = await fetch(`${serverUrl}/svg`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: normalizedCode,
-        signal: controller.signal,
-      })
+      if (!response.ok) {
+        throw new Error(`服务器返回 ${response.status}: ${response.statusText}`)
+      }
+
+      const svg = await response.text()
+      if (!/<svg[\s>]/i.test(svg)) throw new Error('服务器返回了非 SVG 内容')
+      return svg
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        throw new Error('PlantUML 服务器请求超时，请检查网络连接或配置本地服务器')
+      }
+      throw error
+    } finally {
+      clearTimeout(timeout)
     }
-
-    if (!response.ok) {
-      throw new Error(`服务器返回 ${response.status}: ${response.statusText}`)
-    }
-
-    const svg = await response.text()
-
-    // 验证返回的确实是 SVG
-    if (!svg.includes('<svg') && !svg.includes('<SVG')) {
-      throw new Error('服务器返回了非 SVG 内容')
-    }
-
-    // 存入缓存（LRU：超过上限时删除最早的条目）
-    if (svgCache.size >= PLANTUML_CONFIG.MAX_CACHE_SIZE) {
-      const firstKey = svgCache.keys().next().value
-      if (firstKey !== undefined) svgCache.delete(firstKey)
-    }
-    svgCache.set(cacheKey, svg)
-    return svg
-  } catch (error) {
-    if ((error as Error).name === 'AbortError') {
-      throw new Error('PlantUML 服务器请求超时，请检查网络连接或配置本地服务器')
-    }
-    throw error
-  } finally {
-    clearTimeout(timeout)
-  }
+  })
 }
 
 /**

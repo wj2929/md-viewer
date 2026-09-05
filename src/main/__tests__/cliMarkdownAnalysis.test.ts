@@ -104,4 +104,55 @@ describe('markdownAnalysis', () => {
       }),
     ]))
   })
+
+  it('识别受限 SVG 围栏为可导出图表', async () => {
+    const input = await createMarkdown([
+      '```svg',
+      '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" /></svg>',
+      '```',
+    ].join('\n'))
+
+    const analysis = await analyzeMarkdownFile(input)
+
+    expect(analysis.summary).toMatchObject({ codeBlocks: 1, chartBlocks: 1 })
+    expect(analysis.chartBlocks).toEqual([
+      expect.objectContaining({ type: 'svg', language: 'svg', lineStart: 1 }),
+    ])
+  })
+
+  it('与 renderer 一致地处理碰撞、Setext 标题和 query', async () => {
+    const input = await createMarkdown([
+      '# Foo',
+      '# Foo',
+      '# Foo-1',
+      '',
+      'Setext title',
+      '============',
+      '',
+      '[目标](./目标%20文档.md?view=compact#子标题)',
+      '[自然后缀](#foo-1-1)',
+    ].join('\n'))
+
+    const analysis = await analyzeMarkdownFile(input)
+
+    expect(analysis.headings.map(heading => heading.id)).toEqual([
+      'foo',
+      'foo-1',
+      'foo-1-1',
+      'setext-title',
+    ])
+    expect(analysis.links).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        target: './目标 文档.md?view=compact#子标题',
+        kind: 'markdown',
+        exists: true,
+        anchorExists: true,
+      }),
+      expect.objectContaining({
+        target: '#foo-1-1',
+        kind: 'anchor',
+        anchorExists: true,
+      }),
+    ]))
+  })
 })

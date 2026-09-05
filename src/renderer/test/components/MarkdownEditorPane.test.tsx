@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { MarkdownEditorPane, type MarkdownEditorPaneHandle } from '../../src/components/editor/MarkdownEditorPane'
@@ -54,6 +54,28 @@ describe('MarkdownEditorPane', () => {
 
     expect(ref.current?.getScroller()).toBeInstanceOf(HTMLElement)
     expect(ref.current?.getVisibleLine()).toBe(1)
+  })
+
+  it('reports IME composition start and end from the editor content', () => {
+    const onCompositionChange = vi.fn()
+    render(
+      <MarkdownEditorPane
+        content="# A"
+        readOnly={false}
+        target={null}
+        onChange={vi.fn()}
+        onSave={vi.fn()}
+        onCompositionChange={onCompositionChange}
+      />
+    )
+
+    const content = document.querySelector('.cm-content')
+    expect(content).not.toBeNull()
+    fireEvent.compositionStart(content as Element)
+    fireEvent.compositionEnd(content as Element)
+
+    expect(onCompositionChange).toHaveBeenNthCalledWith(1, true)
+    expect(onCompositionChange).toHaveBeenNthCalledWith(2, false)
   })
 
   it('does not report programmatic content replacement as user edits', () => {

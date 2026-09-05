@@ -229,6 +229,7 @@ export function buildExportPdfDocument(options: PdfDocumentOptions): string {
     .markdown-body .plotly-container,
     .markdown-body .dbml-container,
     .markdown-body .antv-g6-container,
+    .markdown-body .svg-container,
     .markdown-body .kroki-container,
     .markdown-body .markmap-container,
     .markdown-body .infographic-container {
@@ -259,6 +260,7 @@ export function buildExportPdfDocument(options: PdfDocumentOptions): string {
     .markdown-body .plotly-container svg,
     .markdown-body .dbml-container svg,
     .markdown-body .antv-g6-container svg,
+    .markdown-body .svg-container svg,
     .markdown-body .kroki-container svg,
     .markdown-body .markmap-container svg,
     .markdown-body .infographic-container svg {

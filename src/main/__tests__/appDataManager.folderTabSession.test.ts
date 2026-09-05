@@ -66,6 +66,118 @@ describe('AppDataManager.folderTabSession', () => {
     expect(session.activePath).toBe(path.join(root, 'docs', 'b.md'))
   })
 
+  it('保存并校验版本化分屏布局', async () => {
+    const root = '/ws/session-split'
+    appDataManager.saveFolderTabSession(
+      root,
+      [
+        { filePath: path.join(root, 'a.md') },
+        { filePath: path.join(root, 'b.md') },
+      ],
+      path.join(root, 'b.md'),
+      {
+        version: 1,
+        root: {
+          type: 'split',
+          direction: 'horizontal',
+          ratio: 0.6,
+          first: { type: 'leaf', relativePath: 'a.md', viewState: { scrollRatio: 0.2 } },
+          second: { type: 'leaf', relativePath: 'b.md', viewState: { scrollRatio: 0.8 } },
+        },
+        activeLeafPath: [1],
+      },
+    )
+
+    const session = await appDataManager.getFolderTabSession(root)
+    expect(session.splitLayout).toEqual({
+      version: 1,
+      root: {
+        type: 'split',
+        direction: 'horizontal',
+        ratio: 0.6,
+        first: { type: 'leaf', relativePath: 'a.md', viewState: { scrollRatio: 0.2 } },
+        second: { type: 'leaf', relativePath: 'b.md', viewState: { scrollRatio: 0.8 } },
+      },
+      activeLeafPath: [1],
+    })
+  })
+
+  it('布局引用失效文件时收缩树且清除失效 active leaf', async () => {
+    const root = '/ws/session-split-stale'
+    const gone = path.join(root, 'gone.md')
+    appDataManager.saveFolderTabSession(
+      root,
+      [{ filePath: path.join(root, 'live.md') }, { filePath: gone }],
+      gone,
+      {
+        version: 1,
+        root: {
+          type: 'split',
+          direction: 'vertical',
+          ratio: 0.5,
+          first: { type: 'leaf', relativePath: 'live.md' },
+          second: { type: 'leaf', relativePath: 'gone.md' },
+        },
+        activeLeafPath: [1],
+      },
+    )
+    mockStatExcept([gone])
+
+    const session = await appDataManager.getFolderTabSession(root)
+    expect(session.splitLayout).toEqual({
+      version: 1,
+      root: { type: 'leaf', relativePath: 'live.md' },
+      activeLeafPath: null,
+    })
+  })
+
+  it('折叠非活动失效分支后重映射 active leaf 到新结构路径', async () => {
+    const root = '/ws/session-split-remap'
+    const gone = path.join(root, 'gone.md')
+    appDataManager.saveFolderTabSession(
+      root,
+      [{ filePath: gone }, { filePath: path.join(root, 'live.md') }],
+      path.join(root, 'live.md'),
+      {
+        version: 1,
+        root: {
+          type: 'split',
+          direction: 'horizontal',
+          ratio: 0.5,
+          first: { type: 'leaf', relativePath: 'gone.md' },
+          second: { type: 'leaf', relativePath: 'live.md' },
+        },
+        activeLeafPath: [1],
+      },
+    )
+    mockStatExcept([gone])
+
+    const session = await appDataManager.getFolderTabSession(root)
+    expect(session.splitLayout).toEqual({
+      version: 1,
+      root: { type: 'leaf', relativePath: 'live.md' },
+      activeLeafPath: [],
+    })
+  })
+
+  it('未知或越权分屏布局不会破坏 tab 会话', async () => {
+    const root = '/ws/session-split-invalid'
+    appDataManager.saveFolderTabSession(
+      root,
+      [{ filePath: path.join(root, 'a.md') }],
+      null,
+      {
+        version: 1,
+        root: { type: 'leaf', relativePath: '../outside.md' },
+        activeLeafPath: [],
+      },
+    )
+
+    const session = await appDataManager.getFolderTabSession(root)
+    expect(session.tabs).toHaveLength(1)
+    expect(session.splitLayout).toBeUndefined()
+  })
+
   it('拒绝归档文件夹外的路径（防遍历）', async () => {
     const root = '/ws/session-traversal'
     appDataManager.saveFolderTabSession(

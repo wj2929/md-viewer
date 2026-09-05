@@ -154,6 +154,48 @@ describe('buildChartsResult', () => {
     expect(await readFile(path.join(outDir, '02-graphviz-mdv-graphviz-1.png'), 'utf8')).toBe('png-2')
   })
 
+  it('rejects export when rendered, discovered and exportable chart counts differ', async () => {
+    const input = await createMarkdown('# Charts')
+    const outDir = path.join(tempDir!, 'charts')
+    const completeRenderer = createTwoChartRenderer()
+    const renderer: HeadlessMarkdownRenderer = async (headlessInput) => {
+      const result = await completeRenderer(headlessInput)
+      return {
+        ...result,
+        images: result.images.slice(0, 1),
+        stats: {
+          ...result.stats,
+          renderedBlocks: 2,
+        },
+      }
+    }
+    let captureCalls = 0
+    const capture: MarkdownScreenshotCapture = async () => {
+      captureCalls += 1
+      throw new Error('capture should not run for an incomplete render')
+    }
+
+    const result = await buildChartsResult(
+      ['export', input],
+      { 'out-dir': outDir },
+      { renderer, capture },
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      command: 'charts',
+      code: 'CHART_RENDER_INCOMPLETE',
+      summary: {
+        exportedCharts: 0,
+        totalCharts: 2,
+        renderedCharts: 2,
+        failedCharts: 0,
+      },
+      artifacts: [],
+    })
+    expect(captureCalls).toBe(0)
+  })
+
   it('packages exported charts into a ZIP when --out is provided', async () => {
     const input = await createMarkdown('# Charts')
     const outputPath = path.join(tempDir!, 'charts.zip')
