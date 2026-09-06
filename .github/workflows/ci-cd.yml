@@ -109,6 +109,7 @@ jobs:
         run: npx electron-builder --config electron-builder.staged.cjs --mac --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          MD_VIEWER_PACKAGE_ARCH: ${{ matrix.arch }}
 
       - name: 验证应用包 (macOS ${{ matrix.arch }})
         if: matrix.platform == 'mac'
@@ -123,8 +124,9 @@ jobs:
         with:
           name: md-viewer-mac-${{ matrix.arch }}
           path: |
-            dist/staged/*${{ matrix.arch }}*.dmg
-            dist/staged/*${{ matrix.arch }}*.zip
+            dist/staged/*.dmg
+            dist/staged/*-mac.zip
+          if-no-files-found: error
           retention-days: 7
 
       - name: 打包应用 (Linux)
