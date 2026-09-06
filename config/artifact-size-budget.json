@@ -48,6 +48,22 @@
       "baselineBytes": 45691366,
       "maxBytes": 47975935,
       "maxIncreasePercent": 5
+    },
+    "linux-x64-unpacked-app": {
+      "platformKey": "linux-x64",
+      "target": "unpacked-app",
+      "relativePath": "dist/staged/linux-unpacked",
+      "baselineBytes": 301259718,
+      "maxBytes": 316322704,
+      "maxIncreasePercent": 5
+    },
+    "linux-x64-app-asar": {
+      "platformKey": "linux-x64",
+      "target": "app-asar",
+      "relativePath": "dist/staged/linux-unpacked/resources/app.asar",
+      "baselineBytes": 46127894,
+      "maxBytes": 48434289,
+      "maxIncreasePercent": 5
     }
   }
 }
