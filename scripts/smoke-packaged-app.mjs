@@ -25,7 +25,9 @@ function actionableStderr(stderr) {
       return !/^\[\d+:\d+\/\d+\.\d+:ERROR:(?:dbus\/|gpu\/|components\/viz\/)/.test(value)
     }
     if (process.platform === 'darwin') {
-      return !/^\[\d+:\d+\/\d+\.\d+:ERROR:base\/process\/process_mac\.cc:\d+\] task_policy_set /.test(value)
+      const processPolicyNoise = /^\[\d+:\d+\/\d+\.\d+:ERROR:base\/process\/process_mac\.cc:\d+\] task_policy_set /.test(value)
+      const backupSandboxNoise = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ MD Viewer Helper(?: \([^)]+\))?\[\d+:\d+\] XPC error for connection com\.apple\.backupd\.sandbox\.xpc: Connection invalid$/.test(value)
+      return !processPolicyNoise && !backupSandboxNoise
     }
     return true
   }).join('\n')
