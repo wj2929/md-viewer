@@ -199,10 +199,10 @@ jobs:
 
             ### 📦 下载
 
-            - **macOS (Apple Silicon M1/M2/M3)**: MD Viewer-*-arm64.dmg
-            - **macOS (Intel)**: MD Viewer-*-x64.dmg
+            - **macOS (Apple Silicon M1/M2/M3)**: MD Viewer-*-arm64.dmg 或 MD Viewer-*-arm64-mac.zip
+            - **macOS (Intel)**: MD Viewer-*.dmg 或 MD Viewer-*-mac.zip（文件名不含 arm64）
             - **Linux**: MD Viewer-*.AppImage 或 md-viewer_*.deb
-            - **Windows**: MD Viewer Setup-*.exe 或 MD Viewer-*.zip
+            - **Windows**: MD Viewer Setup-*.exe 或 MD Viewer-*-win.zip
 
             ### ✨ 更新内容
 
