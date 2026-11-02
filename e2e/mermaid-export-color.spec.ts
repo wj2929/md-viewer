@@ -16,7 +16,7 @@
  * "导出的 HTML 独立打开时，未显式 style 的节点 rect 必须有可见填色"
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/mermaid-cdn'
 import * as path from 'path'
 import * as fs from 'fs'
 

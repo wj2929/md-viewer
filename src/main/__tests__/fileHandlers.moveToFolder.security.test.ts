@@ -102,6 +102,7 @@ describe('fs:moveFileToFolder 跨根移动安全边界', () => {
       workspaceIndexService: {
         attach: vi.fn(async () => ({})),
         waitUntilIdle: vi.fn(async () => {}),
+        getWikiSnapshot: vi.fn(() => null),
         getIndexedDocuments: vi.fn((rootPath: string) => indexDocuments.get(rootPath) ?? []),
         detach: vi.fn(),
       },

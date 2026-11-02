@@ -9,7 +9,7 @@
  * - 限制高亮数量（默认 500 个）
  * - 自适应防抖（根据文件大小调整）
  * - 支持上一个/下一个导航
- * - 大文件禁用 smooth 滚动
+ * - 只在匹配项不可见时滚动所属预览
  */
 
 import { useState, useEffect, useRef, RefObject, useCallback, useMemo } from 'react'
@@ -107,16 +107,49 @@ const CASE_SENSITIVE_KEY = 'searchCaseSensitive'
  * 计算自适应防抖延迟（根据文件大小）
  */
 function getAdaptiveDelay(contentLength: number): number {
-  if (contentLength < LARGE_FILE_THRESHOLD) return 300      // 小文件：300ms
-  if (contentLength < VERY_LARGE_FILE_THRESHOLD) return 450 // 中等文件：450ms
-  return 600                                                 // 大文件：600ms
+  if (contentLength < LARGE_FILE_THRESHOLD) return 150
+  if (contentLength < VERY_LARGE_FILE_THRESHOLD) return 200
+  return 250
 }
 
-/**
- * 获取滚动行为（大文件禁用 smooth）
- */
-function getScrollBehavior(contentLength: number): ScrollBehavior {
-  return contentLength > LARGE_FILE_THRESHOLD ? 'auto' : 'smooth'
+function revealSearchMatch(mark: Element, center = false): void {
+  const preview = mark.closest<HTMLElement>('.preview')
+  if (!preview) { mark.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' }); return }
+  if (preview.clientHeight === 0) return
+  const viewport = preview.getBoundingClientRect()
+  let top = Math.max(0, viewport.top + preview.clientTop)
+  let bottom = Math.min(window.innerHeight, viewport.top + preview.clientTop + preview.clientHeight)
+  // Fullscreen layouts can extend beyond the window or be clipped by a parent.
+  for (let parent = preview.parentElement; parent; parent = parent.parentElement) {
+    if (/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(parent).overflowY)) {
+      const bounds = parent.getBoundingClientRect()
+      top = Math.max(top, bounds.top + parent.clientTop)
+      bottom = Math.min(bottom, bounds.top + parent.clientTop + parent.clientHeight)
+    }
+  }
+  const box = preview.querySelector('.in-page-search-box')?.getBoundingClientRect()
+  top = Math.max(top, box?.bottom ?? top) + 12
+  bottom -= 12
+  if (bottom <= top) return
+  const rect = mark.getBoundingClientRect()
+  const hidden = rect.top < top || rect.bottom > bottom
+  const delta = !hidden ? 0 : center ? (rect.top + rect.bottom - top - bottom) / 2
+    : rect.top < top ? rect.top - top : rect.bottom - bottom
+  // Do not recenter visible matches or queue smooth animations during rapid navigation.
+  if (delta) preview.scrollTo({ top: preview.scrollTop + delta, behavior: 'auto' })
+
+  for (let parent = mark.parentElement; parent; parent = parent.parentElement) {
+    if (parent.clientWidth > 0 && parent.scrollWidth > parent.clientWidth &&
+      /^(auto|scroll)$/.test(getComputedStyle(parent).overflowX)) {
+      const bounds = parent.getBoundingClientRect()
+      const hit = mark.getBoundingClientRect()
+      const left = bounds.left + parent.clientLeft
+      const right = left + parent.clientWidth
+      const dx = hit.left < left ? hit.left - left : hit.right > right ? hit.right - right : 0
+      if (dx) parent.scrollTo({ left: parent.scrollLeft + dx, behavior: 'auto' })
+    }
+    if (parent === preview) break
+  }
 }
 
 // ============================================================================
@@ -147,7 +180,8 @@ function getScrollBehavior(contentLength: number): ScrollBehavior {
  */
 export function useInPageSearch(
   containerRef: RefObject<HTMLElement | null>,
-  contentLength: number = 0
+  contentLength: number = 0,
+  contentKey: string = ''
 ): InPageSearchResult {
   // -------------------------------------------------------------------------
   // 状态
@@ -193,9 +227,20 @@ export function useInPageSearch(
   // -------------------------------------------------------------------------
   // Refs
   // -------------------------------------------------------------------------
-  const markInstanceRef = useRef<Mark | null>(null)
   const marksRef = useRef<Element[]>([])
   const highlightCountRef = useRef(0)
+  const clearHighlights = useCallback(() => {
+    const parents = new Set<Node>()
+    for (const mark of marksRef.current) {
+      if (!mark.parentNode) continue
+      parents.add(mark.parentNode)
+      mark.replaceWith(...Array.from(mark.childNodes))
+    }
+    parents.forEach(parent => parent.normalize())
+    marksRef.current = []
+    highlightCountRef.current = 0
+  }, [])
+  useEffect(() => clearHighlights, [clearHighlights])
 
   // -------------------------------------------------------------------------
   // 计算值
@@ -209,12 +254,6 @@ export function useInPageSearch(
 
   // 防抖后的搜索词
   const debouncedQuery = useDebouncedValue(query, debounceDelay)
-
-  // 滚动行为
-  const scrollBehavior = useMemo(
-    () => getScrollBehavior(contentLength),
-    [contentLength]
-  )
 
   // -------------------------------------------------------------------------
   // 搜索词设置（带长度限制）
@@ -245,15 +284,10 @@ export function useInPageSearch(
     const container = containerRef.current
     if (!container) return
 
-    // 清除旧实例和高亮
-    if (markInstanceRef.current) {
-      markInstanceRef.current.unmark()
-    }
-    marksRef.current = []
-    highlightCountRef.current = 0
+    clearHighlights()
 
     // 空搜索词：重置状态
-    if (!debouncedQuery.trim()) {
+    if (!query.trim() || debouncedQuery !== query) {
       setTotalCount(0)
       setCurrentIndex(0)
       return
@@ -262,54 +296,40 @@ export function useInPageSearch(
     // ⚠️ 关键修复：每次搜索都重新创建 Mark 实例
     // 确保 mark.js 操作的是当前的 DOM 内容
     const instance = new Mark(container)
-    markInstanceRef.current = instance
+    const exclusionAttribute = `data-page-search-excluded-${crypto.randomUUID()}`
+    const excluded = container.querySelectorAll(MARK_EXCLUDE_SELECTORS.join(','))
+    excluded.forEach(element => element.setAttribute(exclusionAttribute, ''))
 
-    // 标记新匹配
-    instance.mark(debouncedQuery, {
-      className: 'search-highlight',
-      separateWordSearch: false,
-      acrossElements: true,  // 允许跨元素匹配
-      // v1.4.2: 支持大小写敏感切换
-      caseSensitive: caseSensitive,
-
-      // 排除代码块、公式、图表（防止破坏渲染）
-      exclude: MARK_EXCLUDE_SELECTORS,
-
-      // 限制高亮数量（性能保护）
-      filter: () => {
-        if (highlightCountRef.current >= MAX_HIGHLIGHTS) {
-          return false
-        }
-        highlightCountRef.current++
-        return true
-      },
-
-      // 高亮完成回调
-      done: (count) => {
-        // 查找所有标记元素
-        const marks = Array.from(container.querySelectorAll('mark'))
-
-        marksRef.current = marks
-        setTotalCount(marks.length)
-
-        // 高亮并滚动到第一个匹配
-        if (marks.length > 0) {
+    // 排除规则只解析一次；高亮遍历仅检查局部标记，不反复匹配祖先选择器。
+    try {
+      instance.mark(debouncedQuery, {
+        className: 'search-highlight',
+        separateWordSearch: false,
+        acrossElements: true,
+        caseSensitive,
+        iframes: false,
+        exclude: [`[${exclusionAttribute}]`],
+        filter: () => {
+          if (highlightCountRef.current >= MAX_HIGHLIGHTS) return false
+          highlightCountRef.current++
+          return true
+        },
+        done: () => {
+          const marks = Array.from(container.querySelectorAll('mark.search-highlight'))
+          marksRef.current = marks
+          setTotalCount(marks.length)
           setCurrentIndex(0)
-          // 直接在这里处理滚动，避免依赖 highlightCurrentMark
-          marks.forEach(m => m.classList.remove('search-highlight-current'))
-          marks[0].classList.add('search-highlight-current')
-          marks[0].scrollIntoView({
-            behavior: scrollBehavior,
-            block: 'center'
-          })
-        }
-      }
-    })
+          if (marks.length > 0) {
+            marks[0].classList.add('search-highlight-current')
+            revealSearchMatch(marks[0], true)
+          }
+        },
+      })
+    } finally {
+      excluded.forEach(element => element.removeAttribute(exclusionAttribute))
+    }
 
-    // 注意：不要在清理函数中 unmark！
-    // 因为 setTotalCount 会触发重新渲染，导致清理函数执行
-    // unmark 应该只在搜索词变化或组件卸载时执行
-  }, [debouncedQuery, scrollBehavior, caseSensitive])  // v1.4.2: 添加 caseSensitive 依赖
+  }, [query, debouncedQuery, caseSensitive, contentKey, clearHighlights])
 
   // -------------------------------------------------------------------------
   // 高亮当前匹配
@@ -326,14 +346,10 @@ export function useInPageSearch(
       if (currentMark) {
         currentMark.classList.add('search-highlight-current')
 
-        // 滚动到当前匹配（大文件禁用 smooth）
-        currentMark.scrollIntoView({
-          behavior: scrollBehavior,
-          block: 'center'
-        })
+        revealSearchMatch(currentMark)
       }
     },
-    [scrollBehavior]
+    []
   )
 
   // -------------------------------------------------------------------------
@@ -365,10 +381,8 @@ export function useInPageSearch(
     setQueryRaw('')
     setCurrentIndex(0)
     setTotalCount(0)
-    markInstanceRef.current?.unmark()
-    marksRef.current = []
-    highlightCountRef.current = 0
-  }, [])
+    clearHighlights()
+  }, [clearHighlights])
 
   // -------------------------------------------------------------------------
   // 返回结果

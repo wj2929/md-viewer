@@ -8,7 +8,9 @@ import { useQuickEditPlacementStore } from '../../src/stores/quickEditPlacementS
 import { getTemplatesForRenderer } from '../../src/components/settings/chartStarterTemplates'
 
 vi.mock('../../src/components/VirtualizedMarkdown', () => ({
-  VirtualizedMarkdown: ({ content }: { content: string }) => <div>{content}</div>,
+  VirtualizedMarkdown: ({ content, scrollToLine, scrollToRatio, highlightKeyword }: {
+    content: string; scrollToLine?: number; scrollToRatio?: number; highlightKeyword?: string
+  }) => <div data-testid="markdown-preview" data-line={scrollToLine} data-ratio={scrollToRatio} data-keyword={highlightKeyword}>{content}</div>,
 }))
 
 vi.mock('../../src/components/FloatingNav', () => ({
@@ -48,6 +50,24 @@ describe('SplitPanel lightweight editing', () => {
   beforeEach(() => {
     useEditSessionStore.getState().reset()
     useQuickEditPlacementStore.getState().reset()
+  })
+
+  it('explicit line navigation supersedes the active leaf restored ratio only', () => {
+    const complete = vi.fn()
+    render(<SplitPanel node={root} tabs={tabs} activeLeafId="leaf-a"
+      onSplitPanel={vi.fn()} onClosePanel={vi.fn()} onResizePanel={vi.fn()}
+      onSetActiveLeaf={vi.fn()} onImageClick={vi.fn()} onDropTab={vi.fn()}
+      scrollToLine={24} highlightKeyword="needle"
+      getRestoredLeafViewState={() => ({ scrollRatio: 0.25 })}
+      onRestoredLeafViewStateComplete={complete} />)
+    const [active, other] = screen.getAllByTestId('markdown-preview')
+    expect(active).toHaveAttribute('data-line', '24')
+    expect(active).toHaveAttribute('data-keyword', 'needle')
+    expect(active).not.toHaveAttribute('data-ratio')
+    expect(other).not.toHaveAttribute('data-line')
+    expect(other).not.toHaveAttribute('data-keyword')
+    expect(other).toHaveAttribute('data-ratio', '0.25')
+    expect(complete).toHaveBeenCalledExactlyOnceWith('leaf-a')
   })
 
   it('renders one read aloud controller for the active leaf only', () => {

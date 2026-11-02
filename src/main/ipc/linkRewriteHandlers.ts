@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import * as path from 'path'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
-import type { LinkMoveMapping } from '../linking/types'
+import type { LinkMoveMapping, LinkMoveBatchOperation } from '../linking/types'
 import { validateLinkMoveMapping } from '../linking/linkMoveMapping'
 import { moveSameRootPath } from '../linking/sameRootMove'
 import type { IPCContext } from './context'
@@ -75,6 +75,50 @@ export function registerLinkRewriteHandlers(ctx: IPCContext): void {
       console.warn('[LinkRewrite] Failed to refresh moved index paths:', error)
     })
     return { newPath: executed.result.destinationPath, receipt: executed.receipt }
+  })
+
+  ipcMain.handle('link-rewrite:executeBatch', async (
+    event,
+    operation: WorkspaceOperationContext,
+    input: { operations: LinkMoveBatchOperation[]; confirm: boolean },
+  ) => {
+    const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+    const root = workspace.primaryRoot
+    if (!root) throw new Error('当前工作区未绑定文件夹')
+    if (input?.confirm !== true) throw new Error('必须明确确认文件操作')
+    if (!Array.isArray(input.operations) || !input.operations.length || input.operations.length > 256) throw new Error('批量移动项无效或过多')
+    const operations = input.operations.map(item => {
+      validateId(item?.impactId)
+      return { impactId: item.impactId, mapping: validateLinkMoveMapping(item.mapping) }
+    })
+    const assertAuthorized = (): void => {
+      if (getSenderWorkspaceForOperation(ctx, event, operation).primaryRoot !== root) throw new Error('当前工作区已变化')
+    }
+    const validatePaths = async (mapping: LinkMoveMapping) => {
+      assertAuthorized()
+      const sourcePath = await validateWorkspaceOperationPath(ctx, event, operation, path.resolve(root, mapping.oldRelativePath))
+      const destinationPath = await validateWorkspaceOperationPath(ctx, event, operation, path.resolve(root, mapping.newRelativePath))
+      assertAuthorized()
+      if (isSameOrChildPath(destinationPath, sourcePath)) throw new Error('无法移动目录到自身或子目录')
+      return { sourcePath, destinationPath }
+    }
+    return ctx.linkRewritePlanner!.executeBatch({
+      ownerId: ownerId(event.sender.id, workspace.id, operation.lifecycleEpoch), rootPath: root, operations,
+      validate: async mapping => { await validatePaths(mapping) },
+      assertAuthorized,
+      execute: async (mapping, assertCurrent) => {
+        const paths = await validatePaths(mapping)
+        const moved = await moveSameRootPath({ ...paths, beforeMove: async () => { await assertCurrent(); assertAuthorized() } })
+        return { newPath: moved.destinationPath, isDirectory: moved.isDirectory }
+      },
+      afterMove: async (mapping, moved) => {
+        if (ctx.appDataManager?.relocateDocumentMarks(root, path.resolve(root, mapping.oldRelativePath), moved.newPath, moved.isDirectory)) {
+          await broadcastDocumentMarksChanged(ctx, event.sender.id).catch(error => {
+            console.warn('[LinkRewrite] Failed to broadcast document marks:', error)
+          })
+        }
+      },
+    })
   })
 
   ipcMain.handle('link-rewrite:createRepairPlan', async (

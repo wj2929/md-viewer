@@ -45,6 +45,13 @@ describe('FileTree', () => {
         ),
         receipt: { operationReceiptId: 'receipt-a' },
       })),
+      executeLinkRewriteBatch: vi.fn().mockImplementation(async (operation, input) => ({
+        items: await Promise.all(input.operations.map(async item => ({
+          ...item, status: 'success',
+          newPath: await window.api.moveFile(`/base/path/${item.mapping.oldRelativePath}`, `/base/path/${item.mapping.newRelativePath}`, operation),
+          receipt: { operationReceiptId: `receipt-${item.impactId}` },
+        }))),
+      })),
       createLinkRepairPlan: vi.fn().mockResolvedValue({ planId: 'plan-a', operationReceiptId: 'receipt-a', changes: [], warnings: [] }),
       applyLinkRepairPlan: vi.fn().mockResolvedValue({ planId: 'plan-a', files: [] }),
       applyLinkRepairPlans: vi.fn().mockResolvedValue({ planIds: ['plan-a'], files: [] }),
@@ -769,14 +776,12 @@ describe('FileTree', () => {
 
       const rows = container.querySelectorAll('.file-tree-row')
 
-      // level1 深度 0: 0*16+8 = 8px
-      expect(rows[0]).toHaveStyle({ paddingLeft: '8px' })
-
-      // level2 深度 1: 1*16+8 = 24px
-      expect(rows[1]).toHaveStyle({ paddingLeft: '24px' })
-
-      // deep.md 深度 2: 2*16+8 = 40px
-      expect(rows[2]).toHaveStyle({ paddingLeft: '40px' })
+      // 正常缩进仍为 8 / 24 / 40px，窄侧栏为名称和操作区保留 140px。
+      for (const [depth, row] of Array.from(rows).entries()) {
+        expect(row).toHaveStyle({ paddingLeft: `min(${depth * 16 + 8}px, max(8px, calc(100% - 140px)))` })
+        expect(row).toHaveAttribute('aria-level', String(depth + 1))
+      }
+      expect(screen.getByText('level2')).toHaveAttribute('title', '/level1/level2')
     })
   })
 

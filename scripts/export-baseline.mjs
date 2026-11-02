@@ -152,19 +152,26 @@ if (DOCX_URL) {
       const zip = new AdmZip(dout)
       media = zip.getEntries().filter(e => /word\/media\/.*\.png$/i.test(e.entryName)).length
       const xmlEntry = zip.getEntry('word/document.xml')
-      const xml = xmlEntry ? zip.readAsText(xmlEntry) : ''
+      const xml = xmlEntry ? xmlEntry.getData().toString('utf8') : ''
       residue = /\[A\]|\[B\]|nomnoml/.test(xml)   // kroki 源码残留
       placeholder = xml.includes('图表未渲染')      // 中性占位是否出现
       unpacked = true
-    } catch (e) { console.log('  (adm-zip 解包失败，跳过解包检查)', e.message) }
+    } catch (e) {
+      console.log('  (adm-zip 解包失败)', e.message)
+    }
     // DOCX 是头号痛点且主循环只覆盖 HTML/CLI——这里是唯一的 DOCX 回归守卫，升级为硬门禁。
+    const docxExportFailed = dj.ok !== true || !unpacked
+    const docxMissingImage = unpacked && media < 1
     const docxLeak = unpacked && residue
     const docxMissingPlaceholder = unpacked && !placeholder
-    if (docxLeak || docxMissingPlaceholder) gateFail = true
+    if (docxExportFailed || docxMissingImage || docxLeak || docxMissingPlaceholder) gateFail = true
     console.log(`  ok=${dj.ok} status=${dj.summary.renderStatus} 嵌图=${media}(应=1) `
       + `kroki源码残留=${residue ? '❌ 有' : '✅ 无'} 中性占位=${placeholder ? '✅ 有' : '❌ 缺'}`)
-    if (docxLeak || docxMissingPlaceholder) console.log('  ❌ DOCX 门禁失败：kroki 源码漏入文档或缺中性占位')
+    if (docxExportFailed || docxMissingImage || docxLeak || docxMissingPlaceholder) {
+      console.log('  ❌ DOCX 门禁失败：导出/解包失败、成功图表缺失、kroki 源码泄漏或缺中性占位')
+    }
   } else {
+    gateFail = true
     console.log('  DOCX 导出失败/服务未启：', (dr.stderr || '').slice(0, 160))
   }
 }

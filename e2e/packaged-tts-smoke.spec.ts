@@ -104,7 +104,8 @@ test.describe('packaged app TTS smoke', () => {
 
       const systemVoice = controls.getByRole('combobox', { name: '系统音色' })
       await expect(systemVoice).toBeVisible()
-      await expect(systemVoice.locator('option').first()).toHaveText('系统默认音色')
+      await expect(systemVoice.locator('option').first()).toHaveText('自动（按文本语言）')
+      await expect(systemVoice.locator('option').first()).toHaveAttribute('value', '')
     } finally {
       await electronApp?.close()
       rmSync(userDataDir, { recursive: true, force: true })

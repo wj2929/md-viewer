@@ -8,11 +8,13 @@ import { useTableOfContents } from '../hooks/useTableOfContents'
 import { useActiveHeading } from '../hooks/useActiveHeading'
 import { getActiveWorkspaceLifecycleKey, isActiveWorkspaceLifecycleKey } from '../utils/workspaceOperationContext'
 import TocPanel from './TocPanel'
+import type { LinkOrigin } from '../utils/linkNavigation'
 import BacklinksPanel, { type BacklinkItem, type BacklinkStats } from './BacklinksPanel'
 
 type NavigationPanel = 'none' | 'toc' | 'backlinks'
 
 interface FloatingNavProps {
+  linkOrigin?: LinkOrigin
   /** 预览区容器 ref */
   containerRef: React.RefObject<HTMLDivElement | null>
   /** Markdown 源文本 */
@@ -26,7 +28,7 @@ interface FloatingNavProps {
 /**
  * 浮动导航组件
  */
-const FloatingNav: React.FC<FloatingNavProps> = ({ containerRef, markdown, filePath, onBacklinkSelect }) => {
+const FloatingNav: React.FC<FloatingNavProps> = ({ containerRef, markdown, filePath, onBacklinkSelect, linkOrigin }) => {
   const [panel, setPanel] = useState<NavigationPanel>('none')
   const [backlinkStats, setBacklinkStats] = useState<BacklinkStats>({
     sourceDocuments: 0,
@@ -35,6 +37,26 @@ const FloatingNav: React.FC<FloatingNavProps> = ({ containerRef, markdown, fileP
   const [showBacklinks, setShowBacklinks] = useState(false)
   const tocButtonRef = useRef<HTMLButtonElement>(null)
   const backlinksButtonRef = useRef<HTMLButtonElement>(null)
+  const onBacklinkSelectRef = useRef(onBacklinkSelect)
+
+  useEffect(() => {
+    onBacklinkSelectRef.current = onBacklinkSelect
+  }, [onBacklinkSelect])
+
+  const [panelSize, setPanelSize] = useState<{ width: number; height: number } | null>(null)
+  useEffect(() => {
+    const host = containerRef.current?.parentElement
+    if (!host) return
+    const measure = () => {
+      const width = Math.max(0, host.clientWidth - 88)
+      const height = Math.max(0, host.clientHeight - 32)
+      setPanelSize(previous => previous?.width === width && previous.height === height ? previous : { width, height })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [containerRef])
 
   const { toc, scrollToHeading } = useTableOfContents(markdown)
   const activeId = useActiveHeading(toc, containerRef.current)
@@ -52,30 +74,55 @@ const FloatingNav: React.FC<FloatingNavProps> = ({ containerRef, markdown, fileP
     setPanel(current => current === 'backlinks' ? 'none' : current)
     setBacklinkStats({ sourceDocuments: 0, occurrences: 0 })
     setShowBacklinks(false)
-    if (!targetRelativePath || !onBacklinkSelect || !lifecycle?.primaryRoot || !window.api.getWorkspaceBacklinks) return
+    if (!targetRelativePath || !onBacklinkSelectRef.current || !lifecycle?.primaryRoot || !window.api.getWorkspaceBacklinks) return
 
     let cancelled = false
+    let refreshInFlight = false
+    let refreshPending = false
+    let lastStatusKey = ''
     const refresh = async (): Promise<void> => {
+      if (refreshInFlight) {
+        refreshPending = true
+        return
+      }
+      refreshInFlight = true
       try {
-        const items = await window.api.getWorkspaceBacklinks(lifecycle, targetRelativePath)
+        const response = await window.api.getWorkspaceBacklinks(lifecycle, targetRelativePath)
         if (cancelled || !isActiveWorkspaceLifecycleKey(lifecycle)) return
+        const items = response.coverage === 'stale' ? [] : response.items
         const sourceDocuments = new Set(items.map(item => item.sourceRelativePath)).size
         setBacklinkStats({ sourceDocuments, occurrences: items.length })
-        setShowBacklinks(items.length > 0)
+        setShowBacklinks(items.length > 0 || response.coverage !== 'complete')
       } catch {
         if (cancelled || !isActiveWorkspaceLifecycleKey(lifecycle)) return
         setShowBacklinks(true)
+      } finally {
+        refreshInFlight = false
+        if (refreshPending && !cancelled) {
+          refreshPending = false
+          void refresh()
+        }
       }
     }
     void refresh()
     const unsubscribe = window.api.subscribeWorkspaceIndexStatus?.(lifecycle, status => {
+      const statusKey = [
+        status.state,
+        status.generation,
+        status.indexedDocuments,
+        status.totalDocuments,
+        status.pendingDocuments,
+        status.errors,
+      ].join(':')
+      if (statusKey === lastStatusKey) return
+      lastStatusKey = statusKey
       if (status.state === 'ready' || status.state === 'degraded' || status.state === 'read-only') void refresh()
     })
     return () => {
       cancelled = true
       unsubscribe?.()
     }
-  }, [onBacklinkSelect, targetRelativePath])
+  }, [targetRelativePath])
 
   // 滚动到顶部
   const scrollToTop = useCallback(() => {
@@ -119,7 +166,14 @@ const FloatingNav: React.FC<FloatingNavProps> = ({ containerRef, markdown, fileP
   }, [])
 
   return (
-    <nav className={`floating-nav ${panel !== 'none' ? 'panel-open' : ''}`} aria-label="文档导航">
+    <nav className={`floating-nav ${panel !== 'none' ? 'panel-open' : ''}`} aria-label="文档导航"
+      style={panelSize ? { '--nav-panel-width': `${panelSize.width}px`, '--nav-panel-height': `${panelSize.height}px` } as React.CSSProperties : undefined}>
+      {linkOrigin && <button className="floating-nav-btn link-origin-floating" disabled={linkOrigin.busy}
+        aria-label={`返回来源：${linkOrigin.name}`} aria-description={linkOrigin.description} title={linkOrigin.description ?? `返回来源：${linkOrigin.name}`}
+        onClick={event => { event.stopPropagation(); linkOrigin.onReturn() }}>
+        <span className="link-origin-icon" aria-hidden="true">↶</span>
+        <span className="link-origin-label" aria-hidden="true">返回</span>
+      </button>}
       {/* 到顶部按钮 */}
       <button
         className="floating-nav-btn"

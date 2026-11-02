@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef } from 'react'
 import { useFileStore, useTabStore, useBookmarkStore, useLayoutStore, useClipboardStore, useWindowStore, useUIStore } from '../stores'
 import type { Tab } from '../components'
 import { readPreviewContentWithCache, clearFileCache } from '../utils/fileCache'
+import { recordFileTerminal, startFileDiagnostic } from '../utils/diagnostics'
 import { ensureTabContentLoaded } from '../utils/ensureTabContentLoaded'
 import { buildPreviewContentForFile } from '../utils/previewableFiles'
 import { createMarkdownRenderer } from '../utils/markdownRenderer'
@@ -13,6 +14,7 @@ import {
   isActiveWorkspaceLifecycleKey,
 } from '../utils/workspaceOperationContext'
 import type { useToast } from './useToast'
+import type { DiagnosticSource } from '../../../shared/diagnostics'
 
 type UseToastReturn = ReturnType<typeof useToast>
 
@@ -25,10 +27,16 @@ interface UseIPCOptions {
   handleExportPDF: () => Promise<void>
   handleExportDOCX: (docStyle?: string) => Promise<void>
   handleFocusSearch: () => void
+  handleAttachmentShortcut?: (action: 'close' | 'search') => boolean
   handleNextTab: () => void
   handlePrevTab: () => void
   handleSwitchTab: (tabIndex: number) => void
-  handleFileSelect: (file: { name: string; path: string; isDirectory: boolean }, lineNumber?: number, keyword?: string) => Promise<void>
+  handleFileSelect: (
+    file: { name: string; path: string; isDirectory: boolean },
+    lineNumber?: number,
+    keyword?: string,
+    diagnosticSource?: DiagnosticSource,
+  ) => Promise<void>
   loadBookmarks: () => Promise<void>
   previewRef: React.RefObject<HTMLDivElement | null>
   onMoveToRequest: (sources: string[]) => void
@@ -42,7 +50,7 @@ export function useIPC(options: UseIPCOptions): void {
   const {
     toast, handleOpenFolder, handleRefreshFiles, handleTabClose,
     handleExportHTML, handleExportPDF, handleExportDOCX,
-    handleFocusSearch, handleNextTab, handlePrevTab, handleSwitchTab,
+    handleFocusSearch, handleAttachmentShortcut, handleNextTab, handlePrevTab, handleSwitchTab,
     handleFileSelect, loadBookmarks, previewRef, onMoveToRequest
   } = options
 
@@ -78,11 +86,11 @@ export function useIPC(options: UseIPCOptions): void {
       }
       setTabs(prev => {
         const nextTabs = prev.filter(tab => tab.file.path !== filePath)
-        setSplitState(split => reconcileSplitState(split, new Set(nextTabs.map(tab => tab.id))))
+        setSplitState(split => reconcileSplitState(split, new Set(nextTabs.map(tab => tab.id))), { source: 'ipc-file-deleted' })
 
         const currentActiveTabId = useTabStore.getState().activeTabId
         if (!currentActiveTabId || !nextTabs.some(tab => tab.id === currentActiveTabId)) {
-          setActiveTabId(nextTabs[0]?.id ?? null)
+          setActiveTabId(nextTabs[0]?.id ?? null, { source: 'ipc-file-deleted' })
         }
         return nextTabs
       })
@@ -103,25 +111,25 @@ export function useIPC(options: UseIPCOptions): void {
           const htmlContent = await buildExportHtmlContent(content, { markdownFilePath: data.path })
 
           if (data.type === 'html') {
-            const result = await window.api.exportHTML(htmlContent, fileName)
+            const result = await window.api.exportHTML(htmlContent, fileName, data.path)
             if (result) {
               toast.success('HTML 已导出', {
                 action: {
                   label: '点击查看',
                   onClick: async () => {
-                    try { await window.api.showItemInFolder(result) } catch (error) { console.error('Failed to show item:', error) }
+                    try { await window.api.showItemInFolder(result.filePath) } catch (error) { console.error('Failed to show item:', error) }
                   }
                 }
               })
             }
           } else {
-            const result = await window.api.exportPDF(htmlContent, fileName)
+            const result = await window.api.exportPDF(htmlContent, fileName, data.path)
             if (result) {
               toast.success('PDF 已导出', {
                 action: {
                   label: '点击查看',
                   onClick: async () => {
-                    try { await window.api.showItemInFolder(result) } catch (error) { console.error('Failed to show item:', error) }
+                    try { await window.api.showItemInFolder(result.filePath) } catch (error) { console.error('Failed to show item:', error) }
                   }
                 }
               })
@@ -235,11 +243,11 @@ export function useIPC(options: UseIPCOptions): void {
         setSplitState(split => reconcileSplitState(
           split,
           new Set(nextTabs.map(tab => tab.id))
-        ))
+        ), { source: 'ipc-close-tabs' })
         if (activeTabId !== undefined) {
           setActiveTabId(activeTabId && nextTabs.some(tab => tab.id === activeTabId)
             ? activeTabId
-            : nextTabs[0]?.id ?? null)
+            : nextTabs[0]?.id ?? null, { source: 'ipc-close-tabs' })
         }
         return nextTabs
       })
@@ -268,6 +276,7 @@ export function useIPC(options: UseIPCOptions): void {
     })
 
     const unsubscribeTabPin = window.api.onTabPin((tabId: string) => {
+      if (tabsRef.current.find(tab => tab.id === tabId)?.linkedReadOnly) return
       setTabs(prev => prev.map(tab =>
         tab.id === tabId ? { ...tab, isPinned: true } : tab
       ))
@@ -311,6 +320,7 @@ export function useIPC(options: UseIPCOptions): void {
     const unsubscribeAddBookmark = window.api.onTabAddBookmark(async ({ tabId }: { tabId: string; filePath: string }) => {
       const tab = tabsRef.current.find(t => t.id === tabId)
       if (!tab) return
+      if (tab.linkedReadOnly) { toast.error('外部临时文档不能添加书签。'); return }
 
       try {
         await window.api.addBookmark({
@@ -338,6 +348,7 @@ export function useIPC(options: UseIPCOptions): void {
 
       const tab = tabsRef.current.find(t => t.id === currentActiveTabId)
       if (!tab) return
+      if (tab.linkedReadOnly) { toast.error('外部临时文档不能添加书签。'); return }
 
       try {
         await window.api.addBookmark({
@@ -380,6 +391,7 @@ export function useIPC(options: UseIPCOptions): void {
 
     const unsubscribe = window.api.onAddBookmarkFromPreview(async (params: { filePath: string; headingId: string | null; headingText: string | null }) => {
       const { filePath, headingId, headingText } = params
+      if (tabsRef.current.some(tab => tab.file.path === filePath && tab.linkedReadOnly)) { toast.error('外部临时文档不能添加书签。'); return }
       try {
         const fileName = filePath.split(/[/\\]/).pop() || ''
         let scrollPosition: number | undefined
@@ -427,12 +439,15 @@ export function useIPC(options: UseIPCOptions): void {
     const unsubscribeOpenFolder = window.api.onShortcutOpenFolder(handleOpenFolder)
     const unsubscribeRefresh = window.api.onShortcutRefresh(handleRefreshFiles)
     const unsubscribeCloseTab = window.api.onShortcutCloseTab(() => {
+      if (handleAttachmentShortcut?.('close')) return
       const currentActiveTabId = useTabStore.getState().activeTabId
       if (currentActiveTabId) handleTabClose(currentActiveTabId)
     })
     const unsubscribeExportHTML = window.api.onShortcutExportHTML(handleExportHTML)
     const unsubscribeExportPDF = window.api.onShortcutExportPDF(handleExportPDF)
-    const unsubscribeFocusSearch = window.api.onShortcutFocusSearch(handleFocusSearch)
+    const unsubscribeFocusSearch = window.api.onShortcutFocusSearch(() => {
+      if (!handleAttachmentShortcut?.('search')) handleFocusSearch()
+    })
     const unsubscribeNextTab = window.api.onShortcutNextTab(handleNextTab)
     const unsubscribePrevTab = window.api.onShortcutPrevTab(handlePrevTab)
     const unsubscribeSwitchTab = window.api.onShortcutSwitchTab(handleSwitchTab)
@@ -454,7 +469,7 @@ export function useIPC(options: UseIPCOptions): void {
     }
   }, [
     handleOpenFolder, handleRefreshFiles, handleTabClose,
-    handleExportHTML, handleExportPDF, handleFocusSearch,
+    handleExportHTML, handleExportPDF, handleFocusSearch, handleAttachmentShortcut,
     handleNextTab, handlePrevTab, handleSwitchTab, setShowSettings
   ])
 
@@ -488,7 +503,7 @@ export function useIPC(options: UseIPCOptions): void {
         if (!targetLeafId || getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
         const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
         return { root: newRoot, activeLeafId: newLeafId }
-      })
+      }, { source: 'ipc-tab-split' })
     })
 
     return unsubscribe
@@ -502,17 +517,22 @@ export function useIPC(options: UseIPCOptions): void {
       const { filePath, direction } = data
       let tab = tabsRef.current.find(t => t.file.path === filePath)
       if (!tab) {
+        const diagnosticOperation = startFileDiagnostic('tab')
         try {
-          const content = await readPreviewContentWithCache(filePath)
+          const content = await readPreviewContentWithCache(filePath, true, diagnosticOperation)
           const fileName = filePath.split(/[/\\]/).pop() || filePath
           const operation = getActiveWorkspaceOperationContext()
-          if (!operation) return
+          if (!operation) {
+            recordFileTerminal(diagnosticOperation, 'superseded')
+            return
+          }
           const isPinned = await window.api.isTabPinned(filePath, operation)
           const newTab: Tab = {
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             file: { name: fileName, path: filePath, isDirectory: false },
             content,
-            isPinned
+            isPinned,
+            diagnosticOperation,
           }
           setTabs(prev => [...prev, newTab])
           tab = newTab
@@ -526,6 +546,7 @@ export function useIPC(options: UseIPCOptions): void {
             operation.lifecycleEpoch,
           ).catch(() => {})
         } catch (error) {
+          recordFileTerminal(diagnosticOperation, 'error')
           console.error('Failed to read file for split:', error)
           toast.error(`无法在分屏中打开：${error instanceof Error ? error.message : '未知错误'}`)
           return
@@ -538,7 +559,7 @@ export function useIPC(options: UseIPCOptions): void {
           const currentActiveTabId = useTabStore.getState().activeTabId
           if (!currentActiveTabId) {
             // 没有活跃标签页时，直接激活新标签页而不分屏
-            setActiveTabId(tabId)
+            setActiveTabId(tabId, { source: 'ipc-file-split' })
             return prev
           }
           const firstLeaf = createLeaf(currentActiveTabId)
@@ -559,7 +580,7 @@ export function useIPC(options: UseIPCOptions): void {
         if (!targetLeafId || getTreeDepth(prev.root) >= MAX_SPLIT_DEPTH) return prev
         const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
         return { root: newRoot, activeLeafId: newLeafId }
-      })
+      }, { source: 'ipc-file-split' })
     })
 
     return unsubscribe
@@ -605,6 +626,7 @@ export function useIPC(options: UseIPCOptions): void {
         toast.error('请先打开一个文件')
         return
       }
+      if (activeTab.linkedReadOnly) { toast.error('外部临时文档仅供只读查看，不能打印。'); return }
       await window.api.print()
     })
 
@@ -617,7 +639,7 @@ export function useIPC(options: UseIPCOptions): void {
       console.log('[App] Open specific file:', filePath)
       const fileName = filePath.split(/[/\\]/).pop() || filePath
       const file = { name: fileName, path: filePath, isDirectory: false }
-      await handleFileSelect(file)
+      await handleFileSelect(file, undefined, undefined, 'open-specific-file')
     })
     return cleanup
   }, [handleFileSelect])

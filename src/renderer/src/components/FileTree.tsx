@@ -1,4 +1,9 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
+import { FileTreeSortButton } from './FileTreeSortControls'
+import { useFileTreeSortStore } from '../stores/fileTreeSortStore'
+import { useFileTreeSortMetadata } from '../hooks/useFileTreeSortMetadata'
+import { aggregateFileTreeMetadata, retainFileTreeOrder, sortFileTree } from '../utils/fileTreeSort'
+import { needsFileTreeMetadata } from '../../../shared/fileTreeSort'
 import { useClipboardStore } from '../stores/clipboardStore'
 import { useFilePreview } from '../hooks/useFilePreview'
 import { FilePreviewTooltip } from './FilePreviewTooltip'
@@ -62,6 +67,7 @@ interface FileTreeItemProps {
   flatIndex: number
   // v1.5.3: 从父组件接收重命名目标路径
   renamingPath?: string | null
+  onRenamingChange?: (active: boolean) => void
   // 文件预览 tooltip
   onFileMouseEnter?: (filePath: string, event: React.MouseEvent) => void
   onFileMouseLeave?: () => void
@@ -80,7 +86,7 @@ interface FileTreeItemProps {
 }
 
 // 单个文件/文件夹项
-function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle, forceExpanded = false, onItemDragStart, onItemDragEnd, onItemDrop, dragOverPath, documentMarks, onDragOverItem, onDragLeaveItem }: FileTreeItemProps): JSX.Element {
+function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFileRenamed, selectedPaths, onMultiSelect, flatIndex, renamingPath, onRenamingChange, onFileMouseEnter, onFileMouseLeave, collapsedFolders, treeStateLoaded, onFolderToggle, forceExpanded = false, onItemDragStart, onItemDragEnd, onItemDrop, dragOverPath, documentMarks, onDragOverItem, onDragLeaveItem }: FileTreeItemProps): JSX.Element {
   const [isRenaming, setIsRenaming] = useState(false)
   const [newName, setNewName] = useState(item.name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -105,6 +111,12 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
       setNewName(item.name)
     }
   }, [renamingPath, item.path, item.name])
+
+  useEffect(() => {
+    if (!isRenaming) return
+    onRenamingChange?.(true)
+    return () => onRenamingChange?.(false)
+  }, [isRenaming, onRenamingChange])
 
   // 自动聚焦输入框
   useEffect(() => {
@@ -189,7 +201,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
     <div className="file-tree-item">
       <div
         className={`file-tree-row ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${item.isDirectory ? 'directory' : 'file'} ${isCut ? 'cut' : ''} ${dragOverPath === item.path ? 'drag-over' : ''} ${markColor ? `marked marked-${markColor}` : ''}`}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        style={{ paddingLeft: `min(${depth * 16 + 8}px, max(8px, calc(100% - 140px)))` }}
         draggable={isRenaming ? undefined : true}
         onDragStart={onItemDragStart ? (e) => onItemDragStart(item, e) : undefined}
         onDragEnd={onItemDragEnd}
@@ -202,6 +214,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
         onMouseEnter={!item.isDirectory && onFileMouseEnter ? (e) => onFileMouseEnter(item.path, e) : undefined}
         onMouseLeave={!item.isDirectory ? onFileMouseLeave : undefined}
         role="treeitem"
+        aria-level={depth + 1}
         tabIndex={0}
         aria-expanded={item.isDirectory ? isExpanded : undefined}
         aria-selected={isSelected || isMultiSelected}
@@ -261,6 +274,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
               onMultiSelect={onMultiSelect}
               flatIndex={flatIndex + idx + 1}
               renamingPath={renamingPath}
+              onRenamingChange={onRenamingChange}
               onFileMouseEnter={onFileMouseEnter}
               onFileMouseLeave={onFileMouseLeave}
               collapsedFolders={collapsedFolders}
@@ -419,12 +433,9 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
   const lastHandledRevealIdRef = useRef<number | null>(null)
   const trimmedFilterQuery = filterQuery.trim()
   const isFilteringFileTree = trimmedFilterQuery.length > 0
-  const visibleFiles = useMemo(
-    () => filterFileTree(files, trimmedFilterQuery),
-    [files, trimmedFilterQuery]
-  )
-  // v1.3 阶段 5：扁平化文件列表用于区间选择
-  const flatFiles = useMemo(() => flattenFileTree(visibleFiles), [visibleFiles])
+  const filteredFiles = useMemo(() => filterFileTree(files, trimmedFilterQuery), [files, trimmedFilterQuery])
+  const sorting = useFileTreeSortStore()
+  useEffect(sorting.connect, [sorting.connect])
 
   // 文件预览 tooltip（父组件级别单一实例）
   const {
@@ -495,6 +506,46 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
   const [pendingDragMove, setPendingDragMove] = useState<PendingDragMove | null>(null)
   const draggedPathsRef = useRef<string[]>([])
   const dragRafRef = useRef<number | null>(null)
+  const [rangeSelecting, setRangeSelecting] = useState(false)
+  const [renameFocused, setRenameFocused] = useState(false)
+  const needsAttributes = needsFileTreeMetadata(sorting.value.by)
+  const attributes = useFileTreeSortMetadata(files, basePath,
+    treeStateLoaded && loadedBasePath === basePath && needsAttributes)
+  const metadata = useMemo(() => attributes.ready && needsAttributes
+    ? aggregateFileTreeMetadata(files, attributes.metadata) : attributes.metadata,
+  [files, attributes.metadata, attributes.ready, needsAttributes])
+  const previousOrder = useRef({ key: attributes.scopeKey, files: filteredFiles })
+  const orderedFiles = useMemo(() => needsAttributes && !attributes.ready
+    ? retainFileTreeOrder(filteredFiles, previousOrder.current.key === attributes.scopeKey ? previousOrder.current.files : filteredFiles)
+    : sortFileTree(filteredFiles, sorting.value, metadata),
+  [filteredFiles, sorting.value, metadata, needsAttributes, attributes.ready, attributes.scopeKey])
+  const frozen = isDragging || rangeSelecting || renameFocused
+  const visibleFiles = frozen && previousOrder.current.key === attributes.scopeKey ? previousOrder.current.files : orderedFiles
+  useLayoutEffect(() => { if (!frozen) previousOrder.current = { key: attributes.scopeKey, files: orderedFiles } }, [attributes.scopeKey, orderedFiles, frozen])
+  const flatFiles = useMemo(() => flattenFileTree(visibleFiles), [visibleFiles])
+  useEffect(() => {
+    const release = (event: KeyboardEvent) => { if (event.key === 'Shift') setRangeSelecting(false) }
+    const blur = () => { setRangeSelecting(false); setRenameFocused(false) }
+    window.addEventListener('keyup', release)
+    window.addEventListener('blur', blur)
+    return () => { window.removeEventListener('keyup', release); window.removeEventListener('blur', blur) }
+  }, [])
+  const keepActiveVisible = useRef(false)
+  useLayoutEffect(() => {
+    if (!sorting.saving) return
+    const row = Array.from(treeRef.current?.querySelectorAll<HTMLElement>('.file-tree-row') ?? [])
+      .find(element => sameFilePath(element.dataset.filePath || '', selectedPath || ''))
+    const bounds = row?.getBoundingClientRect()
+    const viewport = treeRef.current?.getBoundingClientRect()
+    keepActiveVisible.current = Boolean(bounds && viewport && bounds.top >= viewport.top && bounds.bottom <= viewport.bottom)
+  }, [sorting.saving, selectedPath])
+  useLayoutEffect(() => {
+    if (!keepActiveVisible.current || sorting.saving || (needsAttributes && !attributes.ready)) return
+    keepActiveVisible.current = false
+    const row = Array.from(treeRef.current?.querySelectorAll<HTMLElement>('.file-tree-row') ?? [])
+      .find(element => sameFilePath(element.dataset.filePath || '', selectedPath || ''))
+    row?.scrollIntoView?.({ block: 'nearest' })
+  }, [sorting.localChange, selectedPath, sorting.saving, needsAttributes, attributes.ready])
 
   const handleItemDragStart = useCallback((item: FileInfo, event: React.DragEvent) => {
     // 若被拖项在多选集合内，拖整个选中集；否则只拖当前项
@@ -952,6 +1003,7 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
             ×
           </button>
         )}
+        <FileTreeSortButton />
         {hasResettableFolderTreeState && (
           <button
             type="button"
@@ -964,6 +1016,10 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
           </button>
         )}
       </div>
+      {(attributes.loading || attributes.error) && <div className="file-tree-sort-status" role="status">
+        {attributes.error || '设置已保存，正在读取文档属性并统计文件夹…'}
+        {attributes.error && <button type="button" onClick={attributes.retry}>重试属性读取</button>}
+      </div>}
       {/* 「拖回根目录」投放条：仅拖动中显示。挂载被推迟到 dragstart 的下一帧
           （见 handleItemDragStart），避免 dragstart 同步重排中止原生拖动。 */}
       {isDragging && (
@@ -985,6 +1041,8 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
         aria-label="文件列表"
         onClick={handleFileTreeClick}
         onKeyDown={handleKeyDown}
+        onKeyDownCapture={event => { if (event.key === 'Shift') setRangeSelecting(true) }}
+        onPointerDownCapture={event => { if (event.shiftKey) setRangeSelecting(true) }}
         onPaste={handlePaste}
         tabIndex={-1}
       >
@@ -1006,6 +1064,7 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
               onMultiSelect={handleMultiSelect}
               flatIndex={index}
               renamingPath={renamingPath}
+              onRenamingChange={setRenameFocused}
               onFileMouseEnter={handleMouseEnter}
               onFileMouseLeave={handleMouseLeave}
               collapsedFolders={collapsedFolders}

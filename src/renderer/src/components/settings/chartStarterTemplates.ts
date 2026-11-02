@@ -1,8 +1,13 @@
 import templateData from './chartStarterTemplates.json'
+import formatGuidance from './chartFormatGuidance.json'
 import type { RendererType } from '../../renderers/types'
-import type { ChartStarterTemplate, ChartTemplateInsertion } from './chartSettingsTypes'
+import type { ChartFormatGuidance, ChartStarterTemplate, ChartTemplateInsertion } from './chartSettingsTypes'
 
 export const chartStarterTemplates = templateData as ChartStarterTemplate[]
+
+export function getChartFormatGuidance(rendererType: RendererType): ChartFormatGuidance {
+  return formatGuidance[rendererType]
+}
 
 export function getTemplatesForRenderer(rendererType: RendererType): ChartStarterTemplate[] {
   return chartStarterTemplates.filter(template => template.rendererType === rendererType)

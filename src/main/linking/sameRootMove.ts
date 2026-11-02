@@ -4,12 +4,14 @@ import * as path from 'path'
 export async function moveSameRootPath(input: {
   sourcePath: string
   destinationPath: string
+  beforeMove?: () => void | Promise<void>
 }): Promise<{ destinationPath: string; isDirectory: boolean }> {
   if (!(await fs.pathExists(input.sourcePath))) throw new Error('源文件不存在')
   const sourceStats = await fs.lstat(input.sourcePath)
   if (sourceStats.isSymbolicLink()) throw new Error('安全错误：不支持移动符号链接')
   if (sourceStats.isDirectory()) await rejectDirectorySymbolicLinks(input.sourcePath)
   if (await fs.pathExists(input.destinationPath)) throw new Error('目标文件已存在')
+  await input.beforeMove?.()
   await fs.move(input.sourcePath, input.destinationPath, { overwrite: false })
   return { destinationPath: input.destinationPath, isDirectory: sourceStats.isDirectory() }
 }

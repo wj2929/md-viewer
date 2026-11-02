@@ -2,9 +2,25 @@ import { useEffect, useRef, useMemo, memo, useCallback, forwardRef, useState, us
 import MarkdownIt from 'markdown-it'
 import debounce from 'lodash.debounce'
 import Mark from 'mark.js'
+import { useReadPosition } from '../hooks/useReadPosition'
 
 // v1.4.6: 使用统一的渲染器配置
-import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
+import { createMarkdownRenderer, prepareMarkdownRender, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
+import {
+  decodeLocalImageMarker,
+  decodeLocalMediaMarker,
+} from '../utils/localMediaMarkup'
+import {
+  LOCAL_ATTACHMENT_TEXT_EXTENSIONS,
+  LOCAL_IMAGE_MARKER_ATTRIBUTE,
+  LOCAL_MEDIA_MARKER_ATTRIBUTE,
+  WIKI_LINK_MARKER_ATTRIBUTE,
+  decodeLocalResourceMarker,
+} from '../../../shared/localMedia'
+import type { ParsedWikiReference } from '../../../shared/markdown/obsidianSyntax'
+import { isBareWikiDocumentName } from '../../../shared/markdown/wikiDocumentNames'
+import { BLOCK_ANCHOR_PREFIX, inspectMarkdownBlock } from '../../../shared/markdown/blocks'
+import { annotateLinkOccurrences, captureLinkView, locateLinkView, locateMarkdownBlock, previewRevision, SINGLE_NAVIGATION_LEAF, type PreviewLinkContext, type LinkPositionRequest } from '../utils/linkNavigation'
 
 // v1.6.0: 图表渲染 hooks（从 VirtualizedMarkdown 提取）
 import {
@@ -28,12 +44,22 @@ import {
   useKrokiChart,
 } from './charts'
 import type { RemoteChartPolicy } from './charts/remoteChartConsent'
+import {
+  longTaskSummary,
+  recordFileTerminal,
+  recordPostRenderSnapshot,
+  recordPreviewSummary,
+  recordPreviewState,
+  type RendererFileDiagnosticOperation,
+} from '../utils/diagnostics'
 
 // v1.4.0: 页面内搜索
 import { useFileStore } from '../stores/fileStore'
+import { useTabStore } from '../stores/tabStore'
 import { remoteChartDocumentKey, useRemoteChartSettingsStore } from '../stores/remoteChartSettingsStore'
 import { useInPageSearch } from '../hooks/useInPageSearch'
 import { InPageSearchBox } from './search'
+import { LargeDocumentPreview } from './LargeDocumentPreview'
 import { collectExportableChartPngs, countExportableCharts } from '../utils/chartUtils'
 import { createEditableBlockDecision, type EditableBlockKind } from '../utils/v24WorkflowContracts'
 import { openHelpLink, SOURCE_EDIT_HELP_URL } from '../utils/helpLinks'
@@ -56,9 +82,11 @@ interface VirtualizedMarkdownProps {
   filePath?: string
   tabId?: string
   leafId?: string | null
+  isActive?: boolean
   renderDebounceMs?: number
   scrollToLine?: number
   scrollToRatio?: number
+  initialScrollRatio?: number
   onScrollToLineComplete?: () => void
   onScrollToRatioComplete?: () => void
   highlightKeyword?: string
@@ -68,8 +96,24 @@ interface VirtualizedMarkdownProps {
   onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
   onSourceEditRequest?: (target: SourceEditRequest) => void
   onReadPositionChange?: (position: { scrollRatio: number; headingId?: string }) => void
-  onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
+  onMarkdownLinkClick?: (href: string, currentFilePath: string, context?: PreviewLinkContext) => void | Promise<void>
+  onAttachmentLinkClick?: (href: string, currentFilePath: string, context: PreviewLinkContext) => void
+  linkPositionRequest?: LinkPositionRequest
   remoteChartPolicy?: RemoteChartPolicy
+  diagnosticOperation?: RendererFileDiagnosticOperation
+  diagnosticPanelKind?: 'main' | 'split' | 'editor'
+}
+
+interface MarkdownRenderDiagnostics {
+  debounceDelayMs: number
+  markdownRenderMs: number
+  sanitizeMs: number
+}
+
+interface MarkdownDomDiagnostics {
+  domPopulateMs: number
+  sourceMappingMs: number
+  editableAnnotationMs: number
 }
 
 let lastPreviewChartZipContext: {
@@ -92,8 +136,6 @@ export interface SourceEditRequest {
   sourceLine: number
   sourceEndLine?: number
 }
-
-const MAX_RENDERABLE_CONTENT_LENGTH = 750_000
 
 const REMOTE_CHART_FENCE = /^\s{0,3}(?:`{3,}|~{3,})\s*(?:plantuml|puml|c4|c4plantuml|kroki(?:-[a-z0-9-]+)?|pikchr|nomnoml|svgbob|bytefield|tikz)\b/gim
 
@@ -258,6 +300,29 @@ function normalizeLocalImageSources(root: HTMLElement, markdownFilePath?: string
   if (!markdownFilePath) return
 
   root.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+    const encodedMarker = img.getAttribute(LOCAL_IMAGE_MARKER_ATTRIBUTE)
+    if (encodedMarker) {
+      const marker = decodeLocalImageMarker(encodedMarker)
+      img.removeAttribute(LOCAL_IMAGE_MARKER_ATTRIBUTE)
+      img.removeAttribute('src')
+      if (!marker || !window.api.issueLocalImageUrl) return
+      img.alt = marker.alt
+      if (marker.dimensions) {
+        img.width = marker.dimensions.width
+        if (marker.dimensions.height) img.height = marker.dimensions.height
+      }
+      void window.api.issueLocalImageUrl(
+        markdownFilePath,
+        marker.ref,
+        marker.resolutionKind,
+      ).then((url) => {
+        if (img.isConnected) img.setAttribute('src', url)
+      }).catch(() => {
+        // 无法签发 capability 时保持图片为空。
+      })
+      return
+    }
+
     const rawSrc = img.getAttribute('src')
     if (!rawSrc) return
     const src = safeDecodeURIComponent(rawSrc)
@@ -296,10 +361,360 @@ function normalizeLocalImageSources(root: HTMLElement, markdownFilePath?: string
   })
 }
 
+const localMediaCleanups = new WeakMap<HTMLElement, Array<() => void>>()
+const LOCAL_MEDIA_NETWORK_ERROR = 2
+const LOCAL_MEDIA_DECODE_ERROR = 3
+const localMediaInstanceSeed = (() => {
+  const values = new Uint32Array(1)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(values)
+  } else {
+    values[0] = Date.now()
+  }
+  return values[0] % 10_000_000
+})()
+let localMediaInstanceCounter = 0
+
+function instanceScopedMediaUrl(capabilityUrl: string): string {
+  localMediaInstanceCounter = (localMediaInstanceCounter % 999) + 1
+  const instance = localMediaInstanceSeed * 1_000 + localMediaInstanceCounter
+  return `${capabilityUrl}?instance=${instance}`
+}
+
+function localMediaDocumentName(markdownFilePath?: string): string | undefined {
+  return markdownFilePath?.split(/[\\/]/).pop()
+}
+
+function logLocalMedia(message: string, details: Record<string, unknown> = {}): void {
+  console.info(`[LocalMedia] ${message}`, details)
+}
+
+function logLocalMediaError(message: string, details: Record<string, unknown> = {}): void {
+  console.error(`[LocalMedia] ${message}`, details)
+}
+
+function cleanupLocalMedia(root: HTMLElement): void {
+  for (const cleanup of localMediaCleanups.get(root) ?? []) cleanup()
+  localMediaCleanups.delete(root)
+}
+
+function hydrateLocalMedia(root: HTMLElement, markdownFilePath?: string): void {
+  cleanupLocalMedia(root)
+  if (!markdownFilePath || !window.api.issueLocalMediaUrl) return
+  const cleanups: Array<() => void> = []
+  localMediaCleanups.set(root, cleanups)
+
+  root.querySelectorAll<HTMLElement>(`[${LOCAL_MEDIA_MARKER_ATTRIBUTE}]`).forEach((placeholder) => {
+    const encoded = placeholder.getAttribute(LOCAL_MEDIA_MARKER_ATTRIBUTE) || ''
+    const marker = decodeLocalMediaMarker(encoded)
+    placeholder.removeAttribute(LOCAL_MEDIA_MARKER_ATTRIBUTE)
+    logLocalMedia('hydrate:marker', {
+      document: localMediaDocumentName(markdownFilePath),
+      kind: marker?.kind ?? null,
+      resolutionKind: marker?.resolutionKind ?? null,
+      sources: marker?.sources.map(source => source.ref) ?? [],
+      tracks: marker?.tracks.length ?? 0,
+    })
+    if (!marker || marker.sources.length === 0) {
+      renderLocalMediaFallback(placeholder, marker?.label || '本地媒体', '无法解析本地媒体')
+      return
+    }
+
+    const media = document.createElement(marker.kind)
+    media.className = 'local-media-player'
+    media.controls = marker.controls
+    media.preload = marker.preload
+    media.muted = marker.muted
+    if (marker.kind === 'video' && media instanceof HTMLVideoElement) {
+      media.playsInline = marker.playsInline
+    }
+    if (marker.label) media.setAttribute('aria-label', marker.label)
+    if (marker.dimensions && media instanceof HTMLVideoElement) {
+      media.width = marker.dimensions.width
+      if (marker.dimensions.height) media.height = marker.dimensions.height
+    }
+    if (marker.fullWidth) media.style.width = '100%'
+
+    const sourceElements = marker.sources.map((source) => {
+      const sourceElement = document.createElement('source')
+      sourceElement.type = source.mimeType
+      return {
+        source,
+        sourceElement,
+        capabilityUrl: null as string | null,
+      }
+    })
+
+    let disposed = false
+    let networkRetryAttempted = false
+    const revokeUrls: string[] = []
+    const fallback = (): void => {
+      logLocalMediaError('media:error', {
+        document: localMediaDocumentName(markdownFilePath),
+        kind: marker.kind,
+        readyState: media.readyState,
+        networkState: media.networkState,
+        errorCode: media.error?.code ?? null,
+        errorMessage: media.error?.message ?? null,
+        currentSrc: media.currentSrc || null,
+        networkRetryAttempted,
+      })
+      if (
+        !disposed
+        && media.isConnected
+        && media.error?.code === LOCAL_MEDIA_NETWORK_ERROR
+        && !networkRetryAttempted
+        && sourceElements.some(source => source.capabilityUrl)
+      ) {
+        networkRetryAttempted = true
+        for (const source of sourceElements) {
+          if (source.capabilityUrl) {
+            source.sourceElement.src = instanceScopedMediaUrl(source.capabilityUrl)
+          }
+        }
+        logLocalMedia('media:retry', {
+          document: localMediaDocumentName(markdownFilePath),
+          kind: marker.kind,
+          reason: 'MEDIA_ERR_NETWORK',
+        })
+        media.load()
+        return
+      }
+      if (!disposed && media.isConnected && media.error) {
+        renderLocalMediaFallback(media, marker.label || marker.sources[0].ref, '无法加载或播放本地媒体，文件可能无法读取或格式不受支持')
+      }
+    }
+    media.addEventListener('error', fallback)
+    cleanups.push(() => {
+      disposed = true
+      media.removeEventListener('error', fallback)
+      media.pause()
+      // Cancel resource selection before releasing subtitle URLs still in use.
+      media.removeAttribute('src')
+      for (const element of media.querySelectorAll('source, track')) {
+        if (element instanceof HTMLTrackElement) element.track.mode = 'disabled'
+        element.removeAttribute('src')
+        element.remove()
+      }
+      media.load()
+      for (const url of revokeUrls) URL.revokeObjectURL(url)
+    })
+
+    const sourceRequests = sourceElements.map(async (sourceEntry) => {
+      const { source, sourceElement } = sourceEntry
+      logLocalMedia('capability:request', {
+        document: localMediaDocumentName(markdownFilePath),
+        kind: marker.kind,
+        resolutionKind: marker.resolutionKind,
+        ref: source.ref,
+      })
+      try {
+        const url = await window.api.issueLocalMediaUrl(
+          markdownFilePath,
+          source.ref,
+          marker.kind,
+          marker.resolutionKind,
+        )
+        sourceEntry.capabilityUrl = url
+        const scopedUrl = instanceScopedMediaUrl(url)
+        logLocalMedia('capability:success', {
+          document: localMediaDocumentName(markdownFilePath),
+          ref: source.ref,
+          instance: scopedUrl.split('instance=')[1] ?? null,
+        })
+        if (!disposed && placeholder.isConnected) sourceElement.src = scopedUrl
+      } catch (error) {
+        logLocalMediaError('capability:failure', {
+          document: localMediaDocumentName(markdownFilePath),
+          ref: source.ref,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        sourceElement.remove()
+      }
+    })
+
+    let posterDataUrl: string | null = null
+    const posterRequest = marker.kind === 'video' && marker.poster && window.api.readLocalAssetBase64
+      ? window.api.readLocalAssetBase64({
+          markdownFilePath,
+          refPath: marker.poster,
+          resolutionKind: marker.resolutionKind,
+        })
+        .then((image) => {
+          if (!disposed && placeholder.isConnected) {
+            posterDataUrl = `data:${image.mimeType};base64,${image.base64}`
+          }
+        })
+        .catch(() => undefined)
+      : Promise.resolve()
+
+    const trackRequests = marker.tracks.map(async (track) => {
+      try {
+        const vtt = await window.api.readLocalWebVtt(
+          markdownFilePath,
+          track.ref,
+          marker.resolutionKind,
+        )
+        if (disposed || !placeholder.isConnected) return
+        const url = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }))
+        revokeUrls.push(url)
+        const trackElement = document.createElement('track')
+        trackElement.src = url
+        trackElement.kind = track.kind
+        if (track.srclang) trackElement.srclang = track.srclang
+        if (track.label) trackElement.label = track.label
+        trackElement.default = track.default === true
+        media.appendChild(trackElement)
+      } catch {
+        // 字幕失败不阻断音视频本体。
+      }
+    })
+
+    void Promise.all([...sourceRequests, posterRequest, ...trackRequests]).then(() => {
+      if (disposed || !placeholder.isConnected) return
+      for (const { sourceElement } of [...sourceElements].reverse()) {
+        if (sourceElement.src) media.insertBefore(sourceElement, media.firstChild)
+      }
+      if (media.querySelectorAll('source[src]').length === 0) {
+        logLocalMediaError('source:none', {
+          document: localMediaDocumentName(markdownFilePath),
+          kind: marker.kind,
+          refs: marker.sources.map(source => source.ref),
+        })
+        renderLocalMediaFallback(placeholder, marker.label || marker.sources[0].ref, '无法访问本地媒体，请确认文件存在且可读取')
+        return
+      }
+      logLocalMedia('source:attached', {
+        document: localMediaDocumentName(markdownFilePath),
+        kind: marker.kind,
+        sourceCount: media.querySelectorAll('source[src]').length,
+      })
+      const time = marker.sources.find(source => source.time)?.time
+      if (time?.start !== undefined) {
+        const seekToStart = (): void => {
+          if (Number.isFinite(media.duration)) media.currentTime = Math.min(time.start!, media.duration)
+        }
+        if (media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) seekToStart()
+        else {
+          media.addEventListener('canplay', seekToStart, { once: true })
+          cleanups.push(() => media.removeEventListener('canplay', seekToStart))
+        }
+      }
+      if (time?.end !== undefined) {
+        const stopAtEnd = (): void => {
+          if (media.currentTime >= time.end!) media.pause()
+        }
+        media.addEventListener('timeupdate', stopAtEnd)
+        cleanups.push(() => media.removeEventListener('timeupdate', stopAtEnd))
+      }
+      if (posterDataUrl && media instanceof HTMLVideoElement) {
+        const applyPoster = (): void => {
+          if (!disposed && posterDataUrl) media.poster = posterDataUrl
+        }
+        media.addEventListener('loadedmetadata', applyPoster, { once: true })
+        cleanups.push(() => media.removeEventListener('loadedmetadata', applyPoster))
+      }
+      placeholder.replaceWith(media)
+      media.addEventListener('loadedmetadata', () => {
+        logLocalMedia('media:loadedmetadata', {
+          document: localMediaDocumentName(markdownFilePath),
+          readyState: media.readyState,
+          networkState: media.networkState,
+          duration: media.duration,
+        })
+      }, { once: true })
+      media.addEventListener('stalled', () => {
+        logLocalMediaError('media:stalled', {
+          document: localMediaDocumentName(markdownFilePath),
+          readyState: media.readyState,
+          networkState: media.networkState,
+          currentSrc: media.currentSrc || null,
+        })
+      }, { once: true })
+      media.load()
+      if (marker.kind === 'audio') {
+        const retryTimer = window.setTimeout(() => {
+          if (
+            !disposed
+            && media.isConnected
+            && media.readyState === HTMLMediaElement.HAVE_NOTHING
+            && media.networkState === HTMLMediaElement.NETWORK_NO_SOURCE
+          ) {
+            // Chromium 可能延后结束 custom scheme 音频的首次资源选择；
+            // 仅在确认无可用 source 后重试一次，不干扰正常加载。
+            media.load()
+          }
+        }, 1000)
+        cleanups.push(() => window.clearTimeout(retryTimer))
+      }
+      const failureTimer = window.setTimeout(() => {
+        if (
+          !disposed
+          && media.isConnected
+          && media.readyState === HTMLMediaElement.HAVE_NOTHING
+          && media.networkState === HTMLMediaElement.NETWORK_NO_SOURCE
+        ) {
+          renderLocalMediaFallback(media, marker.label || marker.sources[0].ref, '无法加载或播放本地媒体，文件可能无法读取或格式不受支持')
+        }
+      }, 5000)
+      const clearFailureTimer = (): void => window.clearTimeout(failureTimer)
+      media.addEventListener('loadedmetadata', clearFailureTimer, { once: true })
+      cleanups.push(() => {
+        window.clearTimeout(failureTimer)
+        media.removeEventListener('loadedmetadata', clearFailureTimer)
+      })
+    })
+  })
+}
+
+function renderLocalMediaFallback(target: Element, label: string, reason: string): void {
+  const media = target instanceof HTMLMediaElement ? target : null
+  if (media?.error?.code === LOCAL_MEDIA_NETWORK_ERROR) {
+    reason = '本地媒体读取失败，请确认文件存在且可读取'
+  } else if (media?.error?.code === LOCAL_MEDIA_DECODE_ERROR) {
+    reason = '本地媒体解码失败，文件可能损坏或编码不受支持'
+  }
+  const resourceEntry = media?.currentSrc
+    ? performance.getEntriesByName(media.currentSrc).at(-1) as PerformanceResourceTiming | undefined
+    : undefined
+  logLocalMediaError('fallback', {
+    label,
+    reason,
+    readyState: media?.readyState ?? null,
+    networkState: media?.networkState ?? null,
+    errorCode: media?.error?.code ?? null,
+    errorMessage: media?.error?.message ?? null,
+    currentSrc: media?.currentSrc || null,
+    resourceTransferSize: resourceEntry?.transferSize ?? null,
+    resourceEncodedBodySize: resourceEntry?.encodedBodySize ?? null,
+    resourceDecodedBodySize: resourceEntry?.decodedBodySize ?? null,
+  })
+  const fallback = document.createElement('span')
+  fallback.className = 'local-media-fallback'
+  fallback.setAttribute('role', 'note')
+  fallback.textContent = `${reason}：${label}。可尝试使用支持该格式的系统播放器打开原文件。`
+  target.replaceWith(fallback)
+}
+
 /**
  * Markdown 渲染器
  */
-export function VirtualizedMarkdown({ content, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, scrollToRatio, onScrollToLineComplete, onScrollToRatioComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit, onSourceEditRequest, onReadPositionChange, onMarkdownLinkClick, remoteChartPolicy }: VirtualizedMarkdownProps): JSX.Element {
+export function VirtualizedMarkdown(props: VirtualizedMarkdownProps): JSX.Element {
+  const identity = useRef<{ filePath?: string; operationId?: string; id: string } | null>(null)
+  const operationId = props.diagnosticOperation?.context.operationId
+  if (!identity.current || identity.current.filePath !== props.filePath || identity.current.operationId !== operationId) {
+    identity.current = { filePath: props.filePath, operationId, id: `preview_${crypto.randomUUID()}` }
+  }
+  const diagnosticPreviewId = identity.current.id
+  return (
+    <LargeDocumentPreview content={props.content} filePath={props.filePath}
+      diagnosticPreviewId={diagnosticPreviewId} diagnosticOperation={props.diagnosticOperation} diagnosticPanelKind={props.diagnosticPanelKind}>
+      <MarkdownPreview {...props} diagnosticPreviewId={diagnosticPreviewId} />
+    </LargeDocumentPreview>
+  )
+}
+
+function MarkdownPreview({ content, isActive = true, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, scrollToRatio, initialScrollRatio, onScrollToLineComplete, onScrollToRatioComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit, onSourceEditRequest, onReadPositionChange, onMarkdownLinkClick, onAttachmentLinkClick, linkPositionRequest, remoteChartPolicy, diagnosticOperation, diagnosticPanelKind = 'main', diagnosticPreviewId }: VirtualizedMarkdownProps & { diagnosticPreviewId: string }): JSX.Element {
   const markdownRootRef = useRef<HTMLDivElement>(null)
   const localDocumentId = useId()
   const documentKey = useMemo(
@@ -359,7 +774,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
     let linkHref: string | null = null
     const anchor = target.closest('a')
     if (anchor) {
-      const href = anchor.getAttribute('href')
+      const href = anchor.getAttribute('href') ?? anchor.getAttribute('xlink:href')
       if (href) {
         const target = splitMarkdownTarget(href)
         if (classifyMarkdownTarget(href) === 'markdown') {
@@ -370,6 +785,7 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
 
     // 调用新的预览区域右键菜单（v1.3.7：合并书签功能和原有功能）
     window.api.showPreviewContextMenu({
+      ...(useTabStore.getState().tabs.some(tab => tab.id === tabId && tab.linkedReadOnly) ? { readOnly: true } : {}),
       filePath,
       tabId,
       leafId,
@@ -418,26 +834,61 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
 
     // 延迟执行，确保 DOM 已渲染
     const timer = setTimeout(() => {
-      const totalLines = content.split('\n').length
-      if (totalLines === 0) return
-
+      const lines = content.split('\n')
       const previewContainer = resolvePreviewContainer()
-      if (!previewContainer) return
+      const root = markdownRootRef.current
+      if (!previewContainer || !root) return
 
-      // 按行号比例估算滚动位置
-      const ratio = Math.max(0, (scrollToLine - 1)) / totalLines
-      const targetScroll = ratio * previewContainer.scrollHeight
-
-      previewContainer.scrollTo({
-        top: Math.max(0, targetScroll - 100), // 偏移一点，让目标行不在最顶部
-        behavior: 'smooth'
-      })
+      let target: HTMLElement | undefined
+      let targetLine = 0
+      for (const element of root.querySelectorAll<HTMLElement>('[data-source-line]')) {
+        const line = Number(element.dataset.sourceLine)
+        if (line > targetLine && line <= scrollToLine) {
+          target = element
+          targetLine = line
+        }
+      }
+      let targetRect = target?.getBoundingClientRect()
+      if (target && highlightKeyword) {
+        const needle = highlightKeyword.toLowerCase()
+        const beforeLine = lines.slice(targetLine - 1, scrollToLine - 1).join('\n').toLowerCase()
+        let occurrence = 0
+        for (let offset = beforeLine.indexOf(needle); offset >= 0; offset = beforeLine.indexOf(needle, offset + needle.length)) occurrence++
+        const text = (target.textContent || '').toLowerCase()
+        let from = text.indexOf(needle)
+        for (let index = 0; index < occurrence && from >= 0; index++) from = text.indexOf(needle, from + needle.length)
+        if (from >= 0) {
+          const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
+          const range = document.createRange()
+          let offset = 0
+          let started = false
+          while (walker.nextNode()) {
+            const node = walker.currentNode
+            const end = offset + (node.textContent?.length ?? 0)
+            if (!started && from < end) {
+              range.setStart(node, from - offset)
+              started = true
+            }
+            if (started && from + needle.length <= end) {
+              range.setEnd(node, from + needle.length - offset)
+              const rect = range.getBoundingClientRect()
+              if (rect.height > 0) targetRect = rect
+              break
+            }
+            offset = end
+          }
+        }
+      }
+      const targetScroll = targetRect
+        ? previewContainer.scrollTop + targetRect.top - previewContainer.getBoundingClientRect().top
+        : Math.max(0, scrollToLine - 1) / lines.length * previewContainer.scrollHeight
+      previewContainer.scrollTo({ top: Math.max(0, targetScroll - 100), behavior: 'auto' })
 
       onScrollToLineComplete?.()
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [scrollToLine, content, onScrollToLineComplete, resolvePreviewContainer])
+  }, [scrollToLine, content, highlightKeyword, onScrollToLineComplete, resolvePreviewContainer])
 
   useEffect(() => {
     if (typeof scrollToRatio !== 'number' || !content) return
@@ -467,10 +918,10 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
 
     // 延迟执行，确保滚动完成后再高亮
     const highlightTimer = setTimeout(() => {
-      const container = resolvePreviewContainer()
+      const container = markdownRootRef.current
       if (!container) return
 
-      const markInstance = new Mark(container as HTMLElement)
+      const markInstance = new Mark(container)
       markInstance.mark(highlightKeyword, {
         className: 'search-temp-highlight',
         separateWordSearch: false,
@@ -479,13 +930,13 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
 
       // 3 秒后自动清除高亮
       const fadeTimer = setTimeout(() => {
-        markInstance.unmark()
+        markInstance.unmark({ className: 'search-temp-highlight' })
         onHighlightKeywordComplete?.()
       }, 3000)
 
       highlightCleanupRef.current = () => {
         clearTimeout(fadeTimer)
-        markInstance.unmark()
+        markInstance.unmark({ className: 'search-temp-highlight' })
       }
     }, 500) // 等待滚动动画完成
 
@@ -511,10 +962,14 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
         </div>
       )}
       <NonVirtualizedMarkdown
+        key={filePath ?? localDocumentId}
         content={content}
         md={md}
         className={className}
         filePath={filePath}
+        tabId={tabId}
+        leafId={leafId ?? SINGLE_NAVIGATION_LEAF}
+        isActive={isActive}
         renderDebounceMs={renderDebounceMs}
         onContextMenu={handleContextMenu}
         onPreviewKeyDown={handleKeyDown}
@@ -524,8 +979,14 @@ export function VirtualizedMarkdown({ content, className = '', filePath, tabId, 
         onSourceEditRequest={onSourceEditRequest}
         rootRef={markdownRootRef}
         onReadPositionChange={onReadPositionChange}
+        initialScrollRatio={scrollToLine !== undefined || scrollToRatio !== undefined || linkPositionRequest ? undefined : initialScrollRatio}
         onMarkdownLinkClick={onMarkdownLinkClick}
+        onAttachmentLinkClick={onAttachmentLinkClick}
+        linkPositionRequest={linkPositionRequest}
         remoteChartPolicy={effectiveRemoteChartPolicy}
+        diagnosticOperation={diagnosticOperation}
+        diagnosticPanelKind={diagnosticPanelKind}
+        diagnosticPreviewId={diagnosticPreviewId}
       />
     </>
   )
@@ -541,6 +1002,9 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   md,
   className,
   filePath,
+  tabId,
+  leafId,
+  isActive,
   renderDebounceMs,
   onContextMenu,
   onPreviewKeyDown,
@@ -550,13 +1014,22 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onSourceEditRequest,
   rootRef,
   onReadPositionChange,
+  initialScrollRatio,
   onMarkdownLinkClick,
+  onAttachmentLinkClick,
+  linkPositionRequest,
   remoteChartPolicy,
+  diagnosticOperation,
+  diagnosticPanelKind,
+  diagnosticPreviewId,
 }: {
   content: string
   md: MarkdownIt
   className: string
   filePath?: string
+  tabId?: string
+  leafId: string
+  isActive: boolean
   renderDebounceMs: number
   onContextMenu?: (e: React.MouseEvent) => void
   onPreviewKeyDown?: (e: React.KeyboardEvent) => void
@@ -565,9 +1038,15 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
   onSourceEditRequest?: (target: SourceEditRequest) => void
   rootRef?: React.RefObject<HTMLDivElement | null>
+  initialScrollRatio?: number
   onReadPositionChange?: (position: { scrollRatio: number; headingId?: string }) => void
-  onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
+  onMarkdownLinkClick?: (href: string, currentFilePath: string, context?: PreviewLinkContext) => void | Promise<void>
+  onAttachmentLinkClick?: (href: string, currentFilePath: string, context: PreviewLinkContext) => void
+  linkPositionRequest?: LinkPositionRequest
   remoteChartPolicy?: RemoteChartPolicy
+  diagnosticOperation?: RendererFileDiagnosticOperation
+  diagnosticPanelKind: 'main' | 'split' | 'editor'
+  diagnosticPreviewId: string
 }) {
   const internalContainerRef = useRef<HTMLDivElement>(null)
   const containerRef = rootRef ?? internalContainerRef
@@ -575,10 +1054,20 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   // v1.4.3: 防抖状态 - 延迟渲染以提升性能
   const [debouncedContent, setDebouncedContent] = useState(content)
   const [renderVersion, setRenderVersion] = useState(0)
+  const contentObservedRef = useRef({ value: content, at: performance.now() })
+  const renderDiagnosticsRef = useRef<MarkdownRenderDiagnostics>({
+    debounceDelayMs: 0,
+    markdownRenderMs: 0,
+    sanitizeMs: 0,
+  })
+  if (contentObservedRef.current.value !== content) {
+    contentObservedRef.current = { value: content, at: performance.now() }
+  }
 
   // v1.4.3: 防抖更新内容，快速编辑草稿预览可传入更短延迟
   useEffect(() => {
     const debouncedUpdate = debounce(() => {
+      renderDiagnosticsRef.current.debounceDelayMs = performance.now() - contentObservedRef.current.at
       setDebouncedContent(content)
     }, renderDebounceMs)
 
@@ -602,6 +1091,10 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
       if (!root || !context || context.root !== root || context.filePath !== request.filePath) return
       if (request.tabId && context.tabId && request.tabId !== context.tabId) return
       if (request.leafId && context.leafId && request.leafId !== context.leafId) return
+      if (useTabStore.getState().tabs.some(tab => tab.id === context.tabId && tab.linkedReadOnly)) {
+        window.dispatchEvent(new CustomEvent('md-link-error', { detail: { error: '外部临时文档仅供只读查看，不能导出图表。' } }))
+        return
+      }
 
       try {
         const images = await collectExportableChartPngs(root)
@@ -627,53 +1120,27 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
     })
   }, [filePath])
 
-  useEffect(() => {
-    if (!onReadPositionChange) return
-    const root = containerRef.current
-    if (!root) return
-    const scrollContainer = (root.closest('.preview') || root.parentElement) as HTMLElement | null
-    if (!scrollContainer) return
-
-    const report = debounce(() => {
-      const maxScroll = Math.max(1, scrollContainer.scrollHeight - scrollContainer.clientHeight)
-      const scrollRatio = Math.max(0, Math.min(1, scrollContainer.scrollTop / maxScroll))
-      const containerTop = scrollContainer.getBoundingClientRect().top
-      const headings = Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
-      const activeHeading = headings
-        .map(heading => ({ heading, top: heading.getBoundingClientRect().top - containerTop }))
-        .filter(item => item.top <= scrollContainer.clientHeight * 0.35)
-        .sort((a, b) => b.top - a.top)[0]?.heading
-
-      onReadPositionChange({
-        scrollRatio,
-        ...(activeHeading?.id ? { headingId: activeHeading.id } : {}),
-      })
-    }, 500)
-
-    scrollContainer.addEventListener('scroll', report, { passive: true })
-    return () => {
-      scrollContainer.removeEventListener('scroll', report)
-      report.cancel()
-    }
-  }, [onReadPositionChange, renderVersion])
+  useReadPosition({ rootRef: containerRef, filePath, initialScrollRatio, isActive, renderVersion,
+    onChange: onReadPositionChange })
 
   // v1.4.0: 页面内搜索
-  const search = useInPageSearch(containerRef, debouncedContent.length)
+  const search = useInPageSearch(containerRef, debouncedContent.length, debouncedContent)
 
   // v1.4.0: 监听 IPC 事件（从右键菜单触发页面内搜索）
   useEffect(() => {
-    if (!window.api.onOpenInPageSearch) return
+    if (!isActive || !window.api.onOpenInPageSearch) return
 
     const unsubscribe = window.api.onOpenInPageSearch(() => {
-      search.setVisible(true)
+      if (!document.querySelector('.local-attachment-dialog')) search.setVisible(true)
     })
 
     return unsubscribe
-  }, [search.setVisible])
+  }, [isActive, search.setVisible])
 
   // v1.4.0: 监听 Cmd+Shift+F 快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActive || e.isComposing || document.querySelector('.local-attachment-dialog')) return
       // Cmd+Shift+F / Ctrl+Shift+F: 切换页面内搜索
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
@@ -696,7 +1163,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [search.isVisible, search.goNext, search.goPrev, search.setVisible])
+  }, [isActive, search.isVisible, search.goNext, search.goPrev, search.setVisible])
 
   // v1.4.0: 关闭搜索框时清除高亮
   const handleSearchClose = useCallback(() => {
@@ -705,35 +1172,23 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   }, [search.clear, search.setVisible])
 
   const html = useMemo(() => {
+    const renderAndSanitize = (source: string): string => {
+      const renderStarted = performance.now()
+      const rendered = prepareMarkdownRender(md, source)
+      renderDiagnosticsRef.current.markdownRenderMs = performance.now() - renderStarted
+      const sanitizeStarted = performance.now()
+      const sanitized = sanitizeHtml(rendered.html, rendered.proofs)
+      renderDiagnosticsRef.current.sanitizeMs = performance.now() - sanitizeStarted
+      return sanitized
+    }
+
     if (!debouncedContent || debouncedContent.trim().length === 0) {
+      renderDiagnosticsRef.current.markdownRenderMs = 0
+      renderDiagnosticsRef.current.sanitizeMs = 0
       return '<p class="placeholder">文件内容为空</p>'
     }
 
-    if (debouncedContent.length > MAX_RENDERABLE_CONTENT_LENGTH) {
-      return `
-        <div class="content-warning">
-          <p><strong>文件过大，无法渲染</strong></p>
-          <p>内容长度: ${(debouncedContent.length / 1000).toFixed(2)} K 字符，最大支持: ${MAX_RENDERABLE_CONTENT_LENGTH / 1000} K 字符</p>
-        </div>
-      `
-    }
-
-    const lines = debouncedContent.split('\n')
-    if (lines.length > 10000) {
-      const truncated = lines.slice(0, 10000).join('\n')
-      const rawHtml = md.render(truncated)
-      const sanitizedHtml = sanitizeHtml(rawHtml)  // ✅ XSS 防护
-      return `
-        ${sanitizedHtml}
-        <div class="content-warning">
-          <p><strong>内容过长，已截断显示</strong></p>
-          <p>完整内容共 ${lines.length} 行，当前仅显示前 10000 行。</p>
-        </div>
-      `
-    }
-
-    const rawHtml = md.render(debouncedContent)
-    return sanitizeHtml(rawHtml)  // ✅ XSS 防护
+    return renderAndSanitize(debouncedContent)
   }, [md, debouncedContent])
 
   // 注意：Mermaid 渲染、标题 ID、锚点点击逻辑已移到 MarkdownContent 组件中
@@ -742,7 +1197,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
     <>
       {/* v1.4.0: 页面内搜索框 */}
       <InPageSearchBox
-        visible={search.isVisible}
+        visible={isActive && search.isVisible}
         query={search.query}
         onQueryChange={search.setQuery}
         currentIndex={search.currentIndex}
@@ -764,6 +1219,8 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         html={html}
         className={className}
         filePath={filePath}
+        tabId={tabId}
+        leafId={leafId}
         sourceContent={debouncedContent}
         renderVersion={renderVersion}
         onContextMenu={onContextMenu}
@@ -773,11 +1230,139 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         onPreviewBlockEdit={onPreviewBlockEdit}
         onSourceEditRequest={onSourceEditRequest}
         onMarkdownLinkClick={onMarkdownLinkClick}
+        onAttachmentLinkClick={onAttachmentLinkClick}
+        linkPositionRequest={linkPositionRequest}
         remoteChartPolicy={remoteChartPolicy}
+        diagnosticOperation={diagnosticOperation}
+        diagnosticPanelKind={diagnosticPanelKind}
+        diagnosticPreviewId={diagnosticPreviewId}
+        renderDiagnosticsRef={renderDiagnosticsRef}
       />
     </>
   )
 })
+
+function schedulePreviewDiagnostics(input: {
+  root: HTMLElement
+  operation?: RendererFileDiagnosticOperation
+  isCurrent: () => boolean
+  panelKind: 'main' | 'split' | 'editor'
+  previewInstanceId: string
+  sourceContent: string
+  render: MarkdownRenderDiagnostics
+  dom: MarkdownDomDiagnostics
+}): () => void {
+  const { root, operation } = input
+  const scheduledAt = performance.now()
+  let firstFrame = 0
+  let secondFrame = 0
+  let postTimer = 0
+  let coreRecorded = false
+  let postRecorded = false
+
+  firstFrame = requestAnimationFrame(firstTimestamp => {
+    secondFrame = requestAnimationFrame(secondTimestamp => {
+      if (!root.isConnected) {
+        if (operation) recordFileTerminal(operation, 'superseded')
+        return
+      }
+      coreRecorded = true
+      if (input.isCurrent()) recordPreviewState(input.previewInstanceId, 'preview-core-ready', operation?.context, input.panelKind)
+      if (operation) {
+        const coreReadyMs = performance.now() - operation.startedMonotonicMs
+        const maxRafLagMs = Math.max(
+          0,
+          firstTimestamp - scheduledAt - 16.7,
+          secondTimestamp - firstTimestamp - 16.7,
+        )
+        const counts = previewElementCounts(root)
+        recordPreviewSummary(operation.context.operationId, {
+          source: operation.context.source,
+          panelKind: input.panelKind,
+          previewInstanceId: input.previewInstanceId,
+          debounceDelayMs: input.render.debounceDelayMs,
+          markdownRenderMs: input.render.markdownRenderMs,
+          sanitizeMs: input.render.sanitizeMs,
+          domPopulateMs: input.dom.domPopulateMs,
+          sourceMappingMs: input.dom.sourceMappingMs,
+          editableAnnotationMs: input.dom.editableAnnotationMs,
+          coreReadyMs,
+          maxRafLagMs,
+          lineCountBucket: diagnosticLineCountBucket(input.sourceContent),
+          ...counts,
+          ...longTaskSummary(operation.startedMonotonicMs),
+        })
+        recordFileTerminal(operation, 'success', {
+          panelKind: input.panelKind,
+          previewInstanceId: input.previewInstanceId,
+          coreReadyMs,
+          maxRafLagMs,
+        })
+      }
+
+      postTimer = window.setTimeout(() => {
+        if (!root.isConnected) return
+        postRecorded = true
+        if (input.isCurrent()) recordPreviewState(input.previewInstanceId, 'preview-ready', operation?.context, input.panelKind)
+        if (!operation) return
+        recordPostRenderSnapshot(operation.context.operationId, {
+          source: operation.context.source,
+          panelKind: input.panelKind,
+          previewInstanceId: input.previewInstanceId,
+          postRenderMs: performance.now() - operation.startedMonotonicMs,
+          ...previewElementCounts(root),
+          ...longTaskSummary(operation.startedMonotonicMs),
+        }, 'observed')
+      }, 5000)
+    })
+  })
+
+  return () => {
+    if (firstFrame) cancelAnimationFrame(firstFrame)
+    if (secondFrame) cancelAnimationFrame(secondFrame)
+    if (postTimer) window.clearTimeout(postTimer)
+    if (!operation) return
+    if (!coreRecorded) {
+      recordFileTerminal(operation, 'superseded')
+    } else if (!postRecorded) {
+      recordPostRenderSnapshot(operation.context.operationId, {
+        source: operation.context.source,
+        panelKind: input.panelKind,
+        previewInstanceId: input.previewInstanceId,
+        postRenderMs: performance.now() - operation.startedMonotonicMs,
+        ...previewElementCounts(root),
+        ...longTaskSummary(operation.startedMonotonicMs),
+      }, 'superseded')
+    }
+  }
+}
+
+function previewElementCounts(root: HTMLElement) {
+  const renderedChartCount = countExportableCharts(root)
+  const chartCount = root.querySelectorAll('pre[data-preview-read-only-reason="chart-code"]').length
+    + renderedChartCount
+  return {
+    domNodeCount: root.querySelectorAll('*').length,
+    codeBlockCount: root.querySelectorAll('pre').length,
+    tableCount: root.querySelectorAll('table').length,
+    chartCount,
+    pendingChartCount: Math.max(0, chartCount - renderedChartCount),
+    renderedChartCount,
+    failedChartCount: root.querySelectorAll('[data-chart-error], .chart-error, .mermaid-error').length,
+    imageCount: root.querySelectorAll('img').length,
+    mediaCount: root.querySelectorAll('video, audio').length,
+    documentVisible: document.visibilityState === 'visible',
+  }
+}
+
+function diagnosticLineCountBucket(content: string): string {
+  const lineCount = content ? content.split('\n').length : 0
+  if (lineCount <= 100) return '0-100'
+  if (lineCount <= 500) return '101-500'
+  if (lineCount <= 2000) return '501-2000'
+  if (lineCount <= 10000) return '2001-10000'
+  return '10000+'
+}
 
 /**
  * Markdown 内容渲染组件
@@ -788,6 +1373,8 @@ const MarkdownContent = memo(
     html: string
     className: string
     filePath?: string
+    tabId?: string
+    leafId: string
     sourceContent: string
     renderVersion: number
     onContextMenu?: (e: React.MouseEvent) => void
@@ -796,11 +1383,26 @@ const MarkdownContent = memo(
     previewEditingEnabled: boolean
     onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
     onSourceEditRequest?: (target: SourceEditRequest) => void
-    onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
+    onMarkdownLinkClick?: (href: string, currentFilePath: string, context?: PreviewLinkContext) => void | Promise<void>
+  onAttachmentLinkClick?: (href: string, currentFilePath: string, context: PreviewLinkContext) => void
+  linkPositionRequest?: LinkPositionRequest
     remoteChartPolicy?: RemoteChartPolicy
-  }>(function MarkdownContent({ html, className, filePath, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit, onSourceEditRequest, onMarkdownLinkClick, remoteChartPolicy = 'prompt' }, ref) {
+    diagnosticOperation?: RendererFileDiagnosticOperation
+    diagnosticPanelKind: 'main' | 'split' | 'editor'
+    diagnosticPreviewId: string
+    renderDiagnosticsRef: React.RefObject<MarkdownRenderDiagnostics>
+  }>(function MarkdownContent({ html, className, filePath, tabId, leafId, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit, onSourceEditRequest, onMarkdownLinkClick, onAttachmentLinkClick, linkPositionRequest, remoteChartPolicy = 'prompt', diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId, renderDiagnosticsRef }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
+    const revision = useMemo(() => previewRevision(sourceContent), [sourceContent])
+    const committedPreviewRef = useRef({ filePath, tabId, leafId, revision, sourceContent })
+    const committedBlocksRef = useRef(new Map<string, HTMLElement>())
+    const restoredRequestRef = useRef<string | null>(null)
+    const domDiagnosticsRef = useRef<MarkdownDomDiagnostics>({
+      domPopulateMs: 0,
+      sourceMappingMs: 0,
+      editableAnnotationMs: 0,
+    })
     const skippedFocusedRenderRef = useRef(false)
     const allowDeferredRenderBlockRef = useRef<HTMLElement | null>(null)
     const previewInputCommitTimerRef = useRef<number | null>(null)
@@ -811,9 +1413,13 @@ const MarkdownContent = memo(
       [deferredRenderVersion, html, sourceContent]
     )
 
-    // 只在 html 变化时更新 DOM
+    const hasPreviewBlockEdit = Boolean(onPreviewBlockEdit)
+    const hasSourceEditRequest = Boolean(onSourceEditRequest)
+
+    // 标注只依赖编辑能力是否存在；回调身份变化不能重建正文并丢失滚动。
     useEffect(() => {
       if (combinedRef.current) {
+        const domStarted = performance.now()
         const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
         const activeEditableBlock = activeElement?.closest('.markdown-preview-editable-block') as HTMLElement | null
         const activeBlockBelongsToPreview = activeEditableBlock && combinedRef.current.contains(activeEditableBlock)
@@ -832,12 +1438,16 @@ const MarkdownContent = memo(
         }
 
         allowDeferredRenderBlockRef.current = null
-        combinedRef.current.innerHTML = html
-        ensureHeadingIds(combinedRef.current)
-        normalizeLocalImageSources(combinedRef.current, filePath)
+        const contentRoot = document.createElement('div')
+        contentRoot.innerHTML = html
+        ensureHeadingIds(contentRoot)
+        annotateLinkOccurrences(contentRoot)
+        const domPopulateMs = performance.now() - domStarted
+        const sourceMappingStarted = performance.now()
         const sourceLines = sourceContent.split('\n')
+        const normalizedSourceLines = sourceLines.map(normalizeForMatch)
         const fencedCodeRanges = findFencedCodeRanges(sourceLines)
-        const elements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,pre,blockquote,table,li')
+        const elements = contentRoot.querySelectorAll('h1,h2,h3,h4,h5,h6,p,pre,blockquote,table,li')
         let searchFrom = 0
         elements.forEach((element) => {
           const text = (element.textContent || '').trim()
@@ -846,10 +1456,13 @@ const MarkdownContent = memo(
           if (!firstLine) return
           const normalizedFirstLine = normalizeForMatch(firstLine).slice(0, 40)
           if (!normalizedFirstLine) return
-          const foundIndex = sourceLines.findIndex((line, index) => {
-            if (index < searchFrom) return false
-            return normalizeForMatch(line).includes(normalizedFirstLine)
-          })
+          let foundIndex = -1
+          for (let index = searchFrom; index < sourceLines.length; index += 1) {
+            if (normalizedSourceLines[index].includes(normalizedFirstLine)) {
+              foundIndex = index
+              break
+            }
+          }
           if (foundIndex >= 0) {
             ;(element as HTMLElement).dataset.sourceLine = String(foundIndex + 1)
             searchFrom = foundIndex
@@ -857,16 +1470,23 @@ const MarkdownContent = memo(
         })
 
         let tableSearchFrom = 0
-        combinedRef.current.querySelectorAll('tr').forEach((row) => {
+        const renderedRows = contentRoot.querySelectorAll('tr')
+        const sourceTableRows = renderedRows.length > 0
+          ? sourceLines.map(line => parseMarkdownTableRow(line)?.map(normalizeForMatch) ?? null)
+          : []
+        renderedRows.forEach((row) => {
           const cells = Array.from(row.querySelectorAll<HTMLElement>('th,td'))
           if (cells.length === 0) return
           const renderedCells = cells.map(cell => normalizeForMatch(cell.textContent || ''))
-          const foundIndex = sourceLines.findIndex((line, index) => {
-            if (index < tableSearchFrom) return false
-            const markdownCells = parseMarkdownTableRow(line)
-            if (!markdownCells || markdownCells.length < renderedCells.length) return false
-            return renderedCells.every((cell, cellIndex) => normalizeForMatch(markdownCells[cellIndex]) === cell)
-          })
+          let foundIndex = -1
+          for (let index = tableSearchFrom; index < sourceLines.length; index += 1) {
+            const markdownCells = sourceTableRows[index]
+            if (!markdownCells || markdownCells.length < renderedCells.length) continue
+            if (renderedCells.every((cell, cellIndex) => markdownCells[cellIndex] === cell)) {
+              foundIndex = index
+              break
+            }
+          }
           if (foundIndex < 0) return
           row.dataset.sourceLine = String(foundIndex + 1)
           cells.forEach((cell, cellIndex) => {
@@ -878,7 +1498,7 @@ const MarkdownContent = memo(
         })
 
         let codeRangeIndex = 0
-        combinedRef.current.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
+        contentRoot.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
           const range = fencedCodeRanges[codeRangeIndex]
           codeRangeIndex += 1
           if (!range) return
@@ -890,9 +1510,11 @@ const MarkdownContent = memo(
           }
         })
 
-        combinedRef.current.querySelectorAll('.markdown-preview-source-only-hint').forEach(hint => hint.remove())
+        const sourceMappingMs = performance.now() - sourceMappingStarted
+        const editableStarted = performance.now()
+        contentRoot.querySelectorAll('.markdown-preview-source-only-hint').forEach(hint => hint.remove())
 
-        const editableElements = combinedRef.current.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,li,td,th,pre')
+        const editableElements = contentRoot.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,li,td,th,pre')
         editableElements.forEach((element) => {
           const editableElement = element as HTMLElement
           const sourceLine = editableElement.dataset.sourceLine
@@ -913,12 +1535,12 @@ const MarkdownContent = memo(
             editableElement.dataset.previewReadOnlyReason = editableElement.dataset.previewReadOnlyReason || 'source-only'
           }
           const isReadOnlyPreviewBlock = Boolean(editableElement.dataset.previewReadOnlyReason) || decision?.directEdit === 'unsupported'
-          if (!previewEditingEnabled || !sourceLine || !onPreviewBlockEdit || isReadOnlyPreviewBlock) {
+          if (!previewEditingEnabled || !sourceLine || !hasPreviewBlockEdit || isReadOnlyPreviewBlock) {
             editableElement.removeAttribute('contenteditable')
             editableElement.removeAttribute('spellcheck')
             editableElement.classList.remove('markdown-preview-editable-block')
             delete editableElement.dataset.previewOriginalText
-            if (previewEditingEnabled && sourceLine && isReadOnlyPreviewBlock && onSourceEditRequest) {
+            if (previewEditingEnabled && sourceLine && isReadOnlyPreviewBlock && hasSourceEditRequest) {
               editableElement.classList.add('markdown-preview-source-only-block')
               editableElement.setAttribute('tabindex', '0')
               editableElement.setAttribute('aria-label', `第 ${sourceLine} 行需要在源码中编辑`)
@@ -960,8 +1582,46 @@ const MarkdownContent = memo(
           editableElement.classList.add('markdown-preview-editable-block')
           editableElement.dataset.previewOriginalText = normalizeRenderedText(editableElement.textContent || '')
         })
+        // 编辑属性在离线 DOM 上准备好，再一次挂入正文，避免逐块更新活动编辑宿主。
+        const fragment = document.createDocumentFragment()
+        while (contentRoot.firstChild) fragment.appendChild(contentRoot.firstChild)
+        cleanupLocalMedia(combinedRef.current)
+        combinedRef.current.replaceChildren(fragment)
+        committedPreviewRef.current = { filePath, tabId, leafId, revision, sourceContent }
+        committedBlocksRef.current = new Map(Array.from(combinedRef.current.querySelectorAll<HTMLElement>('[id]'))
+          .filter(element => element.id.startsWith(BLOCK_ANCHOR_PREFIX))
+          .map(element => [element.id.slice(BLOCK_ANCHOR_PREFIX.length), element]))
+        normalizeLocalImageSources(combinedRef.current, filePath)
+        hydrateLocalMedia(combinedRef.current, filePath)
+        domDiagnosticsRef.current = {
+          domPopulateMs,
+          sourceMappingMs,
+          editableAnnotationMs: performance.now() - editableStarted,
+        }
       }
-    }, [deferredRenderVersion, filePath, html, onPreviewBlockEdit, onSourceEditRequest, previewEditingEnabled, sourceContent])
+    }, [deferredRenderVersion, filePath, tabId, leafId, revision, html, hasPreviewBlockEdit, hasSourceEditRequest, previewEditingEnabled, sourceContent])
+
+    useEffect(() => {
+      const root = combinedRef.current
+      if (!root) return
+      return schedulePreviewDiagnostics({
+        root,
+        operation: diagnosticOperation,
+        isCurrent: () => committedPreviewRef.current.sourceContent === sourceContent && committedPreviewRef.current.filePath === filePath,
+        panelKind: diagnosticPanelKind,
+        previewInstanceId: diagnosticPreviewId,
+        sourceContent,
+        render: renderDiagnosticsRef.current,
+        dom: domDiagnosticsRef.current,
+      })
+    }, [combinedRef, diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId, deferredRenderVersion, filePath, html, renderDiagnosticsRef, sourceContent])
+
+    useEffect(() => {
+      const root = combinedRef.current
+      return () => {
+        if (root) cleanupLocalMedia(root)
+      }
+    }, [combinedRef])
 
     useEffect(() => {
       const container = combinedRef.current
@@ -1181,10 +1841,120 @@ const MarkdownContent = memo(
     useRestrictedSvgChart(combinedRef, chartRenderKey)
     useKrokiChart(combinedRef, chartRenderKey, true, remoteChartPolicy)
 
+    useEffect(() => {
+      const root = combinedRef.current
+      const request = linkPositionRequest
+      if (!root || !request?.block || !request.isCurrent() || restoredRequestRef.current === request.id) return
+      const block = request.block
+      let disposed = false
+      let positioned = false
+      const timers: number[] = []
+      const finish = (status: Parameters<LinkPositionRequest['onComplete']>[0]) => {
+        if (disposed) return
+        disposed = true
+        restoredRequestRef.current = request.id
+        request.onComplete(status)
+      }
+      const cancel = () => finish('cancelled')
+      const key = (event: KeyboardEvent) => {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) cancel()
+      }
+      const scroller = (root.closest('.preview') ?? root.parentElement ?? root) as HTMLElement
+      scroller.addEventListener('wheel', cancel, { passive: true })
+      scroller.addEventListener('touchstart', cancel, { passive: true })
+      scroller.addEventListener('pointerdown', cancel)
+      scroller.addEventListener('keydown', key)
+      const attempt = () => {
+        if (disposed) return
+        if (!root.isConnected || !request.isCurrent()) { finish('cancelled'); return }
+        if (performance.now() > block.deadline) { finish('unavailable'); return }
+        const preview = committedPreviewRef.current
+        if (preview.filePath !== request.filePath || preview.sourceContent !== block.source) {
+          timers.push(window.setTimeout(attempt, 50))
+          return
+        }
+        const target = committedBlocksRef.current.get(block.id)
+        if (!target || !locateMarkdownBlock(root, target)) { finish('unavailable'); return }
+        if (!positioned && request.canFocus()) {
+          target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true })
+        }
+        if (!positioned) {
+          positioned = true
+          timers.push(window.setTimeout(attempt, 150), window.setTimeout(() => {
+            attempt()
+            if (!disposed && committedPreviewRef.current.sourceContent === block.source) finish('positioned')
+          }, 500))
+        }
+      }
+      attempt()
+      return () => {
+        disposed = true
+        timers.forEach(timer => window.clearTimeout(timer))
+        scroller.removeEventListener('wheel', cancel)
+        scroller.removeEventListener('touchstart', cancel)
+        scroller.removeEventListener('pointerdown', cancel)
+        scroller.removeEventListener('keydown', key)
+      }
+    }, [linkPositionRequest, html, sourceContent, deferredRenderVersion])
+
+    useEffect(() => {
+      const root = combinedRef.current
+      const request = linkPositionRequest
+      if (request?.block) return
+      if (!root || !request || request.filePath !== committedPreviewRef.current.filePath ||
+        !request.isCurrent() || restoredRequestRef.current === request.id) return
+      restoredRequestRef.current = request.id
+      let stopped = false
+      const timers: number[] = []
+      const stop = () => { stopped = true; request.onComplete() }
+      const stopForKey = (event: KeyboardEvent) => {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) stop()
+      }
+      const scroller = (root.closest('.preview') ?? root.parentElement ?? root) as HTMLElement
+      scroller.addEventListener('wheel', stop, { passive: true })
+      scroller.addEventListener('touchstart', stop, { passive: true })
+      scroller.addEventListener('pointerdown', stop)
+      scroller.addEventListener('keydown', stopForKey)
+      const started = performance.now()
+      void committedPreviewRef.current.revision.then(hash => {
+        for (const delay of [0, 150, 500]) timers.push(window.setTimeout(() => {
+          if (stopped || !root.isConnected || !request.isCurrent() || performance.now() - started > 1000) {
+            if (delay === 500) request.onComplete()
+            return
+          }
+          const target = locateLinkView(root, request.position, hash)
+          if (delay === 0 && request.canFocus()) {
+            if (target) { target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true }) }
+            else root.focus({ preventScroll: true })
+          }
+          if (delay === 500) request.onComplete()
+        }, delay))
+      })
+      return () => {
+        stopped = true
+        timers.forEach(timer => window.clearTimeout(timer))
+        scroller.removeEventListener('wheel', stop)
+        scroller.removeEventListener('touchstart', stop)
+        scroller.removeEventListener('pointerdown', stop)
+        scroller.removeEventListener('keydown', stopForKey)
+        request.onComplete()
+      }
+    }, [linkPositionRequest, html, sourceContent])
+
     // 处理锚点链接点击
     useEffect(() => {
       if (!combinedRef.current) return
 
+      const navigateBlock = (id: string) => {
+        const root = combinedRef.current
+        if (!root || committedPreviewRef.current.filePath !== filePath) return
+        const status = inspectMarkdownBlock(committedPreviewRef.current.sourceContent, id)
+        const target = committedBlocksRef.current.get(id)
+        if (status === 'found' && target && locateMarkdownBlock(root, target)) return
+        window.dispatchEvent(new CustomEvent('md-link-error', { detail: {
+          error: status === 'ambiguous' ? `块 ID ^${id} 重复，无法确定位置。` : `未找到块 ^${id}（当前显示内容）。`,
+        } }))
+      }
       const handleClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement
 
@@ -1214,12 +1984,61 @@ const MarkdownContent = memo(
         const anchor = target.closest('a')
         if (!anchor) return
 
-        const href = anchor.getAttribute('href')
+        const preview = committedPreviewRef.current
+        const context: PreviewLinkContext | undefined = preview.filePath && preview.filePath === filePath && combinedRef.current ? {
+          ...preview, filePath: preview.filePath, position: captureLinkView(combinedRef.current, anchor), anchor,
+        } : undefined
+        const wikiMarker = anchor.getAttribute(WIKI_LINK_MARKER_ATTRIBUTE)
+        if (wikiMarker) {
+          e.preventDefault()
+          const wiki = decodeLocalResourceMarker<ParsedWikiReference>(wikiMarker)
+          if (!wiki || !filePath) return
+          if (!wiki.path && wiki.fragmentKind === 'block' && wiki.fragment) {
+            navigateBlock(wiki.fragment.slice(1))
+            return
+          }
+          if (!wiki.path && wiki.fragmentKind === 'heading' && wiki.fragment) {
+            const targetElement = findInPageAnchorTarget(combinedRef.current, `#${wiki.fragment}`)
+            targetElement?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            return
+          }
+          if ((wiki.resourceKind === 'markdown' || (!wiki.isEmbed && isBareWikiDocumentName(wiki.path))) && onMarkdownLinkClick) {
+            void onMarkdownLinkClick(`wiki:${encodeURIComponent(wiki.rawTarget)}`, filePath,
+              context ? { ...context, wikiEmbed: wiki.isEmbed } : undefined)
+            return
+          }
+          const extension = wiki.path.match(/\.[^./\\]+$/)?.[0].toLowerCase() ?? ''
+          if (!wiki.isEmbed && wiki.path && context && onAttachmentLinkClick &&
+            (LOCAL_ATTACHMENT_TEXT_EXTENSIONS.has(extension) || wiki.resourceKind === 'attachment')) {
+            onAttachmentLinkClick(`wiki:${encodeURIComponent(wiki.rawTarget)}`, filePath, context)
+            return
+          }
+          if (wiki.path && window.api.revealLocalResource) {
+            void window.api.revealLocalResource(filePath, wiki.path, 'workspace-wiki').catch((error) => {
+              window.dispatchEvent(new CustomEvent('md-link-error', {
+                detail: { error: error instanceof Error ? error.message : '无法定位本地资源' }
+              }))
+            })
+            return
+          }
+          window.dispatchEvent(new CustomEvent('md-link-error', {
+            detail: { error: '该嵌入以安全资源卡显示，当前不在预览中展开' }
+          }))
+          return
+        }
+
+        const href = anchor.getAttribute('href') ?? anchor.getAttribute('xlink:href')
         if (!href) return
 
         // 1. 锚点链接：页内跳转
         if (href.startsWith('#')) {
           e.preventDefault()
+          let fragment: string
+          try { fragment = decodeURIComponent(href.slice(1)) } catch { return }
+          if (fragment.startsWith('^') || fragment.startsWith(BLOCK_ANCHOR_PREFIX)) {
+            navigateBlock(fragment.startsWith('^') ? fragment.slice(1) : fragment.slice(BLOCK_ANCHOR_PREFIX.length))
+            return
+          }
           const targetElement = findInPageAnchorTarget(combinedRef.current, href)
           if (targetElement) {
             targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -1240,12 +2059,7 @@ const MarkdownContent = memo(
           e.preventDefault()
           if (filePath) {
             if (onMarkdownLinkClick) {
-              const navigationHref = [
-                markdownTarget.decodedPath,
-                markdownTarget.rawQuery === undefined ? '' : `?${markdownTarget.query ?? ''}`,
-                markdownTarget.rawAnchor === undefined ? '' : `#${markdownTarget.anchor ?? ''}`,
-              ].join('')
-              void onMarkdownLinkClick(navigationHref, filePath)
+              void onMarkdownLinkClick(href, filePath, context)
               return
             }
             window.api.openMdLink(filePath, markdownTarget.decodedPath).then((result) => {
@@ -1264,13 +2078,15 @@ const MarkdownContent = memo(
           return
         }
 
-        // 4. 其他链接（相对路径等）：阻止默认导航，防止白屏
+        // 本地附件交给受限查看器；始终禁止BrowserWindow默认导航。
         e.preventDefault()
+        if (filePath && context && onAttachmentLinkClick) onAttachmentLinkClick(href, filePath, context)
+        else window.dispatchEvent(new CustomEvent('md-link-error', { detail: { error: '此附件链接暂不支持查看' } }))
       }
 
       combinedRef.current.addEventListener('click', handleClick)
       return () => combinedRef.current?.removeEventListener('click', handleClick)
-    }, [html, filePath, onImageClick, previewEditingEnabled, onMarkdownLinkClick])
+    }, [html, filePath, onImageClick, previewEditingEnabled, onMarkdownLinkClick, onAttachmentLinkClick])
 
     // v1.5.2: 为普通代码块添加复制按钮
     useEffect(() => {
@@ -1470,6 +2286,9 @@ const MarkdownContent = memo(
     prevProps.onPreviewBlockEdit === nextProps.onPreviewBlockEdit &&
     prevProps.onSourceEditRequest === nextProps.onSourceEditRequest &&
     prevProps.onMarkdownLinkClick === nextProps.onMarkdownLinkClick &&
+    prevProps.onAttachmentLinkClick === nextProps.onAttachmentLinkClick &&
+    prevProps.linkPositionRequest === nextProps.linkPositionRequest &&
+    prevProps.tabId === nextProps.tabId && prevProps.leafId === nextProps.leafId &&
     prevProps.remoteChartPolicy === nextProps.remoteChartPolicy
 )
 

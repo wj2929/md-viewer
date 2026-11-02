@@ -1,8 +1,27 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { test, expect, openFolderViaIPC } from './fixtures/electron'
+import { _electron as electron } from '@playwright/test'
+import { test as base, expect, openFolderViaIPC } from './fixtures/electron'
 
-const OUT_DIR = join(process.cwd(), 'test-results', 'move-to-visual')
+const executablePath = process.env.MD_VIEWER_PINYIN_EXECUTABLE
+const test = executablePath ? base.extend({
+  electronApp: async ({ testDir }, use) => {
+    const profile = join(testDir, 'packaged-profile')
+    const app = await electron.launch({
+      executablePath,
+      args: [`--user-data-dir=${profile}`],
+      env: {
+        ...process.env, NODE_ENV: 'test', MD_VIEWER_SKIP_RESTORE: '1',
+        MD_VIEWER_DIAGNOSTIC_LOG_DIR: join(profile, 'diagnostic-logs'),
+      },
+    })
+    try { await use(app) } finally { await app.close() }
+  },
+}) : base
+
+const OUT_DIR = join(process.cwd(), executablePath
+  ? '.tmp/folder-history-pinyin-packaged/move'
+  : 'test-results/move-to-visual')
 
 test.describe('跨目录移动视觉', () => {
   test('展示最近目录搜索和目标确认', async ({ page, electronApp, testDir }) => {
@@ -40,10 +59,24 @@ test.describe('跨目录移动视觉', () => {
 
     const dialog = page.locator('.move-to-dialog')
     await expect(dialog).toBeVisible()
-    await page.getByRole('textbox', { name: '搜索移动目标目录' }).fill('知识库')
+    const pinyin = dialog.getByRole('checkbox', { name: '拼音搜索' })
+    await expect(pinyin).toBeEnabled()
+    await pinyin.check()
+    await expect(pinyin).toBeEnabled()
+    const input = page.getByRole('textbox', { name: '搜索移动目标目录' })
+    await input.fill('zhi')
+    await expect(dialog.locator('.folder-pinyin-heading')).toContainText('拼音匹配')
+    await input.fill('zhishikug')
+    await expect(dialog.locator('.folder-pinyin-heading')).toContainText('拼音匹配')
+    await dialog.screenshot({ path: join(OUT_DIR, 'move-pinyin-prefix.png') })
     await dialog.locator('.move-to-root-row', { hasText: '知识库归档' }).click()
     await dialog.locator('.move-to-tree-row', { hasText: 'imports' }).click()
     await expect(dialog.locator('.move-to-target')).toContainText('知识库归档/imports')
+    await pinyin.uncheck()
+    await expect(pinyin).toBeEnabled()
+    await expect(dialog.locator('.move-to-root-row', { hasText: '知识库归档' })).toHaveCount(0)
+    await expect(dialog.locator('.move-to-target')).toContainText('知识库归档/imports')
+    await dialog.screenshot({ path: join(OUT_DIR, 'move-pinyin-selected-target.png') })
     await expect(dialog).toContainText('来源工作区将断开 1 处链接')
     await expect(dialog).toContainText('移动文档将断开 1 处、改变目标 0 处')
     await expect(dialog).toContainText('目标工作区将新增解析 1 处')

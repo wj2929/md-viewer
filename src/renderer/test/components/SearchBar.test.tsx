@@ -238,6 +238,86 @@ describe('SearchBar', () => {
       delete (window.api as any).queryWorkspaceHistoryIndexes
     })
 
+    describe('索引来源失败隔离', () => {
+      const currentHit = { relativePath: 'current.md', displayName: 'current.md', score: 2, lineStart: 1, snippet: 'current marker', revisionToken: 'revision' }
+      const historyHit = { ...currentHit, historyId: 'history-a', filePath: '/history/history.md', displayName: 'history.md' }
+      const ready = { state: 'ready', generation: 1, indexedDocuments: 1, totalDocuments: 1, pendingDocuments: 0, errors: 0 }
+      beforeEach(() => {
+        useWorkspaceStore.setState({
+          workspaces: [{ id: 'workspace-a', primaryRoot: '/test', lifecycleEpoch: 4, name: 'test' }],
+          activeWorkspaceId: 'workspace-a', runtimes: {},
+        })
+        ;(window.api.queryWorkspaceIndex as any).mockResolvedValue([currentHit])
+        ;(window.api.getWorkspaceIndexStatus as any).mockResolvedValue(ready)
+        window.api.queryWorkspaceHistoryIndexes = vi.fn().mockResolvedValue([historyHit]) as any
+        ;(window.api.getRecentFiles as any).mockResolvedValue([])
+        ;(window.api.getFolderHistory as any).mockResolvedValue([])
+      })
+      async function openSearch(currentFolder = false): Promise<void> {
+        render(<SearchBar files={[]} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
+        await userEvent.click(screen.getByRole('button', { name: /搜索文件/i }))
+        if (currentFolder) await userEvent.click(screen.getByRole('button', { name: '搜索全部数据源' }))
+        await userEvent.click(screen.getByText('全文'))
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'marker' } })
+      }
+      it('历史失败保留当前命中，不提供误导的重建按钮', async () => {
+        ;(window.api.queryWorkspaceHistoryIndexes as any).mockRejectedValue(new Error('history failed'))
+        await openSearch()
+        await waitFor(() => expect(screen.getByText('current.md')).toBeInTheDocument())
+        expect(screen.getByText(/历史来源查询失败/)).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: '重建索引' })).not.toBeInTheDocument()
+      })
+      it.each([false, true])('状态失败仍保留当前命中（仅当前=%s）', async currentFolder => {
+        ;(window.api.getWorkspaceIndexStatus as any).mockRejectedValue(new Error('status failed'))
+        await openSearch(currentFolder)
+        await waitFor(() => expect(screen.getByText('current.md')).toBeInTheDocument())
+        expect(screen.getByText(/索引状态读取失败/)).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: '重建索引' })).not.toBeInTheDocument()
+      })
+      it('当前失败仍保留历史命中及opaque打开能力', async () => {
+        ;(window.api.queryWorkspaceIndex as any).mockRejectedValue(new Error('current failed'))
+        await openSearch()
+        await waitFor(() => expect(screen.getByText('history.md')).toBeInTheDocument())
+        expect(screen.getByText(/当前工作区查询失败/)).toBeInTheDocument()
+        await userEvent.click(screen.getByText('current marker'))
+        expect(mockOnExternalFileOpen).toHaveBeenCalledWith('/history/history.md', expect.objectContaining({ historyId: 'history-a' }))
+      })
+      it.each(['error', 'degraded'])('仅实际索引%s状态提供重建，即使已有结果', async state => {
+        ;(window.api.getWorkspaceIndexStatus as any).mockResolvedValue({ ...ready, state, errors: 1 })
+        await openSearch()
+        await waitFor(() => expect(screen.getByText('current.md')).toBeInTheDocument())
+        expect(screen.getByRole('button', { name: '重建索引' })).toBeInTheDocument()
+      })
+      it('全部来源失败明确提示而非冒充正常无匹配', async () => {
+        ;(window.api.queryWorkspaceIndex as any).mockRejectedValue(new Error('current failed'))
+        ;(window.api.queryWorkspaceHistoryIndexes as any).mockRejectedValue(new Error('history failed'))
+        await openSearch()
+        await waitFor(() => expect(screen.getByText(/历史来源查询失败/)).toBeInTheDocument())
+        expect(screen.getByText(/当前工作区查询失败/)).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: '重建索引' })).not.toBeInTheDocument()
+      })
+      it('500条最近ID全部发送而非静默截断', async () => {
+        const ids = Array.from({ length: 500 }, (_, i) => `recent-${i}`)
+        ;(window.api.getRecentFiles as any).mockResolvedValue(ids.map(id => ({ id, name: `${id}.md`, path: `/history/${id}.md` })))
+        await openSearch()
+        await waitFor(() => expect(window.api.queryWorkspaceHistoryIndexes).toHaveBeenCalledWith(
+          expect.any(Object), 'marker', [], ids, 60,
+        ))
+      })
+      it('旧epoch迟到结果不覆盖新工作区', async () => {
+        let finish!: (value: typeof currentHit[]) => void
+        ;(window.api.queryWorkspaceIndex as any).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+        await openSearch()
+        await waitFor(() => expect(finish).toEqual(expect.any(Function)))
+        useWorkspaceStore.setState({
+          workspaces: [{ id: 'workspace-a', primaryRoot: '/other', lifecycleEpoch: 5, name: 'other' }],
+        })
+        finish([currentHit])
+        await new Promise(resolve => setTimeout(resolve, 30))
+        expect(screen.queryByText('current.md')).not.toBeInTheDocument()
+      })
+    })
+
     it('应该显示搜索模式切换按钮', async () => {
       render(<SearchBar files={files} folderPath="/test" onFileSelect={mockOnFileSelect} onExternalFileOpen={mockOnExternalFileOpen} />)
 

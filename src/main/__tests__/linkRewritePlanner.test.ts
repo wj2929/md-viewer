@@ -1,6 +1,5 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { tmpdir } from 'os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceIndexService } from '../indexing/WorkspaceIndexService'
 import { WorkspaceIndexStore } from '../indexing/WorkspaceIndexStore'
@@ -10,6 +9,7 @@ import type { WorkspaceWatchService } from '../watching/WorkspaceWatchService'
 let tempDir: string | null = null
 
 const watcher = {
+  getIndexCoverage: () => ({ token: 'test', complete: true }),
   attachIndexConsumer: () => {},
   detachIndexConsumer: () => {},
 } as unknown as WorkspaceWatchService
@@ -24,7 +24,8 @@ async function setup(): Promise<{
   service: WorkspaceIndexService
   planner: LinkRewritePlanner
 }> {
-  tempDir = await mkdtemp(join(tmpdir(), 'mdv-link-rewrite-'))
+  await mkdir(join(process.cwd(), '.tmp'), { recursive: true })
+  tempDir = await mkdtemp(join(join(process.cwd(), '.tmp'), 'mdv-link-rewrite-'))
   const root = join(tempDir, 'workspace')
   await mkdir(join(root, 'docs'), { recursive: true })
   await mkdir(join(root, 'archive'), { recursive: true })
@@ -38,10 +39,41 @@ async function setup(): Promise<{
 }
 
 describe('LinkRewritePlanner', () => {
+  it('纯 alias 在同根移动后仍指向同一实体，原文不改写；嵌入不继承 alias', async () => {
+    const { root, service, planner } = await setup()
+    await writeFile(join(root, 'index.md'), '[[ReferenceAlias#标题|名称]]\n\n![[ReferenceAlias]]')
+    await writeFile(join(root, 'docs', 'design.md'), '---\naliases: ReferenceAlias\n---\n\n# Design')
+    await service.refreshRelativePaths(root, ['index.md', 'docs/design.md'])
+    const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
+    const impact = await planner.createImpact('window:1', root, mapping)
+    expect(impact.items).toEqual([])
+    const execution = await planner.executeOperation({ ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
+      execute: () => rename(join(root, mapping.oldRelativePath), join(root, mapping.newRelativePath)) })
+    await service.refreshMovedRelativePaths(root, [mapping])
+    const plan = await planner.createRepairPlan({ ownerId: 'window:1', rootPath: root, mapping, reason: 'move', operationReceiptId: execution.receipt.operationReceiptId })
+    expect(plan.changes).toEqual([])
+    expect(await readFile(join(root, 'index.md'), 'utf8')).toBe('[[ReferenceAlias#标题|名称]]\n\n![[ReferenceAlias]]')
+    await service.detach(root, 'test')
+  })
+  it('移动产生文件名遮蔽或 metadata 不完整时只报告候选，不自动重写 alias', async () => {
+    const { root, service, planner } = await setup()
+    await writeFile(join(root, 'index.md'), '[[ReferenceAlias]]')
+    await writeFile(join(root, 'docs', 'design.md'), '---\naliases: ReferenceAlias\n---')
+    await service.refreshRelativePaths(root, ['index.md', 'docs/design.md'])
+    const mapping = { oldRelativePath: 'docs/guide.md', newRelativePath: 'ReferenceAlias.md' }
+    const impact = await planner.createImpact('window:1', root, mapping)
+    expect(impact.items).toEqual([expect.objectContaining({ rawTarget: 'ReferenceAlias', confidence: 'candidate', provenance: 'alias' })])
+    await writeFile(join(root, 'bad.md'), '---\naliases: [broken\n---')
+    await service.refreshRelativePaths(root, ['bad.md'])
+    expect((await planner.createImpact('window:1', root, mapping)).items).toEqual([expect.objectContaining({ confidence: 'candidate', provenance: 'uncertain' })])
+    await expect(planner.executeOperation({ ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping, execute: vi.fn() }))
+      .rejects.toThrow('索引已变化')
+    await service.detach(root, 'test')
+  })
   it('预览并修复 same-root move 的入链与移动文档出链', async () => {
     const { root, service, planner } = await setup()
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     expect(impact).toMatchObject({ affectedSourceFiles: 2, exactChanges: 2, candidates: 0 })
 
     const execution = await planner.executeOperation({
@@ -77,10 +109,46 @@ describe('LinkRewritePlanner', () => {
     expect(await readFile(join(root, 'archive', 'design.md'), 'utf8')).toContain('../docs/guide.md')
   })
 
+  it('修复 Wiki 链接时保留 heading、别名和省略的 Markdown 后缀', async () => {
+    const { root, service, planner } = await setup()
+    await writeFile(join(root, 'index.md'), '# 首页\n\n参见 [[  docs/design#安全边界|设计说明]]。')
+    await writeFile(join(root, 'docs', 'design.md'), '# 设计\n\n参见 [[guide|指南]]。\n\n## 安全边界')
+    await service.refreshRelativePaths(root, ['index.md', 'docs/design.md'])
+
+    const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
+    const impact = await planner.createImpact('window:1', root, mapping)
+    expect(impact).toMatchObject({ affectedSourceFiles: 2, exactChanges: 2, candidates: 0 })
+
+    const execution = await planner.executeOperation({
+      ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
+      execute: async () => {
+        await rename(join(root, 'docs', 'design.md'), join(root, 'archive', 'design.md'))
+        return true
+      },
+    })
+    await service.refreshMovedRelativePaths(root, [mapping])
+    const plan = await planner.createRepairPlan({
+      ownerId: 'window:1', rootPath: root, mapping, reason: 'move',
+      operationReceiptId: execution.receipt.operationReceiptId,
+    })
+    expect(plan.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceRelativePath: 'index.md', before: 'docs/design', after: 'archive/design' }),
+      expect.objectContaining({ sourceRelativePath: 'archive/design.md', before: 'guide', after: 'docs/guide' }),
+    ]))
+
+    await planner.apply({
+      ownerId: 'window:1', rootPath: root, planId: plan.planId,
+      operationReceiptId: plan.operationReceiptId,
+      selectedChangeIds: plan.changes.map(change => change.changeId), confirm: true,
+    })
+    expect(await readFile(join(root, 'index.md'), 'utf8')).toContain('[[  archive/design#安全边界|设计说明]]')
+    expect(await readFile(join(root, 'archive', 'design.md'), 'utf8')).toContain('[[docs/guide|指南]]')
+  })
+
   it('目录 move 会映射目录下文档及其入链', async () => {
     const { root, service, planner } = await setup()
     const mapping = { oldRelativePath: 'docs', newRelativePath: 'archive/docs' }
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     expect(impact.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceRelativePath: 'index.md', resolvedTargetRelativePath: 'archive/docs/design.md' }),
       expect.objectContaining({ sourceRelativePath: 'archive/docs/design.md', resolvedTargetRelativePath: 'archive/docs/guide.md' }),
@@ -91,7 +159,7 @@ describe('LinkRewritePlanner', () => {
   it('apply 前 revision 改变时逐文件报冲突且不覆盖', async () => {
     const { root, service, planner } = await setup()
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     const execution = await planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
       execute: async () => {
@@ -121,7 +189,7 @@ describe('LinkRewritePlanner', () => {
   it('物理操作失败不签发回执，impact 可重试且并发执行被拒绝', async () => {
     const { root, planner } = await setup()
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
 
     await expect(planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
@@ -157,7 +225,7 @@ describe('LinkRewritePlanner', () => {
     ]
     const plans = []
     for (const mapping of mappings) {
-      const impact = planner.createImpact('window:1', root, mapping)
+      const impact = await planner.createImpact('window:1', root, mapping)
       const execution = await planner.executeOperation({
         ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
         execute: async () => {
@@ -182,16 +250,18 @@ describe('LinkRewritePlanner', () => {
       })),
       confirm: true,
     })
-    expect(result.files).toEqual([
+    expect(result.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceRelativePath: 'archive/design.md', status: 'updated', updatedChanges: 1 }),
       expect.objectContaining({ sourceRelativePath: 'index.md', status: 'updated', updatedChanges: 2 }),
-    ])
+    ]))
+    expect(await readFile(join(root, 'archive', 'design.md'), 'utf8')).toContain('../docs/guide.md')
     expect(await readFile(join(root, 'index.md'), 'utf8')).toContain('[设计](./archive/design.md) 与 [指南](./archive/guide.md)')
   })
 
   it('revision 冲突后可重新生成预览且不复用旧 plan', async () => {
     const { root, service, planner } = await setup()
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     const execution = await planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
       execute: async () => {
@@ -227,7 +297,7 @@ describe('LinkRewritePlanner', () => {
     try {
       const { root, planner } = await setup()
       const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
-      const expiredImpact = planner.createImpact('window:1', root, mapping)
+      const expiredImpact = await planner.createImpact('window:1', root, mapping)
       vi.advanceTimersByTime(5 * 60 * 1000 + 1)
       await expect(planner.executeOperation({
         ownerId: 'window:1', rootPath: root, impactId: expiredImpact.impactId, actualMapping: mapping,
@@ -235,7 +305,7 @@ describe('LinkRewritePlanner', () => {
       })).rejects.toThrow('影响预览无效')
 
       vi.setSystemTime(new Date('2026-08-23T01:00:00Z'))
-      const impact = planner.createImpact('window:1', root, mapping)
+      const impact = await planner.createImpact('window:1', root, mapping)
       const execution = await planner.executeOperation({
         ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
         execute: async () => {
@@ -257,7 +327,7 @@ describe('LinkRewritePlanner', () => {
     const { root, service, planner } = await setup()
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
     const create = async () => {
-      const impact = planner.createImpact('window:1', root, mapping)
+      const impact = await planner.createImpact('window:1', root, mapping)
       return planner.executeOperation({
         ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
         execute: async () => true,
@@ -287,7 +357,7 @@ describe('LinkRewritePlanner', () => {
     await chmod(sourcePath, 0o640)
     await service.refreshRelativePaths(root, ['index.md'])
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     const execution = await planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
       execute: async () => {
@@ -325,7 +395,7 @@ describe('LinkRewritePlanner', () => {
         await writeFile(indexPath, '# 攻击者替换的新文件')
       },
     })
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     const execution = await planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
       execute: async () => {
@@ -363,7 +433,7 @@ describe('LinkRewritePlanner', () => {
       await rename(sourcePath, destinationPath)
     })
     const planner = new LinkRewritePlanner(service, { platform: 'win32', replaceFile })
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     const execution = await planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
       execute: async () => {
@@ -402,7 +472,7 @@ describe('LinkRewritePlanner', () => {
         await writeFile(indexPath, '# 提交前替换的新文件')
       },
     })
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     const execution = await planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
       execute: async () => {
@@ -435,14 +505,14 @@ describe('LinkRewritePlanner', () => {
     const owner = 'window:workspace:1'
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
 
-    const impactOnly = planner.createImpact(owner, root, mapping)
+    const impactOnly = await planner.createImpact(owner, root, mapping)
     planner.cleanupOwner(owner)
     await expect(planner.executeOperation({
       ownerId: owner, rootPath: root, impactId: impactOnly.impactId, actualMapping: mapping,
       execute: async () => true,
     })).rejects.toThrow('影响预览无效')
 
-    const impactForReceipt = planner.createImpact(owner, root, mapping)
+    const impactForReceipt = await planner.createImpact(owner, root, mapping)
     const receipt = await planner.executeOperation({
       ownerId: owner, rootPath: root, impactId: impactForReceipt.impactId, actualMapping: mapping,
       execute: async () => true,
@@ -453,7 +523,7 @@ describe('LinkRewritePlanner', () => {
       operationReceiptId: receipt.receipt.operationReceiptId,
     })).rejects.toThrow('回执无效')
 
-    const impactForPlan = planner.createImpact(owner, root, mapping)
+    const impactForPlan = await planner.createImpact(owner, root, mapping)
     const execution = await planner.executeOperation({
       ownerId: owner, rootPath: root, impactId: impactForPlan.impactId, actualMapping: mapping,
       execute: async () => {
@@ -476,7 +546,7 @@ describe('LinkRewritePlanner', () => {
   it('计划绑定 owner、需要显式确认且不可重放', async () => {
     const { root, service, planner } = await setup()
     const mapping = { oldRelativePath: 'docs/design.md', newRelativePath: 'archive/design.md' }
-    const impact = planner.createImpact('window:1', root, mapping)
+    const impact = await planner.createImpact('window:1', root, mapping)
     const execution = await planner.executeOperation({
       ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
       execute: async () => {

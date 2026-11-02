@@ -1,10 +1,14 @@
+// @vitest-environment node
+
 import { afterEach, describe, expect, it } from 'vitest'
 import AdmZip from 'adm-zip'
 import { mkdtemp, readFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
+import type { PersistedDiagnosticEvent } from '../../shared/diagnostics'
 import {
   createDiagnosticsBundle,
+  sanitizeBundleEvent,
   sanitizeBundleInput,
   type DiagnosticsBundleInput,
 } from '../diagnostics/DiagnosticsService'
@@ -85,16 +89,222 @@ describe('DiagnosticsService', () => {
     input.serverUrl = SECRET_URL
 
     const result = await createDiagnosticsBundle(output, input)
-    const zip = new AdmZip(output)
-    const names = zip.getEntries().map(entry => entry.entryName).sort()
     const raw = await readFile(output)
+    const zip = new AdmZip(raw)
+    const names = zip.getEntries().map(entry => entry.entryName).sort()
     const diagnostics = zip.readAsText('diagnostics.json')
 
-    expect(result.entries.sort()).toEqual(['README.txt', 'diagnostics.json'])
-    expect(names).toEqual(['README.txt', 'diagnostics.json'])
+    expect(result.entries.sort()).toEqual(['README.txt', 'diagnostics.json', 'performance-events.jsonl'])
+    expect(names).toEqual(['README.txt', 'diagnostics.json', 'performance-events.jsonl'])
     expect(raw.includes(Buffer.from(SECRET_BODY))).toBe(false)
     expect(raw.includes(Buffer.from(SECRET_KEY))).toBe(false)
     expect(raw.includes(Buffer.from(SECRET_PATH))).toBe(false)
     expect(diagnostics).not.toContain(SECRET_URL)
+  })
+
+  it('session-only token 不会跨 boot 误关联', () => {
+    const event: PersistedDiagnosticEvent = {
+      schemaVersion: 1,
+      event: 'file.io.summary',
+      observedUnixMs: 1_700_000_000_000,
+      monotonicMs: 42,
+      processRole: 'main',
+      processInstanceId: 'main_12345678',
+      processSeq: 1,
+      writerRecordedUnixMs: 1_700_000_000_001,
+      bootId: 'boot_aabbccddeeff',
+      tokenScope: 'session-only',
+      pathToken: 'path_aabbccddeeff001122334455',
+    }
+    const key = Buffer.alloc(32, 7)
+    const first = sanitizeBundleEvent(event, key)
+    const second = sanitizeBundleEvent({ ...event, bootId: 'boot_001122334455' }, key)
+
+    expect(first?.pathToken).toMatch(/^path_[a-f0-9]{24}$/)
+    expect(second?.pathToken).toMatch(/^path_[a-f0-9]{24}$/)
+    expect(first?.pathToken).not.toBe(second?.pathToken)
+  })
+
+  it('事件使用 bundle-local token，且导出摘要明确截断范围', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'mdv-diagnostics-events-'))
+    const localToken = 'path_aabbccddeeff001122334455'
+    const event: PersistedDiagnosticEvent = {
+      schemaVersion: 1,
+      event: 'file.io.summary',
+      observedUnixMs: 1_700_000_000_000,
+      monotonicMs: 42,
+      processRole: 'main',
+      processInstanceId: 'main_12345678',
+      processSeq: 1,
+      writerRecordedUnixMs: 1_700_000_000_001,
+      bootId: 'boot_aabbccddeeff',
+      tokenScope: 'installation',
+      pathToken: localToken,
+      outcome: 'success',
+      metadata: { readWallMs: 12 },
+    }
+    const eventLog = {
+      snapshot: {
+        events: [event, { ...event, processSeq: 2, bootId: 'boot_001122334455' }],
+        totalBytes: 512,
+        invalidLines: 1,
+        truncated: true,
+        omittedFiles: 3,
+        oldestEventUnixMs: event.observedUnixMs,
+        newestEventUnixMs: event.observedUnixMs,
+      },
+      health: {
+        eventsAccepted: 2,
+        eventsWritten: 2,
+        invalidEvents: 0,
+        droppedEvents: 0,
+        bytesWritten: 512,
+        batchCount: 1,
+        appendP95Ms: 1,
+        appendMaxMs: 1,
+        queueLagP95Ms: 2,
+        queueLagMaxMs: 2,
+        maxQueueBytes: 512,
+        cleanupDurationMs: 0,
+        destinationFallbacks: 0,
+        writerWriteActive: false,
+      },
+    }
+    const firstPath = path.join(tempDir, 'first.zip')
+    const secondPath = path.join(tempDir, 'second.zip')
+
+    expect(sanitizeBundleEvent(event, Buffer.alloc(32, 3))).not.toBeNull()
+    await createDiagnosticsBundle(firstPath, fixture(), eventLog)
+    await createDiagnosticsBundle(secondPath, fixture(), eventLog)
+    const firstZip = new AdmZip(await readFile(firstPath))
+    const secondZip = new AdmZip(await readFile(secondPath))
+    const firstEventText = firstZip.readAsText('performance-events.jsonl')
+    const firstEvents = firstEventText.trim().split('\n').map(line => JSON.parse(line))
+    const secondEvents = secondZip.readAsText('performance-events.jsonl').trim().split('\n').map(line => JSON.parse(line))
+    const summary = JSON.parse(firstZip.readAsText('diagnostics.json')).performanceEvents
+
+    expect(firstEvents).toHaveLength(2)
+    expect(firstEvents[0].pathToken).toMatch(/^path_[a-f0-9]{24}$/)
+    expect(firstEvents[0].pathToken).toBe(firstEvents[1].pathToken)
+    expect(firstEvents[0].pathToken).not.toBe(localToken)
+    expect(secondEvents[0].pathToken).not.toBe(firstEvents[0].pathToken)
+    expect(summary).toMatchObject({
+      count: 2,
+      truncated: true,
+      omittedFiles: 3,
+      invalidLines: 1,
+      eventCounts: { 'file.io.summary': 2 },
+      abnormalities: {
+        errorEvents: 0,
+        timeoutEvents: 0,
+        unmatchedStarts: 0,
+        slowFileOpens: 0,
+        slowFolderOpens: 0,
+        slowIndexWork: 0,
+        rendererStalls: 0,
+      },
+      queryAggregation: { windows: 0, operations: 0, errors: 0, slow: 0 },
+      writer: { scope: 'currentBoot' },
+    })
+  })
+
+  it('诊断摘要直接标出慢操作、长任务、查询异常和未闭合 operation', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'mdv-diagnostics-summary-'))
+    const base: PersistedDiagnosticEvent = {
+      schemaVersion: 1,
+      event: 'file.open.start',
+      observedUnixMs: 1_700_000_000_000,
+      monotonicMs: 10,
+      processRole: 'renderer',
+      processInstanceId: 'renderer_12345678',
+      processSeq: 1,
+      writerRecordedUnixMs: 1_700_000_000_001,
+      bootId: 'boot_aabbccddeeff',
+      tokenScope: 'installation',
+    }
+    const events: PersistedDiagnosticEvent[] = [
+      { ...base, operationId: 'file_12345678' },
+      {
+        ...base,
+        event: 'file.open.terminal',
+        processSeq: 2,
+        operationId: 'file_12345678',
+        outcome: 'success',
+        metadata: { durationMs: 1200 },
+      },
+      {
+        ...base,
+        event: 'file.preview.post-render',
+        processSeq: 3,
+        operationId: 'file_12345678',
+        outcome: 'observed',
+        metadata: { maxLongTaskMs: 10246 },
+      },
+      {
+        ...base,
+        event: 'index.query.window',
+        processRole: 'main',
+        processInstanceId: 'main_12345678',
+        processSeq: 4,
+        metadata: {
+          workloadKind: 'backlinks', operationCount: 502,
+          successCount: 501, errorCount: 1, slowCount: 2,
+          durationP50Ms: 0.1, durationP95Ms: 0.2, durationMaxMs: 120,
+        },
+      },
+      {
+        ...base,
+        event: 'index.work.start',
+        processRole: 'main',
+        processInstanceId: 'main_12345678',
+        processSeq: 5,
+        operationId: 'index_unclosed1',
+        metadata: { workloadKind: 'build', indexBuildId: 'index_unclosed1' },
+      },
+    ]
+    const outputPath = path.join(tempDir, 'summary.zip')
+    await createDiagnosticsBundle(outputPath, fixture(), {
+      snapshot: {
+        events,
+        totalBytes: 4096,
+        invalidLines: 0,
+        truncated: false,
+        omittedFiles: 0,
+        oldestEventUnixMs: base.observedUnixMs,
+        newestEventUnixMs: base.observedUnixMs,
+      },
+      health: {
+        eventsAccepted: events.length,
+        eventsWritten: events.length,
+        invalidEvents: 0,
+        droppedEvents: 0,
+        bytesWritten: 4096,
+        batchCount: 1,
+        appendP95Ms: 1,
+        appendMaxMs: 1,
+        queueLagP95Ms: 2,
+        queueLagMaxMs: 2,
+        maxQueueBytes: 4096,
+        cleanupDurationMs: 0,
+        destinationFallbacks: 0,
+        writerWriteActive: false,
+      },
+    })
+
+    const zip = new AdmZip(await readFile(outputPath))
+    const summary = JSON.parse(zip.readAsText('diagnostics.json')).performanceEvents
+    expect(summary).toMatchObject({
+      abnormalities: {
+        errorEvents: 0,
+        timeoutEvents: 0,
+        unmatchedStarts: 1,
+        slowFileOpens: 1,
+        slowFolderOpens: 0,
+        slowIndexWork: 0,
+        rendererStalls: 1,
+      },
+      maximaMs: { fileOpen: 1200, rendererLongTask: 10246 },
+      queryAggregation: { windows: 1, operations: 502, errors: 1, slow: 2 },
+    })
   })
 })

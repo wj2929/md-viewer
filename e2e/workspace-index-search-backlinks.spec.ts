@@ -53,7 +53,13 @@ test.describe('工作区索引搜索与反向链接', () => {
     await expect(page.locator('.search-result-item', { hasText: 'source-link.md' })).toBeVisible({ timeout: 10000 })
   })
 
-  test('全部记录搜索应该安全切换目标工作区并定位深层文件', async ({ page, electronApp, testDir }) => {
+  test('全部记录搜索应该安全切换目标工作区并定位深层文件', async ({ page, electronApp, testDir }, testInfo) => {
+    await page.evaluate(() => {
+      const probe = { statuses: 0, reconciliations: 0 }
+      ;(window as any).__watchSearchProbe = probe
+      window.api.onWatchStatus(() => { probe.statuses++ })
+      window.api.onWatchReconcile(() => { probe.reconciliations++ })
+    })
     const folderA = join(testDir, 'search-root-a')
     const folderB = join(testDir, 'search-root-b')
     const targetDir = join(folderB, 'zz-reveal', 'level-two', 'level-three')
@@ -83,7 +89,13 @@ test.describe('工作区索引搜索与反向链接', () => {
     await page.getByText('全文', { exact: true }).click()
     await page.locator('.search-input').fill('跨工作区定位唯一标记')
     const match = page.locator('.search-match-line', { hasText: '跨工作区定位唯一标记' })
-    await expect(match).toBeVisible({ timeout: 15000 })
+    try {
+      await expect(match).toBeVisible({ timeout: 15000 })
+    } catch (error) {
+      await page.screenshot({ path: testInfo.outputPath('search-recovery-state.png') })
+      await testInfo.attach('watch-search-probe', { body: JSON.stringify(await page.evaluate(() => (window as any).__watchSearchProbe)), contentType: 'application/json' })
+      throw error
+    }
     await match.click()
 
     await expect(page.locator('.nav-folder-path')).toHaveAttribute('title', folderB, { timeout: 10000 })

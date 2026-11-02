@@ -9,7 +9,7 @@
  * 这个测试 freeze 了这个不变式：
  *   如果项目 DOMPurify hook 在场，mermaid 必须用 loose（或白名单加 Mermaid class）
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/mermaid-cdn'
 import * as path from 'path'
 import * as fs from 'fs'
 

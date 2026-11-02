@@ -2,7 +2,7 @@
  * 对比：独立 Chromium 跑出的 Mermaid SVG vs 项目 sanitizeSvg 处理后
  * 目的：定位 sanitizeSvg 里哪条规则破坏了节点样式
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/mermaid-cdn'
 import * as path from 'path'
 import * as fs from 'fs'
 

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { spawn } from 'child_process'
 import electronPath from 'electron'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import http, { type IncomingMessage, type ServerResponse } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -32,6 +32,100 @@ test('CLI export html uses server-render for chart markdown', async () => {
     expect(html).toContain('mermaid-container')
     expect(html).not.toContain('```mermaid')
   } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('CLI exports local media as linked HTML and static PDF without capability URLs', async ({ page }) => {
+  const { tempDir, inputPath, workspace } = createMediaFixture()
+  const outputDir = join(workspace, 'exports')
+  mkdirSync(outputDir, { recursive: true })
+  const htmlPath = join(outputDir, 'media.html')
+  const pdfPath = join(outputDir, 'media.pdf')
+
+  try {
+    const htmlResult = await runElectronCli([
+      'export', inputPath, '--format', 'html', '--out', htmlPath, '--json',
+    ])
+    expect(htmlResult.exitCode, htmlResult.stderr).toBe(0)
+    expect(JSON.parse(htmlResult.stdout).ok).toBe(true)
+
+    const html = readFileSync(htmlPath, 'utf8')
+    expect(html).toContain('<video controls preload="metadata" playsinline poster="../images/poster.png">')
+    expect(html).toContain('<source src="../videos/demo.webm#t=0.5,2.5" type="video/webm">')
+    expect(html).toContain('<source src="../videos/demo.mp4" type="video/mp4">')
+    expect(html).toContain('<track src="../videos/zh.vtt" kind="subtitles" srclang="zh-CN" label="中文" default>')
+    expect(html).toContain('<source src="../audio/tone.mp3" type="audio/mpeg">')
+    expect(html).toContain('data:image/avif;base64,')
+    expect(html).toContain('data:image/bmp;base64,')
+    expect(html).toContain('class="bpmn-wrapper"')
+    expect(html).toContain('class="excalidraw-wrapper"')
+    expect(html).not.toContain('bpmn-file-placeholder')
+    expect(html).not.toContain('excalidraw-file-placeholder')
+    expect(html).not.toContain('local-media:')
+    expect(html).not.toContain('file:')
+    expect(html).not.toContain(tempDir)
+
+    await page.goto(pathToFileURL(htmlPath).href)
+    await expect(page.locator('video')).toHaveCount(4)
+    await expect(page.locator('audio')).toHaveCount(3)
+    expect(await page.locator('video').first().locator('source').getAttribute('src'))
+      .toBe('../videos/demo.webm#t=0.5,2.5')
+    expect(await page.locator('video').first().locator('track').getAttribute('src'))
+      .toBe('../videos/zh.vtt')
+
+    const pdfResult = await runElectronCli([
+      'export', inputPath, '--format', 'pdf', '--out', pdfPath, '--json',
+    ])
+    expect(pdfResult.exitCode, pdfResult.stderr).toBe(0)
+    expect(JSON.parse(pdfResult.stdout).ok).toBe(true)
+    expect(readFileSync(pdfPath).subarray(0, 5).toString()).toBe('%PDF-')
+    expect(statSync(pdfPath).size).toBeGreaterThan(1000)
+    const pdfBytes = readFileSync(pdfPath).toString('latin1')
+    expect(pdfBytes).not.toContain('local-media://')
+    expect(pdfBytes).not.toContain(tempDir)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('CLI converts local media to ordinary links before DOCX upload', async () => {
+  const { tempDir, inputPath, workspace } = createMediaFixture()
+  const outputPath = join(workspace, 'media.docx')
+  let capturedBody: any = null
+  const server = await startDocxSourceServer(async (req, res) => {
+    expect(req.url).toBe('/convert-source')
+    capturedBody = JSON.parse(await readRequestBody(req))
+    res.writeHead(200, {
+      'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'x-service-version': '0.2.2',
+      'x-service-mode': 'fullFidelity',
+      'x-render-status': 'success',
+      'x-render-failed-blocks': '0',
+      'x-charts-rendered': '0',
+    })
+    res.end(Buffer.from('media-docx'))
+  })
+
+  try {
+    const result = await runElectronCli([
+      'export', inputPath, '--format', 'docx', '--out', outputPath,
+      '--docx-service', server.url, '--json',
+    ])
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout).ok).toBe(true)
+    expect(readFileSync(outputPath, 'utf8')).toBe('media-docx')
+    expect(capturedBody.markdown).toContain('[视频：videos/demo.webm](./videos/demo.webm)')
+    expect(capturedBody.markdown).toContain('[视频：videos/demo.mp4](./videos/demo.mp4)')
+    expect(capturedBody.markdown).toContain('[音频：测试音频](./audio/tone.mp3)')
+    expect(capturedBody.markdown).not.toContain('<video')
+    expect(capturedBody.markdown).not.toContain('<audio')
+    expect(capturedBody.markdown).not.toContain('![[videos/demo.webm')
+    expect(capturedBody.markdown).not.toContain('local-media:')
+    expect(capturedBody.markdown).not.toContain('file:')
+    expect(capturedBody.markdown).not.toContain(tempDir)
+  } finally {
+    await server.close()
     rmSync(tempDir, { recursive: true, force: true })
   }
 })
@@ -474,6 +568,31 @@ test('CLI batch runs configured jobs and writes reports', async () => {
     rmSync(tempDir, { recursive: true, force: true })
   }
 })
+
+function createMediaFixture(): { tempDir: string; inputPath: string; workspace: string } {
+  const fixtureRoot = join(process.cwd(), '.tmp', 'e2e')
+  mkdirSync(fixtureRoot, { recursive: true })
+  const tempDir = mkdtempSync(join(fixtureRoot, 'mdv-cli-media-'))
+  const workspace = join(tempDir, 'workspace')
+  cpSync(join(__dirname, 'fixtures', 'local-media'), workspace, { recursive: true })
+  cpSync(
+    join(__dirname, 'fixtures', 'excalidraw', 'compatible-no-type.excalidraw'),
+    join(workspace, 'diagrams', 'compatible-no-type.excalidraw'),
+  )
+  const inputPath = join(workspace, 'media.md')
+  writeFileSync(
+    inputPath,
+    readFileSync(inputPath, 'utf8').replace(
+      '../excalidraw/compatible-no-type.excalidraw',
+      'diagrams/compatible-no-type.excalidraw',
+    ),
+  )
+  return {
+    tempDir,
+    inputPath,
+    workspace,
+  }
+}
 
 function createChartFixture(): { tempDir: string; inputPath: string } {
   const tempDir = mkdtempSync(join(tmpdir(), 'mdv-cli-headless-'))

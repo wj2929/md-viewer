@@ -18,6 +18,7 @@ export default [
       'coverage/**',
       '.claude/**',
       '.package-app/**',
+      '.tmp/**',
       'dist/**',
       'node_modules/**',
       'out/**',

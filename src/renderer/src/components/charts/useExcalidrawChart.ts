@@ -9,6 +9,7 @@ import { renderExcalidrawToSvg, type ExcalidrawRenderResult } from '../../utils/
 import { downloadSvgAsPng, toggleChartFullscreen } from '../../utils/chartUtils'
 import { cleanUserFacingError } from '../../utils/userFacingErrors'
 import type { ResourceHost } from '../../render-core/hosts'
+import type { LocalResourceResolutionKind } from '../../../../shared/localMedia'
 
 const MAX_EXCALIDRAW_BLOCKS = 80
 
@@ -191,9 +192,17 @@ function resolveExcalidrawFallbackPath(markdownFilePath: string, refPath: string
   return normalizeLocalPath(`${markdownDir}/${cleanRefPath}`)
 }
 
-async function readExcalidrawFile(markdownFilePath: string, refPath: string): Promise<{ content: string; resolvedPath: string }> {
+async function readExcalidrawFile(
+  markdownFilePath: string,
+  refPath: string,
+  resolutionKind: LocalResourceResolutionKind = 'markdown-relative',
+): Promise<{ content: string; resolvedPath: string }> {
   if (typeof window.api?.readExcalidrawFile === 'function') {
-    return window.api.readExcalidrawFile({ markdownFilePath, refPath })
+    return window.api.readExcalidrawFile({
+      markdownFilePath,
+      refPath,
+      ...(resolutionKind === 'workspace-wiki' ? { resolutionKind } : {}),
+    })
   }
   if (typeof window.api?.readFile !== 'function') {
     throw new Error('当前环境不支持读取 Excalidraw 文件')
@@ -218,7 +227,13 @@ async function renderFilePlaceholder(
         resolvedPath: resourceHost.resolvePath(markdownFilePath, refPath),
         content: await resourceHost.readText(resourceHost.resolvePath(markdownFilePath, refPath)),
       }
-    : await readExcalidrawFile(markdownFilePath, refPath)
+    : await readExcalidrawFile(
+        markdownFilePath,
+        refPath,
+        placeholder.dataset.excalidrawResolutionKind === 'workspace-wiki'
+          ? 'workspace-wiki'
+          : 'markdown-relative',
+      )
   const result = await enqueueRender(() =>
     renderExcalidrawToSvg(file.content, {
       sourceKind: 'file-reference',

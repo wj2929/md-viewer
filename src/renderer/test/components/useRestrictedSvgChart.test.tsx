@@ -30,10 +30,13 @@ describe('useRestrictedSvgChart', () => {
     expect(wrapper.querySelector('[data-action="download"]')).not.toBeNull()
     expect(wrapper.querySelector('[data-action="fullscreen"]')).not.toBeNull()
 
-    fireEvent.click(wrapper.querySelector('[data-action="toggleCode"]') as Element)
     const codeView = wrapper.querySelector('.svg-code-view') as HTMLElement
+    expect(codeView.textContent).not.toContain(source)
+
+    fireEvent.click(wrapper.querySelector('[data-action="toggleCode"]') as Element)
     expect(codeView.style.display).not.toBe('none')
     expect(codeView.textContent).toContain(source)
+    expect(codeView.querySelector('code')?.dataset.chartCodeHydrated).toBe('true')
     expect(codeView.querySelector('svg')).toBeNull()
   })
 

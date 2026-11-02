@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { Compartment, EditorState } from '@codemirror/state'
+import { openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
+import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { EditorView, type ViewUpdate, keymap } from '@codemirror/view'
 import type { QuickEditTarget } from '../../utils/quickEditTarget'
 import { DEFAULT_TOP_RATIO, getScrollRatio } from '../../utils/scrollSyncAnchors'
@@ -23,6 +24,8 @@ export interface MarkdownEditorPaneHandle {
   replaceDocument: (content: string) => void
   replaceLines: (startLine: number, endLine: number, replacement: string) => boolean
   focus: () => void
+  openSearch: () => void
+  closeSearch: () => boolean
   getScroller: () => HTMLElement | null
   getVisibleLine: (topRatio?: number) => number
   scrollToLine: (lineNumber: number, options?: ScrollToLineOptions) => boolean
@@ -33,6 +36,9 @@ export interface MarkdownEditorPaneHandle {
 interface MarkdownEditorPaneProps {
   content: string
   readOnly: boolean
+  plainText?: boolean
+  syntaxExtension?: Extension
+  accessibleLabel?: string
   target?: QuickEditTarget | null
   onChange: (content: string) => void
   onSave: (content: string) => void
@@ -67,13 +73,14 @@ function lineFromTarget(content: string, target?: QuickEditTarget | null): numbe
 }
 
 export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownEditorPaneProps>(function MarkdownEditorPane(
-  { content, readOnly, target = null, onChange, onSave, onCompositionChange, onLocateComplete },
+  { content, readOnly, plainText = false, syntaxExtension, accessibleLabel = 'Markdown 源码编辑区', target = null, onChange, onSave, onCompositionChange, onLocateComplete },
   ref
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const editableCompartmentRef = useRef(new Compartment())
   const readOnlyCompartmentRef = useRef(new Compartment())
+  const syntaxCompartmentRef = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
   const onCompositionChangeRef = useRef(onCompositionChange)
@@ -145,6 +152,11 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
       return true
     },
     focus: () => viewRef.current?.focus(),
+    openSearch: () => { if (viewRef.current) openSearchPanel(viewRef.current) },
+    closeSearch: () => {
+      const view = viewRef.current
+      return Boolean(view && searchPanelOpen(view.state) && closeSearchPanel(view))
+    },
     getScroller: () => viewRef.current?.scrollDOM ?? null,
     getVisibleLine,
     scrollToLine,
@@ -170,12 +182,12 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
       key: 'Mod-s',
       preventDefault: true,
       run: (view) => {
-        onSaveRef.current(view.state.doc.toString())
+        if (!plainText) onSaveRef.current(view.state.doc.toString())
         return true
       },
     }])
     const updateListener = EditorView.updateListener.of((update: ViewUpdate) => {
-      if (update.docChanged && !suppressChangeRef.current) onChangeRef.current(update.state.doc.toString())
+      if (update.docChanged && !suppressChangeRef.current && !plainText) onChangeRef.current(update.state.doc.toString())
     })
 
     const state = EditorState.create({
@@ -183,9 +195,13 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
       extensions: createMarkdownEditorExtensions([
         saveKey,
         updateListener,
-        editableCompartment.of(EditorView.editable.of(!readOnly)),
-        readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
-      ]),
+        editableCompartment.of(EditorView.editable.of(!readOnly && !plainText)),
+        readOnlyCompartment.of(EditorState.readOnly.of(readOnly || plainText)),
+        syntaxCompartmentRef.current.of(plainText ? syntaxExtension ?? [] : []),
+        ...(plainText ? [EditorView.lineWrapping, EditorView.contentAttributes.of({
+          tabindex: '0', 'aria-label': accessibleLabel, 'aria-readonly': 'true', role: 'textbox',
+        })] : []),
+      ], plainText),
     })
 
     const view = new EditorView({ state, parent: hostRef.current })
@@ -209,11 +225,17 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
     if (!view) return
     view.dispatch({
       effects: [
-        editableCompartmentRef.current.reconfigure(EditorView.editable.of(!readOnly)),
-        readOnlyCompartmentRef.current.reconfigure(EditorState.readOnly.of(readOnly)),
+        editableCompartmentRef.current.reconfigure(EditorView.editable.of(!readOnly && !plainText)),
+        readOnlyCompartmentRef.current.reconfigure(EditorState.readOnly.of(readOnly || plainText)),
       ],
     })
-  }, [readOnly])
+  }, [readOnly, plainText])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: syntaxCompartmentRef.current.reconfigure(plainText ? syntaxExtension ?? [] : []),
+    })
+  }, [syntaxExtension, plainText])
 
   useEffect(() => {
     const view = viewRef.current
@@ -243,8 +265,8 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
     <div
       ref={hostRef}
       className={`markdown-editor-pane ${readOnly ? 'readonly' : ''}`}
-      role="textbox"
-      aria-label="Markdown 源码编辑区"
+      role={plainText ? 'region' : 'textbox'}
+      aria-label={plainText ? '附件查看区' : accessibleLabel}
     />
   )
 })

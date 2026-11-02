@@ -1,14 +1,22 @@
 import { randomUUID } from 'crypto'
-import { open, readFile, realpath, rename, stat, unlink } from 'fs/promises'
+import { lstat, open, readFile, realpath, rename, stat, unlink } from 'fs/promises'
+import { isDeepStrictEqual } from 'util'
 import * as path from 'path'
 import { splitMarkdownTarget } from '../../shared/markdown/semantics'
 import { buildFullSha256Revision } from '../revisionToken'
 import type { WorkspaceIndexService } from '../indexing/WorkspaceIndexService'
+import { createWikiNameLookup } from '../indexing/wikiNameLookup'
+import type { WorkspaceWikiSnapshot, RuntimeWikiLink } from '../indexing/wikiMetadata'
+import { isBareWikiDocumentName } from '../../shared/markdown/wikiDocumentNames'
+import { resolveIndexedWikiTarget } from '../indexing/WorkspaceIndexService'
 import type { IndexedDocument } from '../indexing/types'
 import type {
   LinkImpactItem,
   LinkImpactSummary,
   LinkMoveMapping,
+  LinkMoveBatchOperation,
+  LinkMoveBatchItemResult,
+  LinkMoveBatchResult,
   LinkOperationReceipt,
   LinkRewriteApplyFileResult,
   LinkRewriteApplyResult,
@@ -46,6 +54,7 @@ interface StoredPlan extends LinkRewritePlanView {
 interface StoredImpact extends LinkImpactSummary {
   ownerId: string
   rootPath: string
+  wikiSnapshot: WorkspaceWikiSnapshot | null
 }
 
 interface StoredReceipt extends LinkOperationReceipt {
@@ -65,16 +74,19 @@ export class LinkRewritePlanner {
   private readonly impacts = new Map<string, StoredImpact>()
   private readonly receipts = new Map<string, StoredReceipt>()
   private readonly executingImpacts = new Set<string>()
+  private readonly executingRoots = new Set<string>()
 
   constructor(
     private readonly indexService: WorkspaceIndexService,
     private readonly options: LinkRewritePlannerOptions = {},
   ) {}
 
-  createImpact(ownerId: string, rootPath: string, mapping: LinkMoveMapping): LinkImpactSummary {
+  async createImpact(ownerId: string, rootPath: string, mapping: LinkMoveMapping): Promise<LinkImpactSummary> {
     this.pruneExpiredPlans()
     const normalized = validateLinkMoveMapping(mapping)
-    const items = this.collectImpacts(rootPath, normalized)
+    const wikiSnapshot = this.indexService.getWikiSnapshot(rootPath)
+    const items = await this.collectImpacts(rootPath, normalized)
+    if (wikiSnapshot && !wikiSnapshot.isCurrent()) throw new Error('链接索引已变化，请重新预览文件操作')
     const now = Date.now()
     const impact: StoredImpact = {
       impactId: randomUUID(),
@@ -83,6 +95,7 @@ export class LinkRewritePlanner {
       createdAt: now,
       expiresAt: now + IMPACT_TTL_MS,
       mapping: normalized,
+      wikiSnapshot,
       affectedSourceFiles: new Set(items.map(item => item.sourceRelativePath)).size,
       exactChanges: items.filter(item => item.confidence === 'exact').length,
       candidates: items.filter(item => item.confidence === 'candidate').length,
@@ -101,32 +114,144 @@ export class LinkRewritePlanner {
   }): Promise<{ result: T; receipt: LinkOperationReceipt }> {
     this.pruneExpiredPlans()
     const impact = this.requireImpact(input)
-    if (this.executingImpacts.has(impact.impactId)) throw new Error('文件操作正在执行')
+    if (this.executingRoots.has(input.rootPath) || this.executingImpacts.has(impact.impactId)) throw new Error('文件操作正在执行')
+    if (impact.wikiSnapshot && !impact.wikiSnapshot.isCurrent()) throw new Error('链接索引已变化，请重新预览文件操作')
     this.executingImpacts.add(impact.impactId)
     try {
       const result = await input.execute()
-      const receipt = this.recordOperationSuccess(input)
+      const receipt = this.recordOperationSuccess(impact)
       return { result, receipt }
     } finally {
       this.executingImpacts.delete(impact.impactId)
     }
   }
 
-  private recordOperationSuccess(input: {
+  async executeBatch(input: {
     ownerId: string
     rootPath: string
-    impactId: string
-    actualMapping: LinkMoveMapping
-  }): LinkOperationReceipt {
+    operations: readonly LinkMoveBatchOperation[]
+    validate: (mapping: LinkMoveMapping) => Promise<void>
+    assertAuthorized: () => void
+    execute: (mapping: LinkMoveMapping, assertCurrent: () => Promise<void>) => Promise<{ newPath: string; isDirectory: boolean }>
+    afterMove?: (mapping: LinkMoveMapping, result: { newPath: string; isDirectory: boolean }) => Promise<void>
+  }): Promise<LinkMoveBatchResult> {
     this.pruneExpiredPlans()
-    const impact = this.requireImpact(input)
+    if (!Array.isArray(input.operations) || !input.operations.length || input.operations.length > 256
+      || Buffer.byteLength(JSON.stringify(input.operations), 'utf8') > MAX_PLAN_BYTES) throw new Error('批量移动项无效或过多')
+    if (this.executingRoots.has(input.rootPath) || [...this.executingImpacts].some(id => this.impacts.get(id)?.rootPath === input.rootPath)) {
+      throw new Error('当前文件夹的文件操作正在执行')
+    }
+    const impacts = input.operations.map(operation => this.requireImpact({ ...input, impactId: operation.impactId, actualMapping: operation.mapping }))
+    if (new Set(impacts.map(impact => impact.impactId)).size !== impacts.length) throw new Error('批量移动项重复')
+    for (let index = 0; index < impacts.length; index++) {
+      const paths = Object.values(impacts[index].mapping)
+      for (const other of impacts.slice(index + 1)) {
+        if (paths.some(first => Object.values(other.mapping).some(second => pathsOverlap(first, second)))) {
+          throw new Error('批量移动的源或目标重叠，请分开预览')
+        }
+      }
+    }
+    const baseline = impacts[0].wikiSnapshot
+    if (!baseline?.isCurrent() || !baseline.isContinuous() || impacts.some(impact => !impact.wikiSnapshot?.isCurrent()
+      || impact.wikiSnapshot.documents !== baseline.documents)) throw new Error('链接索引已变化，请重新预览文件操作')
+    this.executingRoots.add(input.rootPath)
+    impacts.forEach(impact => this.executingImpacts.add(impact.impactId))
+    const items: LinkMoveBatchItemResult[] = []
+    const moved: LinkMoveMapping[] = []
+    let warning: string | undefined
+    try {
+      input.assertAuthorized()
+      for (const impact of impacts) await input.validate(impact.mapping)
+      const rootIdentity = await stat(input.rootPath)
+      const identities = new Map<string, Awaited<ReturnType<typeof lstat>> | null>()
+      for (const impact of impacts) {
+        try { identities.set(impact.impactId, await lstat(path.resolve(input.rootPath, impact.mapping.oldRelativePath))) }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          identities.set(impact.impactId, null)
+        }
+      }
+      input.assertAuthorized()
+      if (impacts.some(impact => !impact.wikiSnapshot?.isCurrent())) throw new Error('链接索引已变化，请重新预览文件操作')
+      for (const impact of impacts) {
+        const operation = { impactId: impact.impactId, mapping: impact.mapping }
+        if (warning) { items.push({ ...operation, status: 'not-executed', message: warning }); continue }
+        let current: WorkspaceWikiSnapshot
+        const align = async (): Promise<WorkspaceWikiSnapshot> => {
+          await this.indexService.waitUntilIdle(input.rootPath)
+          input.assertAuthorized()
+          this.requireImpact({ ...input, impactId: impact.impactId, actualMapping: impact.mapping })
+          const next = this.indexService.getWikiSnapshot(input.rootPath)
+          if (impact.expiresAt <= Date.now() || !baseline.isContinuous() || !next?.isCurrent()
+            || !matchesMovedSnapshot(baseline, next, moved)) throw new Error('链接索引已变化，请重新预览剩余文件操作')
+          const nextItems = await this.collectImpacts(input.rootPath, impact.mapping)
+          if (!next.isCurrent() || impactItemsKey(nextItems, []) !== impactItemsKey(impact.items, moved)) {
+            throw new Error('链接影响已变化，请重新预览剩余文件操作')
+          }
+          return next
+        }
+        try { current = await align() }
+        catch (error) {
+          warning = error instanceof Error ? error.message : '无法确认链接影响，请重新预览剩余文件操作'
+          items.push({ ...operation, status: 'not-executed', message: warning })
+          continue
+        }
+        const identity = identities.get(impact.impactId)
+        if (!identity || identity.isSymbolicLink()) {
+          items.push({ ...operation, status: 'failed', message: identity ? '安全错误：不支持移动符号链接' : '源文件不存在' })
+          continue
+        }
+        let guardFailed = false
+        const assertCurrent = async (): Promise<void> => {
+          try {
+            if (!current.isCurrent()) current = await align()
+            const source = await lstat(path.resolve(input.rootPath, impact.mapping.oldRelativePath))
+            const root = await stat(input.rootPath)
+            input.assertAuthorized()
+            this.requireImpact({ ...input, impactId: impact.impactId, actualMapping: impact.mapping })
+            if (!sameFileIdentity(identity, source) || root.dev !== rootIdentity.dev || root.ino !== rootIdentity.ino
+              || !baseline.isContinuous() || !current.isCurrent() || impact.expiresAt <= Date.now()) {
+              throw new Error('文件或链接索引已变化，请重新预览剩余文件操作')
+            }
+          } catch (error) { guardFailed = true; throw error }
+        }
+        let result: { newPath: string; isDirectory: boolean }
+        try {
+          await assertCurrent()
+          result = await input.execute(impact.mapping, assertCurrent)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '文件移动失败'
+          if (guardFailed) warning = message
+          else if (message !== '目标文件已存在' && message !== '源文件不存在'
+            && !message.includes('不支持移动')) warning = '文件操作未完成，请核对实际位置后重新预览剩余文件操作'
+          items.push({ ...operation, status: guardFailed ? 'not-executed' : 'failed', message })
+          continue
+        }
+        const receipt = this.recordOperationSuccess(impact)
+        items.push({ ...operation, status: 'success', newPath: result.newPath, receipt })
+        moved.push(impact.mapping)
+        try {
+          await this.indexService.refreshMovedRelativePaths(input.rootPath, [impact.mapping])
+          await input.afterMove?.(impact.mapping, result)
+        } catch {
+          warning = '文件已移动，但索引或附属状态未能更新；请刷新后重新预览剩余文件操作'
+        }
+      }
+      return { items, ...(warning ? { warning } : {}) }
+    } finally {
+      impacts.forEach(impact => this.executingImpacts.delete(impact.impactId))
+      this.executingRoots.delete(input.rootPath)
+    }
+  }
+
+  private recordOperationSuccess(impact: StoredImpact): LinkOperationReceipt {
     const mapping = impact.mapping
     const now = Date.now()
     const receipt: StoredReceipt = {
       operationReceiptId: randomUUID(),
       impactId: impact.impactId,
-      ownerId: input.ownerId,
-      rootPath: input.rootPath,
+      ownerId: impact.ownerId,
+      rootPath: impact.rootPath,
       createdAt: now,
       expiresAt: now + RECEIPT_TTL_MS,
       mapping,
@@ -158,7 +283,7 @@ export class LinkRewritePlanner {
       receipt.mapping.oldRelativePath !== mapping.oldRelativePath ||
       receipt.mapping.newRelativePath !== mapping.newRelativePath
     )) throw new Error('文件操作回执与修复映射不一致')
-    const impacts = this.collectImpacts(rootPath, mapping)
+    const impacts = await this.collectImpacts(rootPath, mapping)
     const built = await this.buildChanges(rootPath, impacts, mapping, input.reason)
     this.invalidatePlansForMapping(input.ownerId, rootPath, mapping)
 
@@ -191,7 +316,7 @@ export class LinkRewritePlanner {
     if (previous.state !== 'retry-only') throw new Error('链接修复计划无需重新生成')
     const rootPath = await realpath(input.rootPath)
     if (previous.rootPath !== rootPath) throw new Error('工作区已失效')
-    const impacts = this.collectImpacts(rootPath, previous.mapping)
+    const impacts = await this.collectImpacts(rootPath, previous.mapping)
     const changes = await this.buildChanges(rootPath, impacts, previous.mapping, previous.reason)
     const now = Date.now()
     const next: StoredPlan = {
@@ -355,12 +480,23 @@ export class LinkRewritePlanner {
     return { changes, warnings: [...new Set(warnings)] }
   }
 
-  private collectImpacts(rootPath: string, mapping: LinkMoveMapping): LinkImpactItem[] {
-    const documents = this.indexService.getIndexedDocuments(rootPath)
-    const impacts: LinkImpactItem[] = []
-    for (const document of documents) {
-      impacts.push(...collectDocumentImpacts(document, mapping))
+  private async collectImpacts(rootPath: string, mapping: LinkMoveMapping): Promise<LinkImpactItem[]> {
+    const snapshot = this.indexService.getWikiSnapshot(rootPath)
+    const indexedDocuments = snapshot ? [...snapshot.documents.values()] : this.indexService.getIndexedDocuments(rootPath)
+    const lookup = createWikiNameLookup(rootPath, snapshot)
+    const documentsByPreMovePath = new Map<string, IndexedDocument>()
+    for (const document of indexedDocuments) {
+      const preMovePath = reverseRemapPath(document.relativePath, mapping)
+      const existing = documentsByPreMovePath.get(preMovePath)
+      if (!existing || document.relativePath !== preMovePath) {
+        documentsByPreMovePath.set(preMovePath, document)
+      }
     }
+    const impacts: LinkImpactItem[] = []
+    for (const [preMovePath, document] of documentsByPreMovePath) {
+      impacts.push(...await collectDocumentImpacts(document, preMovePath, mapping, documentsByPreMovePath, snapshot, lookup))
+    }
+    if (snapshot && !snapshot.isCurrent()) throw new Error('链接索引已变化，请重新预览文件操作')
     return impacts.sort((left, right) =>
       left.sourceRelativePath.localeCompare(right.sourceRelativePath) || left.lineStart - right.lineStart
     )
@@ -409,7 +545,7 @@ export class LinkRewritePlanner {
       if (plan.expiresAt <= now) this.plans.delete(planId)
     }
     for (const [impactId, impact] of this.impacts) {
-      if (impact.expiresAt <= now) this.impacts.delete(impactId)
+      if (impact.expiresAt <= now && !this.executingImpacts.has(impactId)) this.impacts.delete(impactId)
     }
     for (const [receiptId, receipt] of this.receipts) {
       if (receipt.expiresAt <= now) this.receipts.delete(receiptId)
@@ -473,6 +609,36 @@ export class LinkRewritePlanner {
   }
 }
 
+function pathsOverlap(first: string, second: string): boolean {
+  return first === second || first.startsWith(second + '/') || second.startsWith(first + '/')
+}
+
+function movedPath(file: string, mappings: readonly LinkMoveMapping[]): string {
+  return mappings.reduce((current, mapping) => remapPath(current, mapping), file)
+}
+
+function impactItemsKey(items: readonly LinkImpactItem[], moved: readonly LinkMoveMapping[]): string {
+  return JSON.stringify(items.map(item => ({ ...item,
+    sourceRelativePath: movedPath(item.sourceRelativePath, moved),
+    resolvedTargetRelativePath: movedPath(item.resolvedTargetRelativePath, moved),
+  })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))))
+}
+
+function matchesMovedSnapshot(before: WorkspaceWikiSnapshot, after: WorkspaceWikiSnapshot, moved: readonly LinkMoveMapping[]): boolean {
+  if (before.ready !== after.ready || before.complete !== after.complete || before.documents.size !== after.documents.size) return false
+  for (const [file, document] of before.documents) {
+    const next = movedPath(file, moved)
+    if (after.documents.get(next)?.revisionToken !== document.revisionToken
+      || !isDeepStrictEqual(before.metadata.get(file), after.metadata.get(next))) return false
+  }
+  return true
+}
+
+function sameFileIdentity(before: Awaited<ReturnType<typeof lstat>>, after: Awaited<ReturnType<typeof lstat>>): boolean {
+  return before.dev === after.dev && before.ino === after.ino && before.size === after.size
+    && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs && before.mode === after.mode
+}
+
 function dedupeChanges(changes: readonly LinkRewriteChange[]): LinkRewriteChange[] {
   const byRange = new Map<string, LinkRewriteChange>()
   for (const change of changes) {
@@ -486,27 +652,64 @@ function dedupeChanges(changes: readonly LinkRewriteChange[]): LinkRewriteChange
   return [...byRange.values()]
 }
 
-function collectDocumentImpacts(document: IndexedDocument, mapping: LinkMoveMapping): LinkImpactItem[] {
+async function collectDocumentImpacts(
+  document: IndexedDocument,
+  sourcePathBeforeMove: string,
+  mapping: LinkMoveMapping,
+  documents: ReadonlyMap<string, IndexedDocument>,
+  snapshot: WorkspaceWikiSnapshot | null,
+  lookup: ReturnType<typeof createWikiNameLookup>,
+): Promise<LinkImpactItem[]> {
   const items: LinkImpactItem[] = []
-  const sourcePathBeforeMove = document.relativePath
-  const sourcePathAfterMove = remapPath(document.relativePath, mapping)
+  const sourcePathAfterMove = remapPath(sourcePathBeforeMove, mapping)
   const sourceMoved = sourcePathAfterMove !== sourcePathBeforeMove
-  for (const link of document.outboundLinks) {
+  const metadata = snapshot?.metadata.get(document.relativePath)
+  const links: readonly RuntimeWikiLink[] = metadata?.revisionToken === document.revisionToken ? metadata.links : document.outboundLinks
+  for (const link of links) {
     if (link.kind !== 'markdown') continue
     const target = splitMarkdownTarget(link.rawTarget)
     if (!target.decodedPath || path.posix.isAbsolute(target.decodedPath)) continue
-    const resolvedTargetBeforeMove = normalizeRelativePath(path.posix.join(path.posix.dirname(sourcePathBeforeMove), target.decodedPath))
-    const resolvedTargetAfterMove = remapPath(resolvedTargetBeforeMove, mapping)
-    const targetMoved = resolvedTargetAfterMove !== resolvedTargetBeforeMove
-    if (!targetMoved && !sourceMoved) continue
+    let resolvedTargetBeforeMove = link.syntax === 'wiki'
+      ? resolveIndexedWikiTarget(documents, sourcePathBeforeMove, target.decodedPath)
+      : normalizeRelativePath(path.posix.join(path.posix.dirname(sourcePathBeforeMove), target.decodedPath))
+    let uncertain = false
+    let provenance: 'alias' | 'uncertain' | undefined
+    const bareWiki = link.syntax === 'wiki' && link.wikiEmbed !== true && isBareWikiDocumentName(target.decodedPath)
+    const nameAffected = [mapping.oldRelativePath, mapping.newRelativePath].some(value =>
+      path.posix.basename(value).replace(/\.(?:md|markdown|mdown|mkd|mkdn)$/i, '') === target.decodedPath)
+    if (bareWiki) {
+      const resolution = link.wikiEmbed === undefined ? { status: 'uncertain' as const }
+        : await lookup(document.relativePath, target.decodedPath)
+      if (resolution.status === 'found' && resolution.provenance === 'alias') {
+        if (!nameAffected) continue
+        resolvedTargetBeforeMove = reverseRemapPath(resolution.target, mapping)
+        uncertain = true; provenance = 'alias'
+      } else if (resolution.status === 'found') {
+        if (!resolvedTargetBeforeMove && snapshot?.aliases.has(target.decodedPath)) {
+          uncertain = true; provenance = 'uncertain'
+        }
+        resolvedTargetBeforeMove = reverseRemapPath(resolution.target, mapping)
+      } else if (resolution.status !== 'missing') {
+        uncertain = true; provenance = 'uncertain'
+      }
+    }
+    if (!resolvedTargetBeforeMove && !uncertain) continue
+    const resolvedTargetAfterMove = resolvedTargetBeforeMove ? remapPath(resolvedTargetBeforeMove, mapping) : ''
+    const targetMoved = Boolean(resolvedTargetBeforeMove && resolvedTargetAfterMove !== resolvedTargetBeforeMove)
+    if (!targetMoved && !sourceMoved && !uncertain) continue
+    const rawTarget = link.syntax === 'wiki'
+      ? link.rawTarget.slice(0, link.rawTarget.indexOf('#') < 0 ? undefined : link.rawTarget.indexOf('#')).trim()
+      : link.rawTarget
     items.push({
       sourceRelativePath: sourcePathAfterMove,
       lineStart: link.lineStart,
-      rawTarget: link.rawTarget,
+      rawTarget,
       resolvedTargetRelativePath: resolvedTargetAfterMove,
       ...(link.destinationRange ? { destinationRange: link.destinationRange } : {}),
       relation: targetMoved ? 'inbound' : 'outbound',
-      confidence: link.destinationRange && link.syntax !== 'html' ? 'exact' : 'candidate',
+      ...(link.syntax === 'wiki' ? { syntax: 'wiki' as const } : {}),
+      ...(provenance ? { provenance } : {}),
+      confidence: !uncertain && link.destinationRange && link.syntax !== 'html' ? 'exact' : 'candidate',
     })
   }
   return items
@@ -520,13 +723,29 @@ function remapPath(relativePath: string, mapping: LinkMoveMapping): string {
   return relativePath
 }
 
+function reverseRemapPath(relativePath: string, mapping: LinkMoveMapping): string {
+  if (relativePath === mapping.newRelativePath) return mapping.oldRelativePath
+  if (relativePath.startsWith(`${mapping.newRelativePath}/`)) {
+    return `${mapping.oldRelativePath}/${relativePath.slice(mapping.newRelativePath.length + 1)}`
+  }
+  return relativePath
+}
+
 function rewriteTarget(impact: LinkImpactItem, mapping: LinkMoveMapping): string | null {
   const target = splitMarkdownTarget(impact.rawTarget)
   if (!target.decodedPath) return null
-  const sourcePath = impact.sourceRelativePath
   const targetPath = impact.relation === 'inbound'
     ? mapping.newRelativePath
     : impact.resolvedTargetRelativePath
+  if (impact.syntax === 'wiki') {
+    const preserveExtension = path.posix.extname(target.decodedPath) !== ''
+    const wikiPath = preserveExtension
+      ? targetPath
+      : targetPath.replace(/\.(?:md|markdown|mdown|mkd|mkdn)$/i, '')
+    return wikiPath
+  }
+
+  const sourcePath = impact.sourceRelativePath
   let nextPath = path.posix.relative(path.posix.dirname(sourcePath), targetPath)
   if (!nextPath.startsWith('.')) nextPath = `./${nextPath}`
   const encodedPath = encodeMarkdownPath(nextPath)

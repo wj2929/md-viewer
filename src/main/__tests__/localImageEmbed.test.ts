@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
 import * as path from 'path'
 import { embedLocalImagesInExportedHtml } from '../localImageEmbed'
+import {
+  LOCAL_IMAGE_MARKER_ATTRIBUTE,
+  encodeLocalResourceMarker,
+  type CanonicalLocalImageMarker,
+} from '../../shared/localMedia'
 
 // 用项目内目录做根，避免 os.tmpdir() 落到 /private/var（受保护路径，会被 validateNotProtected 拒）。
 const WORK_ROOT = path.join(process.cwd(), '.tmp', 'local-image-embed-test')
@@ -39,6 +44,39 @@ describe('embedLocalImagesInExportedHtml', () => {
     const result = await embedLocalImagesInExportedHtml(html, path.join(dir, 'doc.md'))
 
     expect(result).toContain('data:image/png;base64,')
+  })
+
+  it('内嵌标准 AVIF 和 BMP 图片', async () => {
+    await mkdir(path.join(dir, 'images'), { recursive: true })
+    await writeFile(path.join(dir, 'images', 'a.avif'), Buffer.from('avif'))
+    await writeFile(path.join(dir, 'images', 'b.bmp'), Buffer.from('bmp'))
+    const html = '<img src="images/a.avif"><img src="images/b.bmp">'
+
+    const result = await embedLocalImagesInExportedHtml(html, path.join(dir, 'doc.md'))
+
+    expect(result).toContain('data:image/avif;base64,')
+    expect(result).toContain('data:image/bmp;base64,')
+  })
+
+  it('物化 Wiki 图片 marker，并按唯一 basename 解析', async () => {
+    await mkdir(path.join(dir, 'assets'), { recursive: true })
+    await writeFile(path.join(dir, 'assets', 'poster.avif'), Buffer.from('avif'))
+    const marker: CanonicalLocalImageMarker = {
+      version: 1,
+      resolutionKind: 'workspace-wiki',
+      ref: 'poster.avif',
+      alt: '海报 & 说明',
+      dimensions: { width: 160, height: 90 },
+    }
+    const html = `<img ${LOCAL_IMAGE_MARKER_ATTRIBUTE}="${encodeLocalResourceMarker(marker)}" alt="">`
+
+    const result = await embedLocalImagesInExportedHtml(html, path.join(dir, 'doc.md'))
+
+    expect(result).toContain('alt="海报 &amp; 说明"')
+    expect(result).toContain('src="data:image/avif;base64,')
+    expect(result).toContain('width="160" height="90"')
+    expect(result).not.toContain(LOCAL_IMAGE_MARKER_ATTRIBUTE)
+    expect(result).not.toContain('poster.avif')
   })
 
   it('跳过 http(s)/data 图片，保持原样', async () => {

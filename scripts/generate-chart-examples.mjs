@@ -13,6 +13,8 @@ const RENDERER_MANIFEST_PATH = path.join(ROOT, 'src/renderer/public/manifest.jso
 const PACKAGE_JSON_PATH = path.join(ROOT, 'package.json')
 const ZIP_ROOT = 'md-viewer-chart-examples'
 const FIXED_ENTRY_TIME = new Date(2000, 0, 1, 0, 0, 0)
+const MAX_DESIGN_FIXTURE_CHARACTERS = 1_500_000
+const MAX_DESIGN_FIXTURE_LINES = 20_000
 
 const LANGUAGE_FILES = {
   d2: '02-design-reference/01-d2.md',
@@ -85,12 +87,12 @@ function parseDirectory(lines) {
   return entries
 }
 
-function parseScenarios(lines) {
-  const rows = parseTable(lines, '### 1.2 常见任务的组合参考')
+function parseDeliveryReferences(lines) {
+  const rows = parseTable(lines, '### 1.2 技术方案章节与交付物参考')
   return rows.map((cells, index) => {
-    if (cells.length !== 3) fail(`invalid scenario row ${index + 1}`)
+    if (cells.length !== 3) fail(`invalid delivery reference row ${index + 1}`)
     const caseIds = [...cells[1].matchAll(/`([a-z0-9-]+)`/g)].map(match => match[1])
-    if (!caseIds.length) fail(`scenario has no cases: ${cells[0]}`)
+    if (!caseIds.length) fail(`delivery reference has no cases: ${cells[0]}`)
     return {
       id: `scenario-${String(index + 1).padStart(2, '0')}`,
       name: cells[0],
@@ -103,6 +105,21 @@ function parseScenarios(lines) {
 function parseCases(lines) {
   const cases = []
   const seen = new Set()
+  const headings = []
+  let fence = null
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim()
+    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/)
+    if (fenceMatch) {
+      const marker = fenceMatch[1]
+      if (!fence) fence = { character: marker[0], length: marker.length }
+      else if (new RegExp(`^${fence.character}{${fence.length},}\\s*$`).test(trimmed)) fence = null
+      continue
+    }
+    if (fence) continue
+    const headingMatch = lines[index].match(/^(#{1,3})\s+/)
+    if (headingMatch) headings.push({ index, level: headingMatch[1].length })
+  }
 
   for (let index = 0; index < lines.length; index += 1) {
     const markerMatch = lines[index].trim().match(/^<div id="md-case-([a-z0-9-]+)"><\/div>$/)
@@ -127,10 +144,14 @@ function parseCases(lines) {
     }
     if (fenceEnd >= lines.length) fail(`unclosed fence: ${id}`)
 
+    const heading = headings.findLast(heading => heading.index < index)
+    if (!heading || heading.level !== 3) fail(`marker is outside a case section: ${id}`)
+    const sectionEnd = headings.find(heading => heading.index > index)?.index ?? lines.length
+    if (fenceEnd >= sectionEnd) fail(`fence crosses a case section: ${id}`)
     cases.push({
       id,
       language,
-      markdown: `${lines.slice(fenceStart, fenceEnd + 1).join('\n')}\n`,
+      markdown: `${stripFixtureOnlyMarkup(lines.slice(heading.index + 1, sectionEnd).join('\n'))}\n`,
     })
     index = fenceEnd
   }
@@ -146,7 +167,7 @@ function extractLanguageGuide(lines) {
   return lines.slice(start + 1, end).join('\n').trim()
 }
 
-function validateSources(config, directory, scenarios, cases, rendererManifest, templates) {
+function validateSources(config, directory, deliveryReferences, cases, rendererManifest, templates) {
   if (directory.length !== config.expectedCaseCount) {
     fail(`expected ${config.expectedCaseCount} directory entries, got ${directory.length}`)
   }
@@ -193,9 +214,9 @@ function validateSources(config, directory, scenarios, cases, rendererManifest, 
     fail('case languages differ from expected language set')
   }
 
-  for (const scenario of scenarios) {
-    for (const caseId of scenario.caseIds) {
-      if (!directoryById.has(caseId)) fail(`unknown scenario case: ${caseId}`)
+  for (const reference of deliveryReferences) {
+    for (const caseId of reference.caseIds) {
+      if (!directoryById.has(caseId)) fail(`unknown delivery reference case: ${caseId}`)
     }
   }
 
@@ -218,13 +239,17 @@ function validateSources(config, directory, scenarios, cases, rendererManifest, 
   }
 }
 
-function renderQuickStart(templates, rendererManifest) {
+function renderQuickStart(templates, rendererManifest, guidance) {
   const rendererByType = new Map(rendererManifest.renderers.map(renderer => [renderer.type, renderer]))
   const sections = templates.map(template => {
     const renderer = rendererByType.get(template.rendererType)
     const fullSource = `${template.prefix}${template.body}${template.suffix}`
     const lines = [
+      `<a id="format-${template.id}"></a>`,
       `## ${template.title}`,
+      '',
+      `**语法来源：** ${guidance[template.rendererType].syntax}  `,
+      `**支持范围：** ${guidance[template.rendererType].limits}`,
       '',
       template.description,
       '',
@@ -241,13 +266,16 @@ function renderQuickStart(templates, rendererManifest) {
 
   return `# 图表与公式快速入门\n\n` +
     `[示例包首页](./README.md) · [设计参考](./02-design-reference/README.md) · [专项案例库](./03-renderer-gallery/README.md)\n\n` +
-    `本页覆盖 MD Viewer 当前注册的 ${rendererManifest.renderers.length} 类图表与公式能力。这里提供最小、可复制的起步源码；需要比较更多语法变体时再进入专项案例库。\n\n` +
-    `**使用方式**：先确认示例在应用中正常渲染，再复制对应源码块，替换业务名称、数据和约束；需要交付时继续验证 HTML、PDF 或 DOCX 导出。\n\n` +
+    `本页是供外部 AI 参考的格式说明，覆盖 ${rendererManifest.renderers.length} 类图表与公式，无需手写复杂代码。选择一种表达方式，再结合真实需求生成内容。\n\n` +
+    `这些内容通过 Markdown 扩展语法嵌入，不是所有 Markdown 查看器都支持。内部语法分别来自上游工具、应用适配或支持子集；支持渲染不等于完整兼容上游 API。\n\n` +
+    `**如何引用**：在 MD Viewer 打开本文档，通过文档标签右键“复制文件路径”，在 Claude、Codex 等支持文件引用的工具中选择实际文件。支持 @ 的工具可用文件选择/补全；其他工具可添加文件或粘贴所需示例。不必同时引用整个案例库。\n\n` +
+    `**生成要求**：请参考指定类型的示例与支持范围，根据用户真实需求生成完整 Markdown，保留代码围栏或公式定界符。不照抄案例事实、不虚构数据或依赖；使用文件引用时必须提供真实配套资源。生成后在 MD Viewer 检查预览，再验证所需导出。\n\n` +
+    `${templates.map(template => `- [${template.title}](#format-${template.id})`).join('\n')}\n\n` +
     `离线 renderer 会直接渲染；标记“需服务”的示例默认自动渲染，也可关闭后按文档确认。\n\n` +
     `${sections.join('\n')}\n`
 }
 
-function renderDesignIndex(directory, scenarios, languageGuide) {
+function renderDesignIndex(directory, deliveryReferences, languageGuide) {
   const lines = [
     '# 架构图与流程图设计参考',
     '',
@@ -264,9 +292,9 @@ function renderDesignIndex(directory, scenarios, languageGuide) {
     const count = directory.filter(entry => entry.language === language).length
     lines.push(`- [${language}（${count} 例）](./${file.replace('02-design-reference/', '')})`)
   }
-  lines.push('', '## 按任务选择', '', '| 任务 | 推荐案例 | 分工 |', '|---|---|---|')
-  for (const scenario of scenarios) {
-    lines.push(`| ${scenario.name} | ${scenario.caseIds.map(id => `\`${id}\``).join(' + ')} | ${scenario.description} |`)
+  lines.push('', '## 按技术方案章节与交付物参考', '', '| 章节或交付物 | 推荐案例 | 参考重点 |', '|---|---|---|')
+  for (const reference of deliveryReferences) {
+    lines.push(`| ${reference.name} | ${reference.caseIds.map(id => `\`${id}\``).join(' + ')} | ${reference.description} |`)
   }
   lines.push(
     '',
@@ -616,19 +644,19 @@ function renderRootReadme(version, packageVersion, designCaseCount, galleryStats
 
   return `# MD Viewer 图表示例\n\n` +
     `> 内容版本：${packageVersion}  \n> 适用 MD Viewer：${version}  \n> 共 ${totalCaseCount} 个案例：${designCaseCount} 个设计核心案例 + ${galleryStats.galleryCaseCount} 个专项正例。  \n> 文件清单、字节数和 SHA-256 见同目录 \`manifest.json\`。\n\n` +
-    `本包可以离线保存和浏览，帮助你从最小语法、设计问题或指定 renderer 三条路线找到可复制源码。\n\n` +
+    `本包提供可交给外部 AI 参考的真实 Markdown 文件，帮助你选择表达方式、说明格式边界并生成内容；不是要求你手工编写复杂图表代码。\n\n` +
     `## 先选一条路线\n\n` +
-    `1. **第一次写图表**：打开 [图表与公式快速入门](./01-quick-start.md)，从 ${rendererCount} 类 renderer 的最小示例开始。\n` +
+    `1. **让 AI 参考格式生成**：打开 [图表与公式快速入门](./01-quick-start.md)，选择 ${rendererCount} 类格式中的一种，并将该文件或示例交给 AI 参考。\n` +
     `2. **还不知道该画什么图**：打开 [架构图与流程图设计参考](./02-design-reference/README.md)，按场景和表达目标浏览 ${designCaseCount} 个设计核心正例。\n` +
     `3. **已经确定 renderer**：打开 [Renderer 专项案例库](./03-renderer-gallery/README.md)，按主题、案例 ID 或标题查找 ${galleryStats.galleryCaseCount} 个语法变体。\n\n` +
     `## 第一次成功\n\n` +
-    `1. 在快速入门中选择 Mermaid、KaTeX 等未标记“需服务”的 renderer。\n` +
-    `2. 确认示例已经显示为图形或公式，而不是代码块。\n` +
-    `3. 复制对应 Markdown 源码到自己的文档。\n` +
-    `4. 替换业务名称、数据、边界和约束，保存后再次确认预览。\n` +
+    `1. 选择适合内容的表达方式；可从 Mermaid、KaTeX 等未标记“需服务”的类型开始。\n` +
+    `2. 阅读格式与支持限制，确认示例能在应用中正常显示。\n` +
+    `3. 引用快速入门文件或复制示例，向外部 AI 描述真实需求、数据和约束。\n` +
+    `4. 将生成的 Markdown 放入自己的文档，在 MD Viewer 检查效果与事实是否准确。\n` +
     `5. 需要交付时，再验证 HTML、PDF 或 DOCX 导出。\n\n` +
     `## 如何使用案例\n\n` +
-    `- **快速入门**来自内置 starter，适合从零复制最小源码。\n` +
+    `- **快速入门**来自内置 starter，提供格式、支持边界与完整示例，适合引用给 AI 参考。\n` +
     `- **设计参考**强调信息结构、布局和关系语义，适合借鉴表达模型。\n` +
     `- **专项案例**从 E2E fixture 中按 catalog 筛选 positive 条目，适合核对 renderer 的语法和渲染边界，不等于通用业务模板或最佳实践。\n` +
     `- 以自己的真实源码、需求和系统事实为准，不要照抄案例中的业务名称、数值、依赖或安全边界。\n\n` +
@@ -658,19 +686,30 @@ export function buildChartExamples(root = ROOT, options = {}) {
   const packageJson = readJson(path.join(root, 'package.json'))
   const rendererManifest = readJson(path.join(root, path.relative(ROOT, RENDERER_MANIFEST_PATH)))
   const templates = readJson(path.join(root, config.starterTemplates))
+  const guidance = readJson(path.join(root, 'src/renderer/src/components/settings/chartFormatGuidance.json'))
+  for (const renderer of rendererManifest.renderers) {
+    if (!guidance[renderer.type]?.syntax || !guidance[renderer.type]?.limits) fail(`missing format guidance: ${renderer.type}`)
+  }
   const catalog = readJson(path.join(root, config.galleryCatalog))
   const fixtureText = readFileSync(path.join(root, config.designReference), 'utf8').replace(/\r\n/g, '\n')
+  const fixtureCharacters = fixtureText.length
   const lines = fixtureText.split('\n')
+  if (fixtureCharacters > MAX_DESIGN_FIXTURE_CHARACTERS) {
+    fail(`design fixture exceeds hard character limit: ${fixtureCharacters} > ${MAX_DESIGN_FIXTURE_CHARACTERS}`)
+  }
+  if (lines.length > MAX_DESIGN_FIXTURE_LINES) {
+    fail(`design fixture exceeds hard line limit: ${lines.length} > ${MAX_DESIGN_FIXTURE_LINES}`)
+  }
   const directory = parseDirectory(lines)
-  const scenarios = parseScenarios(lines)
+  const deliveryReferences = parseDeliveryReferences(lines)
   const cases = parseCases(lines)
-  validateSources(config, directory, scenarios, cases, rendererManifest, templates)
+  validateSources(config, directory, deliveryReferences, cases, rendererManifest, templates)
 
   const caseById = new Map(cases.map(item => [item.id, item]))
   const gallery = buildGallery(config, catalog, rendererManifest, templates, root, options)
   const files = new Map()
-  files.set('01-quick-start.md', renderQuickStart(templates, rendererManifest))
-  files.set('02-design-reference/README.md', renderDesignIndex(directory, scenarios, extractLanguageGuide(lines)))
+  files.set('01-quick-start.md', renderQuickStart(templates, rendererManifest, guidance))
+  files.set('02-design-reference/README.md', renderDesignIndex(directory, deliveryReferences, extractLanguageGuide(lines)))
 
   for (const [language, file] of Object.entries(LANGUAGE_FILES)) {
     files.set(file, renderLanguageDocument(language, directory.filter(entry => entry.language === language), caseById))

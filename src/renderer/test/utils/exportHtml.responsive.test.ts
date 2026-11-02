@@ -15,6 +15,7 @@ const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
 
 // Mock 所有 process* 渲染器，只测 responsive 后处理
 vi.mock('../../src/utils/markdownRenderer', () => ({
+  renderMarkdown: (md: { render: (source: string) => string }, source: string) => md.render(source),
   createMarkdownRenderer: () => ({
     render: (md: string) => {
       const excalidrawBlock = md.match(/^```excalidraw\n([\s\S]*)\n```$/)
@@ -29,9 +30,26 @@ vi.mock('../../src/utils/markdownRenderer', () => ({
       if (pngImage) {
         return `<p><img src="${pngImage[2]}" alt="${pngImage[1]}"></p>`
       }
+      const wikiImage = md.match(/^!\[\[([^|\]]+)(?:\|(\d+)(?:x(\d+))?)?\]\]$/)
+      if (wikiImage) {
+        const marker = {
+          version: 1,
+          resolutionKind: 'workspace-wiki',
+          ref: wikiImage[1],
+          alt: wikiImage[1].split('/').pop() || wikiImage[1],
+          ...(wikiImage[2] ? {
+            dimensions: {
+              width: Number(wikiImage[2]),
+              ...(wikiImage[3] ? { height: Number(wikiImage[3]) } : {}),
+            },
+          } : {}),
+        }
+        return `<p><img alt="" data-mdv-local-image="${Buffer.from(JSON.stringify(marker)).toString('base64url')}"></p>`
+      }
       return md
     },
   }),
+  sanitizeHtml: (html: string) => html,
 }))
 vi.mock('../../src/utils/mermaidRenderer', () => ({
   processMermaidInHtml: (h: string) => Promise.resolve(h),
@@ -310,6 +328,31 @@ describe('buildExportHtmlContent - SVG 自适应', () => {
     })
     expect(out).toContain('src="data:image/png;base64,iVBORw0KGgo="')
     expect(out).not.toContain('src="./images/welcome.png"')
+  })
+  it('导出 Wiki 图片时按 workspace-wiki 解析并保留尺寸', async () => {
+    const readLocalAssetBase64 = vi.fn().mockResolvedValue({
+      base64: 'YXZpZg==',
+      mimeType: 'image/avif',
+      resolvedPath: '/docs/images/cover.avif',
+    })
+    global.window.api = {
+      ...global.window.api,
+      readLocalAssetBase64,
+    }
+
+    const out = await buildExportHtmlContent('![[images/cover.avif|320x180]]', {
+      markdownFilePath: '/docs/user-manual.md',
+    })
+
+    expect(readLocalAssetBase64).toHaveBeenCalledWith({
+      markdownFilePath: '/docs/user-manual.md',
+      refPath: 'images/cover.avif',
+      resolutionKind: 'workspace-wiki',
+    })
+    expect(out).toContain('src="data:image/avif;base64,YXZpZg=="')
+    expect(out).toContain('width="320"')
+    expect(out).toContain('height="180"')
+    expect(out).not.toContain('data-mdv-local-image')
   })
 })
 

@@ -62,8 +62,36 @@ test('桌面会话先恢复 MRU 窗口并错峰补齐后台窗口', async () => 
     windowLifecycleV1Migrated: true,
   }))
 
+  // 取实际创建/DOM 就绪时刻，不把跨进程事件接收时间当发生时间。
+  const launcherPath = join(sandbox, 'observe-window-creation.cjs')
+  writeFileSync(launcherPath, `
+    const { app } = require('electron')
+    globalThis.__restoreWindowCreatedAt = []
+    globalThis.__restoreWindowCreatedUnixAt = []
+    app.on('browser-window-created', (_event, window) => {
+      globalThis.__restoreWindowCreatedAt.push(performance.now())
+      globalThis.__restoreWindowCreatedUnixAt.push(Date.now())
+      if (globalThis.__restoreWindowCreatedAt.length === 1) {
+        window.webContents.once('dom-ready', async () => {
+          globalThis.__restoreForegroundAppReadyAt = await window.webContents.executeJavaScript(\`
+            new Promise(resolve => {
+              const check = () => {
+                if (!document.querySelector('.app')) return false
+                resolve(Date.now())
+                return true
+              }
+              if (check()) return
+              const observer = new MutationObserver(() => { if (check()) observer.disconnect() })
+              observer.observe(document.body, { childList: true, subtree: true })
+            })
+          \`)
+        })
+      }
+    })
+    require(${JSON.stringify(join(process.cwd(), 'out/main/index.js'))})
+  `)
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, join(process.cwd(), 'out/main/index.js')],
+    args: [`--user-data-dir=${userDataDir}`, launcherPath],
     env: {
       ...process.env,
       NODE_ENV: 'test',
@@ -85,12 +113,26 @@ test('桌面会话先恢复 MRU 窗口并错峰补齐后台窗口', async () => 
       return bootstrap.workspaces.find((workspace) => workspace.primaryRoot)?.primaryRoot
     })
     expect(foregroundRoot).toBe(snapshots[2].workspaces[0].primaryRoot)
-    expect(app.windows().length).toBeLessThan(4)
+    const foregroundTiming = await app.evaluate(() => {
+      const runtime = globalThis as typeof globalThis & {
+        __restoreForegroundAppReadyAt: number
+        __restoreWindowCreatedUnixAt: number[]
+      }
+      return { readyAt: runtime.__restoreForegroundAppReadyAt, createdAt: runtime.__restoreWindowCreatedUnixAt }
+    })
+    console.log('Foreground readiness', foregroundTiming)
+    expect(foregroundTiming.readyAt).toBeGreaterThan(0)
+    expect(foregroundTiming.createdAt.filter(at => at <= foregroundTiming.readyAt).length).toBeLessThan(4)
 
     await expect.poll(() => app.windows().length, { timeout: 8_000 }).toBe(4)
-    expect(windowCreatedAt).toHaveLength(4)
-    for (let index = 1; index < windowCreatedAt.length; index++) {
-      expect(windowCreatedAt[index] - windowCreatedAt[index - 1]).toBeGreaterThanOrEqual(450)
+    const mainWindowCreatedAt = await app.evaluate(() => {
+      const runtime = globalThis as typeof globalThis & { __restoreWindowCreatedAt: number[] }
+      return runtime.__restoreWindowCreatedAt
+    })
+    console.log('Window creation timestamps', { mainWindowCreatedAt, windowCreatedAt })
+    expect(mainWindowCreatedAt).toHaveLength(4)
+    for (let index = 1; index < mainWindowCreatedAt.length; index++) {
+      expect(mainWindowCreatedAt[index] - mainWindowCreatedAt[index - 1]).toBeGreaterThanOrEqual(450)
     }
 
     const restored = [] as Array<{ root?: string; headings: string[] }>

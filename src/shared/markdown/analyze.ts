@@ -17,7 +17,7 @@ export interface AnalyzedMarkdownHeading {
 }
 
 export interface AnalyzedMarkdownLink {
-  syntax: 'inline' | 'reference-definition' | 'autolink' | 'html'
+  syntax: 'inline' | 'reference-definition' | 'autolink' | 'html' | 'wiki'
   isImage: boolean
   rawTarget: string
   decodedTarget: string
@@ -43,6 +43,14 @@ export function analyzeMarkdownSource(source: string): AnalyzedMarkdownDocument 
     headings: extractHeadings(tokens),
     links: scanMarkdownLinkDestinations(source).map(link => {
       const target = splitMarkdownTarget(link.rawTarget)
+      const wiki = link.wikiReference
+      const kind: MarkdownTargetKind = wiki
+        ? wiki.resourceKind === 'markdown'
+          ? 'markdown'
+          : wiki.resourceKind === 'image' || wiki.resourceKind === 'audio' || wiki.resourceKind === 'video'
+            ? 'local-resource'
+            : 'unsupported'
+        : classifyMarkdownTarget(link.rawTarget)
       return {
         syntax: link.syntax,
         isImage: link.isImage,
@@ -52,7 +60,7 @@ export function analyzeMarkdownSource(source: string): AnalyzedMarkdownDocument 
           target.rawQuery === undefined ? '' : `?${target.query ?? ''}`,
           target.rawAnchor === undefined ? '' : `#${target.anchor ?? ''}`,
         ].join(''),
-        kind: classifyMarkdownTarget(link.rawTarget),
+        kind,
         lineStart: link.sourceRange.startLine,
         sourceRange: link.sourceRange,
         ...(link.destinationRange ? { destinationRange: link.destinationRange } : {}),

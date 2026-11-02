@@ -30,7 +30,7 @@ const ctx = {
     findContainingFolder: vi.fn(async () => null),
   },
   appDataManager: {
-    getRecentFile: vi.fn(() => null),
+    getRecentFile: vi.fn((_id: string) => null),
   },
 }
 
@@ -43,6 +43,11 @@ function handler(channel: string): (...args: any[]) => any {
 describe('workspace index IPC', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    workspaceIndexService.query.mockReset().mockResolvedValue([])
+    workspaceIndexService.attach.mockReset().mockResolvedValue(undefined)
+    workspaceIndexService.waitUntilIdle.mockReset().mockResolvedValue(undefined)
+    ctx.appDataManager.getRecentFile.mockReset().mockReturnValue(null)
+    ctx.folderHistoryManager.findContainingFolder.mockReset().mockResolvedValue(null)
     registerWorkspaceIndexHandlers(ctx as any)
   })
 
@@ -110,8 +115,8 @@ describe('workspace index IPC', () => {
     )
 
     expect(ctx.folderHistoryManager.resolveHistoryFolder).toHaveBeenCalledWith('history-a')
-    expect(workspaceIndexService.attach).toHaveBeenCalledWith('/history/root', 'history-query:9:history-a')
-    expect(workspaceIndexService.detach).toHaveBeenCalledWith('/history/root', 'history-query:9:history-a')
+    expect(workspaceIndexService.attach).toHaveBeenCalledWith('/history/root', expect.stringContaining('history-query:9:history-a:'))
+    expect(workspaceIndexService.detach).toHaveBeenCalledWith('/history/root', workspaceIndexService.attach.mock.calls[0][1])
     expect(result).toEqual([expect.objectContaining({ historyId: 'history-a', filePath: path.join('/history/root', 'doc.md') })])
 
     await expect(handler('workspace-index:queryHistory')(
@@ -139,6 +144,83 @@ describe('workspace index IPC', () => {
       filePath: '/history/root/docs/recent.md',
     })])
     expect(result[0]).not.toHaveProperty('historyId')
+  })
+
+  it.each([100, 101, 500])('%i条合法最近记录同根只查询一次，包含末尾记录', async count => {
+    const ids = Array.from({ length: count }, (_, i) => `recent-${i}`)
+    ctx.appDataManager.getRecentFile.mockImplementation((id: string) => ({
+      id, name: `${id}.md`, path: `/history/root/${id}.md`,
+    }) as any)
+    ctx.folderHistoryManager.findContainingFolder.mockResolvedValue('/history/root' as any)
+    workspaceIndexService.query.mockResolvedValueOnce([{
+      relativePath: `${ids[count - 1]}.md`, displayName: 'last.md', score: 1,
+      lineStart: 1, snippet: 'hit', revisionToken: 'revision',
+    }])
+    const result = await handler('workspace-index:queryHistory')(
+      { sender: { id: 9 } }, OPERATION, 'hit', [], ids, 20,
+    )
+    expect(workspaceIndexService.query).toHaveBeenCalledTimes(1)
+    expect(workspaceIndexService.query).toHaveBeenCalledWith(
+      '/history/root', 'hit', 20, new Set(ids.map(id => `${id}.md`)),
+    )
+    expect(workspaceIndexService.attach).toHaveBeenCalledTimes(1)
+    expect(workspaceIndexService.waitUntilIdle).toHaveBeenCalledTimes(1)
+    expect(workspaceIndexService.detach).toHaveBeenCalledTimes(1)
+    expect(result).toEqual([expect.objectContaining({ recentFileId: ids[count - 1] })])
+  })
+
+  it.each([
+    Array.from({ length: 501 }, (_, i) => `recent-${i}`),
+    [''], ['x'.repeat(201)], [null], ['/arbitrary/path.md', 5],
+  ].map(ids => ({ ids })))('拒绝超限或非法最近ID数组', async ({ ids }) => {
+    await expect(handler('workspace-index:queryHistory')(
+      { sender: { id: 9 } }, OPERATION, 'hit', [], ids, 20,
+    )).rejects.toThrow('历史记录标识无效')
+    expect(workspaceIndexService.attach).not.toHaveBeenCalled()
+  })
+
+  it('同根历史与重复最近ID只返回一份，且不扩大最近文件范围', async () => {
+    ctx.appDataManager.getRecentFile.mockReturnValue({ id: 'recent-a', path: '/history/root/doc.md' } as any)
+    ctx.folderHistoryManager.findContainingFolder.mockResolvedValue('/history/root' as any)
+    workspaceIndexService.query.mockResolvedValueOnce([{
+      relativePath: 'doc.md', displayName: 'doc.md', score: 2, lineStart: 1, snippet: 'hit', revisionToken: 'revision',
+    }])
+    const result = await handler('workspace-index:queryHistory')(
+      { sender: { id: 9 } }, OPERATION, 'hit', ['history-a', 'history-a'], ['recent-a', 'recent-a'], 20,
+    )
+    expect(workspaceIndexService.query).toHaveBeenCalledTimes(1)
+    expect(result).toEqual([expect.objectContaining({ historyId: 'history-a' })])
+    expect(ctx.appDataManager.getRecentFile).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['attach', 'waitUntilIdle', 'query'] as const)('%s失败仍释放本次consumer', async stage => {
+    workspaceIndexService[stage].mockRejectedValueOnce(new Error('fixture failure'))
+    await expect(handler('workspace-index:queryHistory')(
+      { sender: { id: 9 } }, OPERATION, 'hit', ['history-a'], [], 20,
+    )).rejects.toThrow('fixture failure')
+    expect(workspaceIndexService.detach).toHaveBeenCalledWith(
+      '/history/root', workspaceIndexService.attach.mock.calls[0][1],
+    )
+  })
+
+  it('历史检索仍拒绝旧epoch、未知ID及逃逸路径，不授权renderer路径', async () => {
+    const query = handler('workspace-index:queryHistory')
+    await expect(query({ sender: { id: 9 } }, { ...OPERATION, lifecycleEpoch: 2 }, 'hit', [], [], 20))
+      .rejects.toThrow('工作区已失效')
+    expect(await query({ sender: { id: 9 } }, OPERATION, 'hit', ['/arbitrary/root'], ['missing'], 20)).toEqual([])
+    ctx.appDataManager.getRecentFile.mockReturnValue({ id: 'recent-a', path: '/outside/doc.md' } as any)
+    ctx.folderHistoryManager.findContainingFolder.mockResolvedValue('/history/root' as any)
+    expect(await query({ sender: { id: 9 } }, OPERATION, 'hit', [], ['recent-a'], 20)).toEqual([])
+    expect(workspaceIndexService.attach).not.toHaveBeenCalled()
+  })
+
+  it('并发历史请求使用独立consumer，避免互相detach', async () => {
+    await Promise.all([1, 2].map(() => handler('workspace-index:queryHistory')(
+      { sender: { id: 9 } }, OPERATION, 'hit', ['history-a'], [], 20,
+    )))
+    const consumers = workspaceIndexService.attach.mock.calls.map(call => call[1])
+    expect(new Set(consumers).size).toBe(2)
+    for (const consumer of consumers) expect(workspaceIndexService.detach).toHaveBeenCalledWith('/history/root', consumer)
   })
 
   it('拒绝旧 epoch 和逃逸相对路径', async () => {

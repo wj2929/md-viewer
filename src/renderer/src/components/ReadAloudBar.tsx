@@ -298,9 +298,9 @@ const ReadAloudBar: React.FC<ReadAloudBarProps> = ({ containerRef, filePath, con
               onChange={handleSystemVoiceChange}
               aria-label="系统音色"
             >
-              <option value="">系统默认音色</option>
+              <option value="">自动（按文本语言）</option>
               {systemProvider?.voice && !systemVoices.some((voice) => voice.id === systemProvider.voice) && (
-                <option value={systemProvider.voice}>已不可用（将使用系统默认）</option>
+                <option value={systemProvider.voice}>已不可用（将按文本语言自动选择）</option>
               )}
               {systemVoices.map((voice) => (
                 <option key={voice.id} value={voice.id}>{voice.name}（{voice.lang}）</option>

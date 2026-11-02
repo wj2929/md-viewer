@@ -83,10 +83,16 @@ export class SystemSpeechEngine implements TtsEngine {
     const playbackToken = this.playbackToken
     const utt = new SpeechSynthesisUtterance(seg.text)
     utt.rate = this.rate
-    if (this.voice) {
-      utt.voice = this.voice
-      utt.lang = this.voice.lang
-    }
+    const language = /\p{Script=Han}/u.test(seg.text) ? 'zh-CN' : 'en-US'
+    const voices = window.speechSynthesis.getVoices()
+    const locale = language.toLowerCase()
+    const matchesLocale = (voice: SpeechSynthesisVoice): boolean => voice.lang.toLowerCase().replace('_', '-') === locale
+    // 名称可能随系统语言变化。失效配置只回退本句音色，不改写用户配置。
+    const voice = this.voice ?? voices.find(voice => matchesLocale(voice) && voice.default)
+      ?? voices.find(matchesLocale)
+      ?? voices.find(voice => voice.lang.toLowerCase().startsWith(locale.split('-')[0] + '-'))
+    utt.lang = voice?.lang || language
+    if (voice) utt.voice = voice
     utt.onstart = () => {
       if (this.disposed || this.playbackToken !== playbackToken) return
       if (this.current !== utt) return

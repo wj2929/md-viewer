@@ -294,7 +294,8 @@ test.describe('Markdown 编辑模式', () => {
     const targetParagraph = page.locator('.markdown-workbench-preview-pane p.markdown-preview-editable-block', {
       hasText: 'Paragraph 30 before inline rendered editing.',
     })
-    await targetParagraph.scrollIntoViewIfNeeded()
+    // 同一DOM任务完成定位，不在防抖预览重新提交期间持有旧节点等待稳定。
+    await targetParagraph.evaluate(element => element.scrollIntoView({ block: 'center' }))
     await expect(targetParagraph).toBeVisible()
 
     const beforeTop = await page.locator('.markdown-workbench-preview-pane .preview').evaluate(element => element.scrollTop)

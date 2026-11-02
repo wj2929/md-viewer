@@ -1,12 +1,15 @@
 import MarkdownIt from 'markdown-it'
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { mkdir, readFile, rm, stat, writeFile } from 'fs/promises'
+import { mkdir, readFile, realpath, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 import { pathToFileURL } from 'url'
-import type { BrowserPageRenderResult, ServerRenderInput } from '../../renderer/src/server-render/contracts'
+import { escape as escapeGlob, glob } from 'glob'
+import type { BrowserPageRenderResult, ServerRenderInput, ServerRenderResource } from '../../renderer/src/server-render/contracts'
 import { escapeHtml } from './sharedExportWriters'
+import { validateSecurePathInBase } from '../security'
+import { scanMarkdownLinkDestinations } from '../../shared/markdown/sourceLinks'
 import type { CliArtifact } from './types'
 
 const MAX_CAPTURE_DIMENSION_PX = 12000
@@ -39,11 +42,90 @@ export type MarkdownScreenshotCapture = (
   options: MarkdownScreenshotCaptureOptions,
 ) => Promise<MarkdownScreenshotCaptureResult>
 
-export const renderMarkdownHeadless: HeadlessMarkdownRenderer = async (input) => {
+const MAX_BPMN_RESOURCE_SIZE = 2 * 1024 * 1024
+const MAX_EXCALIDRAW_RESOURCE_SIZE = 1024 * 1024
+
+async function enrichLocalChartResources(input: ServerRenderInput): Promise<ServerRenderInput> {
+  if (!input.markdownFilePath) return input
+
+  let root: string
   try {
-    return await renderMarkdownWithServerRenderPage(input)
+    root = await realpath(path.dirname(path.resolve(input.markdownFilePath)))
+  } catch {
+    return input
+  }
+
+  const resources: ServerRenderResource[] = []
+  const seen = new Set<string>()
+  for (const link of scanMarkdownLinkDestinations(input.markdown)) {
+    const wiki = link.wikiReference
+    const isWikiSpecial = link.syntax === 'wiki'
+      && wiki?.isEmbed
+      && wiki.resourceKind === 'special'
+    const rawRef = isWikiSpecial ? wiki.path : link.isImage ? link.rawTarget : ''
+    if (!rawRef) continue
+
+    let ref: string
+    try {
+      ref = decodeURIComponent(rawRef).split(/[?#]/, 1)[0].trim()
+    } catch {
+      continue
+    }
+    const extension = path.extname(ref).toLowerCase()
+    if (extension !== '.bpmn' && extension !== '.excalidraw') continue
+    if (/^[a-z][a-z0-9+.-]*:/i.test(ref) || path.isAbsolute(ref)) continue
+
+    const logicalPath = path.resolve(root, ref)
+    if (seen.has(logicalPath)) continue
+    seen.add(logicalPath)
+
+    try {
+      let candidate = logicalPath
+      if (isWikiSpecial && !/[\\/]/.test(ref)) {
+        try {
+          candidate = await realpath(candidate)
+        } catch {
+          const matches = await glob(`**/${escapeGlob(ref)}`, {
+            cwd: root,
+            absolute: true,
+            nodir: true,
+            nocase: process.platform === 'win32',
+            ignore: ['**/.git/**', '**/.claude/**', '**/node_modules/**'],
+          })
+          if (matches.length !== 1) continue
+          candidate = matches[0]
+        }
+      }
+      const canonicalPath = await validateSecurePathInBase(candidate, root)
+      const stats = await stat(canonicalPath)
+      const sizeLimit = extension === '.bpmn'
+        ? MAX_BPMN_RESOURCE_SIZE
+        : MAX_EXCALIDRAW_RESOURCE_SIZE
+      if (!stats.isFile() || stats.size <= 0 || stats.size > sizeLimit) continue
+      resources.push({
+        path: logicalPath,
+        kind: 'text',
+        content: await readFile(canonicalPath, 'utf8'),
+        mediaType: extension === '.bpmn' ? 'application/xml' : 'application/json',
+        size: stats.size,
+      })
+    } catch {
+      // 单个文件引用失败时由 renderer 输出明确占位，不扩展 CLI 读取边界。
+    }
+  }
+
+  return resources.length === 0
+    ? input
+    : { ...input, resources: [...resources, ...(input.resources ?? [])] }
+}
+
+export const renderMarkdownHeadless: HeadlessMarkdownRenderer = async (input) => {
+  let renderInput = input
+  try {
+    renderInput = await enrichLocalChartResources(input)
+    return await renderMarkdownWithServerRenderPage(renderInput)
   } catch (error) {
-    const fallback = renderMarkdownFallback(input)
+    const fallback = renderMarkdownFallback(renderInput)
     fallback.warnings.push({
       code: 'FALLBACK_USED',
       severity: 'warning',
@@ -89,8 +171,9 @@ export const captureMarkdownScreenshot: MarkdownScreenshotCapture = async (optio
     height: 900,
     scaleFactor: 1,
   }
-  const { renderWindow, wrapperPath } = await createServerRenderWindow(options.renderInput, viewport)
-  const timeoutMs = options.renderInput.timeoutMs ?? 30000
+  const renderInput = await enrichLocalChartResources(options.renderInput)
+  const { renderWindow, wrapperPath } = await createServerRenderWindow(renderInput, viewport)
+  const timeoutMs = renderInput.timeoutMs ?? 30000
 
   try {
     try {
@@ -441,8 +524,8 @@ export function normalizeElementCaptureBounds(raw: {
   }
 }
 
-function renderMarkdownFallback(input: ServerRenderInput): BrowserPageRenderResult {
-  const md = new MarkdownIt({ html: true, linkify: true, typographer: true })
+export function renderMarkdownFallback(input: ServerRenderInput): BrowserPageRenderResult {
+  const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
   const startedAt = Date.now()
   return {
     schemaVersion: '1.0',

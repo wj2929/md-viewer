@@ -94,6 +94,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
+    if (exportTab.linkedReadOnly) { toast.error('外部临时文档仅供只读查看，不能整文档导出。'); return }
     if (!(await exportGuard(exportTab.file.path))) return
     if (!(await runPreflightGate(exportTab.file.path, ['html']))) return
     await ensureTabContentLoaded(exportTab.id)
@@ -103,11 +104,11 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       loadingId = toast.info('正在导出 HTML...', { duration: 60000 })
       await waitForExportFeedbackPaint()
       const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
-      const filePath = await window.api.exportHTML(htmlContent, exportTab.file.name)
+      const result = await window.api.exportHTML(htmlContent, exportTab.file.name, exportTab.file.path)
       toast.close(loadingId)
-      if (filePath) {
-        toast.success(`HTML 已导出`, {
-          action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
+      if (result) {
+        toast.success(result.linkedMedia > 0 ? 'HTML 已导出（本地媒体为相对链接）' : 'HTML 已导出', {
+          action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(result.filePath) } catch (error) { console.error('Failed to show item:', error) } } }
         })
       }
     } catch (error) {
@@ -123,20 +124,21 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
+    if (exportTab.linkedReadOnly) { toast.error('外部临时文档仅供只读查看，不能整文档导出。'); return }
     if (!(await exportGuard(exportTab.file.path))) return
     if (!(await runPreflightGate(exportTab.file.path, ['pdf']))) return
     await ensureTabContentLoaded(exportTab.id)
     const exportContent = getExportContent(exportTab)
     let loadingId: string | undefined
     try {
-      loadingId = toast.info('正在导出 PDF...', { duration: 60000 })
+      loadingId = toast.info('正在导出 PDF...', { duration: 0 })
       await waitForExportFeedbackPaint()
       const htmlContent = await buildExportHtmlContent(exportContent, { markdownFilePath: exportTab.file.path })
-      const filePath = await window.api.exportPDF(htmlContent, exportTab.file.name)
+      const result = await window.api.exportPDF(htmlContent, exportTab.file.name, exportTab.file.path)
       toast.close(loadingId)
-      if (filePath) {
+      if (result) {
         toast.success(`PDF 已导出`, {
-          action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(filePath) } catch (error) { console.error('Failed to show item:', error) } } }
+          action: { label: '点击查看', onClick: async () => { try { await window.api.showItemInFolder(result.filePath) } catch (error) { console.error('Failed to show item:', error) } } }
         })
       }
     } catch (error) {
@@ -152,6 +154,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
       ? tabs.find(t => t.id === findLeaf(splitState.root, splitState.activeLeafId)?.tabId) || activeTab
       : activeTab
     if (!exportTab) return
+    if (exportTab.linkedReadOnly) { toast.error('外部临时文档仅供只读查看，不能整文档导出。'); return }
     if (!(await exportGuard(exportTab.file.path))) return
     let preflightDocxUrl: string | undefined
     try {
@@ -338,7 +341,15 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
         useExportTaskStore.getState().setGenerating()
       }
 
-      const result = await window.api.exportDOCX(htmlContent, exportTab.file.name, folderPath || '', markdownForExport, docStyle, remoteImages) as any
+      const result = await window.api.exportDOCX(
+        htmlContent,
+        exportTab.file.name,
+        folderPath || '',
+        markdownForExport,
+        docStyle,
+        remoteImages,
+        exportTab.file.path,
+      ) as any
 
       if (loadingId) toast.close(loadingId)
 

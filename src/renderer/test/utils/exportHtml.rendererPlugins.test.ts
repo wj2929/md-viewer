@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { buildExportHtmlContent } from '../../src/utils/exportHtml'
 
 vi.mock('../../src/utils/markdownRenderer', () => ({
+  renderMarkdown: (md: { render: (source: string) => string }, source: string) => md.render(source),
   createMarkdownRenderer: () => ({
     render: (markdown: string) => markdown,
   }),
+  sanitizeHtml: (html: string) => html,
 }))
 
 vi.mock('../../src/utils/mermaidRenderer', () => ({ processMermaidInHtml: (html: string) => Promise.resolve(html) }))

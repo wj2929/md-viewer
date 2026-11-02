@@ -4,7 +4,23 @@ import {
   calculateCaptureScale,
   constrainCaptureBounds,
   normalizeElementCaptureBounds,
+  renderMarkdownFallback,
 } from '../cli/headlessRenderer'
+
+describe('headlessRenderer fallback safety', () => {
+  it('escapes raw HTML instead of emitting active markup', () => {
+    const result = renderMarkdownFallback({
+      schemaVersion: '1.0',
+      markdown: '<img src=x onerror="alert(1)">\n\n<script>alert(2)</script>',
+    })
+
+    expect(result.html).toContain('&lt;img src=x onerror=')
+    expect(result.html).toContain('alert(1)')
+    expect(result.html).toContain('&lt;script&gt;alert(2)&lt;/script&gt;')
+    expect(result.html).not.toContain('<script>')
+    expect(result.html).not.toContain('<img')
+  })
+})
 
 describe('headlessRenderer screenshot bounds', () => {
   it('calculates a proportional scale for oversized capture targets', () => {

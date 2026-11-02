@@ -307,6 +307,34 @@ describe('next renderer suite', () => {
     assertNodeRectsDoNotOverlap(result.svg)
   })
 
+  it('keeps dense DBML fields inside their table and preserves common declarations', () => {
+    const result = renderDbmlToSvg(`Table outbox_events {
+      id uuid [pk]
+      tenant_id uuid [not null]
+      aggregate_type varchar(64) [not null]
+      aggregate_id uuid [not null]
+      aggregate_version int [not null]
+      event_type varchar(96) [not null]
+      payload_json text [not null]
+      occurred_at timestamp [not null]
+      published_at timestamp
+    }`)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const doc = new DOMParser().parseFromString(result.svg, 'image/svg+xml')
+    const title = Array.from(doc.querySelectorAll('text')).find(node => node.textContent === 'outbox_events')
+    const published = Array.from(doc.querySelectorAll('text')).find(node => node.textContent?.startsWith('published_at '))
+    const tableX = Number(title?.getAttribute('x')) - 14
+    const table = Array.from(doc.querySelectorAll('rect')).find(node => Number(node.getAttribute('x')) === tableX)
+    const tableBottom = Number(table?.getAttribute('y')) + Number(table?.getAttribute('height'))
+
+    expect(Number(published?.getAttribute('y'))).toBeLessThan(tableBottom)
+    expect(result.svg).toContain('aggregate_version <tspan fill="#667085">int not null</tspan>')
+    expect(result.svg).toContain('event_type <tspan fill="#667085">varchar(96) not null</tspan>')
+  })
+
   it('renders compact one-line DBML table definitions with all fields', () => {
     const result = renderDbmlToSvg('Table users { id int [pk] org_id int [ref: > orgs.id] name varchar }\nTable orgs { id int [pk] name varchar }')
 
@@ -314,7 +342,8 @@ describe('next renderer suite', () => {
     if (!result.ok) return
     expect(result.svg).toContain('org_id')
     expect(result.svg).toContain('name <tspan')
-    expect(result.svg).toContain('org_id -&gt; id')
+    const doc = new DOMParser().parseFromString(result.svg, 'image/svg+xml')
+    expect(Array.from(doc.querySelectorAll('text')).filter(node => node.textContent === 'org_id')).toHaveLength(1)
   })
 
   it('deduplicates DBML references and keeps foreign key field labels compact', () => {
@@ -323,7 +352,8 @@ describe('next renderer suite', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.svg.match(/org_id -&gt; id/g)).toHaveLength(1)
+    const doc = new DOMParser().parseFromString(result.svg, 'image/svg+xml')
+    expect(Array.from(doc.querySelectorAll('text')).filter(node => node.textContent === 'org_id')).toHaveLength(1)
     expect(result.svg).toContain('org_id <tspan')
     expect(result.svg).toContain('fk</tspan>')
     expect(result.svg).not.toContain('ref: &gt; orgs.id')
@@ -337,7 +367,12 @@ describe('next renderer suite', () => {
 
     const doc = new DOMParser().parseFromString(result.svg, 'image/svg+xml')
     const edge = doc.documentElement.querySelector('path[marker-end="url(#arrow)"]')
-    expect(edge?.getAttribute('d')).toMatch(/^M2[7-9]\d,/)
+    const usersTitle = Array.from(doc.querySelectorAll('text')).find(node => node.textContent === 'users')
+    const usersX = Number(usersTitle?.getAttribute('x')) - 14
+    const usersRect = Array.from(doc.querySelectorAll('rect')).find(node => Number(node.getAttribute('x')) === usersX)
+    const expectedRightEdge = usersX + Number(usersRect?.getAttribute('width'))
+    const edgeStartX = Number(edge?.getAttribute('d')?.match(/^M([^,]+),/)?.[1])
+    expect(edgeStartX).toBeCloseTo(expectedRightEdge)
     expect(result.svg).toContain('simple-edge-label-bg')
   })
 

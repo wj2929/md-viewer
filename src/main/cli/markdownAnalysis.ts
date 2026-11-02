@@ -2,6 +2,12 @@ import MarkdownIt from 'markdown-it'
 import type Token from 'markdown-it/lib/token.mjs'
 import { readFile, stat } from 'fs/promises'
 import path from 'path'
+import { escape, glob } from 'glob'
+import { inspectMarkdownBlock } from '../../shared/markdown/blocks'
+import { isBareWikiDocumentName } from '../../shared/markdown/wikiDocumentNames'
+import { scanMarkdownLinkDestinations } from '../../shared/markdown/sourceLinks'
+import type { ParsedWikiReference } from '../../shared/markdown/obsidianSyntax'
+import { isSafeLocalResourceReference, MARKDOWN_EXTENSIONS } from '../../shared/localMedia'
 import {
   classifyMarkdownTarget,
   createHeadingIdAllocator,
@@ -88,6 +94,8 @@ export interface MarkdownLinkInfo {
   anchor?: string
   anchorExists?: boolean
   resolvedPath?: string
+  ambiguous?: boolean
+  checkStatus?: 'alias-not-checked'
   lineStart: number
 }
 
@@ -133,8 +141,33 @@ export async function analyzeMarkdown(markdown: string, filePath: string): Promi
     })
     .filter((block): block is MarkdownChartBlockInfo => Boolean(block))
   const baseDir = path.dirname(filePath)
+  const wikiReferences = scanMarkdownLinkDestinations(markdown)
+    .filter(link => link.syntax === 'wiki' && link.wikiReference)
   const images = await extractImages(tokens, baseDir)
   const links = await extractLinks(tokens, filePath, headings)
+  for (const link of wikiReferences) {
+    const reference = link.wikiReference!
+    if (reference.isEmbed && reference.resourceKind === 'image') {
+      images.push(await inspectWikiImage(reference, baseDir, link.sourceRange.startLine))
+    } else {
+      links.push(await inspectWikiLink(reference, baseDir, headings, link.sourceRange.startLine))
+    }
+  }
+
+  const blockSources = new Map<string, string>([[filePath, markdown]])
+  for (const link of links) {
+    if (!link.anchor?.startsWith('^')) continue
+    const targetPath = link.kind === 'anchor' ? filePath : link.exists ? link.resolvedPath : undefined
+    if (!targetPath) continue
+    let source = blockSources.get(targetPath)
+    if (source === undefined) {
+      try { source = await readFile(targetPath, 'utf8'); blockSources.set(targetPath, source) }
+      catch { continue }
+    }
+    const block = inspectMarkdownBlock(source, link.anchor.slice(1))
+    link.anchorExists = block === 'found'
+    if (block === 'ambiguous') link.ambiguous = true
+  }
 
   const summary: MarkdownAnalysisSummary = {
     lines: markdown.length === 0 ? 0 : markdown.split(/\r?\n/).length,
@@ -293,11 +326,122 @@ async function inspectLinkTarget(options: {
     lineStart: options.lineStart,
   }
 
-  if (exists && anchor && kind === 'markdown') {
+  if (exists && anchor && !anchor.startsWith('^') && kind === 'markdown') {
     link.anchorExists = await targetFileHasAnchor(resolvedPath, anchor)
   }
 
   return link
+}
+
+async function inspectWikiImage(
+  reference: ParsedWikiReference,
+  rootDir: string,
+  lineStart: number,
+): Promise<MarkdownImageInfo> {
+  const resolved = await resolveCliWikiTarget(rootDir, reference.path, reference.resourceKind)
+  return {
+    alt: reference.displayText,
+    target: reference.rawTarget,
+    kind: 'local',
+    exists: resolved.exists,
+    ...(resolved.path ? { resolvedPath: resolved.path } : {}),
+    lineStart,
+  }
+}
+
+async function inspectWikiLink(
+  reference: ParsedWikiReference,
+  rootDir: string,
+  currentHeadings: MarkdownHeadingInfo[],
+  lineStart: number,
+): Promise<MarkdownLinkInfo> {
+  const anchor = reference.fragment
+  if (!reference.path && anchor) {
+    return {
+      text: reference.displayText,
+      target: reference.rawTarget,
+      kind: 'anchor',
+      anchor,
+      ...(reference.fragmentKind === 'heading'
+        ? { anchorExists: currentHeadings.some(heading => markdownAnchorMatches(heading.id, anchor)) }
+        : {}),
+      lineStart,
+    }
+  }
+
+  let bareName = false
+  try { bareName = !reference.isEmbed && isBareWikiDocumentName(decodeURIComponent(reference.path).trim()) } catch { /* Invalid encoding is not an unchecked alias. */ }
+  const resolved = await resolveCliWikiTarget(rootDir, reference.path, reference.resourceKind, bareName)
+  const kind = reference.resourceKind === 'markdown' || (bareName && (!resolved.path || MARKDOWN_EXTENSIONS.has(path.extname(resolved.path).toLowerCase())))
+    ? 'markdown' : 'local-resource'
+  const link: MarkdownLinkInfo = {
+    text: reference.displayText,
+    target: reference.rawTarget,
+    kind,
+    ...(bareName && !resolved.exists && !resolved.ambiguous ? { checkStatus: 'alias-not-checked' as const } : { exists: resolved.exists }),
+    ...(resolved.path ? { resolvedPath: resolved.path } : {}),
+    ...(resolved.ambiguous ? { ambiguous: true } : {}),
+    ...(anchor ? { anchor } : {}),
+    lineStart,
+  }
+  if (
+    resolved.exists
+    && resolved.path
+    && kind === 'markdown'
+    && anchor
+    && reference.fragmentKind === 'heading'
+  ) {
+    link.anchorExists = await targetFileHasAnchor(resolved.path, anchor)
+  }
+  return link
+}
+
+async function resolveCliWikiTarget(
+  rootDir: string,
+  rawPath: string,
+  resourceKind: ParsedWikiReference['resourceKind'],
+  bareDocumentName = false,
+): Promise<{ path?: string, exists: boolean, ambiguous: boolean }> {
+  let decodedPath: string
+  try {
+    decodedPath = decodeURIComponent(rawPath).trim()
+  } catch {
+    return { exists: false, ambiguous: false }
+  }
+  if (!isSafeLocalResourceReference(decodedPath)) return { exists: false, ambiguous: false }
+
+  const extension = path.extname(decodedPath).toLowerCase()
+  if (bareDocumentName && extension) {
+    const resource = await resolveCliWikiTarget(rootDir, rawPath, 'attachment')
+    if (resource.exists || resource.ambiguous) return resource
+  }
+  const names = bareDocumentName || (resourceKind === 'markdown' && !extension)
+    ? [...MARKDOWN_EXTENSIONS].map(candidate => `${decodedPath}${candidate}`)
+    : [decodedPath]
+  if (decodedPath.includes('/') || decodedPath.includes('\\')) {
+    for (const name of names) {
+      const candidate = path.resolve(rootDir, name)
+      if (await pathExists(candidate)) return { path: candidate, exists: true, ambiguous: false }
+    }
+    return { path: path.resolve(rootDir, names[0]), exists: false, ambiguous: false }
+  }
+
+  for (const name of names) {
+    const nearby = path.resolve(rootDir, name)
+    if (await pathExists(nearby)) return { path: nearby, exists: true, ambiguous: false }
+  }
+
+  const patterns = names.map(name => `**/${escape(path.basename(name))}`)
+  const matches = await glob(patterns, {
+    cwd: rootDir,
+    absolute: true,
+    nodir: true,
+    nocase: process.platform === 'win32',
+    ignore: ['**/.git/**', '**/.claude/**', '**/node_modules/**'],
+  })
+  const unique = [...new Set(matches)]
+  if (unique.length === 1) return { path: unique[0], exists: true, ambiguous: false }
+  return { exists: false, ambiguous: unique.length > 1 }
 }
 
 async function targetFileHasAnchor(filePath: string, anchor: string): Promise<boolean> {

@@ -6,7 +6,10 @@ installEpipeHandler()
 
 const startupArgv = process.argv.slice(1)
 
-if (isHeadlessCliArgv(startupArgv)) {
+if (startupArgv.some(arg => arg.startsWith('--md-viewer-pdf-helper='))) {
+  app.on('window-all-closed', () => undefined)
+  void import('./pdf/pdfWorker').then(({ runPdfWorker }) => runPdfWorker()).catch(() => app.exit(1))
+} else if (isHeadlessCliArgv(startupArgv)) {
   app.on('window-all-closed', () => undefined)
   void import('./cli/bootstrap').then(({ runCliOnStartup }) =>
     runCliOnStartup(startupArgv, {

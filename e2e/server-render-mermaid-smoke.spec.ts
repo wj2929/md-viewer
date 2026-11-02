@@ -576,7 +576,7 @@ test('server render counts completed D2 wrappers instead of nested SVG elements'
   const fixture = fs.readFileSync(path.resolve('e2e/fixtures/test-diagram-design.md'), 'utf8')
   const d2Blocks = [...fixture.matchAll(/^```d2\b[^\n]*\n([\s\S]*?)^```\s*$/gim)]
     .map(match => match[1].trim())
-  expect(d2Blocks).toHaveLength(15)
+  expect(d2Blocks).toHaveLength(16)
   const markdown = d2Blocks.map(source => `\`\`\`d2\n${source}\n\`\`\``).join('\n\n')
 
   await page.addInitScript((d2Markdown) => {
@@ -608,13 +608,13 @@ test('server render counts completed D2 wrappers instead of nested SVG elements'
     expect(result?.ok).toBe(true)
     expect(result?.status).toBe('success')
     expect(result?.stats).toMatchObject({
-      totalBlocks: 15,
-      renderedBlocks: 15,
+      totalBlocks: 16,
+      renderedBlocks: 16,
       failedBlocks: 0,
     })
-    expect(d2Images).toHaveLength(15)
+    expect(d2Images).toHaveLength(16)
     expect(d2Images.map((image: { sourceIndex?: number }) => image.sourceIndex)).toEqual(
-      Array.from({ length: 15 }, (_, index) => index),
+      Array.from({ length: 16 }, (_, index) => index),
     )
   } finally {
     await server.close()

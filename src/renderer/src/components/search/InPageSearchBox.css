@@ -32,6 +32,17 @@
   animation: inPageSearchSlideIn 0.2s ease-out;
 }
 
+/* 分屏搜索跟随所属预览滚动容器，不与其他面板重叠。 */
+.split-leaf-panel .in-page-search-box {
+  position: sticky;
+  top: 8px;
+  right: auto;
+  margin: 8px 8px 0 auto;
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
 /* 淡出状态 */
 .in-page-search-box.closing {
   animation: inPageSearchSlideOut 0.15s ease-in forwards;

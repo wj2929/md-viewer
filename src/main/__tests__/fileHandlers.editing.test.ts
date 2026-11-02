@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import * as fs from 'fs-extra'
 import * as path from 'path'
-import chokidar from 'chokidar'
 import { registerFileHandlers } from '../ipc/fileHandlers'
 import { resetSecurity } from '../security'
 
@@ -16,15 +15,27 @@ vi.mock('electron', () => ({
   shell: { openPath: vi.fn() },
 }))
 
-vi.mock('chokidar', () => ({
-  default: {
-    watch: vi.fn(() => ({
-      on: vi.fn().mockReturnThis(),
-      add: vi.fn(),
-      unwatch: vi.fn().mockResolvedValue(undefined),
-      close: vi.fn(),
-      getWatched: vi.fn(() => ({})),
-    })),
+const watchBackend = vi.hoisted(() => ({ add: vi.fn() }))
+vi.mock('../watching/WatchProcessHost', () => ({
+  WatchProcessHost: class {
+    add = watchBackend.add.mockImplementation((target: string, kind: string, callbacks: any) => {
+      const watch = {
+        id: 1, path: target, kind, callbacks, generation: 1, processGeneration: 1,
+        gapVersion: 1, reconciledGapVersion: 1, sequence: 0, observedAt: 0,
+        crawlComplete: true, failed: false, excluded: [], startedAt: 0, lastGapId: 0,
+        close: vi.fn(), on: vi.fn(),
+      }
+      for (const event of ['change', 'add', 'unlink', 'addDir', 'unlinkDir']) {
+        watch.on(event, (file: string) => callbacks.event({
+          kind: event, path: kind === 'file' ? '' : path.relative(target, file),
+          sequence: ++watch.sequence, observedAt: performance.now(),
+        }))
+      }
+      return watch
+    })
+    remove(watch: any) { watch.close() }
+    markGap() {}
+    health() { return { version: 1, state: 'healthy', partialCoverage: false, excludedDirectoryCount: 0, gapVersion: 1, reconciledGapVersion: 1 } }
   },
 }))
 
@@ -74,7 +85,7 @@ function handler<T extends (...args: any[]) => any>(channel: string): T {
 }
 
 function eventFor(id: number) {
-  return { sender: { id } }
+  return { sender: { id, send: vi.fn(), isDestroyed: () => false } }
 }
 
 // 发起窗口根目录集合：validateSenderPath 会对根做 realpath+stat(isDirectory)
@@ -269,7 +280,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     ctx.windowManager.getWindowFolderPath.mockReturnValue('/Users/test/docs')
     const watchFolder = handler<(event: any, folderPath: string) => Promise<any>>('fs:watchFolder')
     const unwatchFolder = handler<(event: any) => Promise<any>>('fs:unwatchFolder')
-    const watch = vi.mocked(chokidar.watch)
+    const watch = watchBackend.add
 
     await expect(watchFolder(eventFor(1), '/Users/test/docs/project')).resolves.toEqual({ success: true })
     expect(watch).toHaveBeenCalledTimes(1)
@@ -326,7 +337,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
       }
     })
     const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
-    const watch = vi.mocked(chokidar.watch)
+    const watch = watchBackend.add
     const senderA = { id: 11, send: vi.fn(), isDestroyed: vi.fn(() => false) }
     const senderB = { id: 12, send: vi.fn(), isDestroyed: vi.fn(() => false) }
 
@@ -342,8 +353,8 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     expect(senderB.send).toHaveBeenCalledWith('file:changed', {
       workspaceId: 'workspace-b', lifecycleEpoch: 2, path: '/Users/test/docs/project/a.md',
     })
-    expect(senderA.send).toHaveBeenCalledTimes(1)
-    expect(senderB.send).toHaveBeenCalledTimes(1)
+    expect(senderA.send.mock.calls.filter(([channel]) => channel === 'file:changed')).toHaveLength(1)
+    expect(senderB.send.mock.calls.filter(([channel]) => channel === 'file:changed')).toHaveLength(1)
 
     const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
     await unwatchFolder({ sender: senderA }, 'workspace-a', 1)
@@ -362,7 +373,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     ctx.windowManager.getWorkspace.mockImplementation(() => ({ ...workspace }))
     const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
     const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
-    const watch = vi.mocked(chokidar.watch)
+    const watch = watchBackend.add
     const sender = { id: 13, send: vi.fn(), isDestroyed: vi.fn(() => false) }
 
     await watchFolder({ sender }, workspace.primaryRoot, workspace.id, workspace.lifecycleEpoch)
@@ -373,7 +384,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     workspace.primaryRoot = '/Users/test/docs/replacement'
     changeListener('/Users/test/docs/project/a.md')
 
-    expect(sender.send).not.toHaveBeenCalled()
+    expect(sender.send).not.toHaveBeenCalledWith('file:changed', expect.anything())
     await unwatchFolder({ sender }, 'workspace-a', 1)
   })
 
@@ -390,7 +401,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
       })
       const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
       const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
-      const watch = vi.mocked(chokidar.watch)
+      const watch = watchBackend.add
       const sender = { id: 22, send: vi.fn(), isDestroyed: vi.fn(() => false) }
       const first = '/Users/test/docs/project/a.md'
       const second = '/Users/test/docs/project/b.md'
@@ -434,7 +445,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
       })
       const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
       const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
-      const watch = vi.mocked(chokidar.watch)
+      const watch = watchBackend.add
       const sender = { id: 23, send: vi.fn(), isDestroyed: vi.fn(() => false) }
       const first = '/Users/test/docs/project/a.md'
       const second = '/Users/test/docs/project/b.md'
@@ -484,7 +495,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
       const watchFolder = handler<(event: any, folderPath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFolder')
       const watchFile = handler<(event: any, filePath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFile')
       const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
-      const watch = vi.mocked(chokidar.watch)
+      const watch = watchBackend.add
       const sender = { id: 21, send: vi.fn(), isDestroyed: vi.fn(() => false) }
       const deepFile = '/Users/test/docs/project/.outside/deep.md'
 
@@ -523,7 +534,7 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     const watchFile = handler<(event: any, filePath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:watchFile')
     const unwatchFile = handler<(event: any, filePath: string, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFile')
     const unwatchFolder = handler<(event: any, workspaceId: string, epoch: number) => Promise<any>>('fs:unwatchFolder')
-    const watch = vi.mocked(chokidar.watch)
+    const watch = watchBackend.add
     const sender = { id: 24, send: vi.fn(), isDestroyed: vi.fn(() => false) }
     const deepFile = '/Users/test/docs/project/.outside/deep.md'
 
@@ -532,7 +543,6 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     const fileWatcher = watch.mock.results[1].value
 
     await expect(unwatchFile({ sender }, deepFile, 'workspace-a', 1)).resolves.toEqual({ success: true })
-    expect(fileWatcher.unwatch).toHaveBeenCalledWith(deepFile)
     expect(fileWatcher.close).toHaveBeenCalledTimes(1)
 
     await unwatchFolder({ sender }, 'workspace-a', 1)
@@ -546,16 +556,13 @@ describe.skipIf(process.platform === 'win32')('Markdown editing file handlers', 
     const watchFolder = handler<(event: any, folderPath: string) => Promise<any>>('fs:watchFolder')
     const unwatchFolder = handler<(event: any) => Promise<any>>('fs:unwatchFolder')
     const watchFile = handler<(event: any, filePath: string) => Promise<any>>('fs:watchFile')
-    const watch = vi.mocked(chokidar.watch)
+    const watch = watchBackend.add
 
     await expect(watchFolder(eventFor(1), '/Users/test/docs/project')).resolves.toEqual({ success: true })
     await expect(watchFile(eventFor(1), '/Users/test/docs/project/a/b/c/deep.md')).resolves.toEqual({ success: true })
 
     expect(watch).toHaveBeenCalledTimes(1)
-    expect(watch).toHaveBeenLastCalledWith('/Users/test/docs/project', expect.objectContaining({
-      ignoreInitial: true,
-      persistent: true,
-    }))
+    expect(watch).toHaveBeenLastCalledWith('/Users/test/docs/project', 'root', expect.any(Object))
     await expect(unwatchFolder(eventFor(1))).resolves.toEqual({ success: true })
   })
 })

@@ -12,7 +12,7 @@
  * - DrawIO 图能否导出取决于"文件已打开 + 滚过 drawio 块"（drawio 不能离线渲染）
  */
 
-import { createMarkdownRenderer } from './markdownRenderer'
+import { createMarkdownRenderer, renderMarkdown } from './markdownRenderer'
 import { processMermaidInHtml } from './mermaidRenderer'
 import { processEChartsInHtml } from './echartsRenderer'
 import { processInfographicInHtml } from './infographicRenderer'
@@ -32,12 +32,17 @@ import { processAntvG6InHtml } from './antvG6Renderer'
 import { processRestrictedSvgInHtml } from './restrictedSvgRenderer'
 import { processKrokiInHtml } from './krokiRenderer'
 import { cleanUserFacingError } from './userFacingErrors'
+import { decodeLocalImageMarker } from './localMediaMarkup'
+import {
+  LOCAL_IMAGE_MARKER_ATTRIBUTE,
+  type LocalResourceResolutionKind,
+} from '../../../shared/localMedia'
 
 export interface ExportHtmlOptions {
   markdownFilePath?: string
 }
 
-const LOCAL_IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i
+const LOCAL_IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp)(?:[?#].*)?$/i
 const DRAWIO_EXPORT_MAX_HEIGHT_PX = 680
 const DRAWIO_EXPORT_TALL_RATIO = 1.25
 
@@ -64,6 +69,29 @@ async function embedLocalImagesInHtml(html: string, options: ExportHtmlOptions =
   template.innerHTML = html
   const root = template.content
   const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+
+  for (const img of images) {
+    const encodedMarker = img.getAttribute(LOCAL_IMAGE_MARKER_ATTRIBUTE)
+    if (!encodedMarker) continue
+    const marker = decodeLocalImageMarker(encodedMarker)
+    img.removeAttribute(LOCAL_IMAGE_MARKER_ATTRIBUTE)
+    if (!marker) continue
+    img.alt = marker.alt
+    if (marker.dimensions) {
+      img.width = marker.dimensions.width
+      if (marker.dimensions.height) img.height = marker.dimensions.height
+    }
+    try {
+      const result = await window.api.readLocalAssetBase64({
+        markdownFilePath: options.markdownFilePath,
+        refPath: marker.ref,
+        resolutionKind: marker.resolutionKind,
+      })
+      img.setAttribute('src', `data:${result.mimeType};base64,${result.base64}`)
+    } catch (error) {
+      console.warn('[exportHtml] Wiki 本地图片导出内嵌失败:', marker.ref, error)
+    }
+  }
 
   for (const img of images) {
     const src = img.getAttribute('src') || ''
@@ -327,12 +355,17 @@ function serializeFragment(fragment: DocumentFragment): string {
   return container.innerHTML
 }
 
-async function readExcalidrawForExport(markdownFilePath: string | undefined, refPath: string): Promise<string> {
+async function readExcalidrawForExport(
+  markdownFilePath: string | undefined,
+  refPath: string,
+  resolutionKind: LocalResourceResolutionKind = 'markdown-relative',
+): Promise<string> {
   if (!markdownFilePath) throw new Error('缺少 Markdown 文件路径，无法导出 Excalidraw 文件引用')
   if (!window.api?.readExcalidrawFile) throw new Error('当前环境不支持读取 Excalidraw 文件')
   const result = await window.api.readExcalidrawFile({
     markdownFilePath,
     refPath: cleanExcalidrawRefPath(refPath),
+    ...(resolutionKind === 'workspace-wiki' ? { resolutionKind } : {}),
   })
   return result.content
 }
@@ -369,7 +402,13 @@ export async function processExcalidrawInHtml(html: string, options: ExportHtmlO
     holder.className = 'excalidraw-container'
     holder.setAttribute('style', 'width:100%; text-align:center; margin:1.5em 0;')
     try {
-      const code = await readExcalidrawForExport(options.markdownFilePath, src)
+      const code = await readExcalidrawForExport(
+        options.markdownFilePath,
+        src,
+        placeholder.dataset.excalidrawResolutionKind === 'workspace-wiki'
+          ? 'workspace-wiki'
+          : 'markdown-relative',
+      )
       const result = await renderExcalidrawToSvg(code, { sourceKind: 'file-reference', sourceLabel: alt })
       holder.innerHTML = result.ok ? result.svg : excalidrawErrorHtml(result.error, src)
     } catch (error) {
@@ -405,7 +444,7 @@ export async function processExcalidrawInHtml(html: string, options: ExportHtmlO
  */
 export async function buildExportHtmlContent(markdown: string, options: ExportHtmlOptions = {}): Promise<string> {
   const md = createMarkdownRenderer()
-  let html = md.render(markdown)
+  let html = renderMarkdown(md, markdown)
 
   // 所有图表类型按固定顺序处理
   html = await processMermaidInHtml(html)

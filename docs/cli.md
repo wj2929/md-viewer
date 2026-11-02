@@ -1,6 +1,6 @@
 # MD Viewer CLI 使用指南
 
-适用版本：MD Viewer v2.5.0 及以上。
+适用版本：MD Viewer v2.9.0 开发版（尚未发布）。CLI 基础命令自 v2.5.0 起提供；本文的本地媒体和 Wiki 支持等新增行为以 v2.9.0 为准，已发布版本以其对应文档为准。
 
 MD Viewer CLI 面向脚本、CI 和 AI Agent，用于打开 Markdown、导出 HTML/PDF/DOCX、截图、提取图表、检查环境、分析文档结构和批量回归真实文档。
 
@@ -218,7 +218,7 @@ md-viewer export README.md --format pdf --out README.pdf --timeout-ms 180000
 md-viewer export ch1.md ch2.md ch3.md --format pdf --out book.pdf
 ```
 
-HTML/PDF 走 headless renderer 和共享导出 writer，与 GUI 导出保持一致：含代码高亮样式、markdown 主题样式，并把 `<img>` 引用的本地图片内嵌为 `data:base64`（换机打开不裂图；越界或系统敏感路径的图片保持原样不内嵌）。复杂图表较多时可加 `--timeout-ms`，单位是毫秒；默认 `120000`。如果返回 `renderStatus: "timeout"`，命令会以失败状态退出；此时可能仍有诊断用产物，但不应作为最终交付文件。
+HTML/PDF 走 headless renderer 和共享导出 writer，与 GUI 导出保持一致：含代码高亮样式、markdown 主题样式，并把 `<img>` 和 Wiki 图片引用的本地图片内嵌为 `data:base64`（换机打开不裂图；越界或系统敏感路径的图片保持原样不内嵌）。HTML 中的本地音视频不会 Base64 内嵌，而是保留相对于最终 HTML 的 source、WebVTT track 和 poster 链接；命令不会复制这些 sidecar，单独移动 HTML 会使媒体失效。PDF 将视频降级为 poster 加说明、音频降级为文字卡。复杂图表较多时可加 `--timeout-ms`，单位是毫秒；默认 `120000`。如果返回 `renderStatus: "timeout"`，命令会以失败状态退出；此时可能仍有诊断用产物，但不应作为最终交付文件。
 
 **多文件合并**：传入多个 Markdown 路径时，按命令行顺序合并为一份 HTML、PDF 或 DOCX，文件之间自动插入分页符。HTML/PDF 会分别按每个文件的**自身目录**解析并内嵌本地图片；DOCX 会为各文件的本地图片建立独立资源命名空间，避免同名图片冲突，并要求 DOCX 服务支持 `<!-- pagebreak -->` 硬分页标记。可选 `--title` 指定文档标题（默认取第一个文件名）。`summary.inputs` 会列出全部输入文件，图表统计为各文件累加；任一文件渲染超时或有图表失败，整体以失败状态退出。
 
@@ -229,7 +229,7 @@ md-viewer export README.md --format docx --docx-style preview --out README.docx
 md-viewer export README.md --format docx --docx-style report --docx-service http://127.0.0.1:3179 --out report.docx
 ```
 
-DOCX 依赖 `md-viewer-docx-service`。可用样式：
+DOCX 依赖 `md-viewer-docx-service`。本地音视频不会上传到服务：Wiki embed 和原生 `<video>` / `<audio>` 会在发送前转换为普通相对链接，解析或授权失败时转换为说明文字。可用样式：
 
 | 样式 | 说明 |
 | --- | --- |
@@ -316,7 +316,11 @@ md-viewer inspect README.md --json
 md-viewer links README.md --json
 ```
 
-当前会检查本地 Markdown 链接、页内锚点、跨文件锚点、图片资源和外链分类；不会默认联网验证外链可访问性。
+当前会检查标准与 Wiki 形式的本地 Markdown 链接、页内锚点、跨文件标题与受支持的 `#^block-id`、图片及音视频资源和外链分类。Wiki 文件名先按当前目录解析，再接受当前 CLI 根目录内唯一 basename；多个候选会报告 `WIKI_LINK_AMBIGUOUS`，不会任意选择。命令不会默认联网验证外链可访问性。
+
+CLI 不隐式向上发现工作区、不读取 GUI profile，也不为了别名递归读取全树 frontmatter。普通裸 Wiki 名称没有命中文件时，结果带 `checkStatus: "alias-not-checked"`，不设置 `exists`，不计入确定的缺失文件；明确 `.md` 路径与嵌入卡片仍按原规则检查。`links` 的 `status: "ok"` 只代表未发现确定错误，仍须查看这类未检查项；JSON 成功封装和退出码规则不变。
+
+块 ID 大小写敏感，重复块以 `ambiguous: true` 标明，不能视为可唯一定位。检查同页或已经按文件名解析出的文档，不追踪 GUI 未保存草稿。完整 HTML 渲染器提供同页块锚点；基本 Markdown fallback 不承诺等价支持，不扩展跨文件别名导出、PDF 内链或 DOCX Word 书签。
 
 `render` 做诊断渲染，可选写出中间 HTML：
 
@@ -417,6 +421,8 @@ md-viewer batch e2e/local-real-docs.json --out /tmp/md-viewer-release-report.jso
 ## 14. 当前限制
 
 - `links` 默认不联网检查外链。
+- CLI 的本地资源授权根是每个源 Markdown 所在目录，比 GUI 中已打开的工作区范围更严格；Wiki basename 查找、HTML 链接型媒体导出和 DOCX 媒体降级都不会越出此根目录。
+- HTML 音视频导出不是自包含文件，不复制媒体、字幕或 poster sidecar；PDF/DOCX 仅保留静态说明、poster 或普通链接。
 - `render` 是诊断命令，不保证输出 HTML 适合作为最终交付文件。
 - DOCX 导出依赖 `md-viewer-docx-service`，服务版本、字体和 renderer artifact 会影响结果。
 - `watch`、`diff` 已提供 experimental 契约；`serve`、`mcp`、`completion` 尚未产品化，属于后续版本范围。

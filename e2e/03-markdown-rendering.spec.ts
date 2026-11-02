@@ -1035,6 +1035,68 @@ test.describe('Markdown 渲染测试', () => {
     await expect(listItems).toHaveCount(2)
   })
 
+  test('大文档支持确认全文、只读源码与按文档记忆', async ({ page, electronApp, testDir }, testInfo) => {
+    test.setTimeout(90_000)
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setBounds({ width: 1000, height: 760 })
+    })
+    const pageErrors: string[] = []
+    page.on('pageerror', error => pageErrors.push(error.message))
+    const atLimitPath = join(testDir, 'large-at-limit.md')
+    const overLimitPath = join(testDir, 'large-over-limit.md')
+    const overLinesPath = join(testDir, 'large-over-lines.md')
+    const largeSource = `# Full Document\n\n${'x'.repeat(1_500_001)}\n\nEND OF FULL DOCUMENT`
+    writeFileSync(atLimitPath, `# Character Limit\n\n${'x'.repeat(1_500_000 - 19)}`)
+    writeFileSync(overLimitPath, largeSource)
+    writeFileSync(overLinesPath, `# Line Limit\n${'\n'.repeat(20_000)}END AFTER LINE LIMIT`)
+
+    await openMarkdownFile(page, atLimitPath)
+    await expect(page.locator('.markdown-body h1')).toHaveText('Character Limit')
+    await expect(page.getByRole('region', { name: '大文档预览' })).toHaveCount(0)
+
+    await openMarkdownFile(page, overLimitPath)
+    const notice = page.getByRole('region', { name: '大文档预览' })
+    await expect(notice).toContainText('文档较大，请选择预览方式')
+    await expect(page.locator('.markdown-body')).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath('large-document-prompt.png') })
+    await page.getByRole('button', { name: '查看源码', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Markdown 源码（只读）' })).toHaveValue(largeSource)
+    await page.screenshot({ path: testInfo.outputPath('large-document-source.png') })
+    await notice.getByRole('checkbox').check()
+    await page.getByRole('button', { name: '完整渲染', exact: true }).click()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Full Document')
+    await expect(page.locator('.markdown-body')).toContainText('END OF FULL DOCUMENT')
+    await page.screenshot({ path: testInfo.outputPath('large-document-full.png') })
+
+    await openMarkdownFile(page, overLinesPath)
+    await expect(notice).toContainText('文档较大，请选择预览方式')
+    await page.getByRole('button', { name: '完整渲染', exact: true }).click()
+    await expect(page.locator('.markdown-body')).toContainText('END AFTER LINE LIMIT')
+
+    await openMarkdownFile(page, overLimitPath)
+    await expect(page.locator('.markdown-body h1')).toHaveText('Full Document')
+    await page.reload()
+    await page.waitForSelector('.app')
+    await openMarkdownFile(page, overLimitPath)
+    await expect(page.locator('.markdown-body h1')).toHaveText('Full Document')
+    await page.getByRole('button', { name: '恢复大文档提示' }).click()
+    await expect(notice).toContainText('文档较大，请选择预览方式')
+    await expect(page.locator('.markdown-body')).toHaveCount(0)
+    await notice.getByRole('checkbox').check()
+    await page.getByRole('button', { name: '完整渲染', exact: true }).click()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Full Document')
+    writeFileSync(overLimitPath, `# Grown Document\n\n${'x'.repeat(1_900_000)}`)
+    await expect(notice).toContainText('文档较大，请选择预览方式')
+    await expect(page.locator('.markdown-body')).toHaveCount(0)
+    await page.getByRole('radio', { name: '暗色主题', exact: true }).click()
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setBounds({ width: 800, height: 600 })
+    })
+    await page.screenshot({ path: testInfo.outputPath('large-document-dark-narrow.png') })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+    expect(pageErrors).toEqual([])
+  })
+
   test('应该正确渲染代码块并高亮', async ({ page, electronApp, testDir }) => {
     await openMarkdownFile(page, join(testDir, 'code.md'))
     await page.waitForSelector('.markdown-body', { timeout: 10000 })

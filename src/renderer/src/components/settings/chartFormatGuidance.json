@@ -1,0 +1,82 @@
+{
+  "mermaid": {
+    "syntax": "Mermaid 原生语法",
+    "limits": "使用内置 Mermaid 解析；可用语法随内置版本而定，不等同于任意 Markdown 查看器的支持范围。"
+  },
+  "markmap": {
+    "syntax": "Markmap 的 Markdown 层级语法",
+    "limits": "以标题和列表组织思维导图，按内置 Markmap 转换；不是任意网页或脚本的执行入口。"
+  },
+  "graphviz": {
+    "syntax": "Graphviz DOT 原生语法",
+    "limits": "使用内置 Graphviz WASM 的 DOT 布局，不是 Graphviz 命令行或任意布局引擎调用。"
+  },
+  "plantuml": {
+    "syntax": "PlantUML 原生语法",
+    "limits": "由所配置的 PlantUML 服务解析；可用语法、扩展和资源取决于该服务。"
+  },
+  "drawio": {
+    "syntax": "DrawIO 的 mxGraphModel / mxfile XML",
+    "limits": "使用内置查看器呈现图形，不包含 DrawIO 编辑器；样式和形状以内置查看器实际支持为准。"
+  },
+  "d2": {
+    "syntax": "D2 原生语法",
+    "limits": "以单个代码块为输入，使用内置 D2 编译与布局；不等同于完整的命令行工程环境。"
+  },
+  "c4plantuml": {
+    "syntax": "PlantUML + C4-PlantUML 宏",
+    "limits": "应用按内容补入 C4 库引用，再交给 PlantUML 服务；服务须支持相应 C4 宏。"
+  },
+  "structurizr": {
+    "syntax": "Structurizr DSL 的支持子集",
+    "limits": "按行提取模型元素、分组和关系后生成简化图；不是完整 Structurizr DSL 引擎，不复现全部 views / styles。"
+  },
+  "antv-g6": {
+    "syntax": "MD Viewer 的 G6 风格 JSON 适配",
+    "limits": "提取 nodes、edges、combos 的部分字段生成简化 SVG；不是完整 G6 API，不执行自定义布局或交互代码，禁止外部 URL 数据。"
+  },
+  "svg": {
+    "syntax": "SVG 标准格式的受限静态子集",
+    "limits": "只接受白名单元素、属性和内部片段引用，并有复杂度预算；不支持脚本、事件、外部资源或 foreignObject。"
+  },
+  "echarts": {
+    "syntax": "ECharts option 配置",
+    "limits": "支持 JSON 及部分 JavaScript 配置提取，交给内置 ECharts 渲染；建议优先使用 JSON，复杂脚本不等同于完整网页运行环境。"
+  },
+  "infographic": {
+    "syntax": "AntV Infographic 语法或 JSON 配置",
+    "limits": "由内置 Infographic 库解析，模板名称和配置以内置版本为准；不是任意网页或编辑器。"
+  },
+  "vega-lite": {
+    "syntax": "Vega-Lite 原生 JSON 规范",
+    "limits": "使用内置 Vega-Lite / Vega 编译渲染；请使用 data.values 内联数据，禁止外部数据 URL。"
+  },
+  "plotly": {
+    "syntax": "MD Viewer 的 Plotly 风格 JSON 适配",
+    "limits": "读取 data / layout 后生成简化静态 SVG，最多呈现前 8 个 trace；不是完整 Plotly.js，不复现全部图种和交互，禁止外部 URL 数据。"
+  },
+  "excalidraw": {
+    "syntax": "Excalidraw 场景 JSON",
+    "limits": "使用内置 Excalidraw 导出静态 SVG，不嵌入编辑器；引用本地文件时须保留相对路径和配套图片资源。"
+  },
+  "bpmn": {
+    "syntax": "BPMN XML",
+    "limits": "使用内置 bpmn-js 查看器，XML 应包含流程及图形布局信息；引用本地文件时须保留相对路径与配套文件，不执行流程。"
+  },
+  "wavedrom": {
+    "syntax": "WaveDrom JSON / JSON5 数据",
+    "limits": "须包含 signal、assign 或 reg，由内置 WaveDrom 渲染；JSON5 仅用于数据解析，不执行 JavaScript。"
+  },
+  "dbml": {
+    "syntax": "DBML 的支持子集",
+    "limits": "提取 Table、字段和 Ref 生成简化关系图，不是完整 DBML 引擎，也不生成或执行数据库迁移。"
+  },
+  "kroki": {
+    "syntax": "Kroki 服务语法 + 应用格式指令",
+    "limits": "在代码块首行用 format: 指定受支持格式，默认 nomnoml；只开放应用白名单中的格式，具体语法由服务解析。"
+  },
+  "katex": {
+    "syntax": "KaTeX 支持的 LaTeX 数学语法",
+    "limits": "用 $...$ 或 $$...$$ 嵌入公式，不是完整 LaTeX 文档编译器；命令以内置 KaTeX 支持范围为准。"
+  }
+}

@@ -2,9 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
 import { registerFileHandlers } from '../ipc/fileHandlers'
 
-const { validateSenderReadPath, glob } = vi.hoisted(() => ({
+const {
+  validateSenderReadPath,
+  glob,
+  recordMainEvent,
+  isRegisteredOperation,
+  findRegisteredOperation,
+  completeRegisteredOperation,
+} = vi.hoisted(() => ({
   validateSenderReadPath: vi.fn(),
   glob: vi.fn(),
+  recordMainEvent: vi.fn(),
+  isRegisteredOperation: vi.fn(),
+  findRegisteredOperation: vi.fn(),
+  completeRegisteredOperation: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
@@ -33,10 +44,18 @@ describe('read-only file handler authorization', () => {
     vi.clearAllMocks()
     validateSenderReadPath.mockImplementation(async (_ctx, _event, inputPath: string) => inputPath)
     glob.mockResolvedValue([])
+    isRegisteredOperation.mockReturnValue(false)
+    findRegisteredOperation.mockReturnValue(null)
     registerFileHandlers({
       windowManager: { getWindowFolderPath: vi.fn(() => '/authorized') },
       folderHistoryManager: { addFolder: vi.fn() },
       store: { set: vi.fn() },
+      diagnosticEventLogService: {
+        recordMainEvent,
+        isRegisteredOperation,
+        findRegisteredOperation,
+        completeRegisteredOperation,
+      },
     } as any)
   })
 
@@ -80,6 +99,55 @@ describe('read-only file handler authorization', () => {
     expect(firstResult).toEqual([
       expect.objectContaining({ name: 'docs', isDirectory: true }),
     ])
+  })
+
+  it('将已注册的文件夹 operation 关联到扫描摘要', async () => {
+    validateSenderReadPath.mockResolvedValue('/canonical/root')
+    isRegisteredOperation.mockReturnValue(true)
+    glob.mockResolvedValue(['docs/a.md'])
+    const readDir = handler<(
+      event: any,
+      path: string,
+      trace: { operationId: string; source: string },
+    ) => Promise<unknown[]>>('fs:readDir')
+
+    await readDir(
+      { sender: { id: 7 } },
+      '/root',
+      { operationId: 'folder_12345678', source: 'restore' },
+    )
+
+    expect(isRegisteredOperation).toHaveBeenCalledWith(
+      7,
+      'folder_12345678',
+      'folder',
+      '/canonical/root',
+    )
+    expect(recordMainEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'folder.scan.summary',
+      operationId: 'folder_12345678',
+      outcome: 'success',
+      metadata: expect.objectContaining({ source: 'restore' }),
+    }))
+    expect(completeRegisteredOperation).toHaveBeenCalledWith(7, 'folder_12345678')
+  })
+
+  it('renderer trace 因状态竞态缺失时按 sender 和 canonical root 关联活动文件夹 operation', async () => {
+    validateSenderReadPath.mockResolvedValue('/canonical/root')
+    findRegisteredOperation.mockReturnValue({
+      operationId: 'folder_87654321',
+      source: 'open-specific-file',
+    })
+    const readDir = handler<(event: any, path: string) => Promise<unknown[]>>('fs:readDir')
+
+    await readDir({ sender: { id: 9 } }, '/root')
+
+    expect(findRegisteredOperation).toHaveBeenCalledWith(9, 'folder', '/canonical/root')
+    expect(recordMainEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'folder.scan.summary',
+      operationId: 'folder_87654321',
+      metadata: expect.objectContaining({ source: 'open-specific-file' }),
+    }))
   })
 
   it('扫描失败后清理 single-flight 以允许重试', async () => {

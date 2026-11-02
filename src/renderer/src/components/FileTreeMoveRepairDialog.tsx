@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   LinkImpactSummary,
+  LinkMoveMapping,
   LinkRewriteApplyFileResult,
   LinkRewritePlanView,
 } from '../../../main/linking/types'
 import type { WorkspaceOperationContext } from '../../../shared/workspace'
+import { cleanUserFacingError } from '../utils/userFacingErrors'
 import './MoveToDialog.css'
 
 interface FileTreeMoveRepairDialogProps {
@@ -20,8 +22,14 @@ interface FileTreeMoveRepairDialogProps {
 
 interface MoveItem {
   sourcePath: string
-  status: 'success' | 'failed'
+  status: 'success' | 'failed' | 'not-executed'
   message?: string
+}
+
+interface RepairPreviewRequest {
+  operation: WorkspaceOperationContext
+  mapping: LinkMoveMapping
+  receiptId: string
 }
 
 type Stage = 'impact' | 'moving' | 'result' | 'diff' | 'repair-result'
@@ -47,11 +55,18 @@ export function FileTreeMoveRepairDialog({
   const [skippedChanges, setSkippedChanges] = useState(0)
   const [repairError, setRepairError] = useState<string | null>(null)
 
+  const [failedRepairPreviews, setFailedRepairPreviews] = useState<Array<RepairPreviewRequest & { message: string }>>([])
+  const [repairPreviewLoading, setRepairPreviewLoading] = useState(false)
+  const previewBusy = useRef(false)
+  const previewRequestId = useRef(0)
+  useEffect(() => () => { previewRequestId.current += 1 }, [])
+
   const exactChanges = impacts.reduce((sum, impact) => sum + impact.exactChanges, 0)
   const candidates = impacts.reduce((sum, impact) => sum + impact.candidates, 0)
   const changes = plans.flatMap(plan => plan.changes)
   const successfulMoves = moveItems.filter(item => item.status === 'success').length
   const failedMoves = moveItems.filter(item => item.status === 'failed').length
+  const pendingMoves = moveItems.filter(item => item.status === 'not-executed').length
   const selectedFileCount = useMemo(() => new Set(
     changes.filter(change => selectedIds.has(change.changeId)).map(change => change.sourceRelativePath),
   ).size, [changes, selectedIds])
@@ -59,11 +74,50 @@ export function FileTreeMoveRepairDialog({
   const conflicts = result.filter(file => file.status === 'conflict').length
   const failed = result.filter(file => file.status === 'failed').length
 
+  const generateRepairPreviews = async (requests: RepairPreviewRequest[]): Promise<void> => {
+    if (previewBusy.current) return
+    previewBusy.current = true
+    const requestId = ++previewRequestId.current
+    setRepairPreviewLoading(true)
+    try {
+      const previews = await Promise.allSettled(requests.map(async ({ operation, mapping, receiptId }) =>
+        window.api.createLinkRepairPlan(operation, mapping, 'move', receiptId)
+      ))
+      if (requestId !== previewRequestId.current) return
+      const generated = previews.flatMap(preview => preview.status === 'fulfilled' ? [preview.value] : [])
+      setPlans(previous => [...previous, ...generated])
+      setSelectedIds(previous => new Set([...previous, ...generated.flatMap(plan => plan.changes.map(change => change.changeId))]))
+      setFailedRepairPreviews(previews.flatMap((preview, index) => preview.status === 'rejected'
+        ? [{ ...requests[index], message: cleanUserFacingError(preview.reason) }]
+        : []))
+    } finally {
+      if (requestId === previewRequestId.current) {
+        previewBusy.current = false
+        setRepairPreviewLoading(false)
+      }
+    }
+  }
+
   const executeMove = async (): Promise<void> => {
     setStage('moving')
     const items: MoveItem[] = []
     const repairPairs: Array<{ mapping: { oldRelativePath: string; newRelativePath: string }; receiptId: string }> = []
-    for (const [index, sourcePath] of sources.entries()) {
+    if (sources.length > 1) {
+      try {
+        const batch = await window.api.executeLinkRewriteBatch(operation, {
+          operations: mappings.map((mapping, index) => ({ impactId: impacts[index].impactId, mapping })), confirm: true,
+        })
+        batch.items.forEach((item, index) => {
+          items.push({ sourcePath: sources[index], status: item.status, message: item.message })
+          if (item.status === 'success' && item.receipt) repairPairs.push({ mapping: item.mapping, receiptId: item.receipt.operationReceiptId })
+        })
+        if (batch.warning) setRepairError(batch.warning)
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : '请重新预览文件操作'
+        setRepairError('移动未执行，请重新预览链接影响。')
+        items.push(...sources.map(sourcePath => ({ sourcePath, status: 'not-executed' as const, message })))
+      }
+    } else for (const [index, sourcePath] of sources.entries()) {
       try {
         const execution = await window.api.executeLinkRewriteOperation(operation, {
           impactId: impacts[index].impactId,
@@ -83,26 +137,16 @@ export function FileTreeMoveRepairDialog({
     }
     setMoveItems(items)
 
-    let nextPlans: LinkRewritePlanView[] = []
     if (exactChanges > 0) {
-      try {
-        nextPlans = await Promise.all(repairPairs.map(({ mapping, receiptId }) =>
-          window.api.createLinkRepairPlan(operation, mapping, 'move', receiptId)
-        ))
-      } catch (cause) {
-        setRepairError(`链接修复预览生成失败：${cause instanceof Error ? cause.message : String(cause)}`)
-      }
+      await generateRepairPreviews(repairPairs.map(pair => ({ ...pair, operation })))
     }
-    const nextChanges = nextPlans.flatMap(plan => plan.changes)
-    setPlans(nextPlans)
-    setSelectedIds(new Set(nextChanges.map(change => change.changeId)))
     setStage('result')
 
     const succeeded = items.filter(item => item.status === 'success').length
     const failures = items.length - succeeded
     if (failures === 0) onMoveSuccess?.(`已移动 ${succeeded} 项到“${baseName(targetDir)}”`)
-    else if (succeeded === 0) onMoveError?.(`移动失败：${items.find(item => item.status === 'failed')?.message}`)
-    else onMoveError?.(`已移动 ${succeeded} 项，${failures} 项失败`)
+    else if (succeeded === 0) onMoveError?.(`未完成移动：${items.find(item => item.status !== 'success')?.message}`)
+    else onMoveError?.(`已移动 ${succeeded} 项，${failures} 项未完成`)
   }
 
   const skipRepair = async (): Promise<void> => {
@@ -152,6 +196,16 @@ export function FileTreeMoveRepairDialog({
     })
   }
 
+  const repairPreviewWarning = failedRepairPreviews.length > 0 && <div className="move-to-repair-warning" role="status">
+    <div>部分链接修复预览未能生成，当前不是全部可修复链接；文件移动结果不受影响。</div>
+    {failedRepairPreviews.map(preview => <div key={preview.receiptId}>
+      {preview.mapping.oldRelativePath}：{preview.message}
+    </div>)}
+    <button className="move-to-btn" disabled={repairPreviewLoading} onClick={() => void generateRepairPreviews(failedRepairPreviews)}>
+      {repairPreviewLoading ? '正在生成链接修复预览…' : '重新生成链接修复预览'}
+    </button>
+  </div>
+
   const title = stage === 'impact' ? '移动影响' : stage === 'moving' ? '正在移动' :
     stage === 'result' ? '移动结果' : stage === 'diff' ? '更新引用' : '链接修复结果'
 
@@ -194,26 +248,28 @@ export function FileTreeMoveRepairDialog({
       {stage === 'result' && <>
         <div className="move-to-stage-list">
           {moveItems.map(item => <div key={item.sourcePath} className={`move-to-result-row ${item.status}`}>
-            <span>{item.status === 'success' ? '✓' : '✕'}</span>
+            <span>{item.status === 'success' ? '✓' : item.status === 'not-executed' ? '⚠' : '✕'}</span>
             <strong>{baseName(item.sourcePath)}</strong>
             <span>{item.status === 'success' ? '已移动' : item.message}</span>
           </div>)}
           {repairError && <div className="move-to-repair-warning">⚠ {repairError}</div>}
+          {repairPreviewWarning}
         </div>
-        <div className="move-to-summary">{successfulMoves} 项成功 · {failedMoves} 项失败</div>
+        <div className="move-to-summary">{successfulMoves} 项成功 · {failedMoves} 项失败{pendingMoves > 0 && ` · ${pendingMoves} 项未执行`}</div>
         <div className="move-to-footer">
-          <span className="move-to-target">{changes.length > 0 ? `可更新 ${changes.length} 处链接` : '没有可自动修复的链接'}</span>
+          <span className="move-to-target">{repairPreviewLoading ? '正在生成链接修复预览…' : changes.length > 0 ? `可更新 ${changes.length} 处链接` : repairError || failedRepairPreviews.length > 0 ? '链接修复尚未全部确认' : '没有可自动修复的链接'}</span>
           <div className="move-to-actions">
-            <button className="move-to-btn" onClick={() => changes.length ? void skipRepair() : onClose()}>
-              {changes.length ? '关闭并跳过链接修复' : '完成'}
+            <button className="move-to-btn" disabled={repairPreviewLoading} onClick={() => changes.length ? void skipRepair() : onClose()}>
+              {changes.length || failedRepairPreviews.length > 0 ? '关闭并跳过链接修复' : '完成'}
             </button>
-            {changes.length > 0 && <button className="move-to-btn primary" onClick={() => setStage('diff')}>查看可更新的链接</button>}
+            {changes.length > 0 && <button className="move-to-btn primary" disabled={repairPreviewLoading} onClick={() => setStage('diff')}>查看可更新的链接</button>}
           </div>
         </div>
       </>}
 
       {stage === 'diff' && <>
         <div className="move-to-stage-list repair-list">
+          {repairPreviewWarning}
           {changes.map(change => <label key={change.changeId} className="move-to-repair-change">
             <input type="checkbox" checked={selectedIds.has(change.changeId)} onChange={() => toggleChange(change.changeId)} />
             <span className="move-to-repair-path">{change.sourceRelativePath}:{change.lineStart}</span>
@@ -227,8 +283,8 @@ export function FileTreeMoveRepairDialog({
         <div className="move-to-footer">
           <span className="move-to-target">已选择 {selectedFileCount} 个文件中的 {selectedIds.size} 处链接</span>
           <div className="move-to-actions">
-            <button className="move-to-btn" onClick={() => void skipRepair()}>跳过链接修复</button>
-            <button className="move-to-btn primary" disabled={selectedIds.size === 0} onClick={() => void applyRepair()}>
+            <button className="move-to-btn" disabled={repairPreviewLoading} onClick={() => void skipRepair()}>跳过链接修复</button>
+            <button className="move-to-btn primary" disabled={repairPreviewLoading || selectedIds.size === 0} onClick={() => void applyRepair()}>
               更新 {selectedFileCount} 个文件中的 {selectedIds.size} 处链接
             </button>
           </div>

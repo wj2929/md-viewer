@@ -24,6 +24,7 @@ const impact = {
 
 beforeEach(() => {
   window.api = {
+    executeLinkRewriteBatch: vi.fn(),
     executeLinkRewriteOperation: vi.fn().mockResolvedValue({
       newPath: '/workspace/docs/a.md',
       receipt: { operationReceiptId: 'receipt-a' },
@@ -97,9 +98,10 @@ describe('FileTreeMoveRepairDialog', () => {
   it('批量移动部分失败时只为成功项生成修复计划', async () => {
     const secondMapping = { oldRelativePath: 'b.md', newRelativePath: 'docs/b.md' }
     const secondImpact = { ...impact, impactId: 'impact-b', mapping: secondMapping }
-    ;(window.api.executeLinkRewriteOperation as any)
-      .mockResolvedValueOnce({ newPath: '/workspace/docs/a.md', receipt: { operationReceiptId: 'receipt-a' } })
-      .mockRejectedValueOnce(new Error('目标文件已存在'))
+    ;(window.api.executeLinkRewriteBatch as any).mockResolvedValue({ items: [
+      { impactId: 'impact-a', mapping, status: 'success', newPath: '/workspace/docs/a.md', receipt: { operationReceiptId: 'receipt-a' } },
+      { impactId: 'impact-b', mapping: secondMapping, status: 'failed', message: '目标文件已存在' },
+    ] })
     const onMoveError = vi.fn()
 
     render(<FileTreeMoveRepairDialog
@@ -117,7 +119,29 @@ describe('FileTreeMoveRepairDialog', () => {
     expect(screen.getByText('目标文件已存在')).toBeTruthy()
     expect(window.api.createLinkRepairPlan).toHaveBeenCalledTimes(1)
     expect(window.api.createLinkRepairPlan).toHaveBeenCalledWith(operation, mapping, 'move', 'receipt-a')
-    expect(onMoveError).toHaveBeenCalledWith('已移动 1 项，1 项失败')
+    expect(window.api.executeLinkRewriteBatch).toHaveBeenCalledWith(operation, { operations: [
+      { impactId: 'impact-a', mapping }, { impactId: 'impact-b', mapping: secondMapping },
+    ], confirm: true })
+    expect(window.api.executeLinkRewriteOperation).not.toHaveBeenCalled()
+    expect(onMoveError).toHaveBeenCalledWith('已移动 1 项，1 项未完成')
+  })
+
+  it('批次暂停时保留已移动项并区分未执行，修复预览失败不反转移动结果', async () => {
+    const secondMapping = { oldRelativePath: 'b.md', newRelativePath: 'docs/b.md' }
+    ;(window.api.executeLinkRewriteBatch as any).mockResolvedValue({ items: [
+      { impactId: 'impact-a', mapping, status: 'success', receipt: { operationReceiptId: 'receipt-a' } },
+      { impactId: 'impact-b', mapping: secondMapping, status: 'not-executed', message: '请重新预览剩余文件操作' },
+    ], warning: '请重新预览剩余文件操作' })
+    ;(window.api.createLinkRepairPlan as any).mockRejectedValue(new Error('plan limit'))
+    render(<FileTreeMoveRepairDialog operation={operation} sources={['/workspace/a.md', '/workspace/b.md']}
+      targetDir="/workspace/docs" mappings={[mapping, secondMapping]}
+      impacts={[impact as any, { ...impact, impactId: 'impact-b', mapping: secondMapping } as any]} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '移动 2 项' }))
+    expect(await screen.findByText('1 项成功 · 0 项失败 · 1 项未执行')).toBeTruthy()
+    expect(await screen.findByText(/部分链接修复预览未能生成/)).toBeTruthy()
+    expect(screen.getByText('已移动')).toBeTruthy()
+    expect(screen.getByText('链接修复尚未全部确认')).toBeTruthy()
+    expect(window.api.applyLinkRepairPlans).not.toHaveBeenCalled()
   })
 
   it('取消影响页不执行移动', () => {

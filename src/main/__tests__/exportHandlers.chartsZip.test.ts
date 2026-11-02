@@ -5,7 +5,21 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import * as fs from 'fs-extra'
 import * as os from 'os'
 import * as path from 'path'
+import { EventEmitter } from 'node:events'
+import { exportPdfSnapshot } from '../pdf/pdfExport'
 import { registerExportHandlers } from '../ipc/exportHandlers'
+
+vi.mock('../pdf/pdfExport', () => ({
+  exportPdfSnapshot: vi.fn(async (outputPath: string, html: string) => {
+    loadedPdfHtml = html
+    await fs.writeFile(outputPath, '%PDF-1.7\n')
+    return { type: 'pdf', path: outputPath, bytes: 9 }
+  }),
+}))
+vi.mock('../ipc/exportStyles', async importOriginal => ({
+  ...await importOriginal<typeof import('../ipc/exportStyles')>(),
+  getPdfExportStyles: vi.fn(async (markdownCss: string, prismCss: string) => ({ markdownCss, prismCss, katexCss: '' })),
+}))
 
 let loadedPdfHtml = ''
 // 发起窗口根目录，由每个用例的 tmpDir 动态设置
@@ -31,18 +45,7 @@ vi.mock('../ipc/senderSecurity', () => {
 })
 
 vi.mock('electron', () => {
-  const BrowserWindowMock = vi.fn(function BrowserWindowMock() {
-    return {
-      loadFile: vi.fn(async (filePath: string) => {
-        loadedPdfHtml = await fs.readFile(filePath, 'utf-8')
-      }),
-      webContents: {
-        executeJavaScript: vi.fn().mockResolvedValue(true),
-        printToPDF: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7\n')),
-      },
-      close: vi.fn(),
-    }
-  })
+  const BrowserWindowMock = vi.fn()
   ;(BrowserWindowMock as any).fromWebContents = vi.fn()
 
   return {
@@ -108,13 +111,17 @@ function handler<T extends (...args: any[]) => any>(channel: string): T {
 
 describe('chart zip export handler', () => {
   let tmpDir: string
+  let senderContents: EventEmitter & { isDestroyed: () => boolean }
 
   beforeEach(async () => {
     vi.clearAllMocks()
     loadedPdfHtml = ''
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'md-viewer-chart-zip-'))
     senderRoot = tmpDir
-    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue({} as BrowserWindow)
+    senderContents = Object.assign(new EventEmitter(), { isDestroyed: () => false })
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(
+      Object.assign(new EventEmitter(), { isDestroyed: () => false }) as unknown as BrowserWindow,
+    )
     registerExportHandlers({} as any)
   })
 
@@ -208,7 +215,7 @@ describe('chart zip export handler', () => {
 
     const exportPdf = handler<(event: any, htmlContent: string, fileName: string) => Promise<string>>('export:pdf')
 
-    await exportPdf({ sender: {} }, [
+    await exportPdf({ sender: senderContents }, [
       '<div class="drawio-container"><svg style="width:100%" viewBox="0 0 1200 800"></svg></div>',
       '<div class="kroki-container"><svg style="width:100%" viewBox="0 0 1200 800"></svg></div>',
       '<div class="svg-container"><svg viewBox="0 0 1200 800"></svg></div>',
@@ -246,7 +253,7 @@ describe('chart zip export handler', () => {
 
     const exportPdf = handler<(event: any, htmlContent: string, fileName: string) => Promise<string>>('export:pdf')
 
-    await exportPdf({ sender: {} }, '<h1>Report</h1>', 'report.md')
+    await exportPdf({ sender: senderContents }, '<h1>Report</h1>', 'report.md')
 
     expect(loadedPdfHtml).toContain('.pdf-export-branding')
     expect(loadedPdfHtml).toContain('<div class="pdf-export-branding">由 MD Viewer 生成')
@@ -263,7 +270,7 @@ describe('chart zip export handler', () => {
 
     const exportPdf = handler<(event: any, htmlContent: string, fileName: string) => Promise<string>>('export:pdf')
 
-    await exportPdf({ sender: {} }, [
+    await exportPdf({ sender: senderContents }, [
       '<pre class="language-bash"><code class="language-bash">',
       'kubectl exec &lt;apisix-pod&gt; -n ingress-apisix -- curl -s -X PUT http://127.0.0.1:9180/apisix/admin/global_rules/1 -d "{\\"plugins\\":{\\"cors\\":{\\"allow_headers\\":\\"**\\",\\"expose_headers\\":\\"*,X-Session-Id,x-session-id,X-Api-Version,Content-Type,Content-Length\\"}}}"',
       '</code></pre>',

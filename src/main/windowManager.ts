@@ -8,6 +8,11 @@ import { clearClipboardState } from './clipboardState'
 import { workspaceTransferCoordinator } from './workspaceTransferCoordinator'
 import { windowTransferCoordinator } from './windowTransferCoordinator'
 import { registerLocalImageProtocol, revokeLocalImageCapabilities } from './localImageProtocol'
+import {
+  registerLocalMediaProtocol,
+  revokeLocalMediaCapabilities,
+  type LocalMediaCapability,
+} from './localMediaProtocol'
 import { createContentSecurityPolicy } from './securityPolicy'
 
 /**
@@ -68,6 +73,24 @@ export class WindowManager {
   private workspacePresentations: Map<number, Map<string, WorkspacePresentation>> = new Map()
   // 窗口创建后需要执行的延迟操作
   private pendingActions: Map<number, Array<() => void | Promise<void>>> = new Map()
+  private linkReadActivationGenerations = new Map<number, number>()
+  private linkReadLifecycleListeners = new Set<(windowId: number, workspaceId: string | undefined, revoke: boolean) => void>()
+
+  getLinkReadActivationGeneration(winId: number): number {
+    return this.linkReadActivationGenerations.get(winId) ?? 0
+  }
+
+  onLinkReadLifecycle(listener: (windowId: number, workspaceId: string | undefined, revoke: boolean) => void): () => void {
+    this.linkReadLifecycleListeners.add(listener)
+    return () => { this.linkReadLifecycleListeners.delete(listener) }
+  }
+
+  private notifyLinkReadLifecycle(winId: number, workspaceId?: string, revoke = true): void {
+    if (!revoke || !workspaceId || this.getActiveWorkspaceId(winId) === workspaceId) {
+      this.linkReadActivationGenerations.set(winId, this.getLinkReadActivationGeneration(winId) + 1)
+    }
+    for (const listener of this.linkReadLifecycleListeners) listener(winId, workspaceId, revoke)
+  }
 
   /**
    * 创建新窗口
@@ -108,6 +131,13 @@ export class WindowManager {
     const webContentsId = win.webContents.id
     const windowSession = win.webContents.session
     registerLocalImageProtocol(windowSession)
+    registerLocalMediaProtocol(windowSession, (capability: LocalMediaCapability) => {
+      const workspace = this.getWorkspace(winId, capability.workspaceId)
+      return Boolean(
+        workspace
+        && workspace.lifecycleEpoch === capability.lifecycleEpoch,
+      )
+    })
     windowSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
@@ -154,6 +184,11 @@ export class WindowManager {
       return { action: 'deny' }
     })
 
+    win.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
+      if (mainFrame && !inPlace) this.notifyLinkReadLifecycle(winId)
+    })
+    win.webContents.on('render-process-gone', () => this.notifyLinkReadLifecycle(winId))
+
     // 拦截页面内导航
     win.webContents.on('will-navigate', (event, url) => {
       if (is.dev && url.startsWith(process.env['ELECTRON_RENDERER_URL'] || '')) {
@@ -170,6 +205,8 @@ export class WindowManager {
       this.windows.delete(winId)
       this.windowFolderPaths.delete(winId)
       this.workspaceRegistries.delete(winId)
+      this.notifyLinkReadLifecycle(winId)
+      this.linkReadActivationGenerations.delete(winId)
       this.workspacePresentations.delete(winId)
       this.broadcastToAll('workspace:merge-sources-changed')
       for (const transfer of [...cancelledTransfers, ...cancelledWindowTransfers]) {
@@ -182,6 +219,7 @@ export class WindowManager {
         })
       }
       revokeLocalImageCapabilities(windowSession)
+      revokeLocalMediaCapabilities(windowSession)
       this.pendingActions.delete(winId)
       clearClipboardState(webContentsId)
       console.log(`[WindowManager] Window ${winId} closed, remaining: ${this.windows.size}`)
@@ -309,6 +347,7 @@ export class WindowManager {
       next.set(workspace.id, { id: workspace.id, primaryRoot: workspace.primaryRoot, lifecycleEpoch: 1 })
     }
     registry.workspaces = next
+    this.notifyLinkReadLifecycle(winId)
     this.workspacePresentations.delete(winId)
     registry.activeWorkspaceId = activeWorkspaceId && next.has(activeWorkspaceId)
       ? activeWorkspaceId
@@ -378,6 +417,7 @@ export class WindowManager {
     const workspace = registry.workspaces.get(workspaceId)
     if (!workspace) throw new Error('工作区不存在或不属于当前窗口')
 
+    if (registry.activeWorkspaceId !== workspaceId) this.notifyLinkReadLifecycle(winId, undefined, false)
     registry.activeWorkspaceId = workspaceId
     if (workspace.primaryRoot) {
       this.windowFolderPaths.set(winId, workspace.primaryRoot)
@@ -393,6 +433,7 @@ export class WindowManager {
 
     workspace.primaryRoot = primaryRoot
     workspace.lifecycleEpoch += 1
+    this.notifyLinkReadLifecycle(winId, workspaceId)
     if (this.workspaceRegistries.get(winId)?.activeWorkspaceId === workspaceId) {
       this.windowFolderPaths.set(winId, primaryRoot)
     }
@@ -405,6 +446,7 @@ export class WindowManager {
     if (!registry || !workspace) return undefined
 
     registry.workspaces.delete(workspaceId)
+    this.notifyLinkReadLifecycle(winId, workspaceId)
     this.workspacePresentations.get(winId)?.delete(workspaceId)
     this.notifyMergeSourcesChanged()
     if (registry.activeWorkspaceId === workspaceId) {
@@ -454,6 +496,7 @@ export class WindowManager {
 
     for (const workspaceId of candidateIds) {
       registry.workspaces.delete(workspaceId)
+      this.notifyLinkReadLifecycle(winId, workspaceId)
       this.workspacePresentations.get(winId)?.delete(workspaceId)
     }
     return [...candidateIds]
@@ -497,6 +540,7 @@ export class WindowManager {
       const targetWorkspaceId = targetIds.get(sourceWorkspaceId)!
       const sourcePresentation = sourcePresentations?.get(sourceWorkspaceId)
       source.workspaces.delete(sourceWorkspaceId)
+      this.notifyLinkReadLifecycle(sourceWinId, sourceWorkspaceId)
       sourcePresentations?.delete(sourceWorkspaceId)
       workspace.id = targetWorkspaceId
       workspace.lifecycleEpoch += 1
@@ -518,6 +562,7 @@ export class WindowManager {
     if (sourcePresentations) this.workspacePresentations.set(sourceWinId, sourcePresentations)
     this.workspacePresentations.set(targetWinId, targetPresentations)
     const activeWorkspaceId = sourceActiveTargetId ?? results[0].targetWorkspaceId
+    this.notifyLinkReadLifecycle(targetWinId, undefined, false)
     target.activeWorkspaceId = activeWorkspaceId
     const active = target.workspaces.get(activeWorkspaceId)
     if (active?.primaryRoot) this.windowFolderPaths.set(targetWinId, active.primaryRoot)
@@ -553,9 +598,11 @@ export class WindowManager {
 
     if (targetReservation) {
       target.workspaces.delete(targetReservation.workspaceId)
+      this.notifyLinkReadLifecycle(targetWinId, targetReservation.workspaceId)
       this.workspacePresentations.get(targetWinId)?.delete(targetReservation.workspaceId)
     }
     source.workspaces.delete(workspaceId)
+    this.notifyLinkReadLifecycle(sourceWinId, workspaceId)
     this.workspacePresentations.get(sourceWinId)?.delete(workspaceId)
     if (source.activeWorkspaceId === workspaceId) {
       const next = source.workspaces.values().next().value as MainWorkspaceSession | undefined
@@ -567,6 +614,7 @@ export class WindowManager {
     workspace.lifecycleEpoch += 1
     workspace.id = targetWorkspaceId
     target.workspaces.set(targetWorkspaceId, workspace)
+    this.notifyLinkReadLifecycle(targetWinId, undefined, false)
     target.activeWorkspaceId = targetWorkspaceId
     if (sourcePresentation) {
       const presentations = this.workspacePresentations.get(targetWinId) ?? new Map<string, WorkspacePresentation>()
@@ -597,6 +645,7 @@ export class WindowManager {
     if (activeWorkspace) {
       activeWorkspace.primaryRoot = folderPath
       activeWorkspace.lifecycleEpoch += 1
+      this.notifyLinkReadLifecycle(winId, activeWorkspace.id)
     }
   }
 

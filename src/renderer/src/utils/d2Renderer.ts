@@ -14,6 +14,20 @@ export type D2RenderResult =
 
 const MAX_D2_SOURCE_LENGTH = 128_000
 
+let sharedD2: D2 | null = null
+let d2RenderQueue: Promise<void> = Promise.resolve()
+
+function getSharedD2(): D2 {
+  sharedD2 ??= new D2()
+  return sharedD2
+}
+
+function enqueueD2Render<T>(task: () => Promise<T>): Promise<T> {
+  const result = d2RenderQueue.then(task, task)
+  d2RenderQueue = result.then(() => undefined, () => undefined)
+  return result
+}
+
 export function validateD2Source(source: string): D2ValidationResult {
   const trimmed = source.trim()
   if (!trimmed) {
@@ -25,36 +39,31 @@ export function validateD2Source(source: string): D2ValidationResult {
   return { ok: true, source: trimmed }
 }
 
-async function terminateD2Worker(d2: D2): Promise<void> {
-  const worker = (d2 as unknown as { worker?: { terminate?: () => void | Promise<void> } }).worker
-  await worker?.terminate?.()
-}
-
 export async function renderD2ToSvg(source: string): Promise<D2RenderResult> {
   const validation = validateD2Source(source)
   if (!validation.ok) return validation
 
-  const d2 = new D2()
-  try {
-    const compiled = await d2.compile({
-      fs: { index: validation.source },
-      inputPath: 'index',
-      options: {
-        layout: 'dagre',
-        pad: 40,
+  return enqueueD2Render(async () => {
+    try {
+      const d2 = getSharedD2()
+      const compiled = await d2.compile({
+        fs: { index: validation.source },
+        inputPath: 'index',
+        options: {
+          layout: 'dagre',
+          pad: 40,
+          noXMLTag: true,
+        },
+      })
+      const svg = await d2.render(compiled.diagram, {
+        ...compiled.renderOptions,
         noXMLTag: true,
-      },
-    })
-    const svg = await d2.render(compiled.diagram, {
-      ...compiled.renderOptions,
-      noXMLTag: true,
-    })
-    return { ok: true, svg: makeRendererSvgResponsive(sanitizeRendererSvg(svg), { maxWidth: 1800 }) }
-  } catch (error) {
-    return { ok: false, code: 'D2_RENDER_FAILED', message: cleanUserFacingError(error) }
-  } finally {
-    await terminateD2Worker(d2)
-  }
+      })
+      return { ok: true, svg: makeRendererSvgResponsive(sanitizeRendererSvg(svg), { maxWidth: 1800 }) }
+    } catch (error) {
+      return { ok: false, code: 'D2_RENDER_FAILED', message: cleanUserFacingError(error) }
+    }
+  })
 }
 
 export async function processD2InHtml(html: string): Promise<string> {

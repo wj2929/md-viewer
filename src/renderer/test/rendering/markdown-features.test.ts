@@ -1,11 +1,100 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../../src/utils/markdownRenderer'
+import { decodeLocalMediaMarker } from '../../src/utils/localMediaMarkup'
+import { LOCAL_MEDIA_MARKER_ATTRIBUTE } from '../../../shared/localMedia'
 
 describe('Markdown Rendering - v1.4.6 修复', () => {
   const md = createMarkdownRenderer()
 
   beforeAll(() => {
     setupDOMPurifyHooks()
+  })
+
+  describe('Obsidian 本地资源语法', () => {
+    it('将 Wiki 链接、图片和媒体转换为受控 marker', () => {
+      const html = sanitizeHtml(md.render([
+        '[[Guide#Install|安装说明]]',
+        '![[images/arch.png|640x360]]',
+        '![[videos/demo.mp4#t=2,4|640x360]]',
+      ].join('\n\n')))
+
+      expect(html).toContain('class="wiki-link"')
+      expect(html).toContain('data-mdv-wiki-link=')
+      expect(html).toContain('data-mdv-local-image=')
+      expect(html).toContain('data-mdv-local-media=')
+      expect(html).not.toContain('src="images/arch.png"')
+      expect(html).not.toContain('src="videos/demo.mp4')
+
+      const fragment = document.createElement('template')
+      fragment.innerHTML = html
+      const encoded = fragment.content.querySelector(`[${LOCAL_MEDIA_MARKER_ATTRIBUTE}]`)
+        ?.getAttribute(LOCAL_MEDIA_MARKER_ATTRIBUTE)
+      const mediaMarker = encoded ? decodeLocalMediaMarker(encoded) : null
+      expect(mediaMarker?.dimensions).toEqual({ width: 640, height: 360 })
+      expect(mediaMarker?.fullWidth).toBe(false)
+    })
+
+    it('将文档和附件降级为安全资源卡，并复用特殊图表 renderer', () => {
+      const html = sanitizeHtml(md.render([
+        '![[docs/spec.pdf#page=3]]',
+        '![[diagrams/flow.bpmn]]',
+        '![[diagrams/board.excalidraw|设计草图]]',
+        '![[notes/Guide#Overview]]',
+      ].join('\n\n')))
+
+      expect(html.match(/class="wiki-embed-card"/g)).toHaveLength(2)
+      expect(html).toContain('本地附件')
+      expect(html).toContain('嵌入文档')
+      expect(html).toContain('class="bpmn-file-placeholder"')
+      expect(html).toContain('data-bpmn-resolution-kind="workspace-wiki"')
+      expect(html).toContain('class="excalidraw-file-placeholder"')
+      expect(html).toContain('data-excalidraw-resolution-kind="workspace-wiki"')
+      expect(html).not.toContain('data-mdv-local-image')
+      expect(html).not.toContain('<iframe')
+      expect(html).not.toContain('<object')
+    })
+
+    it('不会解析代码或转义后的 Wiki 语法', () => {
+      const html = sanitizeHtml(md.render('`![[a.mp4]]`\n\n\\![[b.mp4]]'))
+      expect(html).not.toContain('data-mdv-local-media')
+      expect(html).toContain('![[a.mp4]]')
+      expect(html).toContain('![[b.mp4]]')
+    })
+
+    it('将原生媒体规范化为不含真实路径的 inert marker', () => {
+      const html = sanitizeHtml(md.render(`
+<video src="videos/a.mp4#t=1,3" controls autoplay poster="images/p.png" style="width: 100%; position: fixed">
+  <source src="videos/a.webm" type="text/html">
+  <track src="captions/zh.vtt" kind="subtitles" srclang="zh-CN" label="中文" default>
+</video>
+<audio src="audio/a.mp3" controls preload="auto"></audio>
+`))
+      expect(html.match(/data-mdv-local-media=/g)).toHaveLength(2)
+      expect(html).not.toContain('videos/a.mp4')
+      expect(html).not.toContain('audio/a.mp3')
+      expect(html).not.toContain('autoplay')
+      expect(html).not.toContain('position: fixed')
+    })
+
+    it('每个媒体元素最多保留四个 source 和四个 WebVTT track', () => {
+      const sources = Array.from({ length: 6 }, (_, index) => (
+        `<source src="videos/source-${index}.mp4" type="video/mp4">`
+      )).join('\n')
+      const tracks = Array.from({ length: 6 }, (_, index) => (
+        `<track src="captions/track-${index}.vtt" kind="subtitles" srclang="zh-CN">`
+      )).join('\n')
+      const html = sanitizeHtml(md.render(`<video controls>\n${sources}\n${tracks}\n</video>`))
+      const template = document.createElement('template')
+      template.innerHTML = html
+      const encoded = template.content.querySelector(`[${LOCAL_MEDIA_MARKER_ATTRIBUTE}]`)
+        ?.getAttribute(LOCAL_MEDIA_MARKER_ATTRIBUTE)
+      const marker = encoded ? decodeLocalMediaMarker(encoded) : null
+
+      expect(marker?.sources).toHaveLength(4)
+      expect(marker?.tracks).toHaveLength(4)
+      expect(html).not.toContain('source-4.mp4')
+      expect(html).not.toContain('track-4.vtt')
+    })
   })
 
   describe('表格内 <br> 标签', () => {

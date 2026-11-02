@@ -124,7 +124,8 @@ export function InPageSearchBox({
     if (!visible) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isImeComposingEvent(e)) return
+      if (isImeComposingEvent(e) || !(e.target instanceof Node) || !boxRef.current?.contains(e.target)) return
+      if (e.key === 'Enter' && e.target !== inputRef.current) return
 
       // Enter: 下一个匹配
       if (e.key === 'Enter' && !e.shiftKey) {

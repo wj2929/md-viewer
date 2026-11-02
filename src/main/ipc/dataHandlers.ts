@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain, shell, app, net } from 'electron'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import { IPCContext } from './context'
-import { validateSecurePathInBase } from '../security'
+import { validateNotProtected, validateSecurePathInBase } from '../security'
 import { getSenderWorkspaceForOperation, validateSenderReadPath, validateWorkspaceOperationPath, resolveRecentFolderRoot } from './senderSecurity'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
 import type { FolderSplitLayoutV1 } from '../../shared/folderTabSession'
@@ -13,13 +13,14 @@ import * as contextMenuManager from '../contextMenuManager'
 import { validateSecurePath as validateLaunchPath } from '../security/pathValidator'
 import { getCliShimStatus, installCliShim, uninstallCliShim } from '../cliShimInstaller'
 import { isDocumentMarkColor, isMarkdownPath } from '../../shared/documentMarks'
-import {
-  createHeadingIdAllocator,
-  extractPlainHeadingText,
-  markdownAnchorMatches,
-  splitMarkdownTarget,
-} from '../../shared/markdown/semantics'
-import MarkdownIt from 'markdown-it'
+import { splitMarkdownTarget } from '../../shared/markdown/semantics'
+import { findHeadingLine } from '../markdownHeadingLine'
+import { resolveAuthorizedWorkspaceResource } from '../localResourceResolver'
+import { realpath, stat } from 'node:fs/promises'
+import { readLocalTextSnapshot, sameTextFile } from '../localTextSnapshot'
+import { getSenderWindow } from './senderSecurity'
+import { isLargeDocumentSize } from '../../shared/largeDocumentApproval'
+import { isFileTreeSort, normalizeFileTreeSort } from '../../shared/fileTreeSort'
 
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
 const MARKDOWN_LINK_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
@@ -50,24 +51,32 @@ function isPreviewableFilePath(filePath: string): boolean {
   return PREVIEWABLE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
-const headingMarkdownParser = new MarkdownIt({ html: true, linkify: false })
-
-function findHeadingLine(markdown: string, headingId: string): number | undefined {
-  const allocateHeadingId = createHeadingIdAllocator()
-  const tokens = headingMarkdownParser.parse(markdown, {})
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index]
-    if (token.type !== 'heading_open') continue
-    const inlineToken = tokens[index + 1]
-    if (!inlineToken || inlineToken.type !== 'inline') continue
-    const id = allocateHeadingId(extractPlainHeadingText(inlineToken.children))
-    if (markdownAnchorMatches(id, headingId)) {
-      return token.map ? token.map[0] + 1 : undefined
-    }
+async function readHeadingSnapshot(ctx: IPCContext, event: Electron.IpcMainInvokeEvent, canonicalPath: string): Promise<string> {
+  const window = getSenderWindow(ctx, event)
+  const workspaceId = ctx.windowManager.getActiveWorkspaceId(window.id)
+  const workspace = workspaceId ? ctx.windowManager.getWorkspace(window.id, workspaceId) : undefined
+  if (!workspace) throw new Error('unavailable')
+  const epoch = workspace.lifecycleEpoch, root = workspace.primaryRoot
+  const generation = ctx.windowManager.getLinkReadActivationGeneration(window.id)
+  const assertCurrent = () => {
+    if (event.sender.isDestroyed() || window.isDestroyed() || getSenderWindow(ctx, event) !== window
+      || ctx.windowManager.getActiveWorkspaceId(window.id) !== workspaceId
+      || ctx.windowManager.getWorkspace(window.id, workspaceId!) !== workspace
+      || workspace.lifecycleEpoch !== epoch || workspace.primaryRoot !== root
+      || ctx.windowManager.getLinkReadActivationGeneration(window.id) !== generation) throw new Error('stale')
   }
-
-  return undefined
+  const info = await stat(canonicalPath, { bigint: true })
+  const validate = async () => {
+    assertCurrent()
+    if (await validateSenderReadPath(ctx, event, canonicalPath) !== canonicalPath
+      || await realpath(canonicalPath) !== canonicalPath
+      || !sameTextFile(info, await stat(canonicalPath, { bigint: true }))) throw new Error('stale')
+    assertCurrent()
+  }
+  await validate()
+  const snapshot = await readLocalTextSnapshot(canonicalPath, info, validate)
+  if ('notice' in snapshot) throw new Error(snapshot.notice)
+  return snapshot.content
 }
 
 async function resolveMarkdownLinkTarget(
@@ -82,6 +91,55 @@ async function resolveMarkdownLinkTarget(
   headingId?: string
   error?: string
 }> {
+  if (href.startsWith('wiki:')) {
+    let rawWikiTarget: string
+    try {
+      rawWikiTarget = decodeURIComponent(href.slice('wiki:'.length))
+    } catch {
+      return { success: false, error: 'Wiki 链接编码无效' }
+    }
+    const target = splitMarkdownTarget(rawWikiTarget)
+    if (!target.decodedPath) {
+      if (!target.anchor?.startsWith('^')) {
+        return { success: false, error: 'Wiki 链接目标为空' }
+      }
+      try {
+        return {
+          success: true,
+          targetPath: await validateSenderReadPath(ctx, event, currentFilePath),
+        }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Wiki 链接解析失败' }
+      }
+    }
+    try {
+      const resource = await resolveAuthorizedWorkspaceResource(
+        ctx,
+        event,
+        currentFilePath,
+        target.decodedPath,
+        'workspace-wiki',
+        { allowExtensionlessMarkdown: true },
+      )
+      if (!MARKDOWN_LINK_EXTENSIONS.has(path.extname(resource.canonicalPath).toLowerCase())) {
+        return { success: false, error: 'Wiki 链接目标不是 Markdown 文件' }
+      }
+      let targetLine: number | undefined
+      if (target.anchor && !target.anchor.startsWith('^')) {
+        const markdown = await readHeadingSnapshot(ctx, event, resource.canonicalPath)
+        targetLine = findHeadingLine(markdown, target.anchor)
+      }
+      return {
+        success: true,
+        targetPath: resource.canonicalPath,
+        ...(targetLine === undefined ? {} : { targetLine }),
+        ...(target.anchor && !target.anchor.startsWith('^') ? { headingId: target.anchor } : {}),
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Wiki 链接解析失败' }
+    }
+  }
+
   const target = splitMarkdownTarget(href)
   const cleanHref = target.decodedPath
   const headingId = target.anchor
@@ -111,9 +169,9 @@ async function resolveMarkdownLinkTarget(
   let targetLine: number | undefined
   if (headingId) {
     try {
-      targetLine = findHeadingLine(await fs.readFile(canonicalTargetPath, 'utf8'), headingId)
+      targetLine = findHeadingLine(await readHeadingSnapshot(ctx, event, canonicalTargetPath), headingId)
     } catch {
-      targetLine = undefined
+      return { success: false, error: '目标正文不可安全读取' }
     }
   }
 
@@ -124,17 +182,31 @@ export function sanitizeSettingsUpdates(updates: unknown): Record<string, unknow
   if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
     throw new Error('无效的应用设置')
   }
-  const { readAloud: _ignored, ...safeUpdates } = updates as Record<string, unknown>
+  const {
+    readAloud: _ignoredReadAloud,
+    diagnosticLogs: _ignoredDiagnosticLogs,
+    ...safeUpdates
+  } = updates as Record<string, unknown>
   if (
     Object.hasOwn(safeUpdates, 'autoRenderRemoteCharts')
     && typeof safeUpdates.autoRenderRemoteCharts !== 'boolean'
   ) {
     throw new Error('联网图表自动渲染设置必须是布尔值')
   }
+  if (
+    Object.hasOwn(safeUpdates, 'folderPinyinSearchEnabled')
+    && typeof safeUpdates.folderPinyinSearchEnabled !== 'boolean'
+  ) {
+    throw new Error('目录拼音搜索设置必须是布尔值')
+  }
+  if (Object.hasOwn(safeUpdates, 'fileTreeSort') && !isFileTreeSort(safeUpdates.fileTreeSort)) {
+    throw new Error('无效的目录树排序设置')
+  }
   return safeUpdates
 }
 
 export function registerDataHandlers(ctx: IPCContext): void {
+  const bookmarkActivationRequests = new WeakMap<Electron.WebContents, symbol>()
   // ============== 剪贴板 ==============
 
 // ============== v1.3 阶段 3：剪贴板状态同步 ==============
@@ -326,7 +398,9 @@ ipcMain.handle('recent-files:activate', async (event, recentId: string) => {
 
   const canonicalFilePath = await validateSenderReadPath(ctx, event, recentFile.path)
   const rootPath = await resolveRecentFolderRoot(ctx, event, canonicalFilePath)
-  const activation = await activateFolderForWindow(ctx, win, rootPath)
+  const activation = await activateFolderForWindow(ctx, win, rootPath, {
+    diagnosticSource: 'recent',
+  })
   const resolvedFilePath = await validateSecurePathInBase(canonicalFilePath, activation.path)
   return { ...activation, filePath: resolvedFilePath, fileName: path.basename(resolvedFilePath) }
 })
@@ -451,11 +525,23 @@ ipcMain.handle('folder-tab-session:get-for-folder', async (event, folderPath: st
 // ============== v1.3.6：应用设置管理 ==============
 
 ipcMain.handle('settings:get', async () => {
-  return ctx.appDataManager.getSettings()
+  const { diagnosticLogs: _diagnosticLogs, ...settings } = ctx.appDataManager.getSettings()
+  return settings
 })
 
+let fileTreeSortRevision = 0
+const sortSnapshot = () => ({ value: normalizeFileTreeSort(ctx.appDataManager.getSettings().fileTreeSort), revision: fileTreeSortRevision })
+ipcMain.handle('settings:fileTreeSort', () => sortSnapshot())
 ipcMain.handle('settings:update', async (_, updates: Record<string, unknown>) => {
-  ctx.appDataManager.updateSettings(sanitizeSettingsUpdates(updates))
+  const safeUpdates = sanitizeSettingsUpdates(updates)
+  ctx.appDataManager.updateSettings(safeUpdates)
+  if (Object.hasOwn(safeUpdates, 'fileTreeSort')) {
+    fileTreeSortRevision++
+    const snapshot = sortSnapshot()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('settings:fileTreeSortChanged', snapshot)
+    }
+  }
 })
 
 ipcMain.handle('folder-tree-state:get', async (event, operation: WorkspaceOperationContext) => {
@@ -511,6 +597,21 @@ ipcMain.handle('document-marks:set', async (
     ctx.windowManager.broadcastToOthers(senderWindow.id, 'document-marks:changed')
   }
   return marks
+})
+
+ipcMain.handle('large-document-approval:get', async (event, filePath: string) => {
+  getSenderWindow(ctx, event)
+  const canonicalPath = await validateSenderReadPath(ctx, event, filePath)
+  if (!isMarkdownPath(canonicalPath) || !(await fs.stat(canonicalPath)).isFile()) throw new Error('仅支持 Markdown 文件')
+  return ctx.appDataManager.getLargeDocumentApproval(canonicalPath)
+})
+
+ipcMain.handle('large-document-approval:set', async (event, filePath: string, size: unknown, operation: WorkspaceOperationContext) => {
+  if (size !== null && !isLargeDocumentSize(size)) throw new Error('无效的大文档规模')
+  const canonicalPath = await validateWorkspaceOperationPath(ctx, event, operation, filePath)
+  if (!isMarkdownPath(canonicalPath) || !(await fs.stat(canonicalPath)).isFile()) throw new Error('仅支持 Markdown 文件')
+  getSenderWorkspaceForOperation(ctx, event, operation)
+  ctx.appDataManager.setLargeDocumentApproval(canonicalPath, size)
 })
 
 ipcMain.handle('read-position:get', async (event, filePath: string) => {
@@ -574,10 +675,46 @@ ipcMain.handle('bookmarks:activate', async (event, bookmarkId: string) => {
   if (!win || !bookmark) {
     throw new Error('安全错误：书签不存在或当前窗口无效')
   }
-
-  const canonicalFilePath = await validateSenderReadPath(ctx, event, bookmark.filePath)
-  const rootPath = await resolveRecentFolderRoot(ctx, event, canonicalFilePath)
-  const activation = await activateFolderForWindow(ctx, win, rootPath)
+  const request = Symbol()
+  bookmarkActivationRequests.set(event.sender, request)
+  const workspaceId = ctx.windowManager.getActiveWorkspaceId(win.id)
+  const epoch = workspaceId ? ctx.windowManager.getWorkspace(win.id, workspaceId)?.lifecycleEpoch : undefined
+  const assertCurrent = () => {
+    if (win.isDestroyed() || event.sender.isDestroyed() ||
+      bookmarkActivationRequests.get(event.sender) !== request ||
+      ctx.windowManager.getActiveWorkspaceId(win.id) !== workspaceId ||
+      (workspaceId && ctx.windowManager.getWorkspace(win.id, workspaceId)?.lifecycleEpoch !== epoch) ||
+      ctx.appDataManager.getBookmark(bookmarkId)?.filePath !== bookmark.filePath) {
+      throw new Error('书签打开请求已失效，请重试')
+    }
+  }
+  assertCurrent()
+  validateNotProtected(bookmark.filePath)
+  let canonicalFilePath: string
+  try {
+    canonicalFilePath = await realpath(bookmark.filePath)
+    if (!(await stat(canonicalFilePath)).isFile()) throw new Error('书签目标不是文件')
+  } catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+      throw new Error('书签文件不存在或已移动，请重新定位文件')
+    }
+    throw error
+  }
+  validateNotProtected(canonicalFilePath)
+  let rootPath: string
+  try {
+    await validateSenderReadPath(ctx, event, canonicalFilePath)
+    rootPath = await resolveRecentFolderRoot(ctx, event, canonicalFilePath)
+  } catch {
+    assertCurrent()
+    // 单人本机：激活已有书签就是打开动作，缺少历史根时使用文件所在目录。
+    rootPath = path.dirname(canonicalFilePath)
+  }
+  canonicalFilePath = await validateSecurePathInBase(bookmark.filePath, rootPath)
+  assertCurrent()
+  const activation = await activateFolderForWindow(ctx, win, rootPath, {
+    diagnosticSource: 'recent',
+  })
   const resolvedFilePath = await validateSecurePathInBase(canonicalFilePath, activation.path)
   return { ...activation, filePath: resolvedFilePath, fileName: path.basename(resolvedFilePath) }
 })
@@ -590,7 +727,7 @@ ipcMain.handle('bookmarks:add', async (event, bookmark: {
   headingText?: string
   scrollPosition?: number
 }) => {
-  // 书签可以记录分屏中的跨根文件，但书签记录本身绝不授予后续读取权限。
+  // 保存书签不改变读权限；显式激活已有书签时才恢复其目录。
   const canonicalFilePath = await validateSenderReadPath(ctx, event, bookmark.filePath)
   const result = ctx.appDataManager.addBookmark({
     ...bookmark,

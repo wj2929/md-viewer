@@ -7,6 +7,7 @@ import { workspaceTransferCoordinator, type WorkspaceTransferSnapshot } from '..
 import { workspaceSessionStore, type DesktopSessionRuntimeWindow } from '../workspaceSessionStore'
 import type { WorkspacePresentation } from '../windowManager'
 import { windowTransferCoordinator } from '../windowTransferCoordinator'
+import { normalizeTabSessionReferences } from '../../shared/tabSessionReferences'
 
 export function registerWindowHandlers(ctx: IPCContext): void {
   const notifyTransferCancelled = (transfer: { nonce: string; sourceWindowId: number; targetWindowId: number }, reason: string): void => {
@@ -87,20 +88,19 @@ export function registerWindowHandlers(ctx: IPCContext): void {
           }
           throw new Error('安全错误：工作区会话内容无效')
         }
+        const tabs = workspace.tabs.map((tab) => ({
+          id: tab.id,
+          relativePath: registeredWorkspace.primaryRoot && typeof tab.filePath === 'string'
+            ? path.relative(registeredWorkspace.primaryRoot, tab.filePath) : '',
+          isPinned: Boolean(tab.isPinned),
+        })).filter((tab) => tab.relativePath && !tab.relativePath.startsWith('..') && !path.isAbsolute(tab.relativePath))
+        const references = normalizeTabSessionReferences(tabs, workspace.activeTabId, workspace.splitState)
         return {
           id: workspace.id,
           name: typeof workspace.name === 'string' ? workspace.name.slice(0, 200) : '未命名工作区',
           primaryRoot: registeredWorkspace.primaryRoot,
           lifecycleEpoch: registeredWorkspace.lifecycleEpoch,
-          tabs: workspace.tabs.map((tab) => ({
-            id: tab.id,
-            relativePath: registeredWorkspace.primaryRoot && typeof tab.filePath === 'string'
-              ? path.relative(registeredWorkspace.primaryRoot, tab.filePath)
-              : '',
-            isPinned: Boolean(tab.isPinned),
-          })).filter((tab) => tab.relativePath && !tab.relativePath.startsWith('..') && !path.isAbsolute(tab.relativePath)),
-          activeTabId: workspace.activeTabId,
-          splitState: workspace.splitState,
+          tabs, ...references,
         }
       }).filter((workspace): workspace is NonNullable<typeof workspace> => workspace !== null),
     }

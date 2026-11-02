@@ -4,6 +4,8 @@ import { folderHistoryManager } from '../folderHistoryManager'
 import { appDataManager } from '../appDataManager'
 import type { WorkspaceIndexService } from '../indexing/WorkspaceIndexService'
 import type { LinkRewritePlanner } from '../linking/LinkRewritePlanner'
+import type { LinkReadService } from '../linkReadService'
+import type { DiagnosticEventLogService } from '../diagnostics/DiagnosticEventLogService'
 
 // 定义存储的数据结构
 export interface AppState {
@@ -26,7 +28,9 @@ export interface IPCContext {
   windowManager: typeof windowManager
   folderHistoryManager: typeof folderHistoryManager
   appDataManager: typeof appDataManager
+  diagnosticEventLogService: DiagnosticEventLogService
   workspaceIndexService?: WorkspaceIndexService
   linkRewritePlanner?: LinkRewritePlanner
+  linkReadService?: LinkReadService
   openPathInWindow: (targetPath: string, type: 'md-file' | 'directory', targetWindow?: Electron.BrowserWindow) => void
 }

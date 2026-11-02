@@ -34,6 +34,7 @@ describe('folder-tab-session IPC 安全边界', () => {
   let root: string
   let saveFolderTabSession: ReturnType<typeof vi.fn>
   let getFolderTabSession: ReturnType<typeof vi.fn>
+  let getSettings: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -47,9 +48,18 @@ describe('folder-tab-session IPC 安全边界', () => {
 
     saveFolderTabSession = vi.fn()
     getFolderTabSession = vi.fn(async () => ({ tabs: [], activePath: null }))
+    getSettings = vi.fn(() => ({
+      sidebarCollapsed: true,
+      diagnosticLogs: {
+        enabled: true,
+        directory: '/private/diagnostic-path',
+        maxTotalMiB: 10,
+        retentionDays: 7,
+      },
+    }))
 
     registerDataHandlers({
-      appDataManager: { saveFolderTabSession, getFolderTabSession },
+      appDataManager: { saveFolderTabSession, getFolderTabSession, getSettings },
       folderHistoryManager: { getHistory: vi.fn(async () => []), findContainingFolder: vi.fn(async () => null) },
       windowManager: {
         getWindowFolderPath: vi.fn(() => root),
@@ -116,6 +126,13 @@ describe('folder-tab-session IPC 安全边界', () => {
       get(createEvent() as Electron.IpcMainInvokeEvent, path.join(root, 'inside.md'))
     ).rejects.toThrow(/不是目录/)
     expect(getFolderTabSession).not.toHaveBeenCalled()
+  })
+
+  it('通用 settings:get 不返回专用诊断日志设置', async () => {
+    const get = getHandler<() => Promise<Record<string, unknown>>>('settings:get')
+
+    await expect(get()).resolves.toEqual({ sidebarCollapsed: true })
+    expect(getSettings).toHaveBeenCalledTimes(1)
   })
 
   it('get 目标是已授权目录时转发到 appDataManager', async () => {

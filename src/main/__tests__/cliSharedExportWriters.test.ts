@@ -1,8 +1,14 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
-import { buildExportHtmlDocument, buildExportPdfDocument, writeHtmlExport } from '../cli/sharedExportWriters'
+import { buildExportHtmlDocument, buildExportPdfDocument, writeHtmlExport, writePdfExport } from '../cli/sharedExportWriters'
+import { exportPdfSnapshot } from '../pdf/pdfExport'
+
+vi.mock('../pdf/pdfExport', () => ({ exportPdfSnapshot: vi.fn().mockResolvedValue({ type: 'pdf', bytes: 123 }) }))
+vi.mock('../ipc/exportStyles', () => ({
+  getPdfExportStyles: vi.fn(async (markdownCss: string, prismCss: string) => ({ markdownCss, prismCss, katexCss: '@font-face{src:url(data:font/woff2;base64,AAAA)}' })),
+}))
 
 let tempDir: string | null = null
 
@@ -49,6 +55,19 @@ describe('shared export writers', () => {
     expect(artifact.path).toBe(outputPath)
     expect(artifact.bytes).toBeGreaterThan(100)
     await expect(readFile(outputPath, 'utf8')).resolves.toContain('<p>Hello</p>')
+  })
+
+  it('seals PDF fonts, preserves cancellation and delegates without changing HTML CDN behavior', async () => {
+    const controller = new AbortController()
+    const options = { content: '<p>正文</p>', title: 'A&B', markdownCss: '', prismCss: '', showBranding: false, signal: controller.signal }
+    await writePdfExport('/fixture/report.pdf', options)
+    expect(exportPdfSnapshot).toHaveBeenCalledWith('/fixture/report.pdf', expect.stringContaining('data:font/woff2;base64,AAAA'), 'A&B', controller.signal)
+    const pdf = vi.mocked(exportPdfSnapshot).mock.calls.at(-1)![1]
+    expect(pdf).toContain('<title>A&amp;B</title>')
+    expect(pdf).toContain("script-src 'none'")
+    expect(pdf).not.toContain('registry.npmmirror.com')
+    expect(pdf).not.toContain('cdn.jsdelivr.net')
+    expect(buildExportHtmlDocument(options)).toContain('https://registry.npmmirror.com/katex/')
   })
 
   it('builds the shared PDF document shell with chart sizing and branding rules', () => {

@@ -45,6 +45,10 @@ vi.mock('../localImageProtocol', () => ({
   registerLocalImageProtocol: vi.fn(),
   revokeLocalImageCapabilities: vi.fn(),
 }))
+vi.mock('../localMediaProtocol', () => ({
+  registerLocalMediaProtocol: vi.fn(),
+  revokeLocalMediaCapabilities: vi.fn(),
+}))
 vi.mock('../securityPolicy', () => ({ createContentSecurityPolicy: vi.fn(() => '') }))
 
 const { WindowManager } = await import('../windowManager')

@@ -2,6 +2,11 @@ import type { RendererSourceKind, RendererType } from '../../renderers/types'
 
 export type ChartsSettingsView = 'capabilities' | 'examples' | 'service'
 
+export interface ChartFormatGuidance {
+  syntax: string
+  limits: string
+}
+
 export interface ChartStarterTemplate {
   id: string
   rendererType: RendererType

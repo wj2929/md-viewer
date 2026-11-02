@@ -32,6 +32,16 @@ export interface WorkspaceIndexManifest {
   }>
 }
 
+export interface WorkspaceIndexReclamationResponse {
+  status: 'completed' | 'partial' | 'empty' | 'cancelled' | 'busy' | 'stale' | 'budget' | 'invalid'
+  message: string
+  deletedFiles?: number
+  deletedBytes?: number
+  deletedDirectories?: number
+  skippedFiles?: number
+  failedFiles?: number
+}
+
 export interface WorkspaceIndexStatus {
   state: WorkspaceIndexState
   generation: number
@@ -54,6 +64,11 @@ export interface WorkspaceSearchResult {
 export interface WorkspaceHistorySearchResult extends WorkspaceSearchResult {
   historyId: string
   filePath: string
+}
+
+export interface WorkspaceBacklinkResponse {
+  items: WorkspaceBacklinkResult[]
+  coverage: 'complete' | 'building' | 'partial' | 'stale'
 }
 
 export interface WorkspaceBacklinkResult {

@@ -119,6 +119,44 @@
   max-width: 100%;
 }
 
+.markdown-body .local-media-player {
+  display: block;
+  max-width: 100%;
+  margin: 1em 0;
+}
+
+.markdown-body video.local-media-player {
+  height: auto;
+}
+
+.markdown-body audio.local-media-player {
+  width: min(100%, 640px);
+  height: 54px;
+}
+
+.markdown-body .local-media-fallback,
+.markdown-body .wiki-embed-card {
+  display: block;
+  margin: 1em 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 6px;
+  background: var(--bg-secondary, #f6f8fa);
+  color: var(--text-secondary, #57606a);
+}
+
+.markdown-body .wiki-embed-label {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #57606a);
+}
+
+.markdown-body .wiki-link {
+  color: var(--accent-color, #0969da);
+}
+
 /* ============================================
    段落 Paragraph
    ============================================ */

@@ -13,6 +13,7 @@ export function useKeyboardShortcuts(): void {
   // v1.4.3：全屏查看快捷键监听（macOS: Cmd+F11, Win/Linux: F11, ESC 退出）
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.defaultPrevented || document.querySelector('.local-attachment-dialog')) return
       const isMac = window.api?.platform === 'darwin'
 
       const isFullscreenToggle = isMac
@@ -55,6 +56,7 @@ export function useKeyboardShortcuts(): void {
   // v1.5.1：分屏快捷键 Cmd+\ / Ctrl+\
   useEffect(() => {
     const handleSplitShortcut = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || document.querySelector('.local-attachment-dialog')) return
       if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
         e.preventDefault()
         const currentTabs = useTabStore.getState().tabs
@@ -76,7 +78,7 @@ export function useKeyboardShortcuts(): void {
             second: secondLeaf
           }
           return { root, activeLeafId: firstLeaf.id }
-        })
+        }, { source: 'keyboard-split' })
       }
     }
     window.addEventListener('keydown', handleSplitShortcut)

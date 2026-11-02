@@ -1,4 +1,8 @@
 import { buildPreviewContentForFile } from './previewableFiles'
+import {
+  recordFileIoClient,
+  type RendererFileDiagnosticOperation,
+} from './diagnostics'
 
 // 简单的 LRU 缓存实现
 class LRUCache<K, V> {
@@ -53,54 +57,92 @@ class LRUCache<K, V> {
 
 // 全局文件内容缓存实例
 const fileContentCache = new LRUCache<string, string>(5)
+const watcherInvalidatedPaths = new Set<string>()
 
 // 使用缓存读取文件
 // v1.4.7: 默认强制从磁盘读取，确保数据一致性
-export async function readFileWithCache(filePath: string, forceReload = true): Promise<string> {
+export async function readFileWithCache(
+  filePath: string,
+  forceReload = true,
+  diagnosticOperation?: RendererFileDiagnosticOperation,
+): Promise<string> {
   // v1.4.7: 默认强制重新读取，解决外部修改后缓存不更新的问题
   if (!forceReload) {
     const cached = fileContentCache.get(filePath)
     if (cached !== undefined) {
       console.log(`Cache hit: ${filePath}`)
+      if (diagnosticOperation) {
+        recordFileIoClient(diagnosticOperation, 0, 'actual-hit', 'success')
+      }
       return cached
     }
   }
 
-  // 从磁盘读取最新内容
+  const invalidatedByWatcher = watcherInvalidatedPaths.delete(filePath)
+  const cacheOutcome = invalidatedByWatcher
+    ? 'invalidated-by-watcher'
+    : forceReload && fileContentCache.has(filePath)
+      ? 'bypass-force-reload'
+      : 'miss'
   console.log(`Reading from disk: ${filePath}`)
-  const content = await window.api.readFile(filePath)
+  const started = performance.now()
+  let content: string
+  try {
+    content = diagnosticOperation
+      ? await window.api.readFile(filePath, diagnosticOperation.context)
+      : await window.api.readFile(filePath)
+  } catch (error) {
+    if (diagnosticOperation) {
+      recordFileIoClient(diagnosticOperation, performance.now() - started, cacheOutcome, 'error')
+    }
+    throw error
+  }
+  if (diagnosticOperation) {
+    recordFileIoClient(diagnosticOperation, performance.now() - started, cacheOutcome, 'success')
+  }
 
-  // 更新缓存
   fileContentCache.set(filePath, content)
-
   return content
 }
 
-export async function readPreviewContentWithCache(filePath: string, forceReload = true): Promise<string> {
-  const content = await readFileWithCache(filePath, forceReload)
+export async function readPreviewContentWithCache(
+  filePath: string,
+  forceReload = true,
+  diagnosticOperation?: RendererFileDiagnosticOperation,
+): Promise<string> {
+  const content = await readFileWithCache(filePath, forceReload, diagnosticOperation)
   return buildPreviewContentForFile(filePath, content)
 }
 
 // 清除缓存
-export function clearFileCache(filePath?: string): void {
+export function clearFileCache(filePath?: string, reason: 'manual' | 'watcher' = 'manual'): void {
   if (filePath) {
     // 清除特定文件的缓存
     fileContentCache.delete(filePath)
+    if (reason === 'watcher') {
+      watcherInvalidatedPaths.add(filePath)
+      if (watcherInvalidatedPaths.size > 2048) {
+        const oldest = watcherInvalidatedPaths.values().next().value
+        if (oldest) watcherInvalidatedPaths.delete(oldest)
+      }
+    } else watcherInvalidatedPaths.delete(filePath)
     console.log(`Cache cleared for: ${filePath}`)
   } else {
     // 清除所有缓存
     fileContentCache.clear()
+    watcherInvalidatedPaths.clear()
     console.log('Cache cleared: all')
   }
 }
 
 // 使缓存失效并重新读取文件
-export async function invalidateAndReload(filePath: string): Promise<string> {
-  fileContentCache.delete(filePath)
+export async function invalidateAndReload(
+  filePath: string,
+  diagnosticOperation?: RendererFileDiagnosticOperation,
+): Promise<string> {
+  clearFileCache(filePath, 'watcher')
   console.log(`Cache invalidated: ${filePath}`)
-  const content = await window.api.readFile(filePath)
-  fileContentCache.set(filePath, content)
-  return content
+  return readFileWithCache(filePath, true, diagnosticOperation)
 }
 
 // 获取缓存状态（用于调试）

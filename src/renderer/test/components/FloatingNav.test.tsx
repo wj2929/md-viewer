@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import FloatingNav from '../../src/components/FloatingNav'
 import React from 'react'
 import { useWorkspaceStore } from '../../src/stores/workspaceStore'
@@ -54,7 +54,7 @@ describe('FloatingNav 组件测试', () => {
 
     global.window.api = {
       ...(global.window.api || {}),
-      getWorkspaceBacklinks: vi.fn().mockResolvedValue([]),
+      getWorkspaceBacklinks: vi.fn().mockResolvedValue({ items: [], coverage: 'complete' }),
       getWorkspaceIndexStatus: vi.fn().mockResolvedValue({
         state: 'ready', generation: 1, indexedDocuments: 1, totalDocuments: 1, pendingDocuments: 0, errors: 0,
       }),
@@ -68,6 +68,30 @@ describe('FloatingNav 组件测试', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('按所属面板尺寸限制目录，跟随缩放且卸载后断开观察', () => {
+    const host = document.createElement('div')
+    host.append(mockContainer)
+    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 400 })
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 300 })
+    let resize!: () => void
+    const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      observe = vi.fn()
+      disconnect = disconnect
+      constructor(callback: () => void) { resize = callback }
+    })
+    const { container, unmount } = render(<FloatingNav containerRef={containerRef} markdown="# Test" />)
+    const nav = container.querySelector<HTMLElement>('.floating-nav')!
+    expect(nav.style.getPropertyValue('--nav-panel-width')).toBe('312px')
+    expect(nav.style.getPropertyValue('--nav-panel-height')).toBe('268px')
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 500 })
+    act(() => resize())
+    expect(nav.style.getPropertyValue('--nav-panel-height')).toBe('468px')
+    unmount()
+    expect(disconnect).toHaveBeenCalledTimes(1)
   })
 
   it('应该渲染浮动导航按钮', () => {
@@ -77,6 +101,31 @@ describe('FloatingNav 组件测试', () => {
     expect(screen.getByLabelText('返回顶部')).toBeInTheDocument()
     expect(screen.getByLabelText('目录')).toBeInTheDocument()
     expect(screen.getByLabelText('跳到底部')).toBeInTheDocument()
+  })
+
+  it('来源入口位于最上方，短文字与完整来源可访问名称并存', () => {
+    const onReturn = vi.fn()
+    const { container } = render(<FloatingNav containerRef={containerRef} markdown="# Test"
+      linkOrigin={{ name: '专题总结.md', description: '返回来源：专题总结.md · 原链接位置', busy: false, onReturn }} />)
+    const button = screen.getByRole('button', { name: '返回来源：专题总结.md' })
+    expect(button).toHaveTextContent('↶返回')
+    expect(button).toHaveAttribute('title', '返回来源：专题总结.md · 原链接位置')
+    expect(container.querySelector('.floating-nav')?.firstElementChild).toBe(button)
+    fireEvent.click(button)
+    expect(onReturn).toHaveBeenCalledTimes(1)
+  })
+
+  it('无来源不显示返回入口，忙碌期间禁用而不追加重复按钮', () => {
+    const onReturn = vi.fn()
+    const { rerender } = render(<FloatingNav containerRef={containerRef} markdown="# Test" />)
+    expect(screen.queryByRole('button', { name: /返回来源/ })).not.toBeInTheDocument()
+    rerender(<FloatingNav containerRef={containerRef} markdown="# Test"
+      linkOrigin={{ name: '专题总结.md', busy: true, onReturn }} />)
+    const buttons = screen.getAllByRole('button', { name: '返回来源：专题总结.md' })
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0]).toBeDisabled()
+    fireEvent.click(buttons[0])
+    expect(onReturn).not.toHaveBeenCalled()
   })
 
   it('点击返回顶部按钮应该滚动到顶部', () => {
@@ -189,14 +238,14 @@ describe('FloatingNav 组件测试', () => {
       activeWorkspaceId: 'workspace-a',
       runtimes: {},
     })
-    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue([{
+    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue({ items: [{
       sourceRelativePath: 'docs/source.md',
       sourceDisplayName: 'source.md',
       lineStart: 12,
       rawTarget: '../target.md',
       context: '参见目标文档。',
       sourceRange: { startOffset: 1, endOffset: 20, startLine: 12, startColumn: 1, endLine: 12, endColumn: 20 },
-    }])
+    }], coverage: 'complete' })
     const onBacklinkSelect = vi.fn()
     render(
       <FloatingNav
@@ -236,7 +285,7 @@ describe('FloatingNav 组件测试', () => {
       endLine: startLine,
       endColumn: 11,
     })
-    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue([
+    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue({ items: [
       {
         sourceRelativePath: 'docs/source.md', sourceDisplayName: 'source.md', lineStart: 3,
         rawTarget: '../target.md', context: '分类目录 · 示例包首页', placement: 'standalone-link',
@@ -252,7 +301,7 @@ describe('FloatingNav 组件测试', () => {
         rawTarget: '../target.md', context: '另见 target 文档。', placement: 'prose',
         sourceRange: sourceRange(60, 7),
       },
-    ])
+    ], coverage: 'complete' })
 
     const onBacklinkSelect = vi.fn()
     render(
@@ -294,14 +343,14 @@ describe('FloatingNav 组件测试', () => {
       activeWorkspaceId: 'workspace-a',
       runtimes: {},
     })
-    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue([{
+    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue({ items: [{
       sourceRelativePath: 'docs/source.md',
       sourceDisplayName: 'source.md',
       lineStart: 12,
       rawTarget: '../target.md',
       context: '参见目标文档。',
       sourceRange: { startOffset: 1, endOffset: 20, startLine: 12, startColumn: 1, endLine: 12, endColumn: 20 },
-    }])
+    }], coverage: 'complete' })
     ;(window.api.getWorkspaceIndexStatus as any).mockResolvedValue({
       state: 'read-only', generation: 1, indexedDocuments: 2, totalDocuments: 2, pendingDocuments: 0, errors: 0,
     })
@@ -329,7 +378,7 @@ describe('FloatingNav 组件测试', () => {
       activeWorkspaceId: 'workspace-a',
       runtimes: {},
     })
-    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue([])
+    ;(window.api.getWorkspaceBacklinks as any).mockResolvedValue({ items: [], coverage: 'complete' })
 
     render(
       <FloatingNav
@@ -356,12 +405,12 @@ describe('FloatingNav 组件测试', () => {
       return vi.fn()
     })
     ;(window.api.getWorkspaceBacklinks as any)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{
+      .mockResolvedValueOnce({ items: [], coverage: 'complete' })
+      .mockResolvedValueOnce({ items: [{
         sourceRelativePath: 'source.md', sourceDisplayName: 'source.md', lineStart: 3,
         rawTarget: './target.md', context: '参见目标。',
         sourceRange: { startOffset: 1, endOffset: 10, startLine: 3, startColumn: 1, endLine: 3, endColumn: 10 },
-      }])
+      }], coverage: 'complete' })
 
     render(
       <FloatingNav
@@ -376,6 +425,51 @@ describe('FloatingNav 组件测试', () => {
 
     publishStatus({ state: 'ready' })
     await waitFor(() => expect(screen.getByLabelText(/^链接到这里/)).toBeInTheDocument())
+  })
+
+  it('回调重建和重复索引状态不会反复查询反链', async () => {
+    useWorkspaceStore.setState({
+      workspaces: [{ id: 'workspace-a', primaryRoot: '/workspace', lifecycleEpoch: 3, name: 'workspace' }],
+      activeWorkspaceId: 'workspace-a',
+      runtimes: {},
+    })
+    let publishStatus = (_status: any): void => {}
+    ;(window.api.subscribeWorkspaceIndexStatus as any).mockImplementation((_lifecycle: any, listener: any) => {
+      publishStatus = listener
+      return vi.fn()
+    })
+    const firstCallback = vi.fn()
+    const view = render(
+      <FloatingNav
+        containerRef={containerRef}
+        markdown="# Test"
+        filePath="/workspace/target.md"
+        onBacklinkSelect={firstCallback}
+      />
+    )
+    await waitFor(() => expect(window.api.getWorkspaceBacklinks).toHaveBeenCalledTimes(1))
+
+    view.rerender(
+      <FloatingNav
+        containerRef={containerRef}
+        markdown="# Test"
+        filePath="/workspace/target.md"
+        onBacklinkSelect={vi.fn()}
+      />
+    )
+    publishStatus({
+      state: 'ready', generation: 1, indexedDocuments: 2,
+      totalDocuments: 2, pendingDocuments: 0, errors: 0,
+    })
+    publishStatus({
+      state: 'ready', generation: 1, indexedDocuments: 2,
+      totalDocuments: 2, pendingDocuments: 0, errors: 0,
+    })
+
+    await waitFor(() => expect(window.api.getWorkspaceBacklinks).toHaveBeenCalledTimes(2))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(window.api.getWorkspaceBacklinks).toHaveBeenCalledTimes(2)
+    expect(window.api.subscribeWorkspaceIndexStatus).toHaveBeenCalledTimes(1)
   })
 
   it('应该有正确的 ARIA 属性', async () => {

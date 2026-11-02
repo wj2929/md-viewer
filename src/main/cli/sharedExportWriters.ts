@@ -1,6 +1,4 @@
-import { writeFile, stat, rm } from 'fs/promises'
-import path from 'path'
-import { tmpdir } from 'os'
+import { writeFile, stat } from 'fs/promises'
 import type { CliArtifact } from './types'
 
 interface HtmlDocumentOptions {
@@ -11,7 +9,10 @@ interface HtmlDocumentOptions {
   showBranding: boolean
 }
 
-export type PdfDocumentOptions = HtmlDocumentOptions
+export type PdfDocumentOptions = HtmlDocumentOptions & {
+  katexCss?: string
+  signal?: AbortSignal
+}
 
 export function escapeHtml(text: string): string {
   const map: Record<string, string> = {
@@ -165,7 +166,9 @@ export function buildExportPdfDocument(options: PdfDocumentOptions): string {
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.27/files/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.css'">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>${escapeHtml(options.title)}</title>
+  <style>${options.katexCss ?? ''}</style>
   <style>
     :root {
       --bg-primary: #ffffff;
@@ -361,82 +364,10 @@ export function buildExportPdfDocument(options: PdfDocumentOptions): string {
 }
 
 export async function writePdfExport(outputPath: string, options: PdfDocumentOptions): Promise<CliArtifact> {
-  const { BrowserWindow } = await import('electron')
-  const printWindow = new BrowserWindow({
-    show: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-  })
-
-  const tmpPdfPath = path.join(tmpdir(), `md-viewer-pdf-${process.pid}-${Date.now()}.html`)
-  try {
-    await writeFile(tmpPdfPath, buildExportPdfDocument(options), 'utf8')
-    await printWindow.loadFile(tmpPdfPath)
-    await waitForKatex(printWindow)
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    const marginInInches = 10 / 25.4
-    const pdfData = await printWindow.webContents.printToPDF({
-      pageSize: 'A4',
-      margins: {
-        top: marginInInches,
-        bottom: marginInInches,
-        left: marginInInches,
-        right: marginInInches,
-      },
-      printBackground: true,
-      preferCSSPageSize: false,
-    })
-    await writeFile(outputPath, pdfData)
-  } finally {
-    rm(tmpPdfPath, { force: true }).catch(() => undefined)
-    const isDestroyed = typeof printWindow.isDestroyed === 'function'
-      ? printWindow.isDestroyed()
-      : false
-    if (!isDestroyed) {
-      printWindow.close()
-    }
-  }
-
-  const fileStat = await stat(outputPath)
-  return {
-    type: 'pdf',
-    path: outputPath,
-    bytes: fileStat.size,
-  }
-}
-
-async function waitForKatex(printWindow: Electron.BrowserWindow): Promise<void> {
-  await printWindow.webContents.executeJavaScript(`
-    new Promise((resolve) => {
-      const checkKatex = () => {
-        const katexElements = document.querySelectorAll('.katex')
-
-        if (katexElements.length === 0) {
-          resolve(true)
-          return
-        }
-
-        const allRendered = Array.from(katexElements).every(el => {
-          return el.querySelector('math') || el.querySelector('mrow') || el.querySelector('span.katex-html')
-        })
-
-        if (allRendered) {
-          resolve(true)
-        } else {
-          setTimeout(checkKatex, 100)
-        }
-      }
-
-      setTimeout(() => resolve(false), 5000)
-
-      if (document.readyState === 'complete') {
-        checkKatex()
-      } else {
-        window.addEventListener('load', checkKatex)
-      }
-    })
-  `)
+  const [{ getPdfExportStyles }, { exportPdfSnapshot }] = await Promise.all([
+    import('../ipc/exportStyles'),
+    import('../pdf/pdfExport'),
+  ])
+  const styles = await getPdfExportStyles(options.markdownCss, options.prismCss)
+  return exportPdfSnapshot(outputPath, buildExportPdfDocument({ ...options, ...styles }), options.title, options.signal)
 }

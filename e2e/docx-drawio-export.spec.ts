@@ -8,13 +8,13 @@ const SOURCE_MD = path.join(__dirname, 'fixtures/test-drawio.md')
 const DOCX_PATH = process.env.MD_VIEWER_DRAWIO_DOCX_OUT || '/tmp/mdv-test-drawio.docx'
 
 test.describe('DrawIO DOCX 导出', () => {
-  test('长文档后部 DrawIO 图表不应因预览 DOM 缺失而降级为源码', async () => {
+  test('长文档后部 DrawIO 图表不应因预览 DOM 缺失而降级为源码', async ({}, testInfo) => {
     test.setTimeout(900_000)
     fs.rmSync(DOCX_PATH, { force: true })
     fs.mkdirSync(path.dirname(DOCX_PATH), { recursive: true })
 
     const electronApp = await electron.launch({
-      args: [path.join(__dirname, '../out/main/index.js'), SOURCE_MD],
+      args: [`--user-data-dir=${testInfo.outputPath('isolated-profile')}`, path.join(__dirname, '../out/main/index.js'), SOURCE_MD],
       env: {
         ...process.env,
         NODE_ENV: 'test',
@@ -48,6 +48,12 @@ test.describe('DrawIO DOCX 导出', () => {
       await electronApp.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()[0]?.webContents.send('markdown:export-docx')
       })
+
+      const preflightOverlay = page.locator('.preflight-overlay')
+      if (await preflightOverlay.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false)) {
+        await page.locator('.preflight-actions .export-task-btn-primary').click()
+        await preflightOverlay.waitFor({ state: 'hidden', timeout: 5_000 })
+      }
 
       await expect.poll(() => fs.existsSync(DOCX_PATH), {
         timeout: 600_000,

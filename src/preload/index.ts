@@ -1,3 +1,5 @@
+import type { LargeDocumentSize } from '../shared/largeDocumentApproval'
+import type { FileTreeSortSnapshot, FileTreeMetadataResult } from '../shared/fileTreeSort'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { FolderActivation, WorkspaceOperationContext } from '../shared/workspace'
@@ -5,32 +7,127 @@ import type { FolderSplitLayoutV1 } from '../shared/folderTabSession'
 import type { WorkspaceTransferSnapshot } from '../main/workspaceTransferCoordinator'
 import type { DocumentMarkColor } from '../shared/documentMarks'
 import type { CrossRootMoveImpactReport } from '../shared/crossRootMoveImpact'
+import type { LinkedReadRequest, LinkedDocumentResult, LinkedAttachmentResult, LinkedReadActionResult } from '../shared/linkRead'
+import type { LocalMediaKind, LocalResourceResolutionKind, LocalAttachmentResult, LocalAttachmentOpenResult } from '../shared/localMedia'
 import type {
   ChartExamplesStatus,
   InstallChartExamplesResult,
   SaveChartExamplesResult,
 } from '../shared/chartExamples'
 
+import type {
+  DiagnosticClearResult,
+  DiagnosticDirectoryResult,
+  DiagnosticLogStatus,
+  DiagnosticOpenDirectoryResult,
+  DiagnosticRetentionPolicy,
+  DiagnosticRetentionResult,
+  DiagnosticTraceContext,
+  RendererDiagnosticEventInput,
+} from '../shared/diagnostics'
+
 // 自定义 API 暴露给渲染进程
 const api = {
   // 平台信息（同步，供渲染进程直接使用）
   platform: process.platform as 'darwin' | 'win32' | 'linux',
 
+  getFileTreeSort: () => ipcRenderer.invoke('settings:fileTreeSort') as Promise<FileTreeSortSnapshot>,
+  onFileTreeSortChanged: (callback: (snapshot: FileTreeSortSnapshot) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: FileTreeSortSnapshot) => callback(snapshot)
+    ipcRenderer.on('settings:fileTreeSortChanged', listener)
+    return () => ipcRenderer.removeListener('settings:fileTreeSortChanged', listener)
+  },
+  getFileTreeMetadata: (paths: string[], operation: WorkspaceOperationContext) =>
+    ipcRenderer.invoke('fs:fileTreeMetadata', paths, operation) as Promise<FileTreeMetadataResult[]>,
+
   // 文件系统操作 (v1.0 核心功能)
   openFolder: () => ipcRenderer.invoke('dialog:openFolder') as Promise<FolderActivation | null>,
-  readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
+  readDir: (path: string, trace?: DiagnosticTraceContext) =>
+    trace
+      ? ipcRenderer.invoke('fs:readDir', path, trace)
+      : ipcRenderer.invoke('fs:readDir', path),
   listChildDirs: (path: string) =>
     ipcRenderer.invoke('fs:listChildDirs', path) as Promise<Array<{ name: string; path: string }>>,
-  readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
-  readLocalAssetBase64: (payload: { markdownFilePath: string; refPath: string }) =>
+  readFile: (path: string, trace?: DiagnosticTraceContext) =>
+    ipcRenderer.invoke('fs:readFile', path, trace),
+  readLocalAssetBase64: (payload: {
+    markdownFilePath: string
+    refPath: string
+    resolutionKind?: LocalResourceResolutionKind
+  }) =>
     ipcRenderer.invoke('fs:readLocalAssetBase64', payload) as Promise<{ base64: string; mimeType: string; resolvedPath: string }>,
-  readExcalidrawFile: (payload: { markdownFilePath: string; refPath: string }) =>
+  readExcalidrawFile: (payload: {
+    markdownFilePath: string
+    refPath: string
+    resolutionKind?: LocalResourceResolutionKind
+  }) =>
     ipcRenderer.invoke('fs:readExcalidrawFile', payload) as Promise<{ content: string; resolvedPath: string }>,
-  readBpmnFile: (payload: { markdownFilePath: string; refPath: string }) =>
+  readBpmnFile: (payload: {
+    markdownFilePath: string
+    refPath: string
+    resolutionKind?: LocalResourceResolutionKind
+  }) =>
     ipcRenderer.invoke('fs:readBpmnFile', payload) as Promise<{ content: string; resolvedPath: string }>,
   readFilePreview: (path: string) => ipcRenderer.invoke('fs:readFilePreview', path) as Promise<string>,
-  issueLocalImageUrl: (markdownFilePath: string, rawResourcePath: string) =>
-    ipcRenderer.invoke('fs:issueLocalImageUrl', markdownFilePath, rawResourcePath) as Promise<string>,
+  issueLocalImageUrl: (
+    markdownFilePath: string,
+    rawResourcePath: string,
+    resolutionKind: LocalResourceResolutionKind = 'markdown-relative',
+  ) => ipcRenderer.invoke(
+    'fs:issueLocalImageUrl',
+    markdownFilePath,
+    rawResourcePath,
+    resolutionKind,
+  ) as Promise<string>,
+  issueLocalMediaUrl: (
+    markdownFilePath: string,
+    rawResourcePath: string,
+    kind: LocalMediaKind,
+    resolutionKind: LocalResourceResolutionKind,
+  ) => ipcRenderer.invoke(
+    'fs:issueLocalMediaUrl',
+    markdownFilePath,
+    rawResourcePath,
+    kind,
+    resolutionKind,
+  ) as Promise<string>,
+  readLocalWebVtt: (
+    markdownFilePath: string,
+    rawResourcePath: string,
+    resolutionKind: LocalResourceResolutionKind,
+  ) => ipcRenderer.invoke(
+    'fs:readLocalWebVtt',
+    markdownFilePath,
+    rawResourcePath,
+    resolutionKind,
+  ) as Promise<string>,
+  revealLocalResource: (
+    markdownFilePath: string,
+    rawResourcePath: string,
+    resolutionKind: LocalResourceResolutionKind,
+  ) => ipcRenderer.invoke(
+    'fs:revealLocalResource',
+    markdownFilePath,
+    rawResourcePath,
+    resolutionKind,
+  ) as Promise<{ success: true }>,
+  readLocalAttachment: (source: string, ref: string) =>
+    ipcRenderer.invoke('fs:readLocalAttachment', source, ref) as Promise<LocalAttachmentResult>,
+  openLocalAttachment: (source: string, ref: string) =>
+    ipcRenderer.invoke('fs:openLocalAttachment', source, ref) as Promise<LocalAttachmentOpenResult>,
+  prepareLinkedDocument: (request: LinkedReadRequest) =>
+    ipcRenderer.invoke('linkRead:prepareDocument', request) as Promise<LinkedDocumentResult>,
+  prepareLinkedDocumentRefresh: (operation: WorkspaceOperationContext, documentId: string, leafId: string, requestId: string) =>
+    ipcRenderer.invoke('linkRead:prepareRefresh', operation, documentId, leafId, requestId) as Promise<LinkedDocumentResult>,
+  commitLinkedDocument: (batchId: string) =>
+    ipcRenderer.invoke('linkRead:commitDocument', batchId) as Promise<LinkedReadActionResult>,
+  readLinkedAttachment: (request: LinkedReadRequest, asText?: boolean, previousHandle?: string) =>
+    ipcRenderer.invoke('linkRead:readAttachment', request, asText, previousHandle) as Promise<LinkedAttachmentResult>,
+  revealLinkedResource: (id: string) =>
+    ipcRenderer.invoke('linkRead:reveal', id) as Promise<LinkedReadActionResult>,
+  cancelLinkedRead: (operation: WorkspaceOperationContext, leafId: string, requestId: string) =>
+    ipcRenderer.invoke('linkRead:cancel', operation, leafId, requestId) as Promise<void>,
+  releaseLinkedReads: (ids: string[]) => ipcRenderer.invoke('linkRead:release', ids) as Promise<void>,
   testOpenMarkdownFile: (path: string) =>
     ipcRenderer.invoke('test:openMarkdownFile', path) as Promise<boolean>,
   testSetEditableSaveDelay: process.env.NODE_ENV === 'test'
@@ -85,11 +182,32 @@ const api = {
   unwatchFolder: (workspaceId?: string, lifecycleEpoch?: number) =>
     ipcRenderer.invoke('fs:unwatchFolder', workspaceId, lifecycleEpoch),
 
+  getWatchStatus: (workspaceId?: string, lifecycleEpoch?: number) =>
+    ipcRenderer.invoke('watch:getStatus', workspaceId, lifecycleEpoch),
+  notifyWatchGap: (workspaceId?: string, lifecycleEpoch?: number) =>
+    ipcRenderer.invoke('watch:gap', workspaceId, lifecycleEpoch),
+  retryWatch: (workspaceId?: string, lifecycleEpoch?: number) =>
+    ipcRenderer.invoke('watch:retry', workspaceId, lifecycleEpoch),
+  acknowledgeWatchReconcile: (requestId: string, result: import('../shared/workspaceWatch').WatchReconcileResult) =>
+    ipcRenderer.invoke('watch:reconciled', requestId, result),
+  onWatchStatus: (callback: (event: import('../shared/workspaceWatch').WorkspaceWatchStatusEvent) => void) => {
+    const handler = (_event: unknown, data: import('../shared/workspaceWatch').WorkspaceWatchStatusEvent) => callback(data)
+    ipcRenderer.on('watch:status', handler)
+    return () => ipcRenderer.removeListener('watch:status', handler)
+  },
+  onWatchReconcile: (callback: (event: import('../shared/workspaceWatch').WorkspaceWatchReconcileRequest) => void) => {
+    const handler = (_event: unknown, data: import('../shared/workspaceWatch').WorkspaceWatchReconcileRequest) => callback(data)
+    ipcRenderer.on('watch:reconcile', handler)
+    return () => ipcRenderer.removeListener('watch:reconcile', handler)
+  },
+
   // 导出功能
-  exportHTML: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:html', htmlContent, fileName),
-  exportPDF: (htmlContent: string, fileName: string) => ipcRenderer.invoke('export:pdf', htmlContent, fileName),
-  exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>) =>
-    ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown, undefined, docStyle, remoteImages) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>,
+  exportHTML: (htmlContent: string, fileName: string, markdownFilePath?: string) =>
+    ipcRenderer.invoke('export:html', htmlContent, fileName, markdownFilePath),
+  exportPDF: (htmlContent: string, fileName: string, markdownFilePath?: string) =>
+    ipcRenderer.invoke('export:pdf', htmlContent, fileName, markdownFilePath),
+  exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>, markdownFilePath?: string) =>
+    ipcRenderer.invoke('export:docx', htmlContent, fileName, basePath, markdown, undefined, docStyle, remoteImages, markdownFilePath) as Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>,
   exportChartsZip: (payload: {
     markdownFilePath: string
     images: Array<{ filename: string; pngBase64: string }>
@@ -232,6 +350,7 @@ const api = {
 
   // v1.3.7：预览区域右键菜单（添加书签 + 原有功能）
   showPreviewContextMenu: (params: {
+    readOnly?: boolean
     filePath: string
     tabId?: string
     leafId?: string | null
@@ -289,6 +408,10 @@ const api = {
     color: DocumentMarkColor | null,
     operation: WorkspaceOperationContext
   ) => ipcRenderer.invoke('document-marks:set', filePath, color, operation) as Promise<Record<string, DocumentMarkColor>>,
+  getLargeDocumentApproval: (filePath: string) =>
+    ipcRenderer.invoke('large-document-approval:get', filePath) as Promise<LargeDocumentSize | null>,
+  setLargeDocumentApproval: (filePath: string, size: LargeDocumentSize | null, operation: WorkspaceOperationContext) =>
+    ipcRenderer.invoke('large-document-approval:set', filePath, size, operation) as Promise<void>,
   getReadPosition: (filePath: string) =>
     ipcRenderer.invoke('read-position:get', filePath) as Promise<{
       canonicalPath: string
@@ -1106,22 +1229,9 @@ const api = {
       revisionToken: string
     }>>,
   getWorkspaceBacklinks: (workspace: WorkspaceOperationContext, targetRelativePath: string) =>
-    ipcRenderer.invoke('workspace-index:getBacklinks', workspace, targetRelativePath) as Promise<Array<{
-      sourceRelativePath: string
-      sourceDisplayName: string
-      lineStart: number
-      rawTarget: string
-      context: string
-      placement: 'prose' | 'standalone-link' | 'table'
-      sourceRange: {
-        startOffset: number
-        endOffset: number
-        startLine: number
-        startColumn: number
-        endLine: number
-        endColumn: number
-      }
-    }>>,
+    ipcRenderer.invoke('workspace-index:getBacklinks', workspace, targetRelativePath) as Promise<import('../main/indexing/types').WorkspaceBacklinkResponse>,
+  reclaimWorkspaceIndex: (workspace: WorkspaceOperationContext) =>
+    ipcRenderer.invoke('workspace-index:reclaim', workspace) as Promise<import('../main/indexing/types').WorkspaceIndexReclamationResponse>,
   rebuildWorkspaceIndex: (workspace: WorkspaceOperationContext) =>
     ipcRenderer.invoke('workspace-index:rebuild', workspace),
   subscribeWorkspaceIndexStatus: (workspace: WorkspaceOperationContext, callback: (status: {
@@ -1159,6 +1269,10 @@ const api = {
       confirm: boolean
     },
   ) => ipcRenderer.invoke('link-rewrite:executeOperation', workspace, input),
+  executeLinkRewriteBatch: (
+    workspace: WorkspaceOperationContext,
+    input: { operations: import('../main/linking/types').LinkMoveBatchOperation[]; confirm: boolean },
+  ) => ipcRenderer.invoke('link-rewrite:executeBatch', workspace, input),
   createLinkRepairPlan: (
     workspace: WorkspaceOperationContext,
     mapping: { oldRelativePath: string; newRelativePath: string },
@@ -1306,6 +1420,25 @@ const api = {
       releaseUrl?: string; releaseNotes?: string; publishedAt?: string;
       error?: string
     }>,
+  getDiagnosticLogStatus: () =>
+    ipcRenderer.invoke('diagnostics:getLogStatus') as Promise<DiagnosticLogStatus>,
+  setDiagnosticLoggingEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('diagnostics:setLoggingEnabled', enabled) as Promise<DiagnosticLogStatus>,
+  chooseDiagnosticLogDirectory: () =>
+    ipcRenderer.invoke('diagnostics:chooseLogDirectory') as Promise<DiagnosticDirectoryResult>,
+  retryDiagnosticLogDirectory: () =>
+    ipcRenderer.invoke('diagnostics:retryLogDirectory') as Promise<DiagnosticDirectoryResult>,
+  resetDiagnosticLogDirectory: () =>
+    ipcRenderer.invoke('diagnostics:resetLogDirectory') as Promise<DiagnosticDirectoryResult>,
+  openDiagnosticLogDirectory: () =>
+    ipcRenderer.invoke('diagnostics:openLogDirectory') as Promise<DiagnosticOpenDirectoryResult>,
+  applyDiagnosticRetentionPolicy: (policy: DiagnosticRetentionPolicy) =>
+    ipcRenderer.invoke('diagnostics:applyRetentionPolicy', policy) as Promise<DiagnosticRetentionResult>,
+  clearDiagnosticLogs: () =>
+    ipcRenderer.invoke('diagnostics:clearLogs') as Promise<DiagnosticClearResult>,
+  recordDiagnosticRendererEvent: (event: RendererDiagnosticEventInput) => {
+    ipcRenderer.send('diagnostics:rendererEvent', event)
+  },
   exportDiagnosticsBundle: () => ipcRenderer.invoke('diagnostics:exportBundle') as Promise<{
     canceled: boolean
     outputPath?: string

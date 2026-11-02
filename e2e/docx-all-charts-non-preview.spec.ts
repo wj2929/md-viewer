@@ -35,13 +35,13 @@ test.describe('test-all-charts 非 preview DOCX 格式检查', () => {
   test.skip(!PDFTOPPM, '缺少 pdftoppm，无法将 PDF 页面渲染为 PNG')
   test.skip(!PYTHON, '缺少 Python，无法分析页面视觉指标')
 
-  test('standard / official / internal / report 都应正确渲染图表与公式', async () => {
+  test('standard / official / internal / report 都应正确渲染图表与公式', async ({}, testInfo) => {
     test.setTimeout(2_400_000)
     fs.rmSync(OUT_DIR, { recursive: true, force: true })
     fs.mkdirSync(OUT_DIR, { recursive: true })
 
     const electronApp = await electron.launch({
-      args: [path.join(__dirname, '../out/main/index.js'), SOURCE_MD],
+      args: [`--user-data-dir=${testInfo.outputPath('isolated-profile')}`, path.join(__dirname, '../out/main/index.js'), SOURCE_MD],
       env: {
         ...process.env,
         NODE_ENV: 'test',

@@ -12,6 +12,14 @@ import { useQuickEditPlacementStore } from '../src/stores/quickEditPlacementStor
 import { useDocumentViewModeStore } from '../src/stores/documentViewModeStore'
 import { useWorkspaceStore } from '../src/stores/workspaceStore'
 
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  })
+})
+
 // Mock window.api
 const folderActivation = (path: string) => ({
   id: `history:${path}`,
@@ -53,6 +61,9 @@ const mockApi = {
   onFileChanged: vi.fn(() => vi.fn()),
   onFileAdded: vi.fn(() => vi.fn()),
   onFileRemoved: vi.fn(() => vi.fn()),
+  onWatchReconcile: vi.fn(() => vi.fn()),
+  acknowledgeWatchReconcile: vi.fn().mockResolvedValue(true),
+  notifyWatchGap: vi.fn().mockResolvedValue(true),
   // v1.3 新增：文件夹和重命名事件
   onFolderAdded: vi.fn(() => vi.fn()),
   onFolderRemoved: vi.fn(() => vi.fn()),
@@ -201,7 +212,21 @@ const mockApi = {
   installChartExamples: vi.fn().mockResolvedValue({ canceled: true }),
   saveChartExamples: vi.fn().mockResolvedValue({ canceled: true }),
   resolveMdLink: vi.fn().mockResolvedValue({ success: false, error: '文件不存在' }),
-  openMdLink: vi.fn().mockResolvedValue({ success: true })
+  openMdLink: vi.fn().mockResolvedValue({ success: true }),
+  readLinkedAttachment: vi.fn(),
+  prepareLinkedDocument: vi.fn(async request => {
+    const result = await mockApi.resolveMdLink(request.source.filePath, request.href)
+    if (!result.success) return { success: false, code: 'unavailable' }
+    return { success: true, ...result, content: await mockApi.readFile(result.targetPath) ?? '',
+      batchId: request.requestId, access: 'root' }
+  }),
+  prepareLinkedDocumentRefresh: vi.fn(),
+  commitLinkedDocument: vi.fn().mockResolvedValue({ success: true }),
+  cancelLinkedRead: vi.fn().mockResolvedValue(undefined),
+  releaseLinkedReads: vi.fn().mockResolvedValue(undefined),
+  revealLinkedResource: vi.fn().mockResolvedValue({ success: true }),
+  openLocalAttachment: vi.fn().mockResolvedValue({ success: false, cancelled: true }),
+  revealLocalResource: vi.fn().mockResolvedValue(undefined)
 }
 
 // Mock 全局 window.api
@@ -686,6 +711,63 @@ describe('App 集成测试', () => {
       expect(session.pendingInput).toBe(true)
       expect(mockApi.readFile).toHaveBeenCalledTimes(1)
       expect(screen.getByRole('heading', { name: '旧内容' })).toBeInTheDocument()
+    })
+
+    it.each(['during-refresh', 'before-drain'])('补查快照之后丢事件必须 ACK superseded：%s', async phase => {
+      let reconcileHandler: any
+      let addedHandler: any
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
+      mockApi.readDir.mockResolvedValue([])
+      mockApi.watchFolder.mockResolvedValue({ success: true })
+      mockApi.onWatchReconcile.mockImplementation(handler => { reconcileHandler = handler; return vi.fn() })
+      mockApi.onFileAdded.mockImplementation(handler => { addedHandler = handler; return vi.fn() })
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+      await waitFor(() => expect(reconcileHandler).toBeDefined())
+      const request = { workspaceId: 'test-workspace', lifecycleEpoch: 1 }
+      let release: ((files: any[]) => void) | undefined
+      if (phase === 'during-refresh') mockApi.readDir.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+      await act(async () => { reconcileHandler({ ...request, requestId: 'refresh-1', phase: 'refresh' }) })
+      if (phase === 'during-refresh') await waitFor(() => expect(release).toBeDefined())
+      else await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('refresh-1', 'ok'))
+      await act(async () => {
+        for (let i = 0; i < 140; i++) addedHandler({ ...request, path: `/test/folder/new-${i}.md` })
+        release?.([])
+      })
+      expect(mockApi.notifyWatchGap).toHaveBeenCalledTimes(1)
+      if (phase === 'during-refresh') {
+        await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('refresh-1', 'superseded'))
+      } else {
+        await act(async () => { reconcileHandler({ ...request, requestId: 'drain-1', phase: 'drain' }) })
+        await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('drain-1', 'superseded'))
+      }
+      await act(async () => { reconcileHandler({ ...request, requestId: 'refresh-2', phase: 'refresh' }) })
+      await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('refresh-2', 'ok'))
+      await act(async () => { reconcileHandler({ ...request, requestId: 'drain-2', phase: 'drain' }) })
+      await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('drain-2', 'ok'))
+      expect(mockApi.notifyWatchGap).toHaveBeenCalledTimes(1)
+    })
+
+    it('补查在途切根后不成功 ACK 旧工作区，也不覆盖新文件树', async () => {
+      let reconcileHandler: any
+      mockApi.openFolder.mockResolvedValue(folderActivation('/test/folder'))
+      mockApi.readDir.mockResolvedValue([])
+      mockApi.watchFolder.mockResolvedValue({ success: true })
+      mockApi.onWatchReconcile.mockImplementation(handler => { reconcileHandler = handler; return vi.fn() })
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+      await waitFor(() => expect(reconcileHandler).toBeDefined())
+      let release!: (files: any[]) => void
+      mockApi.readDir.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+      await act(async () => { reconcileHandler({ workspaceId: 'test-workspace', lifecycleEpoch: 1, requestId: 'old-refresh', phase: 'refresh' }) })
+      await waitFor(() => expect(release).toBeDefined())
+      await act(async () => {
+        useWorkspaceStore.setState({ activeWorkspaceId: 'other', workspaces: [{ id: 'other', primaryRoot: '/other', lifecycleEpoch: 2 }] })
+        useFileStore.setState({ folderPath: '/other', files: [] })
+        release([{ name: 'stale.md', path: '/test/folder/stale.md', isDirectory: false }])
+      })
+      await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('old-refresh', 'superseded'))
+      expect(useFileStore.getState().files.some(file => file.name === 'stale.md')).toBe(false)
     })
 
     it('文件监听失败时应该记录错误', async () => {
@@ -1197,6 +1279,7 @@ describe('App 集成测试', () => {
         { name: 'other.md', path: '/test/folder/other.md', isDirectory: false }
       ]
       mockApi.readDir.mockResolvedValue(files)
+      mockApi.readFile.mockResolvedValueOnce('# Other')
       mockApi.resolveMdLink.mockResolvedValue({
         success: true,
         targetPath: '/test/folder/other.md',
@@ -1239,9 +1322,10 @@ describe('App 集成测试', () => {
       await waitFor(() => {
         expect(mockApi.resolveMdLink).toHaveBeenCalledWith('/test/folder/report.md', './other.md')
       })
-      expect(window.confirm).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(window.confirm).toHaveBeenCalledTimes(1))
       expect(mockApi.openMdLink).not.toHaveBeenCalled()
-      expect(mockApi.readFile).not.toHaveBeenCalledWith('/test/folder/other.md')
+      expect(mockApi.commitLinkedDocument).not.toHaveBeenCalled()
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalled()
       expect(useTabStore.getState().activeTabId).toBe('tab-1')
     })
 
@@ -1296,6 +1380,7 @@ describe('App 集成测试', () => {
       await waitFor(() => {
         expect(mockApi.readFile).toHaveBeenCalledWith('/test/folder/other.md')
         expect(screen.getByRole('heading', { name: 'Other' })).toBeInTheDocument()
+        expect(screen.getAllByRole('button', { name: '返回来源：report.md' }).length).toBeGreaterThan(0)
       })
       expect(window.confirm).toHaveBeenCalledTimes(1)
       expect(useTabStore.getState().tabs.some(tab => tab.file.path === '/test/folder/other.md')).toBe(true)
@@ -1332,7 +1417,7 @@ describe('App 集成测试', () => {
       fireEvent.click(await screen.findByRole('link', { name: '缺失文档' }))
 
       await waitFor(() => {
-        expect(screen.getByText('链接跳转失败：文件不存在')).toBeInTheDocument()
+        expect(screen.getByText('链接跳转失败：文件不存在、不可读取或属于受保护路径。')).toBeInTheDocument()
       })
       expect(window.confirm).not.toHaveBeenCalled()
       expect(useTabStore.getState().activeTabId).toBe('tab-1')
@@ -1382,6 +1467,317 @@ describe('App 集成测试', () => {
 
       expect(await screen.findByLabelText('report.md 编辑工作区')).toBeInTheDocument()
       expect(document.querySelector('.split-panel-content.with-quick-edit .quick-edit-drawer')).not.toBeInTheDocument()
+    })
+  })
+  describe('本地附件与本次来源导航', () => {
+    const documents = {
+      A: '# A\n\n[到B](./B.md)\n\n[到C](./C.md)\n\n[JSON](./data.json)',
+      B: '# B\n\n[到C](./C.md)', C: '# C',
+    }
+    const file = (name: string) => ({ name: `${name}.md`, path: `/test/folder/${name}.md`, isDirectory: false })
+    const floatingReturn = (name: string, root: ParentNode = document) => root.querySelector<HTMLButtonElement>(`.link-origin-floating[aria-label="返回来源：${name}.md"]`)!
+    beforeEach(() => {
+      useWorkspaceStore.setState({ workspaces: [{ id: 'test-workspace', name: '测试', primaryRoot: '/test/folder', lifecycleEpoch: 1 }], activeWorkspaceId: 'test-workspace', runtimes: {} })
+      mockApi.readDir.mockResolvedValue(['A', 'B', 'C'].map(file))
+      useFileStore.setState({ folderPath: '/test/folder', files: ['A', 'B', 'C'].map(file), isLoading: false, selectedPaths: new Set() })
+      useTabStore.setState({ tabs: [{ id: 'tab-A', file: file('A'), content: documents.A }], activeTabId: 'tab-A', splitState: { root: null, activeLeafId: '' }, scrollToLine: undefined, scrollToRatio: undefined, highlightKeyword: undefined })
+      mockApi.readFile.mockReset().mockImplementation(async path => documents[path.split('/').at(-1)!.replace('.md', '')])
+      mockApi.resolveMdLink.mockReset().mockImplementation(async (_source, href) => ({ success: true,
+        targetPath: href.startsWith('/') ? decodeURIComponent(href) : `/test/folder/${href.replace('./', '')}` }))
+      mockApi.readLinkedAttachment.mockReset().mockResolvedValue({ kind: 'text', name: 'data.json', relativePath: 'data.json', extension: '.json', size: 29, revealLabel: '在 Finder 中显示', canOpenExternally: true, content: '{"id":9007199254740993123}' })
+    })
+
+    afterEach(() => {
+      act(() => useWorkspaceStore.setState({ workspaces: [], activeWorkspaceId: null, runtimes: {} }))
+    })
+
+    it.each([[false, false], [false, true], [true, false], [true, true]])('块预检使用草稿而非磁盘：disk=%s draft=%s', async (diskBlock, draftBlock) => {
+      const disk = '# B\n\n磁盘正文' + (diskBlock ? ' ^remote' : '')
+      const draft = '# Draft\n\n草稿正文' + (draftBlock ? ' ^remote' : '')
+      useTabStore.setState(state => ({ tabs: [...state.tabs, { id: 'tab-B', file: file('B'), content: disk }] }))
+      useEditSessionStore.getState().openSession({ canonicalPath: '/test/folder/B.md', displayPath: '/test/folder/B.md', fileName: 'B.md', content: disk, mtimeMs: 1, size: 1, revisionToken: '1' })
+      useEditSessionStore.getState().updateDraft('/test/folder/B.md', draft)
+      mockApi.prepareLinkedDocument.mockResolvedValueOnce({ success: true, targetPath: '/test/folder/B.md', content: disk, blockId: 'remote', batchId: 'block-batch', access: 'root' })
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      if (draftBlock) {
+        await screen.findByRole('heading', { name: 'Draft', exact: true })
+        expect(mockApi.commitLinkedDocument).toHaveBeenCalledWith('block-batch')
+      } else {
+        await screen.findByText('未找到块 ^remote（当前草稿）。')
+        expect(useTabStore.getState().activeTabId).toBe('tab-A')
+        expect(mockApi.commitLinkedDocument).not.toHaveBeenCalled()
+        expect(document.querySelector('.link-origin-floating')).toBeNull()
+      }
+      expect(useEditSessionStore.getState().sessions['/test/folder/B.md'].draft).toBe(draft)
+      expect(useTabStore.getState().tabs.find(tab => tab.id === 'tab-B')?.content).toBe(disk)
+    })
+    it('commit 等待期间目标草稿移除块，留在来源且不留下未附着授权', async () => {
+      const disk = '# B\n\n正文 ^remote'
+      useTabStore.setState(state => ({ tabs: [...state.tabs, { id: 'tab-B', file: file('B'), content: disk }] }))
+      useEditSessionStore.getState().openSession({ canonicalPath: '/test/folder/B.md', displayPath: '/test/folder/B.md', fileName: 'B.md', content: disk, mtimeMs: 1, size: 1, revisionToken: '1' })
+      useEditSessionStore.getState().updateDraft('/test/folder/B.md', disk + '\n\n初次草稿')
+      mockApi.prepareLinkedDocument.mockResolvedValueOnce({ success: true, targetPath: '/test/folder/B.md', content: disk, blockId: 'remote', batchId: 'changing-block', access: 'root' })
+      let commit!: (value: unknown) => void
+      mockApi.commitLinkedDocument.mockImplementationOnce(() => new Promise(resolve => { commit = resolve }))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(mockApi.commitLinkedDocument).toHaveBeenCalledWith('changing-block'))
+      await act(async () => {
+        useEditSessionStore.getState().updateDraft('/test/folder/B.md', '# Changed\n\n块已移除')
+        commit({ success: true })
+      })
+      await screen.findByText('目标内容已变化，无法确认指定块，请重新点击链接。')
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(document.querySelector('.link-origin-floating')).toBeNull()
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalledWith(['changing-block'])
+    })
+
+    it.each([false, true])('无变化补查不取消在途链接，cleanSession=%s', async cleanSession => {
+      let reconcileHandler: any
+      let complete: (value: any) => void
+      mockApi.onWatchReconcile.mockImplementation(handler => { reconcileHandler = handler; return vi.fn() })
+      mockApi.prepareLinkedDocument.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+      if (cleanSession) {
+        useEditSessionStore.getState().openSession({ canonicalPath: file('A').path, displayPath: file('A').path,
+          fileName: 'A.md', content: documents.A, mtimeMs: 1, revisionToken: 'same', workspaceId: 'test-workspace', lifecycleEpoch: 1 })
+        mockApi.openEditableMarkdown.mockResolvedValueOnce({ content: documents.A, revisionToken: 'same' })
+      }
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(complete).toBeDefined())
+      await act(async () => { reconcileHandler({ workspaceId: 'test-workspace', lifecycleEpoch: 1, requestId: 'no-change', phase: 'refresh' }) })
+      await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('no-change', 'ok'))
+      await act(async () => complete({ success: true, targetPath: file('B').path, content: documents.B, batchId: 'delayed-B', access: 'root' }))
+      await screen.findByRole('heading', { name: 'B', exact: true })
+      expect(mockApi.commitLinkedDocument).toHaveBeenCalledWith('delayed-B')
+      expect(floatingReturn('A')).toBeInTheDocument()
+    })
+
+    it('补查后仍使用目标草稿做块缺失预检，而非无声取消', async () => {
+      let reconcileHandler: any
+      let complete: (value: any) => void
+      useTabStore.setState(state => ({ tabs: [...state.tabs, { id: 'tab-B', file: file('B'), content: documents.B }] }))
+      useEditSessionStore.getState().openSession({ canonicalPath: file('B').path, displayPath: file('B').path,
+        fileName: 'B.md', content: documents.B, mtimeMs: 1, revisionToken: 'same', workspaceId: 'test-workspace', lifecycleEpoch: 1 })
+      useEditSessionStore.getState().updateDraft(file('B').path, '# Draft without block')
+      mockApi.onWatchReconcile.mockImplementation(handler => { reconcileHandler = handler; return vi.fn() })
+      mockApi.openEditableMarkdown.mockResolvedValueOnce({ content: documents.B, revisionToken: 'same' })
+      mockApi.prepareLinkedDocument.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(complete).toBeDefined())
+      await act(async () => { reconcileHandler({ workspaceId: 'test-workspace', lifecycleEpoch: 1, requestId: 'draft-check', phase: 'refresh' }) })
+      await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('draft-check', 'ok'))
+      await act(async () => complete({ success: true, targetPath: file('B').path, content: documents.B,
+        blockId: 'remote', batchId: 'delayed-block', access: 'root' }))
+      await screen.findByText('未找到块 ^remote（当前草稿）。')
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(mockApi.commitLinkedDocument).not.toHaveBeenCalled()
+      expect(useEditSessionStore.getState().sessions[file('B').path].draft).toBe('# Draft without block')
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalledWith(['delayed-block'])
+    })
+
+    it.each(['content', 'resource', 'missing', 'draft'])('来源%s变化仍取消当前请求并提示重新点击', async change => {
+      let complete: (value: any) => void
+      mockApi.prepareLinkedDocument.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(complete).toBeDefined())
+      act(() => {
+        if (change === 'draft') {
+          useEditSessionStore.getState().openSession({ canonicalPath: file('A').path, displayPath: file('A').path,
+            fileName: 'A.md', content: documents.A, mtimeMs: 1, revisionToken: 'same' })
+          useEditSessionStore.getState().updateDraft(file('A').path, documents.A + '\n新草稿')
+        } else useTabStore.getState().setTabs(tabs => tabs.map(tab => tab.id !== 'tab-A' ? tab : { ...tab,
+          ...(change === 'content' ? { content: '# Changed' } : change === 'resource' ? { resourceRevision: 1 } : { missing: true }),
+        }))
+      })
+      await act(async () => complete({ success: true, targetPath: file('B').path, content: documents.B,
+        batchId: 'cancelled-B', documentId: 'unattached-document', access: 'linked-readonly' }))
+      await screen.findByText('来源文档已更新，本次跳转已取消，请重新点击链接。')
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(mockApi.commitLinkedDocument).not.toHaveBeenCalled()
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalledWith(['cancelled-B', 'unattached-document'])
+      expect(mockApi.cancelLinkedRead).toHaveBeenCalled()
+    })
+
+    it.each(['content', 'resource'])('目标%s变化仍取消提交，不覆盖更新后的目标', async change => {
+      let commit: (value: any) => void
+      useTabStore.setState(state => ({ tabs: [...state.tabs, { id: 'tab-B', file: file('B'), content: documents.B }] }))
+      mockApi.commitLinkedDocument.mockImplementationOnce(() => new Promise(resolve => { commit = resolve }))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(commit).toBeDefined())
+      await act(async () => {
+        useTabStore.getState().setTabs(tabs => tabs.map(tab => tab.id !== 'tab-B' ? tab : { ...tab,
+          ...(change === 'content' ? { content: '# Updated B' } : { resourceRevision: 1 }),
+        }))
+        commit({ success: true })
+      })
+      await screen.findByText('目标文档已更新，本次跳转已取消，请重新点击链接。')
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(useTabStore.getState().tabs.find(tab => tab.id === 'tab-B')).toMatchObject(
+        change === 'content' ? { content: '# Updated B' } : { resourceRevision: 1 })
+      expect(document.querySelector('.link-origin-floating')).toBeNull()
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalled()
+    })
+
+    it.each(['tab', 'workspace', 'request'])('被%s替代的旧导航静默取消，不干扰新操作', async change => {
+      let complete: (value: any) => void
+      mockApi.prepareLinkedDocument.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(complete).toBeDefined())
+      if (change === 'request') {
+        fireEvent.click(screen.getByRole('link', { name: '到C' }))
+        await screen.findByRole('heading', { name: 'C', exact: true })
+      } else act(() => {
+        if (change === 'workspace') useWorkspaceStore.setState({ activeWorkspaceId: 'elsewhere' })
+        else useTabStore.setState(state => ({ tabs: [...state.tabs, { id: 'tab-C', file: file('C'), content: documents.C }], activeTabId: 'tab-C' }))
+      })
+      await act(async () => complete({ success: true, targetPath: file('B').path, content: documents.B, batchId: 'obsolete-B', access: 'root' }))
+      expect(screen.queryByText('来源文档已更新，本次跳转已取消，请重新点击链接。')).not.toBeInTheDocument()
+      expect(mockApi.commitLinkedDocument).not.toHaveBeenCalledWith('obsolete-B')
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalledWith(['obsolete-B'])
+      expect(useTabStore.getState().tabs.some(tab => tab.file.path === file('B').path)).toBe(false)
+    })
+
+    it('A→B→C首次正文可点击即有正确访问链，并可马上C→B→A', async () => {
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await screen.findByRole('heading', { name: 'B', exact: true })
+      expect(floatingReturn('A')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('link', { name: '到C' }))
+      await screen.findByRole('heading', { name: 'C', exact: true })
+      expect(floatingReturn('B')).toBeInTheDocument()
+      fireEvent.click(floatingReturn('B'))
+      await screen.findByRole('heading', { name: 'B', exact: true })
+      fireEvent.click(floatingReturn('A'))
+      await screen.findByRole('heading', { name: 'A', exact: true })
+      expect(document.querySelector('.link-origin-floating')).toBeNull()
+      expect(useTabStore.getState().tabs).toHaveLength(3)
+      expect(mockApi.prepareLinkedDocument.mock.calls.slice(-2).every(([request]) => request.rootOnly === true)).toBe(true)
+      expect(mockApi.commitLinkedDocument).toHaveBeenCalledTimes(4)
+    })
+    it('Wiki嵌入保留旧resolver但正文和标题走rootOnly安全批次', async () => {
+      useTabStore.setState(state => ({ tabs: state.tabs.map(tab => ({ ...tab,
+        content: '# A\n\n![[B.md#heading|嵌入目标]]',
+      })) }))
+      mockApi.resolveMdLink.mockResolvedValueOnce({ success: true, targetPath: '/test/folder/B.md', headingId: 'heading', targetLine: 999 })
+      mockApi.prepareLinkedDocument.mockResolvedValueOnce({ success: true, targetPath: '/test/folder/B.md',
+        content: '# Safe B\n\n## Heading', targetLine: 3, headingId: 'heading', batchId: 'embed-batch', access: 'root' })
+      render(<App />)
+      const embed = document.querySelector<HTMLAnchorElement>('a[data-mdv-wiki-link]')!
+      expect(embed).toBeInTheDocument()
+      fireEvent.click(embed)
+      await screen.findByRole('heading', { name: 'Safe B', exact: true })
+      expect(mockApi.prepareLinkedDocument).toHaveBeenCalledWith(expect.objectContaining({
+        rootOnly: true, href: '/test/folder/B.md#heading', source: { filePath: '/test/folder/A.md' },
+      }))
+      expect(mockApi.commitLinkedDocument).toHaveBeenCalledWith('embed-batch')
+      expect(mockApi.readFile).not.toHaveBeenCalled()
+    })
+    it('最新请求替代迟到读取，旧B不能覆盖新C或追加到来源链', async () => {
+      let completeB: (value: string) => void
+      mockApi.readFile.mockImplementation(path => path.endsWith('/B.md') ? new Promise(resolve => { completeB = resolve }) : Promise.resolve(documents.C))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(mockApi.readFile).toHaveBeenCalledWith('/test/folder/B.md'))
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      fireEvent.click(screen.getByRole('link', { name: '到C' }))
+      await screen.findByRole('heading', { name: 'C', exact: true })
+      await act(async () => completeB(documents.B))
+      expect(screen.getByRole('heading', { name: 'C', exact: true })).toBeInTheDocument()
+      expect(useTabStore.getState().tabs.some(tab => tab.file.path.endsWith('/B.md'))).toBe(false)
+      expect(floatingReturn('A')).toBeInTheDocument()
+      expect(floatingReturn('B')).toBeNull()
+    })
+    it('读取失败保持来源视图/游标；关闭来源tab后返回可安全重开', async () => {
+      const view = render(<App />)
+      mockApi.readFile.mockRejectedValueOnce(new Error('fixture unavailable'))
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await screen.findByText('链接跳转失败：文件不可访问或已失去读取授权。')
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(document.querySelector('.link-origin-floating')).toBeNull()
+      fireEvent.click(screen.getByRole('link', { name: '到B' }))
+      await screen.findByRole('heading', { name: 'B', exact: true })
+      act(() => useTabStore.getState().setTabs(tabs => tabs.filter(tab => tab.id !== 'tab-A')))
+      fireEvent.click(floatingReturn('A'))
+      await screen.findByRole('heading', { name: 'A', exact: true })
+      expect(useTabStore.getState().tabs.find(tab => tab.file.path.endsWith('/A.md'))?.id).not.toBe('tab-A')
+      view.unmount()
+    })
+    it('显式文件树进入已有目标重置为无来源根，不能复活旧访问绑定', async () => {
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await screen.findByRole('heading', { name: 'B', exact: true })
+      fireEvent.click(document.querySelector('.file-tree-row[data-path="/test/folder/B.md"]') ?? screen.getAllByText('B.md').find(node => node.closest('.file-tree-row'))!)
+      await waitFor(() => expect(document.querySelector('.link-origin-floating')).toBeNull())
+      expect(screen.getByRole('heading', { name: 'B', exact: true })).toBeInTheDocument()
+    })
+    it('源草稿在等待期间变化则不提交', async () => {
+      let completeB: (value: string) => void
+      mockApi.readFile.mockImplementation(() => new Promise(resolve => { completeB = resolve }))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: '到B' }))
+      await waitFor(() => expect(mockApi.readFile).toHaveBeenCalledWith('/test/folder/B.md'))
+      act(() => {
+        useEditSessionStore.getState().openSession({ canonicalPath: '/test/folder/A.md', displayPath: '/test/folder/A.md', fileName: 'A.md', content: documents.A, mtimeMs: 1, size: 1, revisionToken: '1' })
+        useEditSessionStore.getState().updateDraft('/test/folder/A.md', documents.A + '\n新草稿')
+      })
+      await act(async () => completeB(documents.B))
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+      expect(document.querySelector('.link-origin-floating')).toBeNull()
+    })
+    it('目标在另一leaf产生新草稿仍在原leaf打开，不覆盖共享草稿或抢活跃leaf', async () => {
+      let completeB: (value: string) => void
+      mockApi.readFile.mockImplementation(() => new Promise(resolve => { completeB = resolve }))
+      useTabStore.setState(state => ({ tabs: [...state.tabs, { id: 'tab-B', file: file('B'), content: documents.B }], splitState: { root: { type: 'split', id: 'split', direction: 'horizontal', ratio: .5, first: { type: 'leaf', id: 'left', tabId: 'tab-A' }, second: { type: 'leaf', id: 'right', tabId: 'tab-B' } }, activeLeafId: 'left' } }))
+      render(<App />)
+      const left = document.querySelector('[data-leaf-id="left"]')!
+      const right = document.querySelector('[data-leaf-id="right"]')!
+      fireEvent.click(left.querySelector('a')!)
+      await waitFor(() => expect(mockApi.readFile).toHaveBeenCalledWith('/test/folder/B.md'))
+      act(() => {
+        useEditSessionStore.getState().openSession({ canonicalPath: '/test/folder/B.md', displayPath: '/test/folder/B.md', fileName: 'B.md', content: documents.B, mtimeMs: 1, size: 1, revisionToken: '1' })
+        useEditSessionStore.getState().updateDraft('/test/folder/B.md', '# B 最新草稿')
+      })
+      fireEvent.click(right)
+      await act(async () => completeB('# B 过期磁盘数据'))
+      expect(useTabStore.getState().splitState.activeLeafId).toBe('right')
+      expect(useTabStore.getState().splitState.root.first.tabId).toBe('tab-B')
+      expect(useTabStore.getState().splitState.root.second.tabId).toBe('tab-B')
+      expect(useTabStore.getState().tabs.find(tab => tab.id === 'tab-B')?.content).toBe(documents.B)
+      expect(useEditSessionStore.getState().sessions['/test/folder/B.md'].draft).toBe('# B 最新草稿')
+      expect(floatingReturn('A', left)).toBeInTheDocument()
+      expect(right.querySelector('.link-origin-floating')).toBeNull()
+    })
+    it('JSON不占文档tab，主进程Mod-F/Mod-W IPC只查找/关闭附件', async () => {
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: 'JSON' }))
+      const text = await screen.findByRole('textbox', { name: '只读附件文本' })
+      expect(text).toHaveAttribute('aria-readonly', 'true')
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+      act(() => mockApi.onShortcutFocusSearch.mock.calls.at(-1)[0]())
+      expect(document.querySelector('.local-attachment-dialog .cm-search')).toBeInTheDocument()
+      act(() => mockApi.onShortcutCloseTab.mock.calls.at(-1)[0]())
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(document.querySelector('.link-origin-floating')).toBeNull()
+    })
+    it('切换工作区使在途附件结果失效，迟到正文不再显示', async () => {
+      let complete: (value: unknown) => void
+      mockApi.readLinkedAttachment.mockImplementation(() => new Promise(resolve => { complete = resolve }))
+      render(<App />)
+      fireEvent.click(await screen.findByRole('link', { name: 'JSON' }))
+      await screen.findByText('附件读取中…')
+      act(() => useWorkspaceStore.setState({ activeWorkspaceId: 'other', workspaces: [{ id: 'other', name: '其它', primaryRoot: '/other', lifecycleEpoch: 2 }] }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      await act(async () => complete({ kind: 'text', name: 'late.txt', content: '迟到正文', extension: '.txt', size: 4 }))
+      expect(screen.queryByText('迟到正文')).not.toBeInTheDocument()
     })
   })
 })

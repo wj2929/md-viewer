@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
+import { createMarkdownRenderer, renderMarkdown, setupDOMPurifyHooks } from '../utils/markdownRenderer'
 import type { ResourceHost } from './hosts'
 
 export interface RenderPreviewProps {
@@ -15,7 +15,7 @@ export function RenderPreview({ content, className = '' }: RenderPreviewProps): 
     return createMarkdownRenderer()
   }, [])
 
-  const html = useMemo(() => sanitizeHtml(md.render(content)), [content, md])
+  const html = useMemo(() => renderMarkdown(md, content), [content, md])
 
   return (
     <div

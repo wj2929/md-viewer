@@ -1208,14 +1208,10 @@ export function createChartWrapper(
   copyBtn.title = `复制 ${chartType.charAt(0).toUpperCase() + chartType.slice(1)} 代码`
   codeView.appendChild(copyBtn)
 
-  // 代码高亮
+  // 代码在用户首次切换源码视图时再高亮，避免大文档为隐藏内容创建海量 Prism span。
   const codeElement = document.createElement('code')
   codeElement.className = `language-${language}`
-  if (Prism.languages[language]) {
-    codeElement.innerHTML = Prism.highlight(code, Prism.languages[language], language)
-  } else {
-    codeElement.textContent = code
-  }
+  codeElement.dataset.chartCodeLanguage = language
 
   const preElement = document.createElement('pre')
   preElement.className = `language-${language}`
@@ -1228,6 +1224,28 @@ export function createChartWrapper(
   wrapper.appendChild(codeView)
 
   return { wrapper, toggleBar, chartContainer, codeView }
+}
+
+function hydrateChartCodeView(wrapper: HTMLElement, chartType: string, codeView: HTMLElement): void {
+  const codeElement = codeView.querySelector('code') as HTMLElement | null
+  if (!codeElement || codeElement.dataset.chartCodeHydrated === 'true') return
+
+  const encoded = wrapper.getAttribute(`data-${chartType}-code`)
+  let code = ''
+  if (encoded) {
+    try {
+      code = decodeURIComponent(escape(atob(encoded)))
+    } catch {
+      code = ''
+    }
+  }
+  const language = codeElement.dataset.chartCodeLanguage || 'plaintext'
+  if (Prism.languages[language]) {
+    codeElement.innerHTML = Prism.highlight(code, Prism.languages[language], language)
+  } else {
+    codeElement.textContent = code
+  }
+  codeElement.dataset.chartCodeHydrated = 'true'
 }
 
 /**
@@ -1266,6 +1284,7 @@ export function createChartToggleHandler(chartType: string) {
         const chartView = wrapper.querySelector('[data-view="chart"]') as HTMLElement
         const codeViewEl = wrapper.querySelector('[data-view="code"]') as HTMLElement
         const toggleBar = wrapper.querySelector(`.${chartType}-toggle-bar`) as HTMLElement
+        if (codeViewEl) hydrateChartCodeView(wrapper, chartType, codeViewEl)
         if (chartView) chartView.style.display = 'none'
         if (codeViewEl) codeViewEl.style.display = ''
         if (toggleBar) toggleBar.style.display = 'none'

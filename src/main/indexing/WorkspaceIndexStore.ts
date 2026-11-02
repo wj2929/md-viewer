@@ -3,8 +3,30 @@ import { link, open, readFile, rename, stat, unlink, writeFile } from 'fs/promis
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import type { IndexedDocument, WorkspaceIndexManifest } from './types'
+import { WorkspaceIndexReclamation, type ReclamationGuard, type ReclamationPlan, type ReclamationResult } from './WorkspaceIndexReclamation'
 
-const INDEX_SCHEMA_VERSION = 1
+export const INDEX_SCHEMA_VERSION = 2
+export const INDEX_STORAGE_VERSION = 3
+const MAX_SHARD_DOCUMENTS = 64
+const MAX_SHARD_BYTES = 256 * 1024
+
+type StableIndexedDocument = Omit<IndexedDocument, 'mtimeMs' | 'indexedAt'>
+interface PackedShard {
+  schemaVersion: number
+  rootKey: string
+  indexInstanceId: string
+  documents: StableIndexedDocument[]
+}
+interface PackedRecord {
+  key: string
+  document: StableIndexedDocument
+  mtimeMs: number
+  indexedAt: number
+}
+interface PackedManifest extends WorkspaceIndexManifest {
+  shards: Record<string, { hash: string; bytes: number; count: number }>
+  documents: Array<WorkspaceIndexManifest['documents'][number] & { mtimeMs: number; indexedAt: number }>
+}
 const SECRET_FILE = 'installation.key'
 const LOCK_RECOVERY_GRACE_MS = 30_000
 const lockOperationQueues = new Map<string, Promise<void>>()
@@ -23,8 +45,19 @@ export interface WorkspaceIndexLock {
 
 export class WorkspaceIndexStore {
   private installationKey: Buffer | null = null
+  private readonly reclamation: WorkspaceIndexReclamation
 
-  constructor(private readonly storageRoot: string) {}
+  constructor(private readonly storageRoot: string) {
+    this.reclamation = new WorkspaceIndexReclamation(storageRoot)
+  }
+
+  previewReclamation(rootPath: string, rootFingerprint: string, guard: ReclamationGuard): Promise<ReclamationPlan | null> {
+    return this.reclamation.preview(rootPath, rootFingerprint, guard)
+  }
+
+  executeReclamation(plan: ReclamationPlan, guard: ReclamationGuard): Promise<ReclamationResult> {
+    return this.reclamation.execute(plan, guard)
+  }
 
   async acquireLock(rootPath: string): Promise<WorkspaceIndexLock> {
     const rootKey = await this.rootKey(rootPath)
@@ -96,33 +129,49 @@ export class WorkspaceIndexStore {
   async load(rootPath: string, rootFingerprint: string): Promise<LoadedWorkspaceIndex | null> {
     const rootKey = await this.rootKey(rootPath)
     const rootDir = this.rootDirectory(rootKey)
-    try {
-      const generationId = (await readFile(path.join(rootDir, 'CURRENT'), 'utf8')).trim()
-      if (!generationId || path.basename(generationId) !== generationId) return null
-      const manifest = await fs.readJson(path.join(rootDir, 'generations', generationId, 'manifest.json')) as WorkspaceIndexManifest
-      if (
-        manifest.schemaVersion !== INDEX_SCHEMA_VERSION ||
-        manifest.rootKey !== rootKey ||
-        manifest.rootFingerprint !== rootFingerprint ||
-        manifest.generationId !== generationId
-      ) return null
-
-      const documents: IndexedDocument[] = []
-      for (const entry of manifest.documents) {
-        const document = await fs.readJson(path.join(rootDir, 'shards', entry.shardFile)) as IndexedDocument
-        if (
-          document.schemaVersion !== INDEX_SCHEMA_VERSION ||
-          document.rootKey !== rootKey ||
-          document.indexInstanceId !== manifest.indexInstanceId ||
-          document.relativePath !== entry.relativePath ||
-          document.revisionToken !== entry.revisionToken
-        ) return null
-        documents.push(document)
+    let generationId: string
+    try { generationId = (await readFile(path.join(rootDir, 'CURRENT'), 'utf8')).trim() } catch { return null }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await this.loadGeneration(rootDir, rootKey, rootFingerprint, generationId)
+      } catch (error) {
+        if (attempt || (error as NodeJS.ErrnoException).code !== 'ENOENT') return null
+        let latest: string
+        try { latest = (await readFile(path.join(rootDir, 'CURRENT'), 'utf8')).trim() } catch { return null }
+        if (latest === generationId) return null
+        generationId = latest
       }
-      return { manifest, documents }
-    } catch {
-      return null
     }
+    return null
+  }
+
+  private async loadGeneration(rootDir: string, rootKey: string, rootFingerprint: string,
+    generationId: string): Promise<LoadedWorkspaceIndex | null> {
+    if (!generationId || generationId === '.' || generationId === '..' || path.basename(generationId) !== generationId) return null
+    const manifest = await fs.readJson(path.join(rootDir, 'generations', generationId, 'manifest.json')) as WorkspaceIndexManifest
+    if (
+      (manifest.schemaVersion !== INDEX_SCHEMA_VERSION && manifest.schemaVersion !== INDEX_STORAGE_VERSION) ||
+      manifest.rootKey !== rootKey ||
+      manifest.rootFingerprint !== rootFingerprint ||
+      manifest.generationId !== generationId
+    ) return null
+
+    if (manifest.schemaVersion === INDEX_STORAGE_VERSION) {
+      return await loadPacked(rootDir, manifest as PackedManifest)
+    }
+    const documents: IndexedDocument[] = []
+    for (const entry of manifest.documents) {
+      const document = await fs.readJson(path.join(rootDir, 'shards', entry.shardFile)) as IndexedDocument
+      if (
+        document.schemaVersion !== INDEX_SCHEMA_VERSION ||
+        document.rootKey !== rootKey ||
+        document.indexInstanceId !== manifest.indexInstanceId ||
+        document.relativePath !== entry.relativePath ||
+        document.revisionToken !== entry.revisionToken
+      ) return null
+      documents.push(document)
+    }
+    return { manifest, documents }
   }
 
   async commit(options: {
@@ -138,32 +187,87 @@ export class WorkspaceIndexStore {
     await fs.ensureDir(path.join(rootDir, 'shards'))
     await fs.ensureDir(path.join(rootDir, 'generations', generationId))
 
-    const documentEntries: WorkspaceIndexManifest['documents'] = []
-    for (const source of options.documents) {
-      const document: IndexedDocument = {
-        ...source,
-        schemaVersion: INDEX_SCHEMA_VERSION,
-        rootKey,
-        indexInstanceId,
+    const buckets = new Map<string, PackedRecord[]>()
+    const names = new Set<string>()
+    let yieldedAt = performance.now()
+    const yieldIfNeeded = async (): Promise<void> => {
+      if (performance.now() - yieldedAt >= 8) {
+        await new Promise<void>(resolve => setImmediate(resolve))
+        yieldedAt = performance.now()
       }
-      const shardKey = await this.documentKey(rootKey, document.relativePath)
-      const shardFile = `${shardKey}-${indexInstanceId}-${document.revisionToken.slice(-64)}.json`
-      const shardPath = path.join(rootDir, 'shards', shardFile)
-      await writeJsonImmutably(shardPath, document)
-      documentEntries.push({
-        relativePath: document.relativePath,
-        revisionToken: document.revisionToken,
-        shardFile,
-      })
+    }
+    for (const source of options.documents) {
+      await yieldIfNeeded()
+      if (names.has(source.relativePath)) throw new Error('工作区索引文档重复')
+      names.add(source.relativePath)
+      const key = await this.documentKey(rootKey, source.relativePath)
+      const { mtimeMs, indexedAt, ...stable } = source
+      const record: PackedRecord = {
+        key, mtimeMs, indexedAt,
+        document: { ...stable, schemaVersion: INDEX_SCHEMA_VERSION, rootKey, indexInstanceId },
+      }
+      const bucket = key.slice(0, 2)
+      const records = buckets.get(bucket)
+      if (records) records.push(record)
+      else buckets.set(bucket, [record])
+    }
+    const groups: Array<{ records: PackedRecord[]; shard: PackedShard }> = []
+    const partition = (records: PackedRecord[], bit: number): void => {
+      const shard: PackedShard = {
+        schemaVersion: INDEX_STORAGE_VERSION, rootKey, indexInstanceId,
+        documents: records.map(record => record.document),
+      }
+      if (records.length === 1 || (records.length <= MAX_SHARD_DOCUMENTS &&
+        Buffer.byteLength(`${JSON.stringify(shard)}\n`) <= MAX_SHARD_BYTES)) {
+        groups.push({ records, shard })
+        return
+      }
+      if (bit === 256) throw new Error('工作区索引文档键冲突')
+      const sides: [PackedRecord[], PackedRecord[]] = [[], []]
+      for (const record of records) {
+        const side = (parseInt(record.key[Math.floor(bit / 4)], 16) >> (3 - bit % 4)) & 1
+        sides[side].push(record)
+      }
+      for (const side of sides) if (side.length) partition(side, bit + 1)
+    }
+    for (const records of buckets.values()) {
+      partition(records.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0), 8)
+      await yieldIfNeeded()
     }
 
-    const manifest: WorkspaceIndexManifest = {
-      schemaVersion: INDEX_SCHEMA_VERSION,
+    const documentEntries: PackedManifest['documents'] = []
+    const shards: PackedManifest['shards'] = {}
+    for (let offset = 0; offset < groups.length; offset += 8) {
+      const batch = await Promise.allSettled(groups.slice(offset, offset + 8).map(async group => {
+        const version = JSON.stringify([rootKey, indexInstanceId,
+          group.records.map(record => [record.key, record.document.revisionToken])])
+        const shardFile = `${sha256(version)}.json`
+        const text = `${JSON.stringify(group.shard)}\n`
+        await writeImmutableText(path.join(rootDir, 'shards', shardFile), text)
+        return { group, shardFile, hash: sha256(text), bytes: Buffer.byteLength(text) }
+      }))
+      // Drain every writer before returning an error or publishing a manifest.
+      for (const result of batch) {
+        if (result.status === 'rejected') throw result.reason
+        const { group, shardFile, hash, bytes } = result.value
+        shards[shardFile] = { hash, bytes, count: group.records.length }
+        for (const record of group.records) {
+          documentEntries.push({
+            relativePath: record.document.relativePath, revisionToken: record.document.revisionToken,
+            shardFile, mtimeMs: record.mtimeMs, indexedAt: record.indexedAt,
+          })
+        }
+      }
+    }
+
+    const manifest: PackedManifest = {
+      schemaVersion: INDEX_STORAGE_VERSION,
       rootKey,
       rootFingerprint: options.rootFingerprint,
       indexInstanceId,
       generationId,
       createdAt: Date.now(),
+      shards,
       documents: documentEntries.sort((left, right) => left.relativePath.localeCompare(right.relativePath)),
     }
     await writeJsonDurably(path.join(rootDir, 'generations', generationId, 'manifest.json'), manifest)
@@ -337,18 +441,68 @@ async function withLockOperation<T>(lockPath: string, operation: () => Promise<T
   }
 }
 
-async function writeJsonImmutably(filePath: string, value: unknown): Promise<void> {
+async function loadPacked(rootDir: string, manifest: PackedManifest): Promise<LoadedWorkspaceIndex | null> {
+  if (!manifest.shards || typeof manifest.shards !== 'object' || Array.isArray(manifest.shards) ||
+    !Array.isArray(manifest.documents)) return null
+  const byPath = new Map<string, { document: StableIndexedDocument; file: string }>()
+  const files = Object.entries(manifest.shards)
+  for (const [file, info] of files) {
+    if (!/^[a-f0-9]{64}\.json$/.test(file) || !info ||
+      !Number.isInteger(info.count) || info.count < 1 || info.count > MAX_SHARD_DOCUMENTS ||
+      !Number.isSafeInteger(info.bytes) || info.bytes < 1 ||
+      (info.bytes > MAX_SHARD_BYTES && info.count !== 1)) return null
+    const bytes = await readFile(path.join(rootDir, 'shards', file))
+    if (bytes.byteLength !== info.bytes || sha256(bytes) !== info.hash) return null
+    const shard = JSON.parse(bytes.toString('utf8')) as PackedShard
+    if (shard.schemaVersion !== INDEX_STORAGE_VERSION || shard.rootKey !== manifest.rootKey ||
+      shard.indexInstanceId !== manifest.indexInstanceId || !Array.isArray(shard.documents) ||
+      shard.documents.length !== info.count) return null
+    for (const document of shard.documents) {
+      if (document.schemaVersion !== INDEX_SCHEMA_VERSION || document.rootKey !== manifest.rootKey ||
+        document.indexInstanceId !== manifest.indexInstanceId || byPath.has(document.relativePath)) return null
+      byPath.set(document.relativePath, { document, file })
+    }
+  }
+  const documents: IndexedDocument[] = []
+  const usedFiles = new Set<string>()
+  for (const entry of manifest.documents) {
+    if (typeof entry.relativePath !== 'string' || !entry.relativePath ||
+      path.posix.isAbsolute(entry.relativePath) || path.win32.isAbsolute(entry.relativePath) ||
+      entry.relativePath.split(/[\\/]/).some(part => part === '..') ||
+      !Number.isFinite(entry.mtimeMs) || !Number.isFinite(entry.indexedAt)) return null
+    const found = byPath.get(entry.relativePath)
+    if (!found || found.file !== entry.shardFile || found.document.revisionToken !== entry.revisionToken) return null
+    byPath.delete(entry.relativePath)
+    usedFiles.add(entry.shardFile)
+    documents.push({ ...found.document, mtimeMs: entry.mtimeMs, indexedAt: entry.indexedAt })
+  }
+  if (byPath.size || usedFiles.size !== files.length) return null
+  return { manifest, documents }
+}
+
+function sha256(data: string | Buffer): string {
+  return createHash('sha256').update(data).digest('hex')
+}
+
+async function writeImmutableText(filePath: string, text: string): Promise<void> {
+  const expected = Buffer.from(text, 'utf8')
+  const compare = (existing: Buffer): void => {
+    if (!existing.equals(expected)) throw new Error(`工作区索引分片冲突: ${path.basename(filePath)}`)
+  }
+  try {
+    compare(await readFile(filePath))
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
   const tempPath = `${filePath}.${randomUUID()}.tmp`
   try {
-    await writeJsonDurably(tempPath, value)
+    await writeDurableText(tempPath, text)
     try {
       await link(tempPath, filePath)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      const existing = JSON.parse(await readFile(filePath, 'utf8')) as unknown
-      if (stableShardJson(existing) !== stableShardJson(value)) {
-        throw new Error(`工作区索引分片冲突: ${path.basename(filePath)}`)
-      }
+      compare(await readFile(filePath))
     }
   } finally {
     await unlink(tempPath).catch(error => {
@@ -357,30 +511,22 @@ async function writeJsonImmutably(filePath: string, value: unknown): Promise<voi
   }
 }
 
-function stableShardJson(value: unknown): string {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value)
-  const { mtimeMs: _mtimeMs, indexedAt: _indexedAt, ...stable } = value as Record<string, unknown>
-  return JSON.stringify(stable)
-}
-
-async function writeJsonDurably(filePath: string, value: unknown): Promise<void> {
+async function writeDurableText(filePath: string, content: string): Promise<void> {
   const handle = await open(filePath, 'wx', 0o600)
-  try {
-    await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8')
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-async function writeAtomicText(filePath: string, content: string): Promise<void> {
-  const tempPath = `${filePath}.${randomUUID()}.tmp`
-  const handle = await open(tempPath, 'wx', 0o600)
   try {
     await handle.writeFile(content, 'utf8')
     await handle.sync()
   } finally {
     await handle.close()
   }
+}
+
+async function writeJsonDurably(filePath: string, value: unknown): Promise<void> {
+  await writeDurableText(filePath, `${JSON.stringify(value)}\n`)
+}
+
+async function writeAtomicText(filePath: string, content: string): Promise<void> {
+  const tempPath = `${filePath}.${randomUUID()}.tmp`
+  await writeDurableText(tempPath, content)
   await rename(tempPath, filePath)
 }

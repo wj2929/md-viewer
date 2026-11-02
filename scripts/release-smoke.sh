@@ -69,6 +69,11 @@ ensure_docx_service_for_full() {
     return 0
   fi
 
+  if [ "${MD_VIEWER_DOCX_AUTOSTART:-1}" = "0" ]; then
+    echo "错误：DOCX 服务未连接，当前已禁止自动启动。请检查已授权服务。" >&2
+    return 1
+  fi
+
   if [ "${DOCX_SERVICE_URL}" != "http://127.0.0.1:3179" ] && [ "${DOCX_SERVICE_URL}" != "http://localhost:3179" ]; then
     echo "错误：${DOCX_SERVICE_URL} 未连接，且非默认本地地址。请先启动 DOCX 服务或设置可用的 MD_VIEWER_DOCX_SERVICE_URL。"
     exit 1
@@ -84,7 +89,10 @@ ensure_docx_service_for_full() {
   echo "启动本地 DOCX 服务：${DOCX_SERVICE_URL}"
   (
     cd "${service_dir}"
-    "${python_bin}" -m uvicorn app.main:app --host 127.0.0.1 --port 3179
+    exec env \
+      MDV_RENDER_CLI="${PWD}/renderers/mdv-renderer-cli.mjs" \
+      MDV_RENDER_ARTIFACT_DIR="${PWD}/renderers/dist/server-render" \
+      "${python_bin}" -m uvicorn app.main:app --host 127.0.0.1 --port 3179
   ) >"${DOCX_SERVICE_LOG}" 2>&1 &
   DOCX_SERVICE_PID="$!"
 

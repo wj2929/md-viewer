@@ -58,7 +58,7 @@ function parseDbml(source: string): { nodes: SimpleNode[]; edges: SimpleEdge[] }
           })
         fields.push({ name, type, flags })
         const inlineRef = attrs.match(/ref:\s*[<>-]+\s*([\w.]+)\.([\w.]+)/i)
-        if (inlineRef) addEdge({ source: tableName, target: inlineRef[1], label: `${name} -> ${inlineRef[2]}` })
+        if (inlineRef) addEdge({ source: tableName, target: inlineRef[1], label: name })
       }
     }
     nodes.push({ id: tableName, label: tableName, kind: 'Table', fields })
@@ -67,7 +67,7 @@ function parseDbml(source: string): { nodes: SimpleNode[]; edges: SimpleEdge[] }
   const refRe = /\bRef\s*:\s*([\w.]+)\.([\w.]+)\s*[<>-]+\s*([\w.]+)\.([\w.]+)/gi
   let refMatch: RegExpExecArray | null
   while ((refMatch = refRe.exec(source)) !== null) {
-    addEdge({ source: refMatch[1], target: refMatch[3], label: `${refMatch[2]} -> ${refMatch[4]}` })
+    addEdge({ source: refMatch[1], target: refMatch[3], label: refMatch[2] })
   }
 
   return { nodes, edges }
@@ -87,7 +87,7 @@ export function renderDbmlToSvg(source: string): SimpleRenderResult {
         nodes: parsed.nodes,
         edges: parsed.edges,
         width: 1180,
-        nodeWidth: 230,
+        nodeWidth: 290,
         nodeHeight: 118,
         mode: 'erd',
       }),

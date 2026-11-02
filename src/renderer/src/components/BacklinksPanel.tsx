@@ -116,6 +116,7 @@ const BacklinksPanel: React.FC<BacklinksPanelProps> = ({
   onCountChange,
 }) => {
   const [items, setItems] = useState<BacklinkItem[]>([])
+  const [coverage, setCoverage] = useState<'complete' | 'building' | 'partial' | 'stale'>('building')
   const [status, setStatus] = useState<IndexStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [rebuilding, setRebuilding] = useState(false)
@@ -157,12 +158,14 @@ const BacklinksPanel: React.FC<BacklinksPanelProps> = ({
     }
     if (!silent) setLoading(true)
     try {
-      const [nextItems, nextStatus] = await Promise.all([
+      const [response, nextStatus] = await Promise.all([
         window.api.getWorkspaceBacklinks(lifecycle, targetRelativePath),
         window.api.getWorkspaceIndexStatus(lifecycle),
       ])
       if (!isActiveWorkspaceLifecycleKey(lifecycle)) return
+      const nextItems = response.coverage === 'stale' ? [] : response.items
       setItems(nextItems)
+      setCoverage(response.coverage)
       setStatus(nextStatus)
       onCountChange?.({
         sourceDocuments: new Set(nextItems.map(item => item.sourceRelativePath)).size,
@@ -279,6 +282,11 @@ const BacklinksPanel: React.FC<BacklinksPanelProps> = ({
                 <span>{status.indexedDocuments} / {status.totalDocuments || '?'}</span>
                 <span>结果会随索引进度逐步补充。</span>
               </>
+            ) : coverage !== 'complete' ? (
+              <>
+                <strong>暂未确认链接</strong>
+                <span>别名关系尚未全部确认，当前结果不是全量；请稍后重试或检查文档元数据。</span>
+              </>
             ) : isDegraded ? (
               <>
                 <strong>还没有文档链接到这里</strong>
@@ -301,6 +309,7 @@ const BacklinksPanel: React.FC<BacklinksPanelProps> = ({
           </div>
         ) : (
           <>
+            {coverage !== 'complete' && <div className="backlinks-indexing" role="status">别名关系尚未全部确认，以下不是全量。</div>}
             {(isIndexing || isDegraded || isReadOnly) && (
               <div className="backlinks-indexing" role="status">
                 {isDegraded

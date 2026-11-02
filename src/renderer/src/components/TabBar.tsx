@@ -1,13 +1,18 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { FileInfo } from './FileTree'
+import type { RendererFileDiagnosticOperation } from '../utils/diagnostics'
 
 export interface Tab {
   id: string
   file: FileInfo
   content: string | null  // null = 懒加载壳，尚未从磁盘读入
+  resourceRevision?: number  // 引用的本地资源变化时递增，强制预览重新 hydration
+  initialScrollRatio?: number  // 懒加载恢复的初始位置；仅窗口内存，不写入会话
   isPinned?: boolean  // v1.3.6 新增：是否固定
   missing?: boolean
   renameCandidatePath?: string
+  diagnosticOperation?: RendererFileDiagnosticOperation
+  linkedReadOnly?: boolean  // 临时单文件阅读；许可只保存在窗口私有内存
 }
 
 interface TabBarProps {
@@ -93,7 +98,7 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
     e.preventDefault()
     e.stopPropagation()
 
-    if (!basePath) return
+    if (!basePath || tab.linkedReadOnly) return
 
     window.api.showTabContextMenu({
       tabId: tab.id,
@@ -205,9 +210,12 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
             ) : (
               <span className="tab-icon">📄</span>
             )}
-            <span className="tab-name" title={tab.file.path}>
+            <span className="tab-name" title={tab.linkedReadOnly
+              ? `${tab.file.path}\n外部只读 · 临时：仅当前窗口会话有效；重启或跨窗口转移不携带，请从来源链接重新打开。`
+              : tab.file.path}>
               {tab.file.name}
             </span>
+            {tab.linkedReadOnly && <span className="tab-linked-readonly">外部只读 · 临时</span>}
             {/* v1.3.6：固定标签不显示关闭按钮 */}
             {!tab.isPinned && (
               <button

@@ -178,7 +178,7 @@ async function main() {
       throw new Error(`app.asar 缺少 runtime closure 包 ${packageEntry.path}`)
     }
   }
-  for (const required of ['/package.json', '/out/main/index.js', '/out/preload/index.js', '/out/renderer/index.html']) {
+  for (const required of ['/package.json', '/out/main/index.js', '/out/main/watcherProcess.js', '/out/preload/index.js', '/out/renderer/index.html']) {
     if (!asarEntries.includes(required)) throw new Error(`app.asar 缺少 ${required}`)
   }
   for (const forbidden of ['react', 'react-dom', 'mermaid', 'katex', 'bpmn-js', '@excalidraw/excalidraw']) {

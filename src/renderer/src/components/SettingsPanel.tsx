@@ -1,3 +1,4 @@
+import { FileTreeSortControls } from './FileTreeSortControls'
 /**
  * 设置面板组件 - Tab 化布局
  * v1.5.2: 通用设置 + 关于/版本更新
@@ -10,6 +11,7 @@ import { DocxSetupGuide } from './DocxSetupGuide'
 import { DocxStyleCards } from './DocxStyleCards'
 import ReadAloudSettingsTab from './ReadAloudSettingsTab'
 import { ChartsSettingsTab } from './settings/ChartsSettingsTab'
+import { DiagnosticsSettingsSection } from './settings/DiagnosticsSettingsSection'
 import type { ChartsSettingsView, EditorInsertionSession } from './settings/chartSettingsTypes'
 import type { InstallChartExamplesResult } from '../../../shared/chartExamples'
 import {
@@ -91,13 +93,39 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onOpenChartExamples = async () => ({ canceled: true }),
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
+  const [visualViewportSize, setVisualViewportSize] = useState(() => ({
+    width: window.visualViewport?.width ?? window.innerWidth,
+    height: window.visualViewport?.height ?? window.innerHeight,
+  }))
   const activeTabLabel = SETTINGS_TABS.find(tab => tab.key === activeTab)?.label || '设置'
+
+  useEffect(() => {
+    const updateViewportSize = () => setVisualViewportSize({
+      width: window.visualViewport?.width ?? window.innerWidth,
+      height: window.visualViewport?.height ?? window.innerHeight,
+    })
+    window.addEventListener('resize', updateViewportSize)
+    window.visualViewport?.addEventListener('resize', updateViewportSize)
+    return () => {
+      window.removeEventListener('resize', updateViewportSize)
+      window.visualViewport?.removeEventListener('resize', updateViewportSize)
+    }
+  }, [])
 
   return (
     <>
       <div className="settings-overlay" onClick={onClose}>
         <div
           className={`settings-panel ${activeTab === 'charts' ? 'settings-panel-charts' : ''}`}
+          style={{
+            maxWidth: Math.max(280, visualViewportSize.width - (activeTab === 'charts' ? 48 : 24)),
+            maxHeight: Math.max(
+              240,
+              activeTab === 'charts'
+                ? visualViewportSize.height - 48
+                : visualViewportSize.height * 0.8,
+            ),
+          }}
           role="dialog"
           aria-modal="true"
           aria-labelledby="settings-title"
@@ -545,6 +573,8 @@ function GeneralTab({
       {activeTab === 'browsing' && (
       <section className="settings-section">
         <h3>浏览</h3>
+        <h4>目录树排序</h4>
+        <FileTreeSortControls />
         <div className="setting-item setting-row">
           <label>最近文件上限</label>
           <div className="setting-slider-group">
@@ -832,6 +862,7 @@ function GeneralTab({
       )}
 
       {activeTab === 'system' && (
+      <>
       <section className="settings-section">
         <h3>系统集成</h3>
         <div className="setting-item">
@@ -921,6 +952,8 @@ function GeneralTab({
           </div>
         </div>
       </section>
+      <DiagnosticsSettingsSection />
+      </>
       )}
 
       {/* 引导模态框 */}

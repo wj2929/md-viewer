@@ -78,8 +78,10 @@ export function buildAnalysisWarnings(analysis: MarkdownAnalysis): CliWarning[] 
 
   for (const link of analysis.links.filter(link => link.kind === 'markdown' && link.exists === false)) {
     warnings.push({
-      code: 'MARKDOWN_LINK_MISSING',
-      message: `Markdown 链接目标不存在：${link.target}`,
+      code: link.ambiguous ? 'WIKI_LINK_AMBIGUOUS' : 'MARKDOWN_LINK_MISSING',
+      message: link.ambiguous
+        ? `Wiki 链接目标不唯一：${link.target}`
+        : `Markdown 链接目标不存在：${link.target}`,
       target: link.target,
     })
   }

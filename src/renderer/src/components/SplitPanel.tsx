@@ -14,6 +14,7 @@ import { Tab } from './TabBar'
 import { LoadingPlaceholder } from './LoadingPlaceholder'
 import { MissingFilePlaceholder } from './MissingFilePlaceholder'
 import type { BacklinkItem } from './BacklinksPanel'
+import type { PreviewLinkContext, LinkOrigin, LinkPositionRequest } from '../utils/linkNavigation'
 import { PanelNode, LeafNode, SplitNode } from '../utils/splitTree'
 import { LightboxState } from './ImageLightbox'
 import { useEditSessionStore } from '../stores/editSessionStore'
@@ -21,6 +22,7 @@ import type { EditSession } from '../stores/editSessionStore'
 import type { DocumentViewMode } from '../stores/documentViewModeStore'
 import type { QuickEditTarget } from '../utils/quickEditTarget'
 import type { OpenChartSettingsRequest } from './settings/chartSettingsTypes'
+import type { PaneDiagnosticCause } from '../../../shared/diagnostics'
 import './SplitPanel.css'
 
 function findEditSessionForPath(sessions: Record<string, EditSession>, filePath: string): EditSession | undefined {
@@ -43,7 +45,7 @@ export interface SplitPanelProps {
   onSplitPanel: (leafId: string, direction: 'horizontal' | 'vertical', tabId: string) => void
   onClosePanel: (leafId: string) => void
   onResizePanel: (splitId: string, ratio: number) => void
-  onSetActiveLeaf: (leafId: string) => void
+  onSetActiveLeaf: (leafId: string, cause?: PaneDiagnosticCause) => void
   onImageClick: (data: LightboxState) => void
   onDropTab: (leafId: string, tabId: string, position: 'center' | 'left' | 'right' | 'top' | 'bottom') => void
   onSwapPanels?: (leafIdA: string, leafIdB: string) => void
@@ -62,12 +64,17 @@ export interface SplitPanelProps {
   onOpenChartSettings?: (request: OpenChartSettingsRequest) => void
   scrollToLine?: number
   onScrollToLineComplete?: () => void
+  highlightKeyword?: string
+  onHighlightKeywordComplete?: () => void
   scrollToRatio?: number
   onScrollToRatioComplete?: () => void
   getRestoredLeafViewState?: (leafId: string, filePath: string) => { scrollRatio?: number; headingId?: string } | undefined
   onRestoredLeafViewStateComplete?: (leafId: string) => void
   onReadPositionChange?: (leafId: string, filePath: string, position: { scrollRatio: number; headingId?: string }) => void
-  onMarkdownLinkClick?: (href: string, currentFilePath: string) => void | Promise<void>
+  onMarkdownLinkClick?: (href: string, currentFilePath: string, context?: PreviewLinkContext) => void | Promise<void>
+  onAttachmentLinkClick?: (href: string, currentFilePath: string, context: PreviewLinkContext) => void
+  getLinkOrigin?: (leafId: string) => LinkOrigin | undefined
+  getLinkPositionRequest?: (leafId: string) => LinkPositionRequest | undefined
   onBacklinkSelect?: (item: BacklinkItem, sourceFilePath: string) => void
   onRecoverMissingTab?: (tabId: string, candidatePath?: string) => void
   onCloseTab?: (tabId: string) => void
@@ -115,12 +122,17 @@ function LeafPanel({
   onOpenChartSettings,
   scrollToLine,
   onScrollToLineComplete,
+  highlightKeyword,
+  onHighlightKeywordComplete,
   scrollToRatio,
   onScrollToRatioComplete,
   getRestoredLeafViewState,
   onRestoredLeafViewStateComplete,
   onReadPositionChange,
   onMarkdownLinkClick,
+  onAttachmentLinkClick,
+  getLinkOrigin,
+  getLinkPositionRequest,
   onBacklinkSelect,
   onRecoverMissingTab,
   onCloseTab
@@ -149,12 +161,17 @@ function LeafPanel({
   onOpenChartSettings?: SplitPanelProps['onOpenChartSettings']
   scrollToLine?: number
   onScrollToLineComplete?: () => void
+  highlightKeyword?: string
+  onHighlightKeywordComplete?: () => void
   scrollToRatio?: number
   onScrollToRatioComplete?: () => void
   getRestoredLeafViewState?: SplitPanelProps['getRestoredLeafViewState']
   onRestoredLeafViewStateComplete?: SplitPanelProps['onRestoredLeafViewStateComplete']
   onReadPositionChange?: SplitPanelProps['onReadPositionChange']
   onMarkdownLinkClick?: SplitPanelProps['onMarkdownLinkClick']
+  onAttachmentLinkClick?: SplitPanelProps['onAttachmentLinkClick']
+  getLinkOrigin?: SplitPanelProps['getLinkOrigin']
+  getLinkPositionRequest?: SplitPanelProps['getLinkPositionRequest']
   onBacklinkSelect?: SplitPanelProps['onBacklinkSelect']
   onRecoverMissingTab?: SplitPanelProps['onRecoverMissingTab']
   onCloseTab?: SplitPanelProps['onCloseTab']
@@ -166,6 +183,10 @@ function LeafPanel({
 
   const tab = tabs.find(t => t.id === node.tabId)
   const restoredViewState = tab ? getRestoredLeafViewState?.(node.id, tab.file.path) : undefined
+
+  useEffect(() => {
+    if (isActive && scrollToLine) onRestoredLeafViewStateComplete?.(node.id)
+  }, [isActive, scrollToLine, node.id, onRestoredLeafViewStateComplete])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.types.includes('text/tab-id') || e.dataTransfer.types.includes('text/panel-id')) {
@@ -206,8 +227,8 @@ function LeafPanel({
   }, [node.id, dragPos, onDropTab, onSwapPanels])
 
   const dragClass = dragPos ? `drag-over drag-over-${dragPos}` : ''
-  const quickEditSession = useEditSessionStore(state => tab ? findEditSessionForPath(state.sessions, tab.file.path) : undefined)
-  const quickEditTarget = tab ? getQuickEditTarget?.(tab, node.id) : null
+  const quickEditSession = useEditSessionStore(state => tab && !tab.linkedReadOnly ? findEditSessionForPath(state.sessions, tab.file.path) : undefined)
+  const quickEditTarget = tab && !tab.linkedReadOnly ? getQuickEditTarget?.(tab, node.id) : null
   const quickEditCanonicalPath = quickEditTarget?.canonicalPath || null
   const rawContent = tab ? (quickEditSession?.draft ?? tab.content) : ''
   const isContentLoading = tab != null && rawContent == null
@@ -225,9 +246,10 @@ function LeafPanel({
   return (
     <div
       ref={panelRef}
+      data-leaf-id={node.id}
       className={`split-leaf-panel ${isActive ? 'active' : ''} ${dragClass}`}
-      onClick={() => onSetActiveLeaf(node.id)}
-      onContextMenu={() => onSetActiveLeaf(node.id)}
+      onClick={event => onSetActiveLeaf(node.id, { source: 'panel-click', inputTrusted: event.isTrusted })}
+      onContextMenu={event => onSetActiveLeaf(node.id, { source: 'panel-context-menu', inputTrusted: event.isTrusted })}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -246,6 +268,7 @@ function LeafPanel({
       >
         <span className="panel-filename" title={tab?.file.path}>
           {tab?.file.name || '(无文件)'}
+          {tab?.linkedReadOnly && <span className="tab-linked-readonly">外部只读 · 临时</span>}
         </span>
         <div className="panel-actions">
           {/* 向右分屏 */}
@@ -298,6 +321,11 @@ function LeafPanel({
           <MarkdownEditWorkbench
             tab={tab}
             leafId={node.id}
+            isActive={isActive}
+            scrollToLine={isActive ? scrollToLine : undefined}
+            onScrollToLineComplete={isActive ? onScrollToLineComplete : undefined}
+            highlightKeyword={isActive ? highlightKeyword : undefined}
+            onHighlightKeywordComplete={isActive ? onHighlightKeywordComplete : undefined}
             canonicalPath={quickEditSession.canonicalPath}
             mode={documentMode}
             compareRatio={getDocumentCompareRatio?.(node.id, tab.id) ?? 0.5}
@@ -308,6 +336,10 @@ function LeafPanel({
             onCopyDraft={onCopyDraft}
             onReloadFromDisk={onReloadQuickEdit}
             onOpenChartSettings={onOpenChartSettings}
+            onMarkdownLinkClick={onMarkdownLinkClick}
+            onAttachmentLinkClick={onAttachmentLinkClick}
+            linkOrigin={getLinkOrigin?.(node.id)}
+            linkPositionRequest={getLinkPositionRequest?.(node.id)}
             onLocateComplete={(located) => onDocumentLocateComplete?.(node.id, tab.id, located)}
           />
         ) : (
@@ -332,21 +364,29 @@ function LeafPanel({
                       <LoadingPlaceholder />
                     ) : (
                     <VirtualizedMarkdown
-                      key={tab.file.path}
+                      key={`${tab.file.path}:${tab.resourceRevision ?? 0}`}
                       content={previewContent}
                       filePath={tab.file.path}
                       tabId={tab.id}
                       leafId={node.id}
+                      initialScrollRatio={tab.initialScrollRatio}
+                      isActive={isActive}
                       renderDebounceMs={getDraftPreviewDebounceMs(previewContent, Boolean(quickEditSession))}
                       scrollToLine={isActive ? scrollToLine : undefined}
                       onScrollToLineComplete={isActive ? onScrollToLineComplete : undefined}
-                      scrollToRatio={restoredViewState?.scrollRatio ?? (isActive ? scrollToRatio : undefined)}
+                      highlightKeyword={isActive ? highlightKeyword : undefined}
+                      onHighlightKeywordComplete={isActive ? onHighlightKeywordComplete : undefined}
+                      scrollToRatio={isActive && scrollToLine ? undefined : restoredViewState?.scrollRatio ?? (isActive ? scrollToRatio : undefined)}
                       onScrollToRatioComplete={restoredViewState
                         ? () => onRestoredLeafViewStateComplete?.(node.id)
                         : isActive ? onScrollToRatioComplete : undefined}
                       onImageClick={onImageClick}
                       onReadPositionChange={(position) => tab && onReadPositionChange?.(node.id, tab.file.path, position)}
                       onMarkdownLinkClick={onMarkdownLinkClick}
+                      onAttachmentLinkClick={onAttachmentLinkClick}
+                      linkPositionRequest={getLinkPositionRequest?.(node.id)}
+                      diagnosticOperation={tab.diagnosticOperation}
+                      diagnosticPanelKind="split"
                     />
                     )
                   ) : (
@@ -359,6 +399,7 @@ function LeafPanel({
                     markdown={previewContent}
                     filePath={tab.file.path}
                     onBacklinkSelect={onBacklinkSelect}
+                    linkOrigin={getLinkOrigin?.(node.id)}
                   />
                 )}
                 {tab && isActive && (
@@ -479,12 +520,17 @@ export function SplitPanel(props: SplitPanelProps): JSX.Element {
         onOpenChartSettings={props.onOpenChartSettings}
         scrollToLine={props.scrollToLine}
         onScrollToLineComplete={props.onScrollToLineComplete}
+        highlightKeyword={props.highlightKeyword}
+        onHighlightKeywordComplete={props.onHighlightKeywordComplete}
         scrollToRatio={props.scrollToRatio}
         onScrollToRatioComplete={props.onScrollToRatioComplete}
         getRestoredLeafViewState={props.getRestoredLeafViewState}
         onRestoredLeafViewStateComplete={props.onRestoredLeafViewStateComplete}
         onReadPositionChange={props.onReadPositionChange}
         onMarkdownLinkClick={props.onMarkdownLinkClick}
+        onAttachmentLinkClick={props.onAttachmentLinkClick}
+        getLinkOrigin={props.getLinkOrigin}
+        getLinkPositionRequest={props.getLinkPositionRequest}
         onBacklinkSelect={props.onBacklinkSelect}
         onRecoverMissingTab={props.onRecoverMissingTab}
         onCloseTab={props.onCloseTab}

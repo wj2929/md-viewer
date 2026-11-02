@@ -2,12 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { processD2InHtml, renderD2ToSvg, validateD2Source } from '../../src/utils/d2Renderer'
 
 let mockedD2Svg = '<svg viewBox="0 0 100 40"><text>D2</text></svg>'
+let d2ConstructorCount = 0
+let activeD2Calls = 0
+let maxActiveD2Calls = 0
 
 vi.mock('@terrastruct/d2', () => ({
   D2: class {
-    worker = { terminate: vi.fn() }
+    constructor() {
+      d2ConstructorCount += 1
+    }
 
     async compile(source: string) {
+      activeD2Calls += 1
+      maxActiveD2Calls = Math.max(maxActiveD2Calls, activeD2Calls)
+      await Promise.resolve()
+      activeD2Calls -= 1
       return {
         diagram: { source },
         renderOptions: { noXMLTag: true },
@@ -106,5 +115,17 @@ describe('d2Renderer', () => {
     expect(result).toContain('d2-container')
     expect(result).toContain('<svg')
     expect(result).not.toContain('language-d2')
+  })
+
+  it('reuses one D2 worker and serializes concurrent renders', async () => {
+    const results = await Promise.all([
+      renderD2ToSvg('a -> b'),
+      renderD2ToSvg('c -> d'),
+      renderD2ToSvg('e -> f'),
+    ])
+
+    expect(results.every(result => result.ok)).toBe(true)
+    expect(d2ConstructorCount).toBe(1)
+    expect(maxActiveD2Calls).toBe(1)
   })
 })

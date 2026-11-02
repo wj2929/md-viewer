@@ -75,11 +75,11 @@ describe('chartExamplesInstaller', () => {
 
     const first = await installChartExamples({
       destinationParent,
-      packageVersion: '2.8.0-r4',
+      packageVersion: '2.9.0-r2',
       zipBytes,
     })
     expect(first.reusedExisting).toBe(false)
-    expect(first.directoryPath).toBe(path.join(destinationParent, 'md-viewer-chart-examples-v2.8.0-r4'))
+    expect(first.directoryPath).toBe(path.join(destinationParent, 'md-viewer-chart-examples-v2.9.0-r2'))
     expect(first.treeDirectories).toContain('03-renderer-gallery/service-renderers')
     expect(await readFile(first.entryFilePath, 'utf8')).toContain('# MD Viewer 图表示例')
 
@@ -88,10 +88,28 @@ describe('chartExamplesInstaller', () => {
 
     const second = await installChartExamples({
       destinationParent,
-      packageVersion: '2.8.0-r4',
+      packageVersion: '2.9.0-r2',
       zipBytes,
     })
     expect(second).toEqual({ ...first, reusedExisting: true })
+  })
+
+  it('preserves a modified old content version while installing the new reference package', async () => {
+    const destinationParent = await createDestination()
+    const old = await installChartExamples({
+      destinationParent,
+      packageVersion: '2.9.0-r1',
+      zipBytes: createArchive(undefined, { packageVersion: '2.9.0-r1' }),
+    })
+    await writeFile(old.entryFilePath, '# My preserved reference\n')
+    const current = await installChartExamples({
+      destinationParent,
+      packageVersion: '2.9.0-r2',
+      zipBytes: await readFile(path.join(process.cwd(), 'resources/examples/md-viewer-chart-examples.zip')),
+    })
+    expect(current.directoryPath).not.toBe(old.directoryPath)
+    expect(await readFile(old.entryFilePath, 'utf8')).toBe('# My preserved reference\n')
+    expect(await readFile(path.join(current.directoryPath, '01-quick-start.md'), 'utf8')).toContain('支持 @ 的工具')
   })
 
   it('handles concurrent publication without overwriting the completed target', async () => {

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { VirtualizedMarkdown, type PreviewBlockEdit } from '../VirtualizedMarkdown'
 import FloatingNav from '../FloatingNav'
+import ReadAloudBar from '../ReadAloudBar'
+import { LinkOriginButton } from '../LinkOriginButton'
+import type { PreviewLinkContext, LinkOrigin, LinkPositionRequest } from '../../utils/linkNavigation'
 import type { Tab } from '../TabBar'
 import { useEditSessionStore } from '../../stores/editSessionStore'
 import type { DocumentViewMode } from '../../stores/documentViewModeStore'
@@ -18,6 +21,11 @@ import './MarkdownEditWorkbench.css'
 interface MarkdownEditWorkbenchProps {
   tab: Tab
   leafId: string
+  isActive?: boolean
+  scrollToLine?: number
+  onScrollToLineComplete?: () => void
+  highlightKeyword?: string
+  onHighlightKeywordComplete?: () => void
   canonicalPath: string
   mode: DocumentViewMode
   compareRatio: number
@@ -35,6 +43,10 @@ interface MarkdownEditWorkbenchProps {
   onReloadFromDisk: (canonicalPath: string) => Promise<void>
   onLocateComplete: (located: boolean) => void
   onOpenChartSettings?: (request: OpenChartSettingsRequest) => void
+  onMarkdownLinkClick?: (href: string, currentFilePath: string, context?: PreviewLinkContext) => void | Promise<void>
+  onAttachmentLinkClick?: (href: string, currentFilePath: string, context: PreviewLinkContext) => void
+  linkOrigin?: LinkOrigin
+  linkPositionRequest?: LinkPositionRequest
 }
 
 function getDraftPreviewDebounceMs(content: string): number {
@@ -99,6 +111,11 @@ const LARGE_SOURCE_EDIT_DRAFT_THRESHOLD = 80_000
 export function MarkdownEditWorkbench({
   tab,
   leafId,
+  isActive = true,
+  scrollToLine,
+  onScrollToLineComplete,
+  highlightKeyword,
+  onHighlightKeywordComplete,
   canonicalPath,
   mode,
   compareRatio,
@@ -110,6 +127,10 @@ export function MarkdownEditWorkbench({
   onReloadFromDisk,
   onLocateComplete,
   onOpenChartSettings,
+  onMarkdownLinkClick,
+  onAttachmentLinkClick,
+  linkOrigin,
+  linkPositionRequest,
 }: MarkdownEditWorkbenchProps): JSX.Element {
   const writerId = `${leafId}:${tab.id}`
   const editorRef = useRef<MarkdownEditorPaneHandle | null>(null)
@@ -276,6 +297,7 @@ export function MarkdownEditWorkbench({
 
   const handleSave = useCallback(async (contentFromEditor?: string, force = false) => {
     if (!session || readOnly) return
+    if (force && !window.confirm('保存并覆盖将用当前草稿替换磁盘内容，此操作不可撤销。建议先复制草稿备份。是否继续？')) return
     const contentToSave = contentFromEditor
       ? commitSourceDraft(contentFromEditor)
       : flushPendingSourceDraft()
@@ -417,6 +439,7 @@ export function MarkdownEditWorkbench({
     if (mode === 'preview' || readOnly) return
 
     const handleWorkbenchKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || document.querySelector('.local-attachment-dialog')) return
       const target = event.target instanceof Element ? event.target : null
       if (target?.closest('.cm-editor')) return
       if (target?.closest('[contenteditable="true"]')) return
@@ -452,6 +475,18 @@ export function MarkdownEditWorkbench({
     }, 0)
   }, [canonicalPath, closeSession, discardPendingSourceDraft, onModeChange, readOnly])
 
+  const handleMarkdownLink = useCallback((href: string, filePath: string, context?: PreviewLinkContext) => {
+    flushPendingSourceDraft()
+    return onMarkdownLinkClick?.(href, filePath, context)
+  }, [flushPendingSourceDraft, onMarkdownLinkClick])
+
+  useEffect(() => {
+    if (isActive && mode === 'edit' && scrollToLine && editorRef.current?.scrollToLine(scrollToLine)) {
+      onScrollToLineComplete?.()
+      onHighlightKeywordComplete?.()
+    }
+  }, [isActive, mode, scrollToLine, onScrollToLineComplete, onHighlightKeywordComplete])
+
   const previewPane = useMemo(() => (
     <div className="markdown-workbench-preview-pane">
       <div className="markdown-workbench-preview-status" role="status">
@@ -459,25 +494,41 @@ export function MarkdownEditWorkbench({
       </div>
       <div className="preview" ref={previewRef}>
         <VirtualizedMarkdown
-          key={previewResetVersion}
+          key={`${previewResetVersion}:${tab.resourceRevision ?? 0}`}
           content={content}
           filePath={tab.file.path}
           tabId={tab.id}
           leafId={leafId}
+          isActive={isActive}
+          scrollToLine={scrollToLine}
+          onScrollToLineComplete={onScrollToLineComplete}
+          highlightKeyword={highlightKeyword}
+          onHighlightKeywordComplete={onHighlightKeywordComplete}
           renderDebounceMs={getDraftPreviewDebounceMs(content)}
           previewEditingEnabled={mode !== 'preview' && !readOnly}
           onPreviewBlockEdit={handlePreviewBlockEdit}
           onSourceEditRequest={handleSourceEditRequest}
+          onMarkdownLinkClick={onMarkdownLinkClick ? handleMarkdownLink : undefined}
+          onAttachmentLinkClick={onAttachmentLinkClick}
+          linkPositionRequest={linkPositionRequest}
+          diagnosticOperation={tab.diagnosticOperation}
+          diagnosticPanelKind="editor"
         />
       </div>
-      <FloatingNav containerRef={previewRef} markdown={content} />
+      <FloatingNav containerRef={previewRef} markdown={content} linkOrigin={linkOrigin && {
+        ...linkOrigin, onReturn: () => { flushPendingSourceDraft(); linkOrigin.onReturn() },
+      }} />
+      {isActive && <ReadAloudBar containerRef={previewRef} filePath={tab.file.path} contentKey={content} />}
     </div>
-  ), [content, dirty, handlePreviewBlockEdit, leafId, mode, previewResetVersion, readOnly, tab.file.path, tab.id])
+  ), [content, dirty, handlePreviewBlockEdit, isActive, scrollToLine, onScrollToLineComplete, highlightKeyword, onHighlightKeywordComplete, leafId, mode, previewResetVersion, readOnly, tab.diagnosticOperation, tab.file.path, tab.id, tab.resourceRevision, onMarkdownLinkClick, handleMarkdownLink, onAttachmentLinkClick, linkPositionRequest, linkOrigin, flushPendingSourceDraft])
 
   return (
     <section className={`markdown-edit-workbench mode-${mode}`} aria-label={`${tab.file.name} 编辑工作区`}>
       <header className="markdown-workbench-toolbar">
         <div className="markdown-workbench-toolbar-left">
+          {mode === 'edit' && <LinkOriginButton className="link-origin-workbench" origin={linkOrigin && {
+            ...linkOrigin, onReturn: () => { flushPendingSourceDraft(); linkOrigin.onReturn() },
+          }} />}
           <DocumentModeSwitch mode={mode} dirty={dirty} onChange={onModeChange} />
           <MarkdownFormatToolbar
             disabled={readOnly || mode === 'preview'}

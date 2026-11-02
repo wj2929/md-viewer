@@ -80,7 +80,7 @@ export interface ExternalDocumentOpenOptions {
 
 export interface OpenDocumentCommand {
   id: string
-  source: 'file-tree' | 'search' | 'toc' | 'backlink' | 'bookmark' | 'recent' | 'external' | 'read-position'
+  source: 'file-tree' | 'search' | 'toc' | 'backlink' | 'bookmark' | 'recent' | 'external' | 'read-position' | 'link' | 'link-return'
   filePath: string
   canonicalPath: string
   target?: OpenDocumentTarget
@@ -97,12 +97,16 @@ export type OpenDocumentResultStatus =
   | 'focused'
   | 'target-missing'
   | 'blocked-by-dirty'
+  | 'cancelled'
+  | 'stale'
   | 'failed'
 
 export interface OpenDocumentResult {
   commandId: string
   status: OpenDocumentResultStatus
   resolvedTarget?: OpenDocumentTarget
+  tabId?: string
+  leafId?: string
   message?: string
 }
 

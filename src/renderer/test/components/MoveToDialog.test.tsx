@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MoveToDialog } from '../../src/components/MoveToDialog'
 import { useWorkspaceStore } from '../../src/stores/workspaceStore'
+import { useFolderSearchSettingsStore } from '../../src/stores/folderSearchSettingsStore'
 
 describe('MoveToDialog', () => {
   const history = [
@@ -11,12 +12,15 @@ describe('MoveToDialog', () => {
   ]
 
   beforeEach(() => {
+    useFolderSearchSettingsStore.setState({ hydration: 'idle', enabled: false, pending: null, saving: false, hasLoaded: false, error: null, revision: 0 })
     useWorkspaceStore.setState({
       workspaces: [{ id: 'workspace-a', name: '测试工作区', primaryRoot: '/src', lifecycleEpoch: 1 }],
       activeWorkspaceId: 'workspace-a',
       runtimes: {},
     })
     window.api = {
+      getAppSettings: vi.fn().mockResolvedValue({}),
+      updateAppSettings: vi.fn().mockResolvedValue(undefined),
       getFolderHistory: vi.fn().mockResolvedValue(history),
       listChildDirs: vi.fn().mockResolvedValue([
         { name: 'sub1', path: '/roots/alpha/sub1' },
@@ -31,6 +35,7 @@ describe('MoveToDialog', () => {
         coverage: { originIndexedMarkdownDocuments: 3, targetIndexedMarkdownDocuments: 2, ignoredLinks: 0, uncertainLinks: 0 },
       }),
       createLinkImpact: vi.fn().mockResolvedValue({ impactId: 'impact-a', affectedSourceFiles: 0, exactChanges: 0, candidates: 0, items: [] }),
+      executeLinkRewriteBatch: vi.fn(),
       executeLinkRewriteOperation: vi.fn().mockResolvedValue({
         newPath: '/src/archive/note.md',
         receipt: { operationReceiptId: 'receipt-a' },
@@ -236,6 +241,37 @@ describe('MoveToDialog', () => {
     expect(onSuccess).toHaveBeenCalledWith('链接修复完成')
   })
 
+  for (const paused of [false, true]) it(`同根批次统一执行并保留逐项结果：暂停=${paused}`, async () => {
+    window.api.getFolderHistory.mockResolvedValueOnce([{ id: 'same', path: '/src', name: 'src', lastOpened: 3 }])
+    window.api.listChildDirs.mockResolvedValue([{ name: 'archive', path: '/src/archive' }])
+    window.api.createLinkImpact.mockImplementation(async (_operation, mapping) => ({
+      impactId: mapping.oldRelativePath, mapping, exactChanges: 1, candidates: 0, affectedSourceFiles: 1, items: [],
+    }))
+    window.api.executeLinkRewriteBatch.mockResolvedValue({ items: [
+      { impactId: 'a.md', mapping: { oldRelativePath: 'a.md', newRelativePath: 'archive/a.md' }, status: 'success', receipt: { operationReceiptId: 'receipt-a' } },
+      { impactId: 'b.md', mapping: { oldRelativePath: 'b.md', newRelativePath: 'archive/b.md' }, status: paused ? 'not-executed' : 'success',
+        ...(paused ? { message: '请重新预览剩余文件操作' } : { receipt: { operationReceiptId: 'receipt-b' } }) },
+    ], ...(paused ? { warning: '请重新预览剩余文件操作' } : {}) })
+    if (paused) window.api.createLinkRepairPlan.mockRejectedValue(new Error('plan limit'))
+    render(<MoveToDialog isOpen sources={['/src/a.md', '/src/b.md']} onClose={vi.fn()} />)
+    fireEvent.click(await screen.findByText('src'))
+    fireEvent.click(await screen.findByText('archive'))
+    await waitFor(() => expect(screen.getByRole('button', { name: '移动 2 项' })).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: '移动 2 项' }))
+    expect(await screen.findByText(paused ? '1 项成功 · 0 项失败 · 1 项未执行' : '2 项成功 · 0 项失败')).toBeTruthy()
+    expect(window.api.executeLinkRewriteBatch).toHaveBeenCalledWith({ workspaceId: 'workspace-a', lifecycleEpoch: 1 }, {
+      operations: ['a', 'b'].map(name => ({ impactId: `${name}.md`, mapping: { oldRelativePath: `${name}.md`, newRelativePath: `archive/${name}.md` } })), confirm: true,
+    })
+    expect(window.api.executeLinkRewriteOperation).not.toHaveBeenCalled()
+    expect(window.api.moveFileToFolder).not.toHaveBeenCalled()
+    if (paused) {
+      expect(await screen.findByText(/部分链接修复预览未能生成/)).toBeTruthy()
+      expect(screen.getByText('链接修复尚未全部确认')).toBeTruthy()
+    }
+    expect(window.api.createLinkRepairPlan).toHaveBeenCalledTimes(paused ? 1 : 2)
+    expect(window.api.applyLinkRepairPlans).not.toHaveBeenCalled()
+  })
+
   it('跨根移动显示双侧只读影响统计且不创建修复计划', async () => {
     window.api.getFolderHistory.mockResolvedValueOnce(history)
     render(<MoveToDialog isOpen sources={['/src/note.md']} onClose={vi.fn()} />)
@@ -258,4 +294,44 @@ describe('MoveToDialog', () => {
     const { container } = render(<MoveToDialog isOpen={false} sources={[]} onClose={vi.fn()} />)
     expect(container.firstChild).toBeNull()
   })
+
+  it.each(['yan', 'yanf', 'yanfa'])('%s 筛选、折叠和关闭开关不清除已选目标，也不读取额外子目录', async query => {
+    window.api.getFolderHistory.mockResolvedValue([...history, ...Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, name: '研发中心', path: `/fixture/${i}`, lastOpened: i }))])
+    window.api.getAppSettings.mockResolvedValue({ folderPinyinSearchEnabled: true })
+    render(<MoveToDialog isOpen sources={['/src/note.md']} onClose={vi.fn()} />)
+    const alpha = await screen.findByText('alpha')
+    await act(async () => { fireEvent.click(alpha) })
+    const before = document.querySelector('.move-to-target')!.textContent
+    const input = screen.getByLabelText('搜索移动目标目录')
+    fireEvent.change(input, { target: { value: query } })
+    await screen.findByText(/拼音匹配 · 前 5 \/ 6/)
+    expect(screen.getAllByText('研发中心')).toHaveLength(5)
+    expect(window.api.listChildDirs).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: '显示其余 1 项' }))
+    expect(screen.getAllByText('研发中心')).toHaveLength(6)
+    fireEvent.click(screen.getByRole('button', { name: '仅显示前 5 项' }))
+    expect(screen.getAllByText('研发中心')).toHaveLength(5)
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox', { name: '拼音搜索' })) })
+    expect(screen.queryByText('研发中心')).toBeNull()
+    expect(input.value).toBe(query)
+    expect(document.querySelector('.move-to-target')!.textContent).toBe(before)
+    expect(screen.getByText('sub1')).toBeTruthy()
+    expect(window.api.moveFileToFolder).not.toHaveBeenCalled()
+  })
+
+  it('第6个同名拼音根通过键盘选择，只选择原historyId且不自动移动', async () => {
+    window.api.getFolderHistory.mockResolvedValue(Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, name: '研发中心', path: `/fixture/${i}`, lastOpened: i })))
+    window.api.getAppSettings.mockResolvedValue({ folderPinyinSearchEnabled: true })
+    render(<MoveToDialog isOpen sources={['/src/note.md']} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: '拼音搜索' }).checked).toBe(true))
+    fireEvent.change(screen.getByLabelText('搜索移动目标目录'), { target: { value: 'yanf' } })
+    await screen.findByText(/拼音匹配 · 前 5 \/ 6/)
+    fireEvent.click(screen.getByRole('button', { name: '显示其余 1 项' }))
+    const sixth = screen.getAllByText('研发中心')[5].closest('.move-to-root-row')!
+    await act(async () => { fireEvent.keyDown(sixth, { key: ' ' }) })
+    expect(window.api.listChildDirs).toHaveBeenCalledWith('/fixture/5')
+    expect(sixth.classList.contains('selected')).toBe(true)
+    expect(window.api.moveFileToFolder).not.toHaveBeenCalled()
+  })
+
 })

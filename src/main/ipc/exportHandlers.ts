@@ -14,7 +14,13 @@ import { validateSenderReadPath } from './senderSecurity'
 import { writeHtmlExport, writePdfExport } from '../cli/sharedExportWriters'
 import { getExportStyles } from './exportStyles'
 import { runExportPreflight } from '../exportPreflight'
+import {
+  materializeLocalMediaForDocxMarkdown,
+  materializeLocalMediaForExport,
+} from '../localMediaExport'
+import { resolveAuthorizedWorkspaceResource } from '../localResourceResolver'
 import type { PreflightRequest, PreflightResult } from '../../shared/preflight'
+import { IMAGE_MIME_TYPES, MAX_LOCAL_WEBVTT_SIZE } from '../../shared/localMedia'
 
 let lastDocxExportPath: string | null = null
 const EXPORT_SOURCE_EXTENSION_RE = /\.(md|markdown|mdown|mkd|mkdn|excalidraw)$/i
@@ -26,6 +32,7 @@ const MAX_SVG_CAPTURE_DIMENSION = 4096
 const MAX_SVG_CAPTURE_PIXELS = 8_000_000
 const MIN_SVG_RENDER_WIDTH = 1
 const MAX_SVG_RENDER_WIDTH = 1800
+const MAX_LOCAL_EXPORT_IMAGE_SIZE = 10 * 1024 * 1024
 
 interface ChartZipImagePayload {
   filename: string
@@ -46,6 +53,60 @@ function withExportExtension(fileName: string, extension: 'html' | 'pdf' | 'docx
     return fileName.replace(EXPORT_SOURCE_EXTENSION_RE, `.${extension}`)
   }
   return `${fileName}.${extension}`
+}
+
+async function resolveExportWebVtt(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  markdownFilePath: string,
+  ref: string,
+  resolutionKind: 'markdown-relative' | 'workspace-wiki',
+): Promise<string> {
+  const resource = await resolveAuthorizedWorkspaceResource(
+    ctx,
+    event,
+    markdownFilePath,
+    ref,
+    resolutionKind,
+  )
+  if (path.extname(resource.canonicalPath).toLowerCase() !== '.vtt') {
+    throw new Error('字幕轨必须是 WebVTT 文件')
+  }
+  const stats = await fs.stat(resource.canonicalPath)
+  if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_LOCAL_WEBVTT_SIZE) {
+    throw new Error('WebVTT 文件大小无效')
+  }
+  return resource.canonicalPath
+}
+
+async function resolveExportPoster(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  markdownFilePath: string,
+  ref: string,
+  resolutionKind: 'markdown-relative' | 'workspace-wiki',
+  includeBase64: boolean,
+): Promise<{ canonicalPath: string, mimeType: string, base64?: string }> {
+  const resource = await resolveAuthorizedWorkspaceResource(
+    ctx,
+    event,
+    markdownFilePath,
+    ref,
+    resolutionKind,
+  )
+  const mimeType = IMAGE_MIME_TYPES[path.extname(resource.canonicalPath).toLowerCase()]
+  if (!mimeType) throw new Error('不支持的本地海报图片格式')
+  const stats = await fs.stat(resource.canonicalPath)
+  if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_LOCAL_EXPORT_IMAGE_SIZE) {
+    throw new Error('本地海报图片大小无效')
+  }
+  return {
+    canonicalPath: resource.canonicalPath,
+    mimeType,
+    ...(includeBase64
+      ? { base64: (await fs.readFile(resource.canonicalPath)).toString('base64') }
+      : {}),
+  }
 }
 
 function resolveChartsZipDefaultPath(markdownFilePath: string): string {
@@ -317,7 +378,7 @@ function generatePDFHTML(content: string, markdownCss: string, prismCss: string,
 export function registerExportHandlers(ctx: IPCContext): void {
   // 导出 HTML
 // 导出 HTML
-ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) => {
+ipcMain.handle('export:html', async (event, htmlContent: string, fileName: string, markdownFilePath?: string) => {
   try {
     const result = await dialog.showSaveDialog({
       title: '导出 HTML',
@@ -334,15 +395,46 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
     const settings = appDataManager.getSettings()
     const showBranding = settings.showExportBranding !== false
     const { markdownCss, prismCss } = await getExportStyles()
+    const media = markdownFilePath
+      ? await materializeLocalMediaForExport({
+          html: htmlContent,
+          outputPath: result.filePath,
+          mode: 'linked-html',
+          resolveMedia: async (ref, resolutionKind) => (
+            await resolveAuthorizedWorkspaceResource(
+              ctx,
+              event,
+              markdownFilePath,
+              ref,
+              resolutionKind,
+            )
+          ).canonicalPath,
+          resolveTrack: (ref, resolutionKind) => resolveExportWebVtt(
+            ctx,
+            event,
+            markdownFilePath,
+            ref,
+            resolutionKind,
+          ),
+          resolvePoster: (ref, resolutionKind) => resolveExportPoster(
+            ctx,
+            event,
+            markdownFilePath,
+            ref,
+            resolutionKind,
+            false,
+          ),
+        })
+      : { html: htmlContent, warnings: [] as string[], linkedMedia: 0 }
 
     await writeHtmlExport(result.filePath, {
-      content: htmlContent,
+      content: media.html,
       title: fileName,
       markdownCss,
       prismCss,
       showBranding,
     })
-    return result.filePath
+    return { filePath: result.filePath, warnings: media.warnings, linkedMedia: media.linkedMedia }
   } catch (error) {
     console.error('Failed to export HTML:', error)
     throw error
@@ -350,12 +442,18 @@ ipcMain.handle('export:html', async (_, htmlContent: string, fileName: string) =
 })
 
 // 导出 PDF
-ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string) => {
+ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string, markdownFilePath?: string) => {
+  const controller = new AbortController()
+  const cancel = (): void => controller.abort()
+  let window: BrowserWindow | null = null
   try {
-    const window = BrowserWindow.fromWebContents(event.sender)
+    window = BrowserWindow.fromWebContents(event.sender)
     if (!window) {
       throw new Error('无法获取窗口实例')
     }
+    window.once('closed', cancel)
+    event.sender.once('destroyed', cancel)
+    if (window.isDestroyed() || event.sender.isDestroyed()) cancel()
 
     const result = await dialog.showSaveDialog(window, {
       title: '导出 PDF',
@@ -372,17 +470,45 @@ ipcMain.handle('export:pdf', async (event, htmlContent: string, fileName: string
     const settings = appDataManager.getSettings()
     const showBranding = settings.showExportBranding !== false
     const { markdownCss, prismCss } = await getExportStyles()
+    const media = markdownFilePath
+      ? await materializeLocalMediaForExport({
+          html: htmlContent,
+          outputPath: result.filePath,
+          mode: 'pdf-static',
+          resolveMedia: async (ref, resolutionKind) => (
+            await resolveAuthorizedWorkspaceResource(
+              ctx,
+              event,
+              markdownFilePath,
+              ref,
+              resolutionKind,
+            )
+          ).canonicalPath,
+          resolvePoster: (ref, resolutionKind) => resolveExportPoster(
+            ctx,
+            event,
+            markdownFilePath,
+            ref,
+            resolutionKind,
+            true,
+          ),
+        })
+      : { html: htmlContent, warnings: [] as string[], linkedMedia: 0 }
     await writePdfExport(result.filePath, {
-      content: htmlContent,
+      content: media.html,
       title: fileName,
       markdownCss,
       prismCss,
       showBranding,
+      signal: controller.signal,
     })
-    return result.filePath
+    return { filePath: result.filePath, warnings: media.warnings }
   } catch (error) {
-    console.error('Failed to export PDF:', error)
+    console.error('Failed to export PDF')
     throw error
+  } finally {
+    window?.removeListener('closed', cancel)
+    event.sender.removeListener('destroyed', cancel)
   }
 })
 
@@ -775,7 +901,7 @@ ipcMain.handle('render:krokiSvg', async (_, payload: { format?: string; source?:
 })
 
 
-ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: string, basePath: string, markdown?: string, chartImages?: ChartImageData[], docStyle?: string, remoteImages?: RemoteImage[]) => {
+ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: string, basePath: string, markdown?: string, chartImages?: ChartImageData[], docStyle?: string, remoteImages?: RemoteImage[], markdownFilePath?: string) => {
   try {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (!window) {
@@ -826,8 +952,41 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
       return null
     }
 
+    const resolveMedia = markdownFilePath
+      ? async (ref: string, resolutionKind: 'markdown-relative' | 'workspace-wiki') => (
+          await resolveAuthorizedWorkspaceResource(
+            ctx,
+            event,
+            markdownFilePath,
+            ref,
+            resolutionKind,
+          )
+        ).canonicalPath
+      : null
+    const docxHtmlMedia = resolveMedia
+      ? await materializeLocalMediaForExport({
+          html: htmlContent,
+          outputPath: result.filePath,
+          mode: 'docx-link',
+          resolveMedia,
+        })
+      : { html: htmlContent, warnings: [] as string[], linkedMedia: 0 }
+    const docxMarkdownMedia = markdown && resolveMedia
+      ? await materializeLocalMediaForDocxMarkdown({
+          markdown,
+          outputPath: result.filePath,
+          resolveMedia,
+        })
+      : { markdown, warnings: [] as string[], linkedMedia: 0 }
+    const exportHtmlContent = docxHtmlMedia.html
+    const exportMarkdown = docxMarkdownMedia.markdown
+
     let filePath: string
-    let warnings: string[] = [...styleCompatibilityWarnings]
+    let warnings: string[] = [
+      ...styleCompatibilityWarnings,
+      ...docxHtmlMedia.warnings,
+      ...docxMarkdownMedia.warnings,
+    ]
     let usedPandoc = false
     let usedRemote = false
     let imagesFailed = 0
@@ -838,7 +997,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
       try {
         console.log(`[DOCX Export] 使用远程服务: ${docxConfig.serverUrl}`)
         const remoteResult = await exportViaRemote(
-          markdown || htmlContent,
+          exportMarkdown || exportHtmlContent,
           result.filePath,
           {
             style: effectiveRemoteStyle,
@@ -849,7 +1008,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
           }
         )
         filePath = remoteResult.filePath
-        warnings = [...styleCompatibilityWarnings, ...remoteResult.warnings]
+        warnings = [...warnings, ...remoteResult.warnings]
         usedRemote = true
         imagesFailed = remoteResult.imagesFailed
       } catch (remoteErr) {
@@ -858,7 +1017,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
         if (docxConfig.localFallbackEnabled) {
           console.log('[DOCX Export] 降级到本地路径')
           warnings.push(`远程服务失败: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr)}`)
-          const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle, remoteImages)
+          const localResult = await _exportLocalDocx(exportHtmlContent, result.filePath, basePath, exportMarkdown, chartImages, docStyle, remoteImages)
           filePath = localResult.filePath
           warnings.push(...localResult.warnings)
           usedPandoc = localResult.usedPandoc
@@ -877,9 +1036,9 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     } else if (docxConfig?.localFallbackEnabled) {
       // 路径 2：本地路径（用户主动启用）
       console.log('[DOCX Export] 使用本地路径（用户启用离线模式）')
-      const localResult = await _exportLocalDocx(htmlContent, result.filePath, basePath, markdown, chartImages, docStyle, remoteImages)
+      const localResult = await _exportLocalDocx(exportHtmlContent, result.filePath, basePath, exportMarkdown, chartImages, docStyle, remoteImages)
       filePath = localResult.filePath
-      warnings = localResult.warnings
+      warnings.push(...localResult.warnings)
       usedPandoc = localResult.usedPandoc
     } else {
       // 路径 3：两个开关都未启用（理论上 UI 已隐藏菜单，不应走到）
@@ -887,7 +1046,7 @@ ipcMain.handle('export:docx', async (event, htmlContent: string, fileName: strin
     }
 
     lastDocxExportPath = filePath
-    return { filePath, warnings, usedPandoc, usedRemote, imagesFailed }
+    return { filePath, warnings: [...new Set(warnings)], usedPandoc, usedRemote, imagesFailed }
   } catch (error) {
     console.error('Failed to export DOCX:', error)
     if (error instanceof DocxExportError) {

@@ -57,5 +57,6 @@ export function registerLocalImageProtocol(targetSession: Session): void {
 }
 
 export function revokeLocalImageCapabilities(targetSession: Session): void {
+  capabilityMaps.get(targetSession)?.clear()
   capabilityMaps.delete(targetSession)
 }

@@ -1,5 +1,6 @@
-import { readFile } from 'fs/promises'
+import { readFile, realpath, stat } from 'fs/promises'
 import path from 'path'
+import { escape, glob } from 'glob'
 import { validateSecurePath } from '../security/pathValidator'
 import type { BrowserPageRenderResult, RenderWarning } from '../../renderer/src/server-render/contracts'
 import {
@@ -17,9 +18,113 @@ import { getHeadlessRenderTimeoutMs } from './renderTimeout'
 import { createFailureResult, createSuccessResult } from './result'
 import { writeHtmlExport, writePdfExport, type PdfDocumentOptions } from './sharedExportWriters'
 import type { CliArtifact, CliWarning } from './types'
+import {
+  materializeLocalMediaForDocxMarkdown,
+  materializeLocalMediaForExport,
+} from '../localMediaExport'
+import {
+  IMAGE_MIME_TYPES,
+  MAX_LOCAL_WEBVTT_SIZE,
+  localMediaMimeType,
+  type LocalMediaKind,
+} from '../../shared/localMedia'
 
 const SUPPORTED_FORMATS = new Set(['html', 'pdf', 'docx'])
 const DEFAULT_DOCX_SERVICE_URL = 'http://127.0.0.1:3179'
+
+async function resolveCliLocalMedia(
+  markdownFilePath: string,
+  ref: string,
+  kind: LocalMediaKind,
+  resolutionKind: 'markdown-relative' | 'workspace-wiki' = 'markdown-relative',
+): Promise<string> {
+  const root = await realpath(path.dirname(markdownFilePath))
+  let candidate = path.resolve(root, ref)
+  if (resolutionKind === 'workspace-wiki' && !/[\\/]/.test(ref)) {
+    try {
+      candidate = await realpath(candidate)
+    } catch {
+      const matches = await glob(`**/${escape(ref)}`, {
+        cwd: root,
+        absolute: true,
+        nodir: true,
+        nocase: process.platform === 'win32',
+        ignore: ['**/.git/**', '**/.claude/**', '**/node_modules/**'],
+      })
+      if (matches.length !== 1) throw new Error('Wiki 本地媒体目标不存在或不唯一')
+      candidate = matches[0]
+    }
+  }
+  const canonicalPath = await realpath(candidate)
+  const relative = path.relative(root, canonicalPath)
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('本地媒体不在 CLI 输入目录内')
+  }
+  if (!localMediaMimeType(canonicalPath, kind)) throw new Error('不支持的本地媒体类型')
+  const stats = await stat(canonicalPath)
+  if (!stats.isFile()) throw new Error('本地媒体不存在')
+  return canonicalPath
+}
+
+async function resolveCliLocalTrack(
+  markdownFilePath: string,
+  ref: string,
+): Promise<string> {
+  const root = await realpath(path.dirname(markdownFilePath))
+  const candidate = path.resolve(root, ref)
+  const canonicalPath = await realpath(candidate)
+  const relative = path.relative(root, canonicalPath)
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('本地字幕不在 CLI 输入目录内')
+  }
+  if (path.extname(canonicalPath).toLowerCase() !== '.vtt') throw new Error('字幕轨必须是 WebVTT 文件')
+  const stats = await stat(canonicalPath)
+  if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_LOCAL_WEBVTT_SIZE) {
+    throw new Error('WebVTT 文件大小无效')
+  }
+  return canonicalPath
+}
+
+async function resolveCliLocalPoster(
+  markdownFilePath: string,
+  ref: string,
+  resolutionKind: 'markdown-relative' | 'workspace-wiki',
+  includeBase64: boolean,
+): Promise<{ canonicalPath: string, mimeType: string, base64?: string }> {
+  const root = await realpath(path.dirname(markdownFilePath))
+  let candidate = path.resolve(root, ref)
+  if (resolutionKind === 'workspace-wiki' && !/[\\/]/.test(ref)) {
+    try {
+      candidate = await realpath(candidate)
+    } catch {
+      const matches = await glob(`**/${escape(ref)}`, {
+        cwd: root,
+        absolute: true,
+        nodir: true,
+        nocase: process.platform === 'win32',
+        ignore: ['**/.git/**', '**/.claude/**', '**/node_modules/**'],
+      })
+      if (matches.length !== 1) throw new Error('Wiki 海报图片目标不存在或不唯一')
+      candidate = matches[0]
+    }
+  }
+  const canonicalPath = await realpath(candidate)
+  const relative = path.relative(root, canonicalPath)
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('本地海报图片不在 CLI 输入目录内')
+  }
+  const mimeType = IMAGE_MIME_TYPES[path.extname(canonicalPath).toLowerCase()]
+  if (!mimeType) throw new Error('不支持的本地海报图片类型')
+  const stats = await stat(canonicalPath)
+  if (!stats.isFile() || stats.size <= 0 || stats.size > 10 * 1024 * 1024) {
+    throw new Error('本地海报图片大小无效')
+  }
+  return {
+    canonicalPath,
+    mimeType,
+    ...(includeBase64 ? { base64: (await readFile(canonicalPath)).toString('base64') } : {}),
+  }
+}
 
 interface BuildExportResultOptions {
   renderer?: HeadlessMarkdownRenderer
@@ -89,8 +194,18 @@ export async function buildExportResult(
   if (format === 'docx') {
     const serviceUrl = getDocxServiceUrl(flags)
     try {
-      const docxResult = await (options.docxExporter ?? exportDocxViaConvertSource)({
+      const media = await materializeLocalMediaForDocxMarkdown({
         markdown,
+        outputPath: out,
+        resolveMedia: (ref, resolutionKind, kind) => resolveCliLocalMedia(
+          validation.normalizedPath,
+          ref,
+          kind,
+          resolutionKind,
+        ),
+      })
+      const docxResult = await (options.docxExporter ?? exportDocxViaConvertSource)({
+        markdown: media.markdown,
         outputPath: out,
         serviceUrl,
         apiKey: typeof flags['docx-api-key'] === 'string' ? flags['docx-api-key'] : undefined,
@@ -119,6 +234,13 @@ export async function buildExportResult(
         })),
         docxResult,
       )
+      docxWarnings.push(...media.warnings.map(code => ({
+        code,
+        message: code === 'LOCAL_MEDIA_STATIC_FALLBACK'
+          ? '本地音视频已在 DOCX 中降级为普通相对链接'
+          : '本地音视频无法写入 DOCX，已降级为说明文字',
+        target: validation.normalizedPath,
+      })))
 
       // 契约诚实化（W1）：DOCX 渲染未完全成功时不得报告 ok:true。
       if (docxResult.renderStatus !== 'success' || docxResult.failedBlocks > 0) {
@@ -165,9 +287,22 @@ export async function buildExportResult(
     return embedLocalImagesInExportedHtml(html, mdPath)
   })
   const embeddedHtml = await embedImages(renderResult.html, validation.normalizedPath)
+  const media = await materializeLocalMediaForExport({
+    html: embeddedHtml,
+    outputPath: out,
+    mode: format === 'pdf' ? 'pdf-static' : 'linked-html',
+    resolveMedia: (ref, resolutionKind, kind) => resolveCliLocalMedia(validation.normalizedPath, ref, kind, resolutionKind),
+    resolveTrack: (ref) => resolveCliLocalTrack(validation.normalizedPath, ref),
+    resolvePoster: (ref, resolutionKind) => resolveCliLocalPoster(
+      validation.normalizedPath,
+      ref,
+      resolutionKind,
+      format === 'pdf',
+    ),
+  })
 
   const writerOptions = {
-    content: embeddedHtml,
+    content: media.html,
     title: path.basename(validation.normalizedPath),
     markdownCss,
     prismCss,
@@ -188,6 +323,13 @@ export async function buildExportResult(
     renderResult.warnings.map(mapRenderWarning),
     renderResult,
   )
+  renderWarnings.push(...media.warnings.map(code => ({
+    code,
+    message: code === 'LOCAL_MEDIA_LINKED'
+      ? '本地媒体以相对链接写入 HTML；移动导出文件时需保持媒体相对位置'
+      : '本地媒体已按目标格式静态降级',
+    target: validation.normalizedPath,
+  })))
 
   if (renderResult.status === 'timeout') {
     return createFailureResult('export', {
@@ -301,6 +443,30 @@ async function buildMergedExportResult(
   for (const normalizedPath of normalizedPaths) {
     rendered.push(await renderOneToHtmlFragment(normalizedPath, flags, options))
   }
+  const mediaWarnings: CliWarning[] = []
+  for (const item of rendered) {
+    const media = await materializeLocalMediaForExport({
+      html: item.fragment,
+      outputPath: out,
+      mode: format === 'pdf' ? 'pdf-static' : 'linked-html',
+      resolveMedia: (ref, resolutionKind, kind) => resolveCliLocalMedia(item.input, ref, kind, resolutionKind),
+      resolveTrack: (ref) => resolveCliLocalTrack(item.input, ref),
+      resolvePoster: (ref, resolutionKind) => resolveCliLocalPoster(
+        item.input,
+        ref,
+        resolutionKind,
+        format === 'pdf',
+      ),
+    })
+    item.fragment = media.html
+    mediaWarnings.push(...media.warnings.map(code => ({
+      code,
+      message: code === 'LOCAL_MEDIA_LINKED'
+        ? '本地媒体以相对链接写入 HTML；移动导出文件时需保持媒体相对位置'
+        : '本地媒体已按目标格式静态降级',
+      target: item.input,
+    })))
+  }
 
   // 3. 拼接片段:第 2 个起加分页符
   const mergedContent = rendered
@@ -355,9 +521,12 @@ async function buildMergedExportResult(
     failedCharts: totals.failedCharts,
     renderDurationMs: totals.durationMs,
   }
-  const warnings = rendered.flatMap(r =>
-    ensureFailureWarning(r.renderResult.warnings.map(mapRenderWarning), r.renderResult),
-  )
+  const warnings = [
+    ...rendered.flatMap(r =>
+      ensureFailureWarning(r.renderResult.warnings.map(mapRenderWarning), r.renderResult),
+    ),
+    ...mediaWarnings,
+  ]
 
   // 契约诚实化:任一文件超时/有失败图表 → failure
   if (hasTimeout) {
@@ -422,9 +591,27 @@ async function buildMergedDocxResult(
 
   // 2. 逐文件命名空间化(图片引用重写 + 收集资源)
   const parts: NamespacedPart[] = []
+  const mediaWarnings: CliWarning[] = []
   for (let i = 0; i < normalizedPaths.length; i++) {
     const markdown = await readFile(normalizedPaths[i], 'utf8')
-    parts.push(await namespaceLocalImages(markdown, normalizedPaths[i], i))
+    const media = await materializeLocalMediaForDocxMarkdown({
+      markdown,
+      outputPath: out,
+      resolveMedia: (ref, resolutionKind, kind) => resolveCliLocalMedia(
+        normalizedPaths[i],
+        ref,
+        kind,
+        resolutionKind,
+      ),
+    })
+    parts.push(await namespaceLocalImages(media.markdown, normalizedPaths[i], i))
+    mediaWarnings.push(...media.warnings.map(code => ({
+      code,
+      message: code === 'LOCAL_MEDIA_STATIC_FALLBACK'
+        ? '本地音视频已在 DOCX 中降级为普通相对链接'
+        : '本地音视频无法写入 DOCX，已降级为说明文字',
+      target: normalizedPaths[i],
+    })))
   }
 
   // 3. 合并请求
@@ -451,7 +638,10 @@ async function buildMergedDocxResult(
       failedCharts: docxResult.failedBlocks,
     }
     const docxWarnings = ensureDocxFailureWarning(
-      docxResult.warnings.map(message => ({ code: 'DOCX_SERVICE_WARNING', message, target: 'docx-service' })),
+      [
+        ...docxResult.warnings.map(message => ({ code: 'DOCX_SERVICE_WARNING', message, target: 'docx-service' })),
+        ...mediaWarnings,
+      ],
       docxResult,
     )
 

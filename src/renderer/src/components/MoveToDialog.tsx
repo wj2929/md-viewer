@@ -4,15 +4,19 @@
  * 移动只发送 opaque targetHistoryId + 相对子路径，绝不传目标绝对路径。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo, useId } from 'react'
+import { useFolderHistorySearch } from '../hooks/useFolderHistorySearch'
 import type {
   LinkImpactSummary,
+  LinkMoveMapping,
   LinkRewriteApplyFileResult,
   LinkRewritePlanView,
 } from '../../../main/linking/types'
+import type { WorkspaceOperationContext } from '../../../shared/workspace'
 import type { CrossRootMoveImpactReport } from '../../../shared/crossRootMoveImpact'
 import './MoveToDialog.css'
 import { getActiveWorkspaceLifecycleKey, getActiveWorkspaceOperationContext } from '../utils/workspaceOperationContext'
+import { cleanUserFacingError } from '../utils/userFacingErrors'
 
 interface FolderHistoryItem {
   id: string
@@ -31,8 +35,14 @@ interface MoveToDialogProps {
 
 interface MoveOperationItem {
   sourcePath: string
-  status: 'success' | 'failed'
+  status: 'success' | 'failed' | 'not-executed'
   message?: string
+}
+
+interface RepairPreviewRequest {
+  operation: WorkspaceOperationContext
+  mapping: LinkMoveMapping
+  receiptId: string
 }
 
 interface MoveRepairResult {
@@ -174,13 +184,30 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
   const [impactError, setImpactError] = useState<string | null>(null)
   const [crossRootImpact, setCrossRootImpact] = useState<CrossRootMoveImpactReport | null>(null)
   const [moveItems, setMoveItems] = useState<MoveOperationItem[]>([])
+  const [moveWarning, setMoveWarning] = useState<string | null>(null)
   const [repairPlans, setRepairPlans] = useState<LinkRewritePlanView[]>([])
   const [selectedChangeIds, setSelectedChangeIds] = useState<Set<string>>(new Set())
   const [repairResult, setRepairResult] = useState<MoveRepairResult | null>(null)
+  const [failedRepairPreviews, setFailedRepairPreviews] = useState<Array<RepairPreviewRequest & { message: string }>>([])
+  const [repairPreviewLoading, setRepairPreviewLoading] = useState(false)
+  const previewBusy = useRef(false)
+  const previewRequestId = useRef(0)
   const rootRequestId = useRef(0)
+  const pinyinId = useId()
+  const pinyinListRef = useRef<HTMLDivElement>(null)
+  const pinyinToggleRef = useRef<HTMLButtonElement>(null)
+  const limitRef = useRef<HTMLButtonElement>(null)
+  const [composing, setComposing] = useState(false)
+  const [pinyinExpanded, setPinyinExpanded] = useState(false)
+  const [showAllPinyin, setShowAllPinyin] = useState(false)
 
   useEffect(() => {
+    previewRequestId.current += 1
+    previewBusy.current = false
+    setFailedRepairPreviews([])
+    setRepairPreviewLoading(false)
     if (!isOpen) {
+      setComposing(false)
       rootRequestId.current += 1
       return
     }
@@ -195,6 +222,7 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
     setImpactError(null)
     setCrossRootImpact(null)
     setMoveItems([])
+    setMoveWarning(null)
     setRepairPlans([])
     setSelectedChangeIds(new Set())
     setRepairResult(null)
@@ -312,6 +340,30 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
     return () => { cancelled = true }
   }, [isOpen, selectedTarget?.absolutePath, isSameRoot, sources])
 
+  const generateRepairPreviews = useCallback(async (requests: RepairPreviewRequest[]): Promise<void> => {
+    if (previewBusy.current) return
+    previewBusy.current = true
+    const requestId = ++previewRequestId.current
+    setRepairPreviewLoading(true)
+    try {
+      const previews = await Promise.allSettled(requests.map(async ({ operation, mapping, receiptId }) =>
+        window.api.createLinkRepairPlan(operation, mapping, 'move', receiptId)
+      ))
+      if (requestId !== previewRequestId.current) return
+      const generated = previews.flatMap(preview => preview.status === 'fulfilled' ? [preview.value] : [])
+      setRepairPlans(previous => [...previous, ...generated])
+      setSelectedChangeIds(previous => new Set([...previous, ...generated.flatMap(plan => plan.changes.map(change => change.changeId))]))
+      setFailedRepairPreviews(previews.flatMap((preview, index) => preview.status === 'rejected'
+        ? [{ ...requests[index], message: cleanUserFacingError(preview.reason) }]
+        : []))
+    } finally {
+      if (requestId === previewRequestId.current) {
+        previewBusy.current = false
+        setRepairPreviewLoading(false)
+      }
+    }
+  }, [])
+
   const handleMove = useCallback(async () => {
     if (!selectedTarget || impactLoading || (isSameRoot && impacts.length !== mappings.length)) return
     setMoving(true)
@@ -324,7 +376,26 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
     const succeeded: string[] = []
     const operationReceipts = new Map<string, string>()
     const items: MoveOperationItem[] = []
-    for (const [index, src] of sources.entries()) {
+    if (isSameRoot && sources.length > 1) {
+      try {
+        const batch = await window.api.executeLinkRewriteBatch(operation, {
+          operations: mappings.map((mapping, index) => ({ impactId: impacts[index].impactId, mapping })), confirm: true,
+        })
+        batch.items.forEach((item, index) => {
+          const sourcePath = sources[index]
+          items.push({ sourcePath, status: item.status, message: item.message })
+          if (item.status === 'success') {
+            succeeded.push(sourcePath)
+            if (item.receipt) operationReceipts.set(normSep(sourcePath), item.receipt.operationReceiptId)
+          }
+        })
+        if (batch.warning) setMoveWarning(batch.warning)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '请重新预览文件操作'
+        setMoveWarning('移动未执行，请重新预览链接影响。')
+        items.push(...sources.map(sourcePath => ({ sourcePath, status: 'not-executed' as const, message })))
+      }
+    } else for (const [index, src] of sources.entries()) {
       try {
         if (isSameRoot && mappings[index] && impacts[index]) {
           const execution = await window.api.executeLinkRewriteOperation(operation, {
@@ -361,24 +432,19 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
         const receiptId = operationReceipts.get(normSep(sources[index]))
         return receiptId ? [{ mapping, receiptId }] : []
       })
-      const plans = await Promise.all(repairMappings.map(({ mapping, receiptId }) =>
-        window.api.createLinkRepairPlan(operation, mapping, 'move', receiptId)
-      ))
-      const changes = plans.flatMap(plan => plan.changes)
-      setRepairPlans(plans)
-      setSelectedChangeIds(new Set(changes.map(change => change.changeId)))
+      await generateRepairPreviews(repairMappings.map(pair => ({ ...pair, operation })))
     }
     if (!isSameRoot || exactChanges === 0 || succeeded.length === 0) {
-      const failedCount = items.filter(item => item.status === 'failed').length
+      const failedCount = items.filter(item => item.status !== 'success').length
       if (failedCount === 0) {
         onMoveSuccess?.(`已移动 ${succeeded.length} 项到「${selectedTarget.displayLabel}」`)
       } else if (succeeded.length === 0) {
-        onMoveError?.(`移动失败：${items.find(item => item.status === 'failed')?.message}`)
+        onMoveError?.(`未完成移动：${items.find(item => item.status !== 'success')?.message}`)
       } else {
-        onMoveError?.(`已移动 ${succeeded.length} 项，${failedCount} 项失败`)
+        onMoveError?.(`已移动 ${succeeded.length} 项，${failedCount} 项未完成`)
       }
     }
-  }, [selectedTarget, sources, isSameRoot, mappings, impacts, exactChanges, impactLoading, onMoveSuccess, onMoveError])
+  }, [selectedTarget, sources, isSameRoot, mappings, impacts, exactChanges, impactLoading, onMoveSuccess, onMoveError, generateRepairPreviews])
 
   const showRepairDiff = useCallback(() => {
     if (repairPlans.some(plan => plan.changes.length > 0)) setStage('repair-diff')
@@ -435,15 +501,60 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
     })
   }, [])
 
-  if (!isOpen) return null
-
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase()
-  const filteredHistory = normalizedSearch
+  const filteredHistory = useMemo(() => normalizedSearch
     ? history.filter(item =>
         item.name.toLocaleLowerCase().includes(normalizedSearch) ||
         item.path.toLocaleLowerCase().includes(normalizedSearch)
       )
-    : history
+    : history, [normalizedSearch, history])
+  const folderSearch = useFolderHistorySearch({
+    open: isOpen && stage === 'target', query: searchQuery, history, directMatches: filteredHistory, composing,
+  })
+  const { settings } = folderSearch
+  const pinyinOpen = filteredHistory.length === 0 || pinyinExpanded
+  const visiblePinyin = showAllPinyin ? folderSearch.pinyin : folderSearch.pinyin.slice(0, 5)
+  useEffect(() => {
+    setPinyinExpanded(false)
+    setShowAllPinyin(false)
+  }, [searchQuery, isOpen, stage, folderSearch.enabled])
+
+  const renderRoot = (item: FolderHistoryItem): JSX.Element => (
+    <div
+      key={item.id}
+      className={`move-to-root-row ${selectedRoot?.id === item.id ? 'selected' : ''}`}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (composing || event.nativeEvent.isComposing) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          void selectRoot(item)
+        }
+      }}
+      onClick={() => void selectRoot(item)}
+      title={item.path}
+    >
+      <span className="move-to-root-radio">{selectedRoot?.id === item.id ? '●' : '○'}</span>
+      <span className="move-to-root-details">
+        <span className="move-to-root-name">{item.name}</span>
+        <span className="move-to-root-path">{item.path}</span>
+      </span>
+    </div>
+  )
+
+  const repairPreviewWarning = failedRepairPreviews.length > 0 && <div className="move-to-repair-warning" role="status">
+    <div>部分链接修复预览未能生成，当前不是全部可修复链接；文件移动结果不受影响。</div>
+    {failedRepairPreviews.map(preview => <div key={preview.receiptId}>
+      {preview.mapping.oldRelativePath}：{preview.message}
+    </div>)}
+    <button className="move-to-btn" disabled={repairPreviewLoading} onClick={() => void generateRepairPreviews(failedRepairPreviews)}>
+      {repairPreviewLoading ? '正在生成链接修复预览…' : '重新生成链接修复预览'}
+    </button>
+  </div>
+
+  if (!isOpen) return null
+
   const selectedPath = selectedTarget?.absolutePath ?? null
   const rootIsInvalid = selectedRoot ? isInvalidTarget(selectedRoot.path, sources) : false
   const canMove = !!selectedTarget && !moving && !impactLoading && !impactError &&
@@ -455,6 +566,7 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
   ).size
   const successfulMoves = moveItems.filter(item => item.status === 'success').length
   const failedMoves = moveItems.filter(item => item.status === 'failed').length
+  const pendingMoves = moveItems.filter(item => item.status === 'not-executed').length
   const updatedFiles = repairResult?.files.filter(file => file.status === 'updated').length ?? 0
   const conflictFiles = repairResult?.files.filter(file => file.status === 'conflict').length ?? 0
   const failedRepairFiles = repairResult?.files.filter(file => file.status === 'failed').length ?? 0
@@ -483,6 +595,8 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
+            onCompositionStart={() => setComposing(true)}
+            onCompositionEnd={() => setComposing(false)}
             placeholder="搜索最近打开的目录…"
             aria-label="搜索移动目标目录"
             autoFocus
@@ -492,26 +606,56 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
           )}
         </div>
 
-        <div className="move-to-section-title">
-          最近打开的目录{normalizedSearch ? ` · ${filteredHistory.length}/${history.length}` : ''}
+        <div className="folder-search-option move-to-pinyin-option">
+          <label><input
+            type="checkbox"
+            checked={settings.pending ?? settings.enabled}
+            disabled={settings.hydration !== 'ready' || settings.saving}
+            onChange={(event) => void settings.setEnabled(event.target.checked)}
+          />拼音搜索</label>
+          <span role="status">{settings.saving ? '保存中…' : settings.hydration === 'loading' ? '读取中…' : settings.error}</span>
         </div>
-        <div className="move-to-roots">
+        {(filteredHistory.length > 0 || !normalizedSearch) && <div className="move-to-section-title">
+          最近打开的目录{normalizedSearch ? ` · ${filteredHistory.length}/${history.length}` : ''}
+        </div>}
+        <div className="move-to-history-results">
+          {filteredHistory.length > 0 && <div className="move-to-roots">{filteredHistory.map(renderRoot)}</div>}
           {history.length === 0 && <div className="move-to-tree-hint">（无历史目录）</div>}
-          {history.length > 0 && filteredHistory.length === 0 && (
-            <div className="move-to-tree-hint">未找到匹配的最近打开目录</div>
-          )}
-          {filteredHistory.map(item => (
-            <div
-              key={item.id}
-              className={`move-to-root-row ${selectedRoot?.id === item.id ? 'selected' : ''}`}
-              onClick={() => void selectRoot(item)}
-              title={item.path}
+          {folderSearch.loading && <div className="folder-pinyin-status" role="status">拼音加载中…</div>}
+          {folderSearch.error && <div className="folder-pinyin-status" role="status">{folderSearch.error}</div>}
+          {folderSearch.pinyin.length > 0 && <div className="folder-pinyin-group">
+            <button
+              ref={pinyinToggleRef}
+              className="folder-pinyin-heading"
+              aria-expanded={pinyinOpen}
+              aria-controls={pinyinId}
+              disabled={filteredHistory.length === 0}
+              onClick={() => {
+                if (pinyinListRef.current?.contains(document.activeElement)) pinyinToggleRef.current?.focus()
+                setPinyinExpanded(!pinyinOpen)
+              }}
             >
-              <span className="move-to-root-radio">{selectedRoot?.id === item.id ? '●' : '○'}</span>
-              <span className="move-to-root-name">{item.name}</span>
-              <span className="move-to-root-path">{item.path}</span>
-            </div>
-          ))}
+              {pinyinOpen ? '▾' : '▸'} {filteredHistory.length > 0 ? '拼音补充' : '拼音匹配'} · {
+                pinyinOpen && !showAllPinyin && folderSearch.pinyin.length > 5
+                  ? `前 5 / ${folderSearch.pinyin.length}` : folderSearch.pinyin.length
+              }
+            </button>
+            {pinyinOpen && <>
+              <div id={pinyinId} ref={pinyinListRef} className="folder-pinyin-list">{visiblePinyin.map(renderRoot)}</div>
+              {folderSearch.pinyin.length > 5 && <button
+                ref={limitRef}
+                className="folder-pinyin-more"
+                onClick={() => {
+                  if (pinyinListRef.current?.contains(document.activeElement)) limitRef.current?.focus()
+                  setShowAllPinyin(!showAllPinyin)
+                }}
+              >{showAllPinyin ? '仅显示前 5 项' : `显示其余 ${folderSearch.pinyin.length - 5} 项`}</button>}
+            </>}
+          </div>}
+          {history.length > 0 && filteredHistory.length === 0 && folderSearch.pinyin.length === 0 && !folderSearch.loading && !folderSearch.error && <div className="move-to-tree-hint">
+            未找到匹配的最近打开目录
+            {folderSearch.showHint && <div className="folder-pinyin-hint">可输入名称拼音的前几个字母（至少3个，如 yan），或直接输入中文。</div>}
+          </div>}
         </div>
 
         <div className="move-to-section-title">
@@ -591,21 +735,23 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
             <div className="move-to-stage-list">
               {moveItems.map(item => (
                 <div key={item.sourcePath} className={`move-to-result-row ${item.status}`}>
-                  <span>{item.status === 'success' ? '✓' : '✕'}</span>
+                  <span>{item.status === 'success' ? '✓' : item.status === 'not-executed' ? '⚠' : '✕'}</span>
                   <strong>{baseName(item.sourcePath)}</strong>
                   <span>{item.status === 'success' ? '已移动' : item.message}</span>
                 </div>
               ))}
+              {moveWarning && <div className="move-to-repair-warning">⚠ {moveWarning}</div>}
+              {repairPreviewWarning}
             </div>
-            <div className="move-to-summary">{successfulMoves} 项成功 · {failedMoves} 项失败</div>
+            <div className="move-to-summary">{successfulMoves} 项成功 · {failedMoves} 项失败{pendingMoves > 0 && ` · ${pendingMoves} 项未执行`}</div>
             <div className="move-to-footer">
-              <span className="move-to-target">{repairChanges.length > 0 ? `可更新 ${repairChanges.length} 处链接` : '没有可自动修复的链接'}</span>
+              <span className="move-to-target">{repairPreviewLoading ? '正在生成链接修复预览…' : repairChanges.length > 0 ? `可更新 ${repairChanges.length} 处链接` : moveWarning || failedRepairPreviews.length > 0 ? '链接修复尚未全部确认' : '没有可自动修复的链接'}</span>
               <div className="move-to-actions">
-                <button className="move-to-btn" onClick={() => repairChanges.length > 0 ? void skipRepair() : onClose()}>
-                  {repairChanges.length > 0 ? '关闭并跳过链接修复' : '完成'}
+                <button className="move-to-btn" disabled={repairPreviewLoading} onClick={() => repairChanges.length > 0 ? void skipRepair() : onClose()}>
+                  {repairChanges.length > 0 || failedRepairPreviews.length > 0 ? '关闭并跳过链接修复' : '完成'}
                 </button>
                 {repairChanges.length > 0 && (
-                  <button className="move-to-btn primary" onClick={showRepairDiff}>查看可更新的链接</button>
+                  <button className="move-to-btn primary" disabled={repairPreviewLoading} onClick={showRepairDiff}>查看可更新的链接</button>
                 )}
               </div>
             </div>
@@ -615,6 +761,7 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
         {stage === 'repair-diff' && (
           <>
             <div className="move-to-stage-list repair-list">
+              {repairPreviewWarning}
               {repairChanges.map(change => (
                 <label key={change.changeId} className="move-to-repair-change">
                   <input
@@ -634,8 +781,8 @@ export const MoveToDialog: React.FC<MoveToDialogProps> = ({
             <div className="move-to-footer">
               <span className="move-to-target">已选择 {repairFileCount} 个文件中的 {selectedChangeIds.size} 处链接</span>
               <div className="move-to-actions">
-                <button className="move-to-btn" onClick={() => void skipRepair()}>跳过链接修复</button>
-                <button className="move-to-btn primary" disabled={selectedChangeIds.size === 0} onClick={() => void applyRepair()}>
+                <button className="move-to-btn" disabled={repairPreviewLoading} onClick={() => void skipRepair()}>跳过链接修复</button>
+                <button className="move-to-btn primary" disabled={repairPreviewLoading || selectedChangeIds.size === 0} onClick={() => void applyRepair()}>
                   更新 {repairFileCount} 个文件中的 {selectedChangeIds.size} 处链接
                 </button>
               </div>

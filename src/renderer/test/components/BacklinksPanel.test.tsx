@@ -30,6 +30,14 @@ describe('BacklinksPanel', () => {
     } as any
   })
 
+  it.each(['building', 'partial', 'stale'] as const)('覆盖为 %s 时不把空结果解释为没有链接', async coverage => {
+    window.api.getWorkspaceBacklinks = vi.fn().mockResolvedValue({ items: [], coverage })
+    render(<BacklinksPanel targetRelativePath="target.md" onSelect={vi.fn()} onClose={vi.fn()} />)
+    expect(await screen.findByText('暂未确认链接')).toBeInTheDocument()
+    expect(screen.queryByText('还没有文档链接到这里')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重建索引' })).not.toBeInTheDocument()
+  })
+
   it('只有其他链接时默认收起并按来源逐级展开', async () => {
     const items = [
       ['docs/katex.md', 'katex.md', 3, 1, 'standalone-link', '分类目录 · 示例包首页'],
@@ -46,7 +54,7 @@ describe('BacklinksPanel', () => {
       placement,
       sourceRange: sourceRange(offset as number, lineStart as number),
     }))
-    ;(window.api.getWorkspaceBacklinks as any) = vi.fn().mockResolvedValue(items)
+    ;(window.api.getWorkspaceBacklinks as any) = vi.fn().mockResolvedValue({ items, coverage: 'complete' })
     const onSelect = vi.fn()
 
     render(

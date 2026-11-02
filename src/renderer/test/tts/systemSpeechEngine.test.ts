@@ -62,6 +62,47 @@ beforeEach(() => {
 })
 
 describe('SystemSpeechEngine', () => {
+  it('自动音色为中文和中英混排明确指定中文，不使用英文默认声', () => {
+    const english = { ...voice('English', 'en', 'en-US'), default: true }
+    const chinese = voice('Tingting', 'zh', 'zh-CN')
+    synthesis.voices = [english, chinese]
+    new SystemSpeechEngine().play([{ text: '这是中文 Electron 语音测试。', element: document.createElement('p') }], 0)
+    expect(synthesis.spoken[0].voice).toBe(chinese)
+    expect(synthesis.spoken[0].lang).toBe('zh-CN')
+  })
+
+  it('自动音色逐段识别英文，不将整篇锁定为同一种语言', () => {
+    const english = voice('English', 'en', 'en-US')
+    const chinese = { ...voice('Tingting', 'zh', 'zh-CN'), default: true }
+    synthesis.voices = [chinese, english]
+    new SystemSpeechEngine().play([
+      { text: '中文测试。', element: document.createElement('p') },
+      { text: 'Hello world.', element: document.createElement('p') },
+    ], 0)
+    synthesis.spoken[0].onend?.()
+    expect(synthesis.spoken[1].voice).toBe(english)
+    expect(synthesis.spoken[1].lang).toBe('en-US')
+  })
+
+  it('旧本地化音色名已不可用时，等待结束后仍为中文选择可用中文声', async () => {
+    vi.useFakeTimers()
+    try {
+      const chinese = voice('Yu-shu', 'Yu-shu')
+      synthesis.voices = [voice('English', 'en', 'en-US'), chinese]
+      new SystemSpeechEngine('语舒').play(segments(), 0)
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(synthesis.spoken[0].voice).toBe(chinese)
+      expect(synthesis.spoken[0].lang).toBe('zh-CN')
+    } finally { vi.useRealTimers() }
+  })
+
+  it('缺少中文音色时仍给浏览器中文语言提示，不强塞英文音色', () => {
+    synthesis.voices = [voice('English', 'en', 'en-US')]
+    new SystemSpeechEngine().play(segments(), 0)
+    expect(synthesis.spoken[0].voice).toBeNull()
+    expect(synthesis.spoken[0].lang).toBe('zh-CN')
+  })
+
   it('系统音色选项以 voiceURI 优先并去重', () => {
     expect(toSystemVoiceOptions([
       voice('Tingting', 'voice-1'),

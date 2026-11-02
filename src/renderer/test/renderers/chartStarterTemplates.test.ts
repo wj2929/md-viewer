@@ -1,14 +1,28 @@
 import { describe, expect, it } from 'vitest'
+import guidance from '../../src/components/settings/chartFormatGuidance.json'
 import { builtinRendererDefinitions } from '../../src/renderers/builtin'
 import { createRendererRegistry } from '../../src/renderers/registry'
 import {
   chartStarterTemplates,
   chartTemplateMarkdown,
   getTemplatesForRenderer,
+  getChartFormatGuidance,
   toInsertionTemplate,
 } from '../../src/components/settings/chartStarterTemplates'
 
 describe('chart starter templates', () => {
+  it('provides concise guidance for exactly the registered types without claiming full API compatibility', () => {
+    expect(Object.keys(guidance).sort()).toEqual(builtinRendererDefinitions.map(item => item.type).sort())
+    for (const definition of builtinRendererDefinitions) {
+      const entry = getChartFormatGuidance(definition.type)
+      expect(entry.syntax.trim()).not.toBe('')
+      expect(entry.limits.trim()).not.toBe('')
+    }
+    expect(getChartFormatGuidance('antv-g6').limits).toContain('不是完整 G6 API')
+    expect(getChartFormatGuidance('plotly').limits).toContain('不是完整 Plotly.js')
+    expect(getChartFormatGuidance('svg').syntax).toContain('受限静态子集')
+  })
+
   it('covers every built-in renderer with stable unique templates', () => {
     const rendererTypes = new Set(builtinRendererDefinitions.map(definition => definition.type))
     const templateIds = chartStarterTemplates.map(template => template.id)

@@ -11,7 +11,7 @@
  *   4. 读节点 rect 或 foreignObject div 的 computed 样式
  *   5. 断言：不能全黑
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/mermaid-cdn'
 import * as path from 'path'
 import * as fs from 'fs'
 

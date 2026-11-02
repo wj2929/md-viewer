@@ -167,7 +167,7 @@ export function renderGraphSvg(input: {
   } else {
     const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(nodes.length))))
     const nodeHeights = nodes.map((node) => {
-      const fieldsHeight = node.fields?.length ? Math.min(260, node.fields.length * 24 + 82) : 0
+      const fieldsHeight = node.fields?.length ? Math.min(480, node.fields.length * 24 + 82) : 0
       return Math.max(baseNodeHeight, fieldsHeight || baseNodeHeight)
     })
     const rowHeights: number[] = []
@@ -188,7 +188,7 @@ export function renderGraphSvg(input: {
       positions.set(node.id, {
         x: 60 + col * ((width - 120) / cols),
         y: rowTops[row],
-        w: mode === 'erd' ? 220 : nodeWidth,
+        w: nodeWidth,
         h: nodeHeights[index],
       })
     })

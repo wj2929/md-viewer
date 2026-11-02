@@ -1,6 +1,6 @@
 import { test, expect, openFolderViaIPC } from './fixtures/electron'
 import { join } from 'path'
-import { writeFileSync } from 'fs'
+import { mkdirSync, writeFileSync } from 'fs'
 
 async function openMarkdownEditViaIPC(
   electronApp: Parameters<typeof openFolderViaIPC>[0],
@@ -54,18 +54,18 @@ test.describe('Markdown 链接交互', () => {
     const link = page.locator('.preview-pane .markdown-body a', { hasText: '打开目标' })
     await expect(link).toBeVisible()
 
-    const firstDialog = page.waitForEvent('dialog')
-    await link.click()
-    const dismissedDialog = await firstDialog
-    expect(dismissedDialog.message()).toContain('当前文档有未保存编辑草稿')
-    await dismissedDialog.dismiss()
+    const firstDialog = page.waitForEvent('dialog').then(async dialog => {
+      expect(dialog.message()).toContain('当前文档有未保存编辑草稿')
+      await dialog.dismiss()
+    })
+    await Promise.all([link.click(), firstDialog])
     await expect(page.locator('.markdown-body h1')).toHaveText('Link Source')
 
-    const secondDialog = page.waitForEvent('dialog')
-    await link.click()
-    const acceptedDialog = await secondDialog
-    expect(acceptedDialog.message()).toContain('当前文档有未保存编辑草稿')
-    await acceptedDialog.accept()
+    const secondDialog = page.waitForEvent('dialog').then(async dialog => {
+      expect(dialog.message()).toContain('当前文档有未保存编辑草稿')
+      await dialog.accept()
+    })
+    await Promise.all([link.click(), secondDialog])
     await expect(page.locator('.markdown-body h1')).toHaveText('Link Target')
     await expect(page.locator('.markdown-body h2', { hasText: '目标章节' })).toBeVisible()
   })
@@ -95,6 +95,91 @@ test.describe('Markdown 链接交互', () => {
 
     await expect(page.locator('.markdown-body h1')).toHaveText('中文目标')
     await expect(page.locator('.markdown-body h2', { hasText: '二级标题' })).toBeVisible()
+  })
+
+  test('Wiki 标题、当前页、精确块与附件卡遵守工作区语义', async ({ page, electronApp, testDir }) => {
+    const sourcePath = join(testDir, 'wiki-source.md')
+    const targetPath = join(testDir, 'docs', 'Target.md')
+    const attachmentPath = join(testDir, 'assets', 'manual.pdf')
+    mkdirSync(join(testDir, 'docs'), { recursive: true })
+    mkdirSync(join(testDir, 'assets'), { recursive: true })
+    writeFileSync(targetPath, [
+      '# Wiki Target',
+      '',
+      '## 目标章节',
+      '',
+      '目标正文 ^block-id',
+    ].join('\n'))
+    writeFileSync(attachmentPath, '%PDF-1.4\n% fixture')
+    writeFileSync(sourcePath, [
+      '# Wiki Source',
+      '',
+      '[[docs/Target#目标章节|打开 Wiki 目标]]',
+      '',
+      '[[docs/Target#^block-id|块链接]]',
+      '',
+      '[[#当前章节|跳到当前章节]]',
+      '',
+      '[[#^local-block|当前 block 链接]]',
+      '',
+      '![[docs/Target#目标章节|目标文档卡]]',
+      '',
+      '![[assets/manual.pdf#page=3|PDF 说明]]',
+      '',
+      ...Array.from({ length: 70 }, (_, index) => `前置内容 ${index + 1}`),
+      '',
+      '## 当前章节',
+      '',
+      '页内目标 ^local-block',
+    ].join('\n'))
+
+    await page.setViewportSize({ width: 1400, height: 900 })
+    await openFolderViaIPC(electronApp, testDir)
+    await page.click('.file-tree-row.file:has-text("wiki-source.md")')
+    await expect(page.locator('.markdown-body h1')).toHaveText('Wiki Source')
+
+    await page.locator('a.wiki-link', { hasText: '跳到当前章节' }).click()
+    await expect(page.locator('.markdown-body h2', { hasText: '当前章节' })).toBeInViewport()
+
+    await page.evaluate(() => {
+      const state = window as unknown as { __mdWikiErrors: unknown[] }
+      state.__mdWikiErrors = []
+      window.addEventListener('md-link-error', event => {
+        state.__mdWikiErrors.push((event as CustomEvent<unknown>).detail)
+      })
+    })
+    await page.locator('a.wiki-link', { hasText: '当前 block 链接' }).click()
+    await expect(page.locator('[id="md-block:local-block"]')).toBeInViewport()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Wiki Source')
+    expect(await page.evaluate(() => (
+      window as unknown as { __mdWikiErrors: unknown[] }
+    ).__mdWikiErrors)).toEqual([])
+
+    await page.locator('a.wiki-link', { hasText: '打开 Wiki 目标' }).click()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Wiki Target')
+    await expect(page.locator('.markdown-body h2', { hasText: '目标章节' })).toBeVisible()
+
+    await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), sourcePath)
+    await expect(page.locator('.markdown-body h1')).toHaveText('Wiki Source')
+    await page.locator('a.wiki-link', { hasText: '块链接' }).click()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Wiki Target')
+    await expect(page.locator('[id="md-block:block-id"]')).toBeInViewport()
+
+    await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), sourcePath)
+    await page.locator('a.wiki-embed-card', { hasText: '目标文档卡' }).click()
+    await expect(page.locator('.markdown-body h1')).toHaveText('Wiki Target')
+
+    await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), sourcePath)
+    await electronApp.evaluate(({ shell }) => {
+      ;(globalThis as any).__mdViewerRevealedPaths = []
+      shell.showItemInFolder = (filePath: string) => {
+        ;(globalThis as any).__mdViewerRevealedPaths.push(filePath)
+      }
+    })
+    await page.locator('a.wiki-embed-card', { hasText: 'PDF 说明' }).click()
+    await expect.poll(() => electronApp.evaluate(() => (
+      (globalThis as any).__mdViewerRevealedPaths ?? []
+    ))).toContain(attachmentPath)
   })
 
   test('正文目录中的页内锚点链接应滚动到对应标题', async ({ page, electronApp, testDir }) => {

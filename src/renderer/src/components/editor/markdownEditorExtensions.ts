@@ -5,11 +5,11 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { searchKeymap } from '@codemirror/search'
 import { basicSetup } from 'codemirror'
 
-export function createMarkdownEditorExtensions(extraExtensions: Extension[] = []): Extension[] {
+export function createMarkdownEditorExtensions(extraExtensions: Extension[] = [], plainText = false): Extension[] {
   return [
     basicSetup,
     history(),
-    markdown(),
+    ...(plainText ? [] : [markdown()]),
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
     ...extraExtensions,
   ]

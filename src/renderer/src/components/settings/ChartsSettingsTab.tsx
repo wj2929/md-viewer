@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { RendererDefinition, RendererTarget, RendererTargetCapability, RendererType } from '../../renderers/types'
 import { builtinRendererDefinitions } from '../../renderers/builtin'
 import { VirtualizedMarkdown } from '../VirtualizedMarkdown'
@@ -6,7 +6,7 @@ import type {
   ChartExamplesStatus,
   InstallChartExamplesResult,
 } from '../../../../shared/chartExamples'
-import { chartStarterTemplates, chartTemplateMarkdown, getTemplatesForRenderer } from './chartStarterTemplates'
+import { chartStarterTemplates, chartTemplateMarkdown, getChartFormatGuidance, getTemplatesForRenderer } from './chartStarterTemplates'
 import { useRemoteChartSettingsStore } from '../../stores/remoteChartSettingsStore'
 import type { ChartsSettingsView, EditorInsertionSession } from './chartSettingsTypes'
 import './ChartsSettingsTab.css'
@@ -120,7 +120,7 @@ export function ChartsSettingsTab({
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<ChartCategoryFilter>('全部')
   const [networkFilter, setNetworkFilter] = useState<NetworkFilter>('全部')
-  const [selectedType, setSelectedType] = useState<RendererType | null>(null)
+  const [selectedType, setSelectedType] = useState<RendererType | null>('mermaid')
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [detailView, setDetailView] = useState<'preview' | 'source'>('preview')
   const [remotePreviewRequested, setRemotePreviewRequested] = useState(false)
@@ -139,8 +139,8 @@ export function ChartsSettingsTab({
   const autoRenderRemoteCharts = useRemoteChartSettingsStore(state => state.autoRenderRemoteCharts)
   const hydrateRemoteChartSettings = useRemoteChartSettingsStore(state => state.hydrate)
   const setAutoRenderRemoteCharts = useRemoteChartSettingsStore(state => state.setAutoRenderRemoteCharts)
-  const chartsSettingsRef = useRef<HTMLElement>(null)
-  const detailHeadingRef = useRef<HTMLHeadingElement>(null)
+  const directoryRef = useRef<HTMLDivElement>(null)
+  const typePickerRef = useRef<HTMLLabelElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -205,12 +205,20 @@ export function ChartsSettingsTab({
     || remotePreviewRequested
     || (remoteChartHydration === 'ready' && autoRenderRemoteCharts)
 
-  useEffect(() => {
-    if (!selectedDefinition) return
-    const scrollContainer = chartsSettingsRef.current?.closest<HTMLElement>('.settings-content')
-    if (scrollContainer) scrollContainer.scrollTop = 0
-    detailHeadingRef.current?.focus()
-  }, [selectedDefinition])
+  useLayoutEffect(() => {
+    const picker = typePickerRef.current
+    if (selectedTemplateId && selectedTemplate && picker?.getClientRects().length) picker.scrollIntoView({ block: 'start' })
+  }, [selectedTemplate?.id, selectedTemplateId])
+
+  useLayoutEffect(() => {
+    const directory = directoryRef.current
+    const button = directory?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
+    if (!directory || !button || document.activeElement !== button) return
+    const bounds = button.getBoundingClientRect()
+    const viewport = directory.getBoundingClientRect()
+    if (bounds.top < viewport.top) directory.scrollTop -= viewport.top - bounds.top
+    else if (bounds.bottom > viewport.bottom) directory.scrollTop += bounds.bottom - viewport.bottom
+  }, [detailView, selectedTemplate?.id, view])
 
   useEffect(() => {
     const preview = previewRef.current
@@ -231,22 +239,36 @@ export function ChartsSettingsTab({
     const observer = new MutationObserver(labelPreviewTools)
     observer.observe(preview, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [detailView, remotePreviewRequested, selectedTemplate?.id])
+  }, [detailView, remotePreviewRequested, selectedTemplate?.id, view])
 
   const openDefinition = (definition: RendererDefinition) => {
+    if (definition.type === selectedType) return
     const firstTemplate = getTemplatesForRenderer(definition.type)[0]
     setSelectedType(definition.type)
     setSelectedTemplateId(firstTemplate?.id ?? null)
-    setDetailView('preview')
     setRemotePreviewRequested(false)
     setActionMessage('')
+  }
+
+  const navigateDirectory = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    const nextIndex = index + (event.key === 'ArrowDown' ? 1 : -1)
+    const definition = filteredDefinitions[nextIndex]
+    if (!definition) return
+    openDefinition(definition)
+    const directory = directoryRef.current
+    const button = directory?.querySelector<HTMLButtonElement>(`[data-renderer-type="${definition.type}"]`)
+    if (!directory || !button) return
+    button.focus({ preventScroll: true })
   }
 
   const copyTemplate = async () => {
     if (!selectedTemplate) return
     try {
       await navigator.clipboard.writeText(chartTemplateMarkdown(selectedTemplate))
-      setActionMessage('模板源码已复制。')
+      setActionMessage('示例已复制。')
     } catch {
       setActionMessage('复制失败，请重试。')
     }
@@ -362,24 +384,14 @@ export function ChartsSettingsTab({
   }
 
   return (
-    <section ref={chartsSettingsRef} className="charts-settings" aria-label="图表与公式">
-      <div className="charts-settings-heading">
-        <div>
-          <h3>图表与公式</h3>
-          <p>选择模板、预览真实效果，或管理离线示例与渲染服务。</p>
-        </div>
-        {insertionSession && (
-          <span className={`chart-insertion-target ${insertionSession.isValid() ? '' : 'invalid'}`}>
-            插入目标：{insertionSession.targetLabel}
-          </span>
-        )}
-      </div>
-
+    <section className="charts-settings" aria-label="图表与公式">
       <div className="chart-settings-layout">
-        <div className="charts-settings-subtabs" role="tablist" aria-label="图表设置分类">
+        <div className="charts-settings-heading">
+          <h3>图表与公式</h3>
+          <div className="charts-settings-subtabs" role="tablist" aria-label="图表设置分类">
           {([
-            ['capabilities', '模板库', '浏览 20 类图表与公式'],
-            ['examples', '离线示例', `打开 ${examplesStatus?.totalCaseCount ?? examplesStatus?.caseCount ?? 978} 个精选案例`],
+            ['capabilities', '格式参考', '选择表达方式与示例'],
+            ['examples', '离线示例', `打开 ${examplesStatus?.totalCaseCount ?? examplesStatus?.caseCount ?? '—'} 个精选案例`],
             ['service', '渲染服务', '配置联网渲染能力'],
           ] as Array<[ChartsSettingsView, string, string]>).map(([key, label, description]) => (
             <button
@@ -391,7 +403,7 @@ export function ChartsSettingsTab({
               onClick={() => {
                 setView(key)
                 setServiceReturnType(null)
-                if (key === 'capabilities') setSelectedType(null)
+                setRemotePreviewRequested(false)
                 setActionMessage('')
               }}
             >
@@ -399,19 +411,28 @@ export function ChartsSettingsTab({
               <span>{description}</span>
             </button>
           ))}
+          </div>
+          {insertionSession && (
+            <span className={`chart-insertion-target ${insertionSession.isValid() ? '' : 'invalid'}`}>
+              插入目标：{insertionSession.targetLabel}
+            </span>
+          )}
         </div>
 
         <div className="chart-settings-content">
-      {view === 'capabilities' && !selectedDefinition && (
+      {view === 'capabilities'  && (
         <div className="chart-catalog">
-          <section className="chart-catalog-intro" aria-labelledby="chart-catalog-intro-title">
-            <h4 id="chart-catalog-intro-title">选择一种图表开始</h4>
-            <p className="chart-catalog-intro-description">MD Viewer 支持 20 类图表与公式渲染。以下是每类能力的入门模板，点击卡片可查看真实预览并复制源码。</p>
-            <p className="chart-catalog-runtime-note">
-              <strong>17 类纯离线</strong>
-              <span><b>3 类需要服务</b>：PlantUML、C4-PlantUML 和 Kroki</span>
-            </p>
-          </section>
+          <div className="chart-reference-guidance" role="note" aria-label="格式参考使用说明">
+            <div className="chart-reference-usage">
+              <h4>让 AI 参考格式，生成你需要的图表</h4>
+              <p>不必手写复杂的图表代码。选择合适的表达方式，把完整 Markdown 示例和兼容说明交给 Claude、Codex 等 AI 工具，再描述你的需求，由 AI 生成内容，在 MD Viewer 中查看效果。这里提供格式参考，不在应用内调用 AI。</p>
+            </div>
+            <div className="chart-reference-compatibility">
+              <h4>兼容说明</h4>
+              <p>这些图表和公式通过 Markdown 扩展语法嵌入，并非所有 Markdown 查看器都支持。图表内容有的采用上游工具的原生语法，有的使用 MD Viewer 的适配格式或支持子集。请以每种类型的格式说明和示例为准，不能将其等同于完整上游 API，也不保证在其他工具中原样呈现。</p>
+            </div>
+            <p className="chart-reference-runtime"><strong>运行方式</strong>{builtinRendererDefinitions.filter(definition => definition.networkPolicy === 'offlineOnly').length} 类离线，{builtinRendererDefinitions.filter(definition => definition.networkPolicy !== 'offlineOnly').length} 类需服务（PlantUML、C4-PlantUML、Kroki）。完整参考文件见“离线示例”。</p>
+          </div>
           <div className="chart-catalog-toolbar">
             <label className="chart-catalog-search">
               <span aria-hidden="true">⌕</span>
@@ -423,70 +444,63 @@ export function ChartsSettingsTab({
                 onChange={event => setQuery(event.target.value)}
               />
             </label>
-            <div className="chart-filter-stack">
-              <div className="chart-filter-row">
-                <span className="chart-filter-label">用途</span>
-                <div className="chart-category-filters" role="group" aria-label="按用途筛选图表">
-                  {CATEGORY_FILTERS.map(category => {
-                    const count = category === '全部'
-                      ? builtinRendererDefinitions.length
-                      : builtinRendererDefinitions.filter(definition => categoryFor(definition) === category).length
-                    return (
-                      <button
-                        key={category}
-                        type="button"
-                        aria-label={`${category}，${count} 种`}
-                        aria-pressed={categoryFilter === category}
-                        onClick={() => setCategoryFilter(category)}
-                      >
-                        <span>{category}</span>
-                        <small>{count}</small>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-              <div className="chart-filter-row">
-                <span className="chart-filter-label">运行</span>
-                <div className="chart-category-filters" role="group" aria-label="按运行方式筛选图表">
-                  {(['全部', '纯离线', '需要服务'] as NetworkFilter[]).map(filter => {
-                    const count = builtinRendererDefinitions.filter(definition => matchesNetworkFilter(definition, filter)).length
-                    return (
-                      <button
-                        key={filter}
-                        type="button"
-                        aria-label={`${filter}，${count} 种`}
-                        aria-pressed={networkFilter === filter}
-                        onClick={() => setNetworkFilter(filter)}
-                      >
-                        <span>{filter}</span>
-                        <small>{count}</small>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
+            <label className="chart-filter-select chart-filter-category">
+              <span>用途</span>
+              <select aria-label="按用途筛选图表" value={categoryFilter} onChange={event => setCategoryFilter(event.target.value as ChartCategoryFilter)}>
+                {CATEGORY_FILTERS.map(category => {
+                  const count = category === '全部'
+                    ? builtinRendererDefinitions.length
+                    : builtinRendererDefinitions.filter(definition => categoryFor(definition) === category).length
+                  return <option key={category} value={category}>{category}（{count}）</option>
+                })}
+              </select>
+            </label>
+            <label className="chart-filter-select chart-filter-network">
+              <span>运行</span>
+              <select aria-label="按运行方式筛选图表" value={networkFilter} onChange={event => setNetworkFilter(event.target.value as NetworkFilter)}>
+                {(['全部', '纯离线', '需要服务'] as NetworkFilter[]).map(filter => {
+                  const count = builtinRendererDefinitions.filter(definition => matchesNetworkFilter(definition, filter)).length
+                  return <option key={filter} value={filter}>{filter}（{count}）</option>
+                })}
+              </select>
+            </label>
           </div>
-          <div className="chart-catalog-summary" aria-live="polite">
-            <strong>{filteredDefinitions.length === builtinRendererDefinitions.length ? '全部模板' : `找到 ${filteredDefinitions.length} 个模板`}</strong>
-            <span>选择卡片查看预览与源码</span>
-          </div>
-          {filteredDefinitions.length > 0 && (
-            <div className="chart-catalog-grid">
-              {filteredDefinitions.map(definition => {
-                const template = getTemplatesForRenderer(definition.type)[0]
-                return (
+          <label className="chart-type-picker" ref={typePickerRef}>
+            <span>图表类型</span>
+            <select value={selectedType ?? ''} onChange={event => {
+              const definition = builtinRendererDefinitions.find(item => item.type === event.target.value)
+              if (definition) openDefinition(definition)
+            }}>
+              <option value="" disabled>选择一种图表</option>
+              {selectedDefinition && !filteredDefinitions.includes(selectedDefinition) && (
+                <option value={selectedDefinition.type}>{selectedDefinition.displayName}（不在筛选结果中）</option>
+              )}
+              {filteredDefinitions.map(definition => <option key={definition.type} value={definition.type}>{definition.displayName}</option>)}
+            </select>
+          </label>
+          {selectedDefinition && !filteredDefinitions.includes(selectedDefinition) && <p className="chart-filtered-selection" role="status">当前类型不在筛选结果中</p>}
+          {!filteredDefinitions.length && <div className="chart-empty">
+            <strong>没有匹配的图表类型</strong>
+            <button type="button" onClick={() => {
+              setQuery('')
+              setCategoryFilter('全部')
+              setNetworkFilter('全部')
+            }}>重置筛选</button>
+          </div>}
+          <div className={`chart-reference-browser${selectedDefinition && selectedTemplate ? '' : ' is-empty'}`}>
+            <nav className="chart-type-directory" aria-label="图表类型">
+              <div className="chart-catalog-grid" ref={directoryRef}>
+                {filteredDefinitions.map((definition, index) => (
                   <button
                     type="button"
                     key={definition.type}
                     className="chart-catalog-card"
                     data-renderer-type={definition.type}
+                    aria-pressed={selectedType === definition.type}
+                    tabIndex={definition.type === selectedType || (!filteredDefinitions.some(item => item.type === selectedType) && index === 0) ? 0 : -1}
                     onClick={() => openDefinition(definition)}
+                    onKeyDown={event => navigateDirectory(event, index)}
                   >
-                    <span className="chart-card-mark" aria-hidden="true">
-                      {definition.displayName.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || 'ƒ'}
-                    </span>
                     <span className="chart-card-body">
                       <span className="chart-card-title">
                         <strong>{definition.displayName}</strong>
@@ -494,43 +508,24 @@ export function ChartsSettingsTab({
                           <span className={`chart-network-badge ${definition.networkPolicy}`}>{networkLabel(definition)}</span>
                         )}
                       </span>
-                      <span className="chart-card-description">
-                        {template?.description ?? definition.userHelp.settingsDescription}
-                      </span>
-                      <code>{definition.languages[0] ?? '数学公式'}</code>
                     </span>
-                    <span className="chart-card-arrow" aria-hidden="true">›</span>
                   </button>
-                )
-              })}
-            </div>
-          )}
-          {!filteredDefinitions.length && (
-            <div className="chart-empty">
-              <strong>没有匹配的图表类型</strong>
-              <button type="button" onClick={() => {
-                setQuery('')
-                setCategoryFilter('全部')
-                setNetworkFilter('全部')
-              }}>重置筛选</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {view === 'capabilities' && selectedDefinition && selectedTemplate && (
+                ))}
+              </div>
+              <small className="chart-keyboard-hint">↑ / ↓ 切换，Tab 进入详情</small>
+            </nav>
+            {selectedDefinition && selectedTemplate ? (
         <div className="chart-detail">
-          <button type="button" className="chart-back-button" aria-label="返回模板库" onClick={() => setSelectedType(null)}>‹ 模板库</button>
           <div className="chart-detail-header">
             <div>
               <div className="chart-detail-title">
-                <h4 ref={detailHeadingRef} tabIndex={-1}>{selectedDefinition.displayName}</h4>
+                <h4>{selectedDefinition.displayName}</h4>
                 <span className={`chart-network-badge ${selectedDefinition.networkPolicy}`}>{networkLabel(selectedDefinition)}</span>
               </div>
               <p className="chart-detail-description">{selectedTemplate.description}</p>
             </div>
             <div className="chart-detail-actions">
-              <button type="button" onClick={copyTemplate}>复制源码</button>
+              <button type="button" className="primary" onClick={copyTemplate}>复制示例</button>
               {insertionSession && (
                 <button type="button" className="primary" disabled={!insertionSession.isValid()} onClick={insertTemplate}>
                   插入到 {insertionSession.targetLabel}
@@ -540,35 +535,26 @@ export function ChartsSettingsTab({
           </div>
           {selectedTemplates.length > 1 && (
             <label className="chart-template-picker">
-              <span>模板</span>
+              <span>示例形式</span>
               <select
                 value={selectedTemplate.id}
                 onChange={event => {
                   setSelectedTemplateId(event.target.value)
                   setRemotePreviewRequested(false)
+                  setActionMessage('')
                 }}
               >
                 {selectedTemplates.map(template => <option key={template.id} value={template.id}>{template.title}</option>)}
               </select>
             </label>
           )}
-          <section
-            className="chart-format-summary"
-            aria-label="格式支持"
-            data-network-policy={selectedDefinition.networkPolicy}
-          >
-            <span className="chart-format-label">格式支持</span>
-            <div className="chart-capability-grid">
-              {CAPABILITY_COLUMNS.map(column => {
-                const capability = selectedDefinition.capabilities[column.key]
-                return (
-                  <div key={column.key} data-state={capability?.state ?? 'unsupported'}>
-                    <span>{column.label}</span>
-                    <strong>{capabilityStateText(selectedDefinition, column)}</strong>
-                  </div>
-                )
-              })}
-            </div>
+          <section className="chart-syntax-summary" aria-label="语法与兼容范围">
+            <h5>语法与兼容范围</h5>
+            <dl>
+              <div><dt>Markdown 嵌入</dt><dd>{selectedTemplate.sourceKind === 'fence' ? `${selectedDefinition.languages[0]} 代码围栏` : selectedTemplate.sourceKind === 'inlineMath' ? '$...$ 行内公式' : '$$...$$ 块级公式'}</dd></div>
+              <div><dt>语法来源</dt><dd>{getChartFormatGuidance(selectedDefinition.type).syntax}</dd></div>
+              <div><dt>支持范围</dt><dd>{getChartFormatGuidance(selectedDefinition.type).limits}</dd></div>
+            </dl>
           </section>
           <div className="chart-detail-tabs" role="tablist" aria-label="模板内容">
             <button type="button" role="tab" aria-selected={detailView === 'preview'} onClick={() => {
@@ -578,7 +564,7 @@ export function ChartsSettingsTab({
             <button type="button" role="tab" aria-selected={detailView === 'source'} onClick={() => {
               setDetailView('source')
               setActionMessage('')
-            }}>源码</button>
+            }}>Markdown</button>
           </div>
           {actionMessage && <div className="chart-action-message" role="status">{actionMessage}</div>}
           {detailView === 'preview' && selectedDefinition.networkPolicy !== 'offlineOnly' && !remotePreviewAllowed && (
@@ -601,12 +587,41 @@ export function ChartsSettingsTab({
           )}
           {detailView === 'preview' && remotePreviewAllowed && (
             <div ref={previewRef} className="chart-starter-preview" data-renderer-type={selectedDefinition.type}>
-              <VirtualizedMarkdown content={chartTemplateMarkdown(selectedTemplate)} renderDebounceMs={0} remoteChartPolicy="allow" />
+              <VirtualizedMarkdown key={selectedTemplate.id} content={chartTemplateMarkdown(selectedTemplate)} renderDebounceMs={0} remoteChartPolicy="allow" />
             </div>
           )}
           {detailView === 'source' && (
-            <pre className="chart-template-source"><code>{chartTemplateMarkdown(selectedTemplate)}</code></pre>
+            <pre className="chart-template-source" data-renderer-type={selectedDefinition.type}><code>{chartTemplateMarkdown(selectedTemplate)}</code></pre>
           )}
+          <details className="chart-format-details" key={selectedTemplate.id}>
+            <summary>导出支持详情</summary>
+            <section
+              className="chart-format-summary"
+              aria-label="格式支持"
+              data-network-policy={selectedDefinition.networkPolicy}
+            >
+              <span className="chart-format-label">格式支持</span>
+              <div className="chart-capability-grid">
+                {CAPABILITY_COLUMNS.map(column => {
+                  const capability = selectedDefinition.capabilities[column.key]
+                  return (
+                    <div key={column.key} data-state={capability?.state ?? 'unsupported'}>
+                      <span>{column.label}</span>
+                      <strong>{capabilityStateText(selectedDefinition, column)}</strong>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          </details>
+        </div>
+            ) : (
+              <div className="chart-reference-empty">
+                <h4>选择图表类型，查看实际效果</h4>
+                <p>复制示例交给外部工具生成内容，完整参考文件见“离线示例”。</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -620,21 +635,23 @@ export function ChartsSettingsTab({
               )}
             </div>
             <div className="chart-package-stats" aria-label="示例包内容统计">
-              <div><strong>{examplesStatus?.totalCaseCount ?? examplesStatus?.caseCount ?? 978}</strong><span>精选案例</span></div>
+              <div><strong>{examplesStatus?.totalCaseCount ?? examplesStatus?.caseCount ?? '—'}</strong><span>精选案例</span></div>
               <div><strong>{examplesStatus?.rendererCount ?? 20}</strong><span>图表类型</span></div>
               <div><strong>{formatBytes(examplesStatus?.bytes)}</strong><span>压缩包体积</span></div>
             </div>
             <div className="chart-examples-contents">
-              <h4>包含内容</h4>
+              <h4>供外部工具引用的本地 Markdown</h4>
+              <p>先参考格式，再按需要补充设计或专项案例，不必一次引用整套案例。</p>
               <ul>
-                <li>{examplesStatus?.starterCount ?? 21} 个快速入门模板，覆盖 20 类图表与公式</li>
-                <li>{examplesStatus?.designCaseCount ?? 93} 个架构与流程图设计核心案例</li>
-                <li>{examplesStatus?.galleryCaseCount ?? 885} 个按 renderer 归档的专项正例</li>
+                <li>{examplesStatus?.starterCount ?? 21} 个完整格式示例，覆盖 20 类图表与公式</li>
+                <li>{examplesStatus?.designCaseCount ?? '—'} 个架构与流程图设计核心案例</li>
+                <li>{examplesStatus?.galleryCaseCount ?? '—'} 个按 renderer 归档的专项正例</li>
               </ul>
             </div>
             <p className="chart-examples-open-note">
-              点击后会自动准备到 MD Viewer 的应用数据目录，并立即打开根 README；无需选择位置或手工解压。
+              点击后会自动准备到 MD Viewer 的应用数据目录，并切换到示例工作区、打开首页；无需选择位置或手工解压。
             </p>
+            <p className="chart-offline-note">打开首页中的格式参考后，可在文档标签右键“复制文件路径”，在支持文件引用的工具中用 @ 选择文件或添加附件；也可以直接粘贴示例。</p>
             <div className="chart-examples-actions">
               <button
                 type="button"

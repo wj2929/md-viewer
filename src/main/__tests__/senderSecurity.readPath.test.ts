@@ -98,6 +98,37 @@ describe('validateSenderReadPath', () => {
     await expect(validateSenderReadPath(buildCtx(), event, target)).resolves.toBe(await fs.realpath(target))
   })
 
+  it.each(['windowRoot', 'otherWindowRoot', 'historyRoot'] as const)('放行 %s 内普通 Password 文档及目录', async key => {
+    const target = path.join(dirs[key], 'PasswordReset', 'api_FillPassword_review.md')
+    await fs.ensureDir(path.dirname(target))
+    await fs.writeFile(target, '# Synthetic API guide')
+    await expect(validateSenderReadPath(buildCtx(), event, target)).resolves.toBe(await fs.realpath(target))
+  })
+
+  it.each(['windowRoot', 'otherWindowRoot', 'historyRoot'] as const)('%s 内受保护文件应报告真实拒绝原因且不泄漏路径', async key => {
+    const target = path.join(dirs[key], 'myPassword.md')
+    await fs.writeFile(target, '# Synthetic protected fixture')
+    const error = await validateSenderReadPath(buildCtx(), event, target).catch(error => error as Error)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain('受保护')
+    expect((error as Error).message).not.toContain('不在任何已授权')
+    expect((error as Error).message).not.toContain(dirs[key])
+  })
+
+  it('未授权目标不暴露受保护分类', async () => {
+    const target = path.join(dirs.unregisteredRoot, 'myPassword.md')
+    await fs.writeFile(target, '# Synthetic outside fixture')
+    await expect(validateSenderReadPath(buildCtx(), event, target)).rejects.toThrow('不在任何已授权')
+  })
+
+  it('根内普通名称软链不能绕过受保护目标', async () => {
+    const protectedFile = path.join(dirs.windowRoot, 'myPassword.md')
+    const link = path.join(dirs.windowRoot, 'guide.md')
+    await fs.writeFile(protectedFile, '# Synthetic protected fixture')
+    await fs.ensureSymlink(protectedFile, link)
+    await expect(validateSenderReadPath(buildCtx(), event, link)).rejects.toThrow('受保护')
+  })
+
   it('拒绝 recent.folderPath 单独登记的文件', async () => {
     const target = path.join(dirs.recentRoot, 'doc.md')
     await expect(validateSenderReadPath(buildCtx(), event, target)).rejects.toThrow('安全错误')

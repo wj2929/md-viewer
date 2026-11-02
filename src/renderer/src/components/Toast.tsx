@@ -36,7 +36,7 @@ function Toast({ message, onClose }: ToastProps): JSX.Element {
   const [isExiting, setIsExiting] = useState(false)
 
   useEffect(() => {
-    if (message.progress) return
+    if (message.progress || message.duration === 0) return
     const duration = message.duration || 3000
     const timer = setTimeout(() => {
       setIsExiting(true)

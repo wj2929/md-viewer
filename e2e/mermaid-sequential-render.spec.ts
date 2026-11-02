@@ -1,7 +1,7 @@
 /**
  * 验证：Mermaid 单例"先预览后导出"串行 initialize，会不会导致第二次 render 的 SVG class 丢失
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/mermaid-cdn'
 import * as path from 'path'
 import * as fs from 'fs'
 

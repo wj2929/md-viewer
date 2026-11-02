@@ -2,7 +2,7 @@
  * edge-tts 适配器(隔离逆向第三方包 msedge-tts)
  * @module main/tts/EdgeAdapter
  * @description 把 msedge-tts 的用法封在此处。edge 接口若被微软改动/封禁,只需替换本文件。
- * 已实测:msedge-tts@2.0.7 在 Node v24 可用,返回 mp3 + WordBoundary 时间戳。
+ * msedge-tts@2.1.1 使用 Sec-MS-GEC v2；旧版 v1 握手已返回 403。
  */
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts'

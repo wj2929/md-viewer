@@ -26,10 +26,13 @@
   max-width: 400px;
   max-height: 400px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   z-index: 1000;
 }
 
 .recent-files-header {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -65,12 +68,13 @@
 }
 
 .recent-files-search {
+  flex-shrink: 0;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-color-light, #f0f0f0);
   background: var(--bg-primary, #ffffff);
 }
 
-.recent-files-search input {
+.recent-files-search input[type="search"] {
   width: 100%;
   height: 28px;
   box-sizing: border-box;
@@ -83,14 +87,19 @@
   outline: none;
 }
 
-.recent-files-search input:focus {
+.recent-files-search input[type="search"]:focus {
   border-color: var(--accent-color, #1890ff);
   background: var(--bg-primary, #ffffff);
 }
 
-.recent-files-list {
+.recent-files-results {
+  min-height: 0;
   overflow-y: auto;
-  max-height: 310px;
+}
+
+.recent-files-results .folder-pinyin-list {
+  max-height: none;
+  overflow: visible;
 }
 
 .recent-file-item {
@@ -109,6 +118,15 @@
 
 .recent-file-item:hover {
   background-color: var(--bg-hover, #f5f5f5);
+}
+
+.recent-file-item:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.recent-file-item:focus-within .recent-file-remove-btn {
+  opacity: 1;
 }
 
 .recent-file-info {

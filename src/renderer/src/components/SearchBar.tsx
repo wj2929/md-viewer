@@ -109,6 +109,13 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [totalCount, setTotalCount] = useState<number>(0)
   const [searchWarning, setSearchWarning] = useState<string | null>(null)
+  const [canRebuildIndex, setCanRebuildIndex] = useState(false)
+  const [reclamationBusy, setReclamationBusy] = useState(false)
+  const reclamationFlight = useRef(false)
+  const [reclamationNotice, setReclamationNotice] = useState<{
+    lifecycle: NonNullable<ReturnType<typeof getActiveWorkspaceLifecycleKey>>
+    message: string
+  } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const workerRef = useRef<Worker | null>(null)
   const currentSearchIdRef = useRef<number>(0)
@@ -500,6 +507,9 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
 
   // 触发搜索（使用防抖后的查询值）
   useEffect(() => {
+    const searchId = ++searchIdCounter
+    currentSearchIdRef.current = searchId
+    setCanRebuildIndex(false)
     if (!debouncedQuery.trim()) {
       setSearchResults([])
       setTotalCount(0)
@@ -507,10 +517,6 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
       setIsSearching(false)
       return
     }
-
-    // 更新搜索 ID
-    const searchId = ++searchIdCounter
-    currentSearchIdRef.current = searchId
 
     if (
       searchMode === 'content' &&
@@ -528,11 +534,13 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
       }
       setIsSearching(true)
       setSearchWarning('正在查询本地内容索引…')
-      void Promise.all([
+      void Promise.allSettled([
         window.api.queryWorkspaceIndex(lifecycle, debouncedQuery, 60),
         window.api.getWorkspaceIndexStatus(lifecycle),
-      ]).then(([indexedResults, status]) => {
+      ]).then(([queryResult, statusResult]) => {
         if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
+        const indexedResults = queryResult.status === 'fulfilled' ? queryResult.value : []
+        const status = statusResult.status === 'fulfilled' ? statusResult.value : undefined
         const results: SearchResult[] = indexedResults.map(result => ({
           file: {
             name: result.displayName,
@@ -551,17 +559,20 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
         setTotalCount(results.length)
         setExpandedFiles(new Set(results.map(result => result.file.path)))
         setSelectedIndex(-1)
-        setSearchWarning(
-          status.state === 'building' || status.state === 'updating'
-            ? '正在建立内容索引，结果可能不完整'
-            : status.state === 'degraded'
-              ? '部分文件未建立索引；当前结果可能不完整'
-              : status.state === 'error'
-                ? '内容搜索暂不可用；文档仍可正常打开'
-                : status.state === 'read-only'
-                  ? '索引正以只读模式运行；结果可用，但不会保存到磁盘'
-                  : null
-        )
+        const indexWarning = status?.state === 'building' || status?.state === 'updating'
+          ? '正在建立内容索引，结果可能不完整'
+          : status?.state === 'degraded'
+            ? '部分文件未建立索引；当前结果可能不完整'
+            : status?.state === 'error'
+              ? '当前工作区索引异常；结果可能不完整'
+              : status?.state === 'read-only'
+                ? '索引正以只读模式运行；结果可用，但不会保存到磁盘'
+                : null
+        setCanRebuildIndex(status?.state === 'error' || status?.state === 'degraded')
+        setSearchWarning([
+          queryResult.status === 'rejected' ? '当前工作区查询失败，结果可能不完整' : null,
+          statusResult.status === 'rejected' ? '索引状态读取失败' : indexWarning,
+        ].filter(Boolean).join('；') || null)
       }).catch(() => {
         if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
         setSearchResults([])
@@ -591,12 +602,15 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
       }
       setIsSearching(true)
       setSearchWarning('正在查询已记录工作区索引…')
-      void Promise.all([
+      void Promise.allSettled([
         window.api.queryWorkspaceIndex(lifecycle, debouncedQuery, 60),
         window.api.queryWorkspaceHistoryIndexes(lifecycle, debouncedQuery, recentFolderIds, recentFileIds, 60),
         window.api.getWorkspaceIndexStatus(lifecycle),
-      ]).then(([currentResults, historyResults, status]) => {
+      ]).then(([currentResult, historyResult, statusResult]) => {
         if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
+        const currentResults = currentResult.status === 'fulfilled' ? currentResult.value : []
+        const historyResults = historyResult.status === 'fulfilled' ? historyResult.value : []
+        const status = statusResult.status === 'fulfilled' ? statusResult.value : undefined
         const seen = new Set<string>()
         const results: SearchResult[] = []
         const append = (result: { historyId?: string; recentFileId?: string; filePath: string; displayName: string; score: number; lineStart: number; snippet: string }): void => {
@@ -624,17 +638,21 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
         setTotalCount(ranked.length)
         setExpandedFiles(new Set(ranked.map(result => result.file.path)))
         setSelectedIndex(-1)
-        setSearchWarning(
-          status.state === 'building' || status.state === 'updating'
-            ? '正在建立内容索引，结果可能不完整'
-            : status.state === 'degraded'
-              ? '部分文件未建立索引；当前结果可能不完整'
-              : status.state === 'error'
-                ? '当前工作区内容搜索暂不可用；其他已记录工作区结果仍可显示'
-                : status.state === 'read-only'
-                  ? '当前工作区索引以只读模式运行；结果可用，但不会保存到磁盘'
-                  : null
-        )
+        const indexWarning = status?.state === 'building' || status?.state === 'updating'
+          ? '正在建立内容索引，结果可能不完整'
+          : status?.state === 'degraded'
+            ? '部分文件未建立索引；当前结果可能不完整'
+            : status?.state === 'error'
+              ? '当前工作区索引异常；结果可能不完整'
+              : status?.state === 'read-only'
+                ? '当前工作区索引以只读模式运行；结果可用，但不会保存到磁盘'
+                : null
+        setCanRebuildIndex(status?.state === 'error' || status?.state === 'degraded')
+        setSearchWarning([
+          currentResult.status === 'rejected' ? '当前工作区查询失败，结果可能不完整' : null,
+          historyResult.status === 'rejected' ? '历史来源查询失败，结果可能不完整' : null,
+          statusResult.status === 'rejected' ? '索引状态读取失败' : indexWarning,
+        ].filter(Boolean).join('；') || null)
       }).catch(() => {
         if (currentSearchIdRef.current !== searchId || !isActiveWorkspaceLifecycleKey(lifecycle)) return
         setSearchResults([])
@@ -929,6 +947,25 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
     )
   }
 
+  const handleReclaimIndex = useCallback(async (): Promise<void> => {
+    const lifecycle = getActiveWorkspaceLifecycleKey()
+    if (!lifecycle?.primaryRoot || !window.api.reclaimWorkspaceIndex || reclamationFlight.current) return
+    reclamationFlight.current = true
+    setReclamationBusy(true)
+    setReclamationNotice(null)
+    try {
+      const result = await window.api.reclaimWorkspaceIndex(lifecycle)
+      if (isActiveWorkspaceLifecycleKey(lifecycle)) setReclamationNotice({ lifecycle, message: result.message })
+    } catch {
+      if (isActiveWorkspaceLifecycleKey(lifecycle)) {
+        setReclamationNotice({ lifecycle, message: '旧索引维护未完成，请稍后重试；文档不会被删除。' })
+      }
+    } finally {
+      reclamationFlight.current = false
+      setReclamationBusy(false)
+    }
+  }, [])
+
   const handleRebuildIndex = useCallback(async (): Promise<void> => {
     const lifecycle = getActiveWorkspaceLifecycleKey()
     if (!lifecycle?.primaryRoot || !window.api.rebuildWorkspaceIndex) return
@@ -1045,6 +1082,17 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
               </button>
             </div>
 
+            {searchMode === 'content' && searchScope === 'currentFolder' && folderPath && (
+              <div className="search-index-maintenance" aria-label="当前工作区索引维护">
+                <button type="button" disabled={reclamationBusy} onClick={() => void handleReclaimIndex()}>
+                  {reclamationBusy ? '正在核对旧索引…' : '清理当前工作区旧索引…'}
+                </button>
+                {reclamationNotice && isActiveWorkspaceLifecycleKey(reclamationNotice.lifecycle) && (
+                  <span role="status">{reclamationNotice.message}</span>
+                )}
+              </div>
+            )}
+
             {/* 搜索历史区域（输入为空时显示） */}
             {showHistory && (
               <div className="search-results">
@@ -1130,7 +1178,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
                     {searchWarning && (
                       <div className="search-degraded" role="status">
                         <span>{searchWarning}</span>
-                        {searchMode === 'content' && /暂不可用|未建立索引/.test(searchWarning) && (
+                        {searchMode === 'content' && canRebuildIndex && (
                           <button type="button" onClick={() => void handleRebuildIndex()}>重建索引</button>
                         )}
                       </div>
@@ -1230,7 +1278,7 @@ export const SearchBar = forwardRef<SearchBarHandle, SearchBarProps>(({ files, f
                     {searchWarning && (
                       <div className="search-degraded" role="status">
                         <span>{searchWarning}</span>
-                        {searchMode === 'content' && /暂不可用|未建立索引/.test(searchWarning) && (
+                        {searchMode === 'content' && canRebuildIndex && (
                           <button type="button" onClick={() => void handleRebuildIndex()}>重建索引</button>
                         )}
                       </div>

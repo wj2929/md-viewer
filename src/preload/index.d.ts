@@ -1,3 +1,5 @@
+import type { LargeDocumentSize } from '../shared/largeDocumentApproval'
+import type { FileTreeSort, FileTreeSortSnapshot, FileTreeMetadataResult } from '../shared/fileTreeSort'
 import { ElectronAPI } from '@electron-toolkit/preload'
 import { type DocxStyle } from '../shared/docxStyles'
 import { type ReadAloudSettings } from '../shared/ttsProviders'
@@ -5,11 +7,23 @@ import { type FolderActivation, type WorkspaceOperationContext } from '../shared
 import { type FolderSplitLayoutV1 } from '../shared/folderTabSession'
 import { type DocumentMarkColor } from '../shared/documentMarks'
 import { type CrossRootMoveImpactReport } from '../shared/crossRootMoveImpact'
+import type { LinkedReadRequest, LinkedDocumentResult, LinkedAttachmentResult, LinkedReadActionResult } from '../shared/linkRead'
+import type { LocalMediaKind, LocalResourceResolutionKind, LocalAttachmentResult, LocalAttachmentOpenResult } from '../shared/localMedia'
 import type {
   ChartExamplesStatus,
   InstallChartExamplesResult,
   SaveChartExamplesResult,
 } from '../shared/chartExamples'
+import type {
+  DiagnosticClearResult,
+  DiagnosticDirectoryResult,
+  DiagnosticLogStatus,
+  DiagnosticOpenDirectoryResult,
+  DiagnosticRetentionPolicy,
+  DiagnosticRetentionResult,
+  DiagnosticTraceContext,
+  RendererDiagnosticEventInput,
+} from '../shared/diagnostics'
 import type {
   LinkImpactSummary,
   LinkOperationReceipt,
@@ -51,25 +65,61 @@ declare global {
       // 平台信息
       platform: 'darwin' | 'win32' | 'linux'
 
+      getFileTreeSort: () => Promise<FileTreeSortSnapshot>
+      onFileTreeSortChanged: (callback: (snapshot: FileTreeSortSnapshot) => void) => () => void
+      getFileTreeMetadata: (paths: string[], operation: WorkspaceOperationContext) => Promise<FileTreeMetadataResult[]>
+
       // 文件系统操作
       openFolder: () => Promise<FolderActivation | null>
-      readDir: (path: string) => Promise<FileInfo[]>
+      readDir: (path: string, trace?: DiagnosticTraceContext) => Promise<FileInfo[]>
       listChildDirs: (path: string) => Promise<Array<{ name: string; path: string }>>
-      readFile: (path: string) => Promise<string>
+      readFile: (path: string, trace?: DiagnosticTraceContext) => Promise<string>
       readLocalAssetBase64: (payload: {
         markdownFilePath: string
         refPath: string
+        resolutionKind?: LocalResourceResolutionKind
       }) => Promise<{ base64: string; mimeType: string; resolvedPath: string }>
       readExcalidrawFile: (payload: {
         markdownFilePath: string
         refPath: string
+        resolutionKind?: LocalResourceResolutionKind
       }) => Promise<{ content: string; resolvedPath: string }>
       readBpmnFile: (payload: {
         markdownFilePath: string
         refPath: string
+        resolutionKind?: LocalResourceResolutionKind
       }) => Promise<{ content: string; resolvedPath: string }>
       readFilePreview: (path: string) => Promise<string>
-      issueLocalImageUrl: (markdownFilePath: string, rawResourcePath: string) => Promise<string>
+      issueLocalImageUrl: (
+        markdownFilePath: string,
+        rawResourcePath: string,
+        resolutionKind?: LocalResourceResolutionKind
+      ) => Promise<string>
+      issueLocalMediaUrl: (
+        markdownFilePath: string,
+        rawResourcePath: string,
+        kind: LocalMediaKind,
+        resolutionKind: LocalResourceResolutionKind
+      ) => Promise<string>
+      readLocalWebVtt: (
+        markdownFilePath: string,
+        rawResourcePath: string,
+        resolutionKind: LocalResourceResolutionKind
+      ) => Promise<string>
+      revealLocalResource: (
+        markdownFilePath: string,
+        rawResourcePath: string,
+        resolutionKind: LocalResourceResolutionKind
+      ) => Promise<{ success: true }>
+      readLocalAttachment: (source: string, ref: string) => Promise<LocalAttachmentResult>
+      openLocalAttachment: (source: string, ref: string) => Promise<LocalAttachmentOpenResult>
+      prepareLinkedDocument: (request: LinkedReadRequest) => Promise<LinkedDocumentResult>
+      prepareLinkedDocumentRefresh: (operation: WorkspaceOperationContext, documentId: string, leafId: string, requestId: string) => Promise<LinkedDocumentResult>
+      commitLinkedDocument: (batchId: string) => Promise<LinkedReadActionResult>
+      readLinkedAttachment: (request: LinkedReadRequest, asText?: boolean, previousHandle?: string) => Promise<LinkedAttachmentResult>
+      revealLinkedResource: (id: string) => Promise<LinkedReadActionResult>
+      cancelLinkedRead: (operation: WorkspaceOperationContext, leafId: string, requestId: string) => Promise<void>
+      releaseLinkedReads: (ids: string[]) => Promise<void>
       testOpenMarkdownFile?: (path: string) => Promise<boolean>
       testSetEditableSaveDelay?: (delayMs: number) => Promise<boolean>
       testGetOpenedFileWatcherCount?: (workspaceId: string) => Promise<number>
@@ -113,10 +163,25 @@ declare global {
       unwatchFile: (path: string, workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
       unwatchFolder: (workspaceId?: string, lifecycleEpoch?: number) => Promise<{ success: boolean }>
 
+      getWatchStatus: (workspaceId?: string, lifecycleEpoch?: number) => Promise<import('../shared/workspaceWatch').WorkspaceWatchHealth>
+      notifyWatchGap: (workspaceId?: string, lifecycleEpoch?: number) => Promise<boolean>
+      retryWatch: (workspaceId?: string, lifecycleEpoch?: number) => Promise<{ accepted: boolean }>
+      acknowledgeWatchReconcile: (requestId: string, result: import('../shared/workspaceWatch').WatchReconcileResult) => Promise<boolean>
+      onWatchStatus: (callback: (event: import('../shared/workspaceWatch').WorkspaceWatchStatusEvent) => void) => () => void
+      onWatchReconcile: (callback: (event: import('../shared/workspaceWatch').WorkspaceWatchReconcileRequest) => void) => () => void
+
       // 导出功能
-      exportHTML: (htmlContent: string, fileName: string) => Promise<string | null>
-      exportPDF: (htmlContent: string, fileName: string) => Promise<string | null>
-      exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>
+      exportHTML: (
+        htmlContent: string,
+        fileName: string,
+        markdownFilePath?: string
+      ) => Promise<{ filePath: string; warnings: string[]; linkedMedia: number } | null>
+      exportPDF: (
+        htmlContent: string,
+        fileName: string,
+        markdownFilePath?: string
+      ) => Promise<{ filePath: string; warnings: string[] } | null>
+      exportDOCX: (htmlContent: string, fileName: string, basePath: string, markdown?: string, docStyle?: string, remoteImages?: Array<{ id: string; pngBase64: string; widthCm?: number }>, markdownFilePath?: string) => Promise<{ filePath: string; warnings: string[]; usedPandoc?: boolean; usedRemote?: boolean; imagesFailed?: number } | null>
       exportChartsZip: (payload: {
         markdownFilePath: string
         images: Array<{ filename: string; pngBase64: string }>
@@ -190,6 +255,8 @@ declare global {
         color: DocumentMarkColor | null,
         operation: WorkspaceOperationContext
       ) => Promise<Record<string, DocumentMarkColor>>
+      getLargeDocumentApproval: (filePath: string) => Promise<LargeDocumentSize | null>
+      setLargeDocumentApproval: (filePath: string, size: LargeDocumentSize | null, operation: WorkspaceOperationContext) => Promise<void>
       getReadPosition: (filePath: string) => Promise<{
         canonicalPath: string
         scrollRatio?: number
@@ -316,8 +383,8 @@ declare global {
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; autoRenderRemoteCharts?: boolean; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; autoRenderRemoteCharts: boolean; docxExport: DocxExportSettings }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; autoRenderRemoteCharts?: boolean; folderPinyinSearchEnabled?: boolean; fileTreeSort?: FileTreeSort; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; autoRenderRemoteCharts: boolean; folderPinyinSearchEnabled: boolean; fileTreeSort: FileTreeSort; docxExport: DocxExportSettings }>) => Promise<void>
       getReadAloudSettings: () => Promise<ReadAloudSettings>
       updateReadAloudSettings: (settings: ReadAloudSettings) => Promise<ReadAloudSettings>
 
@@ -467,6 +534,7 @@ declare global {
 
       // v1.3.7：预览区域右键菜单
       showPreviewContextMenu: (params: {
+        readOnly?: boolean
         filePath: string
         tabId?: string
         leafId?: string | null
@@ -689,22 +757,8 @@ declare global {
         snippet: string
         revisionToken: string
       }>>
-      getWorkspaceBacklinks: (workspace: WorkspaceOperationContext, targetRelativePath: string) => Promise<Array<{
-        sourceRelativePath: string
-        sourceDisplayName: string
-        lineStart: number
-        rawTarget: string
-        context: string
-        placement: 'prose' | 'standalone-link' | 'table'
-        sourceRange: {
-          startOffset: number
-          endOffset: number
-          startLine: number
-          startColumn: number
-          endLine: number
-          endColumn: number
-        }
-      }>>
+      getWorkspaceBacklinks: (workspace: WorkspaceOperationContext, targetRelativePath: string) => Promise<import('../main/indexing/types').WorkspaceBacklinkResponse>
+      reclaimWorkspaceIndex: (workspace: WorkspaceOperationContext) => Promise<import('../main/indexing/types').WorkspaceIndexReclamationResponse>
       rebuildWorkspaceIndex: (workspace: WorkspaceOperationContext) => Promise<unknown>
       subscribeWorkspaceIndexStatus: (workspace: WorkspaceOperationContext, callback: (status: {
         state: 'detached' | 'building' | 'ready' | 'updating' | 'degraded' | 'error' | 'read-only'
@@ -727,6 +781,10 @@ declare global {
           confirm: boolean
         },
       ) => Promise<{ newPath: string; receipt: LinkOperationReceipt }>
+      executeLinkRewriteBatch: (
+        workspace: WorkspaceOperationContext,
+        input: { operations: import('../main/linking/types').LinkMoveBatchOperation[]; confirm: boolean },
+      ) => Promise<import('../main/linking/types').LinkMoveBatchResult>
       createLinkRepairPlan: (
         workspace: WorkspaceOperationContext,
         mapping: { oldRelativePath: string; newRelativePath: string },
@@ -804,6 +862,15 @@ declare global {
         releaseUrl?: string; releaseNotes?: string; publishedAt?: string;
         error?: string
       }>
+      getDiagnosticLogStatus: () => Promise<DiagnosticLogStatus>
+      setDiagnosticLoggingEnabled: (enabled: boolean) => Promise<DiagnosticLogStatus>
+      chooseDiagnosticLogDirectory: () => Promise<DiagnosticDirectoryResult>
+      retryDiagnosticLogDirectory: () => Promise<DiagnosticDirectoryResult>
+      resetDiagnosticLogDirectory: () => Promise<DiagnosticDirectoryResult>
+      openDiagnosticLogDirectory: () => Promise<DiagnosticOpenDirectoryResult>
+      applyDiagnosticRetentionPolicy: (policy: DiagnosticRetentionPolicy) => Promise<DiagnosticRetentionResult>
+      clearDiagnosticLogs: () => Promise<DiagnosticClearResult>
+      recordDiagnosticRendererEvent: (event: RendererDiagnosticEventInput) => void
       exportDiagnosticsBundle: () => Promise<{
         canceled: boolean
         outputPath?: string

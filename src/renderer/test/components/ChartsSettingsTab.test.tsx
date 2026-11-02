@@ -61,6 +61,70 @@ describe('ChartsSettingsTab', () => {
     })
   })
 
+  it('uses compact select filters and a plain type list', () => {
+    const { container } = renderCharts()
+    expect(screen.getByRole('combobox', { name: '按用途筛选图表' })).toHaveValue('全部')
+    expect(screen.getByRole('combobox', { name: '按运行方式筛选图表' })).toHaveValue('全部')
+    expect(container.querySelector('.chart-catalog-intro')).toBeNull()
+    expect(screen.getByRole('note', { name: '格式参考使用说明' })).toHaveTextContent('Claude、Codex')
+    expect(screen.getByRole('note', { name: '格式参考使用说明' })).toHaveTextContent('并非所有 Markdown 查看器都支持')
+    expect(container.querySelectorAll('.chart-card-description')).toHaveLength(0)
+    expect(container.querySelectorAll('.chart-type-directory .chart-network-badge')).toHaveLength(3)
+  })
+
+  it('opens Mermaid by default without network access or persistent changes', () => {
+    const { container } = renderCharts()
+    expect(container.querySelector('.chart-reference-browser')).not.toHaveClass('is-empty')
+    expect(screen.getByRole('button', { name: /Mermaid/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('combobox', { name: '图表类型' })).toHaveValue('mermaid')
+    expect(screen.getByTestId('chart-preview')).toHaveTextContent('```mermaid')
+    expect(screen.getAllByTestId('chart-preview')).toHaveLength(1)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(window.api.updateAppSettings).not.toHaveBeenCalled()
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+  })
+
+  it.each(['examples', 'service'] as const)('does not mount the default preview until entering format reference from %s', async initialView => {
+    renderCharts({ initialView })
+    if (initialView === 'examples') await screen.findByText('内置离线示例包已就绪，无需联网。')
+    expect(virtualizedMarkdown).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('tab', { name: /格式参考/ }))
+    expect(screen.getByTestId('chart-preview')).toHaveTextContent('```mermaid')
+    expect(screen.getAllByTestId('chart-preview')).toHaveLength(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('preserves the approved positioning and complete compatibility copy', () => {
+    renderCharts()
+    expect(screen.getByRole('heading', { name: '图表与公式', level: 3 })).toBeVisible()
+    const guidance = screen.getByRole('note', { name: '格式参考使用说明' })
+    expect(screen.getByRole('heading', { name: '让 AI 参考格式，生成你需要的图表', level: 4 })).toBeVisible()
+    expect(guidance).toHaveTextContent('不必手写复杂的图表代码。选择合适的表达方式，把完整 Markdown 示例和兼容说明交给 Claude、Codex 等 AI 工具，再描述你的需求，由 AI 生成内容，在 MD Viewer 中查看效果。这里提供格式参考，不在应用内调用 AI。')
+    expect(guidance).toHaveTextContent('这些图表和公式通过 Markdown 扩展语法嵌入，并非所有 Markdown 查看器都支持。图表内容有的采用上游工具的原生语法，有的使用 MD Viewer 的适配格式或支持子集。请以每种类型的格式说明和示例为准，不能将其等同于完整上游 API，也不保证在其他工具中原样呈现。')
+    expect(guidance).toHaveTextContent('运行方式17 类离线，3 类需服务')
+    fireEvent.click(screen.getByRole('button', { name: /AntV G6/ }))
+    expect(guidance).toBeVisible()
+    expect(screen.getByRole('region', { name: '语法与兼容范围' })).toHaveTextContent('不是完整 G6 API')
+  })
+
+  it('keeps usage and format guidance visible while collapsing only export details', () => {
+    const { container } = renderCharts()
+    fireEvent.click(screen.getByRole('button', { name: /Mermaid/ }))
+    const details = container.querySelector('details')!
+    const guidance = screen.getByRole('region', { name: '语法与兼容范围' })
+    expect(details).not.toHaveAttribute('open')
+    expect(guidance).toBeVisible()
+    expect(guidance.compareDocumentPosition(screen.getByTestId('chart-preview')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('chart-preview').compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByText('导出支持详情'))
+    expect(details).toHaveAttribute('open')
+    expect(guidance).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /Graphviz/ }))
+    expect(container.querySelector('details')).not.toHaveAttribute('open')
+    expect(screen.getByRole('region', { name: '语法与兼容范围' })).toHaveTextContent('Graphviz DOT')
+    expect(screen.getByRole('note', { name: '格式参考使用说明' })).toBeVisible()
+  })
+
   it('shows all registry-backed renderers and filters by alias', () => {
     const { container } = renderCharts()
 
@@ -77,7 +141,7 @@ describe('ChartsSettingsTab', () => {
   it('combines category filters with search and can recover from an empty result', () => {
     const { container } = renderCharts()
 
-    fireEvent.click(screen.getByRole('button', { name: '需要服务，3 种' }))
+    fireEvent.change(screen.getByRole('combobox', { name: '按运行方式筛选图表' }), { target: { value: '需要服务' } })
     expect(container.querySelectorAll('.chart-catalog-card')).toHaveLength(3)
     expect(screen.getByRole('button', { name: /^PlantUML\b/ })).toBeInTheDocument()
 
@@ -97,7 +161,6 @@ describe('ChartsSettingsTab', () => {
     expect(screen.getByTestId('chart-preview')).toHaveTextContent('```mermaid')
     expect(virtualizedMarkdown).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(screen.getByRole('button', { name: '返回模板库' }))
     fireEvent.click(screen.getByRole('button', { name: /^PlantUML\b/ }))
     expect(screen.getByRole('tab', { name: '预览' })).toHaveAttribute('aria-selected', 'true')
     await waitFor(() => expect(screen.getByTestId('chart-preview')).toHaveTextContent('```plantuml'))
@@ -110,13 +173,13 @@ describe('ChartsSettingsTab', () => {
   it('copies the selected starter as complete Markdown', async () => {
     renderCharts()
     fireEvent.click(screen.getByRole('button', { name: /Mermaid/ }))
-    fireEvent.click(screen.getByRole('button', { name: '复制源码' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制示例' }))
 
     await waitFor(() => {
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
         '```mermaid\nflowchart LR\n  User([用户]) --> Check{源码有效?}\n  Check -->|是| Render[渲染图表]\n  Check -->|否| Edit[修正源码]\n  Edit --> Check\n  Render --> Export[(导出文档)]\n```'
       )
-      expect(screen.getByText('模板源码已复制。')).toBeInTheDocument()
+      expect(screen.getByText('示例已复制。')).toBeInTheDocument()
     })
   })
 
@@ -289,5 +352,94 @@ describe('ChartsSettingsTab', () => {
 
     expect(session.insert).not.toHaveBeenCalled()
     expect(screen.getByText('目标编辑器已关闭或切换文档，请从目标编辑器重新打开图表设置。')).toBeInTheDocument()
+  })
+
+  it('keeps the directory, selection and Markdown mode while comparing types', () => {
+    renderCharts()
+    fireEvent.click(screen.getByRole('button', { name: /Mermaid/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Markdown' }))
+    fireEvent.click(screen.getByRole('button', { name: /Graphviz/ }))
+
+    expect(screen.getByRole('heading', { name: 'Graphviz' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Mermaid/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Markdown' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('chart-preview')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索图表' }), { target: { value: 'mermaid' } })
+    expect(screen.getByText('当前类型不在筛选结果中')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Graphviz' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: /渲染服务/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /格式参考/ }))
+    expect(screen.getByRole('searchbox')).toHaveValue('mermaid')
+    expect(screen.getByRole('heading', { name: 'Graphviz' })).toBeInTheDocument()
+  })
+
+  it('uses scoped arrow navigation without losing focus or wrapping at the ends', () => {
+    renderCharts()
+    const mermaid = screen.getByRole('button', { name: /Mermaid/ })
+    mermaid.focus()
+    fireEvent.click(mermaid)
+    fireEvent.keyDown(mermaid, { key: 'ArrowDown' })
+    const markmap = screen.getByRole('button', { name: /Markmap/ })
+    expect(markmap).toHaveFocus()
+    expect(markmap).toHaveAttribute('aria-pressed', 'true')
+    expect(mermaid).toHaveAttribute('tabindex', '-1')
+    fireEvent.keyDown(markmap, { key: 'ArrowUp' })
+    expect(mermaid).toHaveFocus()
+    fireEvent.keyDown(mermaid, { key: 'ArrowUp' })
+    expect(mermaid).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.keyDown(mermaid, { key: 'ArrowDown', ctrlKey: true })
+    fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'ArrowDown' })
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+    expect(mermaid).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByTestId('chart-preview')).toHaveLength(1)
+  })
+
+  it('navigates filtered remote types without carrying a one-time permission', () => {
+    useRemoteChartSettingsStore.setState({ autoRenderRemoteCharts: false })
+    renderCharts()
+    fireEvent.change(screen.getByRole('combobox', { name: '按运行方式筛选图表' }), { target: { value: '需要服务' } })
+    const plantuml = screen.getByRole('button', { name: /^PlantUML\b/ })
+    fireEvent.click(plantuml)
+    fireEvent.click(screen.getByRole('button', { name: '连接服务并预览' }))
+    expect(screen.getByTestId('chart-preview')).toHaveTextContent('```plantuml')
+    fireEvent.keyDown(plantuml, { key: 'ArrowDown' })
+    const c4 = screen.getByRole('button', { name: /C4-PlantUML/ })
+    expect(c4).toHaveFocus()
+    expect(screen.queryByTestId('chart-preview')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '连接服务并预览' })).toBeInTheDocument()
+    fireEvent.keyDown(c4, { key: 'ArrowUp' })
+    expect(screen.queryByTestId('chart-preview')).not.toBeInTheDocument()
+    expect(plantuml).toHaveFocus()
+    fireEvent.keyDown(plantuml, { key: 'ArrowDown' })
+    fireEvent.keyDown(c4, { key: 'ArrowDown' })
+    const kroki = screen.getByRole('button', { name: /^Kroki/ })
+    expect(kroki).toHaveFocus()
+    fireEvent.keyDown(kroki, { key: 'ArrowDown' })
+    expect(kroki).toHaveFocus()
+    expect(kroki).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByTestId('chart-preview')).not.toBeInTheDocument()
+  })
+
+  it('shows accurate format guidance and copies only the selected complete example', async () => {
+    renderCharts()
+    fireEvent.click(screen.getByRole('button', { name: /AntV G6/ }))
+    fireEvent.click(screen.getByText('导出支持详情'))
+    expect(screen.getByRole('region', { name: '语法与兼容范围' })).toHaveTextContent('不是完整 G6 API')
+    fireEvent.click(screen.getByRole('tab', { name: 'Markdown' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制示例' }))
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringMatching(/^```antv-g6\n[\s\S]*\n```$/)))
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /复制 AI|打开参考文件/ })).not.toBeInTheDocument()
+    expect(await screen.findByText('示例已复制。')).toBeInTheDocument()
+  })
+
+  it('keeps both KaTeX examples and uses the same selection for the compact picker', () => {
+    renderCharts()
+    fireEvent.change(screen.getByRole('combobox', { name: '图表类型' }), { target: { value: 'katex' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '示例形式' }), { target: { value: 'katex-inline' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Markdown' }))
+    expect(screen.getByText(/^\$\\int/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /KaTeX/ }))
+    expect(screen.getByRole('combobox', { name: '示例形式' })).toHaveValue('katex-inline')
   })
 })

@@ -108,6 +108,7 @@
 }
 
 .markdown-workbench-preview-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;

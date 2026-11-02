@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createMarkdownRenderer, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
+import { createMarkdownRenderer, renderMarkdown, setupDOMPurifyHooks } from '../utils/markdownRenderer'
 import { useMermaidChart } from '../components/charts/useMermaidChart'
 import { useExcalidrawChart } from '../components/charts/useExcalidrawChart'
 import { useDrawIOChart } from '../components/charts/useDrawIOChart'
@@ -214,7 +214,7 @@ export function ServerRenderApp(): React.JSX.Element {
   )
 
   useEffect(() => {
-    const rendered = sanitizeHtml(md.render(input.markdown))
+    const rendered = renderMarkdown(md, input.markdown)
     setHtml(rendered)
   }, [input.markdown, md])
 
@@ -261,13 +261,15 @@ export function ServerRenderApp(): React.JSX.Element {
     let attempts = 0
     const startedAt = Date.now()
     if (input.markdown.trim() && !html) return
-    // 图表计数以源码块为权威（杜绝 pre+wrapper+error 重复/漏计数）；katex 是 $$ 公式而非围栏块，
-    // 源解析器不识别，仍用 DOM 计数。沿用 countRenderableBlocks 的完整键集，保证 finished 判定逐项引用不缺键。
+    // 围栏图表以源码块计数，避免 pre 与 wrapper/error 短暂并存时重复；
+    // KaTeX 与 BPMN/Excalidraw 文件引用不属于围栏块，需保留 DOM 计数。
     const sourceCounts = countSourceChartBlocks(sourceLocators)
     const expectedTemplate = countRenderableBlocks(rootRef.current)
     const rawExpected: Record<string, number> = {}
     for (const type of Object.keys(expectedTemplate)) {
-      rawExpected[type] = type === 'katex' ? expectedTemplate.katex : (sourceCounts[type] || 0)
+      rawExpected[type] = type === 'katex' || type === 'bpmn' || type === 'excalidraw'
+        ? expectedTemplate[type]
+        : (sourceCounts[type] || 0)
     }
     const expected = applyEnabledRendererFilter(rawExpected, input)
     const totalBlocks = Object.values(expected).reduce((sum, count) => sum + count, 0)

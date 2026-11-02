@@ -4,13 +4,18 @@ import { cleanBpmnRefPath, isMissingReadBpmnFileHandlerError, renderBpmnToSvg, r
 import { rendererErrorHtml } from '../../utils/d2Renderer'
 import { createChartWrapper, createSvgChartActionHandler } from '../../utils/chartUtils'
 import type { ResourceHost } from '../../render-core/hosts'
+import type { LocalResourceResolutionKind } from '../../../../shared/localMedia'
 
 interface UseBpmnChartOptions {
   markdownFilePath?: string
   resourceHost?: ResourceHost
 }
 
-async function readBpmnFile(options: UseBpmnChartOptions, refPath: string): Promise<string> {
+async function readBpmnFile(
+  options: UseBpmnChartOptions,
+  refPath: string,
+  resolutionKind: LocalResourceResolutionKind = 'markdown-relative',
+): Promise<string> {
   const { markdownFilePath, resourceHost } = options
   const cleanRefPath = cleanBpmnRefPath(refPath)
   if (!markdownFilePath) throw new Error('缺少 Markdown 文件路径，无法读取 BPMN 文件')
@@ -26,6 +31,7 @@ async function readBpmnFile(options: UseBpmnChartOptions, refPath: string): Prom
     const result = await window.api.readBpmnFile({
       markdownFilePath,
       refPath: cleanRefPath,
+      ...(resolutionKind === 'workspace-wiki' ? { resolutionKind } : {}),
     })
     return result.content
   } catch (error) {
@@ -57,7 +63,13 @@ export function useBpmnChart(
         try {
           const source = candidate.matches('pre.language-bpmn')
             ? ((candidate.querySelector('code') || candidate).textContent || '')
-            : await readBpmnFile(options, (candidate as HTMLElement).dataset.bpmnSrc || '')
+            : await readBpmnFile(
+                options,
+                (candidate as HTMLElement).dataset.bpmnSrc || '',
+                (candidate as HTMLElement).dataset.bpmnResolutionKind === 'workspace-wiki'
+                  ? 'workspace-wiki'
+                  : 'markdown-relative',
+              )
           const result = await renderBpmnToSvg(source)
           if (abortController.signal.aborted) break
           if (result.ok) {

@@ -10,6 +10,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { SearchBar, SearchBarHandle } from './SearchBar'
 import { FolderHistoryDropdown } from './FolderHistoryDropdown'
 import { RecentFilesDropdown } from './RecentFilesDropdown'
+import { WatchStatus } from './WatchStatus'
 import { FileInfo } from './FileTree'
 import './NavigationBar.css'
 import { RefObject } from 'react'
@@ -17,6 +18,8 @@ import type { ExternalDocumentOpenOptions, OpenDocumentCommand } from '../utils/
 
 interface NavigationBarProps {
   folderPath: string | null
+  workspaceId?: string | null
+  lifecycleEpoch?: number
   files: FileInfo[]
   theme: 'light' | 'dark' | 'auto'
   searchBarRef: RefObject<SearchBarHandle | null>
@@ -44,6 +47,8 @@ interface NavigationBarProps {
 
 export function NavigationBar({
   folderPath,
+  workspaceId = null,
+  lifecycleEpoch,
   files,
   theme,
   searchBarRef,
@@ -97,15 +102,13 @@ export function NavigationBar({
           <span className="nav-folder-path" title={folderPath}>
             📂 {folderPath.split(/[/\\]/).pop()}
           </span>
-          <button
-            className="nav-refresh-btn nav-instant-tooltip"
-            onClick={onRefreshFiles}
-            data-tooltip="刷新文件列表"
-            aria-label="刷新文件列表"
-            disabled={isLoading}
-          >
-            🔄
-          </button>
+          <WatchStatus
+            key={`${workspaceId}:${lifecycleEpoch}`}
+            workspaceId={workspaceId}
+            lifecycleEpoch={lifecycleEpoch}
+            onRefresh={onRefreshFiles}
+            isLoading={isLoading}
+          />
           <FolderHistoryDropdown
             onSelectFolder={onSelectHistoryFolder}
             onOpenFolder={onOpenFolder}

@@ -3,13 +3,14 @@
  * @description 测试路径校验和受保护路径检测功能
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'fs-extra'
 import * as os from 'os'
 import * as path from 'path'
 import {
   isProtectedPath,
   validateNotProtected,
+  validateSearchPath,
   validateSecurePathInBase,
   resetSecurity
 } from '../security'
@@ -42,6 +43,24 @@ describe('Security Module', () => {
       await expect(validateSecurePathInBase(target, root)).resolves.toBe(
         path.join(canonicalRoot, 'file.md')
       )
+    })
+
+    it.skipIf(process.platform !== 'darwin')('should allow /private/tmp while preserving realpath containment', async () => {
+      const root = await fs.mkdtemp('/private/tmp/md-viewer-security-')
+      temporaryPaths.push(root)
+      const markdown = path.join(root, 'nested', 'test.md')
+      await fs.ensureDir(path.dirname(markdown))
+      await fs.writeFile(markdown, '# private tmp')
+
+      await expect(validateSecurePathInBase(root, root)).resolves.toBe(root)
+      await expect(validateSecurePathInBase(markdown, root)).resolves.toBe(markdown)
+
+      const outside = await createTemporaryDirectory()
+      const outsideFile = path.join(outside, 'outside.md')
+      await fs.writeFile(outsideFile, '# outside')
+      const link = path.join(root, 'nested', 'outside-link.md')
+      await fs.symlink(outsideFile, link)
+      await expect(validateSecurePathInBase(link, root)).rejects.toThrow('安全错误')
     })
 
     it('should reject traversal and sibling-prefix paths', async () => {
@@ -79,17 +98,35 @@ describe('Security Module', () => {
       expect(isProtectedPath('/sbin/init')).toBe(true)
     })
 
-    it('should detect Windows system directories', () => {
-      // Note: 这个测试只在 Windows 上有效
-      // 在 Unix 系统上，Windows 路径会被当作普通相对路径处理
-      if (process.platform === 'win32') {
-        expect(isProtectedPath('C:\\Windows\\System32\\file.dll')).toBe(true)
-        expect(isProtectedPath('C:\\Program Files\\app\\file.exe')).toBe(true)
-        expect(isProtectedPath('c:\\windows\\file.sys')).toBe(true) // 大小写不敏感
-      } else {
-        // 在非 Windows 平台上，跳过测试或使用不同的断言
-        expect(true).toBe(true)
-      }
+    it.skipIf(process.platform === 'win32')('should allow /private/tmp while retaining sensitive-file rules', () => {
+      expect(isProtectedPath('/private/tmp')).toBe(false)
+      expect(isProtectedPath('/private/tmp/md-viewer/session/document.md')).toBe(false)
+      expect(() => validateSearchPath('/private/tmp/md-viewer')).not.toThrow()
+      expect(isProtectedPath('/private/tmp/.env')).toBe(true)
+      expect(isProtectedPath('/private/tmp/project/.ssh/id_rsa')).toBe(true)
+      expect(isProtectedPath('/private/var/db/system.db')).toBe(true)
+      expect(() => validateSearchPath('/private/var/db')).toThrow('受保护')
+    })
+
+    it.skipIf(process.platform !== 'win32')('should protect native Windows system/AppData paths, including case aliases', () => {
+      for (const target of [
+        'C:\\Windows\\System32\\file.dll', 'C:\\Program Files\\app\\file.exe',
+        'c:\\windows\\file.sys', 'C:\\PROGRAMDATA\\app\\file.json',
+        'C:\\Users\\test\\APPDATA\\Local\\app\\settings.json',
+        'C:/users/test/appdata/Local/Temp/file.txt',
+      ]) expect(isProtectedPath(target)).toBe(true)
+      expect(isProtectedPath('C:\\notes\\report.md')).toBe(false)
+    })
+
+    it('protected-path warning does not contain raw path or file name', () => {
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const target = path.join(os.homedir(), '.aws', 'credentials')
+        expect(isProtectedPath(target)).toBe(true)
+        expect(warning).toHaveBeenCalledWith('[SECURITY] Protected path rejected')
+        expect(warning.mock.calls.flat().join(' ')).not.toContain(target)
+        expect(warning.mock.calls.flat().join(' ')).not.toContain('credentials')
+      } finally { warning.mockRestore() }
     })
 
     it('should detect sensitive config directories', () => {
@@ -176,10 +213,29 @@ describe('Security Module', () => {
         expect(isProtectedPath('/Users/test/export.1pux')).toBe(true)
       })
 
-      it('应该保护包含 password 的文件', () => {
-        expect(isProtectedPath('/project/password.txt')).toBe(true)
-        expect(isProtectedPath('/project/passwords.json')).toBe(true)
-        expect(isProtectedPath('/project/myPassword.md')).toBe(true)
+      it.each([
+        'password.txt', 'passwords.json', 'myPassword.md', 'MYPASSWORDS.MD',
+        '.password', '.passwords.txt.bak', 'passwords.json.bak',
+        'passwords/notes.md', 'myPasswords/notes.md',
+        '.password-store', '.password-store/notes.md',
+      ])('应该保护明确的密码存储名称：%s', name => {
+        expect(isProtectedPath(`/project/${name}`)).toBe(true)
+      })
+
+      it.each([
+        'FillPassword.md', 'api_FillPassword_review.md', 'FILLPASSWORD.MD',
+        'reset-password-guide.md', 'PasswordReset/README.md',
+        'PasswordReset/nested/FillPassword.markdown',
+      ])('不应仅因普通文档路径包含 password 而拒绝：%s', name => {
+        expect(isProtectedPath(`/project/${name}`)).toBe(false)
+      })
+
+      it.each([
+        '.ssh/FillPassword.md', '.aws/PasswordReset/README.md',
+        'PasswordReset/.env', 'PasswordReset/.env.local',
+        'FillPassword.key', 'FillPassword.pem', 'FillPassword.kdbx', 'FillPassword.1pux',
+      ])('普通名称不能绕过其他保护规则：%s', name => {
+        expect(isProtectedPath(`/project/${name}`)).toBe(true)
       })
 
       it('应该保护隐藏目录下的敏感文件', () => {

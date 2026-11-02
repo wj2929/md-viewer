@@ -40,9 +40,9 @@ export function createContentSecurityPolicy(dev: boolean): string {
       ? ["'self'", 'data:', 'blob:', 'https:', 'local-image:']
       : ["'self'", 'data:', 'https:', 'local-image:']),
     joinDirective('font-src', COMMON_FONT_SOURCES),
-    // media-src:供 TTS 朗读播放主进程返回的音频(blob:/data:)。
-    // 第三方 TTS 请求走主进程(不放开 connect-src),故此处只需放行本地音频源。
-    joinDirective('media-src', ["'self'", 'blob:', 'data:']),
+    // media-src:供 TTS 音频(blob:/data:)和受控本地媒体协议播放。
+    // 第三方 TTS 请求仍走主进程；本地媒体不开放 file:，仅允许主进程签发的 loopback Range URL。
+    joinDirective('media-src', ["'self'", 'blob:', 'data:', 'local-media:', 'http://127.0.0.1:*']),
     // D2 通过 @terrastruct/d2 的 Blob Worker 编译图表；生产环境同样需要此窄权限。
     joinDirective('worker-src', ["'self'", 'blob:']),
     joinDirective('connect-src', dev

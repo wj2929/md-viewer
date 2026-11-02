@@ -3,7 +3,7 @@ import * as path from 'path'
 import { realpath } from 'fs/promises'
 import { CLI_SCHEMA_VERSION } from './types'
 import { validateSecurePath } from '../security/pathValidator'
-import { hasIgnoredPathSegment } from '../watching/WorkspaceWatchService'
+import { hasIgnoredPathSegment } from '../watching/watchPaths'
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn'])
 const RENAME_WINDOW_MS = 550

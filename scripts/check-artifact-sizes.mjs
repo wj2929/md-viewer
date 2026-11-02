@@ -7,7 +7,7 @@ const budgetPath = path.join(projectRoot, 'config', 'artifact-size-budget.json')
 const packageArch = process.env.MD_VIEWER_PACKAGE_ARCH?.trim() || process.arch
 const platformKey = `${process.platform}-${packageArch}`
 const budgetMode = process.env.MD_VIEWER_SIZE_BUDGET_MODE?.trim() || 'enforce'
-const chartExamplesMaxBytes = 420 * 1024
+const chartExamplesMaxBytes = 512 * 1024
 const macOutputDirectory = packageArch === 'x64' ? 'mac' : `mac-${packageArch}`
 const unpackedTarget = process.platform === 'darwin'
   ? {

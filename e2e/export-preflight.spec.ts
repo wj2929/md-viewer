@@ -41,31 +41,63 @@ test.afterAll(() => {
   rmSync(testDir, { recursive: true, force: true })
 })
 
-async function openMarkdownFile(page: Page, filePath: string) {
+async function openMarkdownFile(page: Page, filePath: string, expectedText?: string) {
   await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), filePath)
   const fileName = basename(filePath)
   await expect(page.locator('.tab.active', { hasText: fileName })).toBeVisible({ timeout: 15_000 })
-  await expect(page.locator('.markdown-body')).toContainText(fileName === 'risky.md' ? '风险文档' : '干净文档')
+  await expect(page.locator('.markdown-body')).toContainText(
+    expectedText ?? (fileName === 'risky.md' ? '风险文档' : '干净文档')
+  )
+}
+
+// Keep one completion promise rooted for the Electron inspector. Handle evaluation
+// avoids a separate return-by-value promise; dispose each handle, never replay actions.
+async function openMarkdownFromFolder(
+  electronApp: ElectronApplication,
+  page: Page,
+  folderPath: string,
+  filePath: string,
+  expectedText: string,
+) {
+  await (await electronApp.evaluateHandle(({ dialog }, rootPath) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [rootPath] })
+    return (globalThis as any).__mdViewerPreflightActionCompletion = Promise.resolve(true)
+  }, folderPath)).dispose()
+  const activation = await page.evaluate(() => window.api.openFolder())
+  if (!activation) throw new Error('测试工作区打开失败')
+  await (await electronApp.evaluateHandle(({ BrowserWindow }, folderActivation) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send('restore-folder', folderActivation)
+    return (globalThis as any).__mdViewerPreflightActionCompletion = Promise.resolve(true)
+  }, activation)).dispose()
+  await page.waitForSelector('.file-tree-container', { timeout: 10_000 })
+  await (await electronApp.evaluateHandle(({ BrowserWindow }, targetPath) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send('open-specific-file', targetPath)
+    return (globalThis as any).__mdViewerPreflightActionCompletion = Promise.resolve(true)
+  }, filePath)).dispose()
+  await expect(page.locator('.tab.active', { hasText: basename(filePath) })).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.markdown-body')).toContainText(expectedText)
 }
 
 async function mockSaveDialog(electronApp: ElectronApplication, filePath: string) {
-  await electronApp.evaluate(({ dialog }, savePath) => {
+  await (await electronApp.evaluateHandle(({ dialog }, savePath) => {
     ;(globalThis as any).__mdViewerSaveDialogCalls = []
     dialog.showSaveDialog = (async (...args: unknown[]) => {
       ;(globalThis as any).__mdViewerSaveDialogCalls.push(args)
       return { canceled: false, filePath: savePath }
     }) as typeof dialog.showSaveDialog
-  }, filePath)
+    return (globalThis as any).__mdViewerPreflightActionCompletion = Promise.resolve(true)
+  }, filePath)).dispose()
 }
 
 async function triggerExport(
   electronApp: ElectronApplication,
   channel: 'markdown:export-html' | 'markdown:export-docx'
 ) {
-  await electronApp.evaluate(({ BrowserWindow }, ch) => {
+  await (await electronApp.evaluateHandle(({ BrowserWindow }, ch) => {
     const win = BrowserWindow.getAllWindows()[0]
     win.webContents.send(ch)
-  }, channel)
+    return (globalThis as any).__mdViewerPreflightActionCompletion = Promise.resolve(true)
+  }, channel)).dispose()
 }
 
 async function setDocxSettings(page: Page, serverUrl: string) {
@@ -193,5 +225,44 @@ test.describe('导出前预检面板', () => {
     expect(documentXml).not.toContain('[用户]-&gt;[系统]')
     expect(documentXml).not.toContain('[用户]->[系统]')
     expect(documentXml).toContain('图表未渲染')
+  })
+
+  test('GUI DOCX：本地音视频降级为链接文字且不打包媒体字节', async ({ electronApp, page }) => {
+    test.skip(!DOCX_SERVICE_URL, '未设置 MD_VIEWER_DOCX_SERVICE_URL，跳过 GUI DOCX 真实导出')
+    test.setTimeout(120000)
+
+    await setDocxSettings(page, DOCX_SERVICE_URL!)
+    const mediaMarkdown = join(process.cwd(), 'e2e', 'fixtures', 'local-media', 'media.md')
+    await openMarkdownFromFolder(
+      electronApp,
+      page,
+      join(process.cwd(), 'e2e', 'fixtures'),
+      mediaMarkdown,
+      'Local media compatibility probe',
+    )
+    const exportPath = join(testDir, 'local-media-gui.docx')
+    await mockSaveDialog(electronApp, exportPath)
+
+    await triggerExport(electronApp, 'markdown:export-docx')
+    await waitForFile(exportPath, 90000)
+
+    const zip = new AdmZip(exportPath)
+    const textEntries = zip.getEntries()
+      .filter(entry => /\.(?:xml|rels)$/i.test(entry.entryName))
+      .map(entry => entry.getData().toString('utf8'))
+      .join('\n')
+    const mediaEntries = zip.getEntries()
+      .filter(entry => entry.entryName.startsWith('word/media/'))
+      .map(entry => entry.entryName)
+
+    expect(textEntries).toContain('视频')
+    expect(textEntries).toContain('音频')
+    expect(textEntries).not.toContain('![[videos/demo.webm')
+    expect(textEntries).not.toContain('![[audio/tone.mp3')
+    expect(textEntries).not.toContain('&lt;video')
+    expect(textEntries).not.toContain('&lt;audio')
+    expect(textEntries).not.toContain('local-media:')
+    expect(textEntries).not.toContain(mediaMarkdown)
+    expect(mediaEntries.some(name => /\.(?:mp3|webm|vtt)$/i.test(name))).toBe(false)
   })
 })

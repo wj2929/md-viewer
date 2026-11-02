@@ -1,6 +1,7 @@
 import MarkdownIt, { type Options as MdOptions } from 'markdown-it'
 import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs'
-import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs'
+import { installMathRules } from '../../../shared/markdown/mathRules'
+import { BLOCK_ANCHOR_PREFIX, BLOCK_ID_PATTERN, collectMarkdownBlocks } from '../../../shared/markdown/blocks'
 import type Token from 'markdown-it/lib/token.mjs'
 import type Renderer from 'markdown-it/lib/renderer.mjs'
 import Prism from 'prismjs'
@@ -10,6 +11,16 @@ import {
   createHeadingIdAllocator,
   extractPlainHeadingText,
 } from '../../../shared/markdown/semantics'
+import { parseWikiReferenceAt } from '../../../shared/markdown/obsidianSyntax'
+import {
+  WIKI_LINK_MARKER_ATTRIBUTE,
+  encodeLocalResourceMarker,
+} from '../../../shared/localMedia'
+import {
+  canonicalizeLocalMediaMarkup,
+  wikiImagePlaceholderHtml,
+  wikiMediaPlaceholderHtml,
+} from './localMediaMarkup'
 import { builtinRendererDefinitions } from '../renderers/builtin'
 import { createRendererRegistry } from '../renderers/registry'
 
@@ -29,15 +40,6 @@ import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-css'
 
 const rendererRegistry = createRendererRegistry(builtinRendererDefinitions)
-const inlineStatesWithoutLatexClose = new WeakSet<StateInline>()
-
-function isEscapedDelimiter(source: string, index: number): boolean {
-  let precedingBackslashes = 0
-  for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor--) {
-    precedingBackslashes++
-  }
-  return precedingBackslashes % 2 === 1
-}
 
 /**
  * 检测 JavaScript 代码块是否为 ECharts 配置
@@ -122,182 +124,52 @@ export function createMarkdownRenderer(): MarkdownIt {
     }
   })
 
-  // 行内数学公式 $...$
-  md.inline.ruler.before('escape', 'math_inline', (state: StateInline, silent: boolean): boolean => {
-    if (state.src[state.pos] !== '$') return false
-
-    const start = state.pos
-    let found = false
-    let end = start + 1
-
-    while (end < state.src.length) {
-      if (state.src[end] === '$' && state.src[end - 1] !== '\\') {
-        found = true
-        break
-      }
-      end++
-    }
-
-    if (!found) return false
+  md.inline.ruler.before('escape', 'obsidian_wiki_reference', (state: StateInline, silent: boolean): boolean => {
+    const parsed = parseWikiReferenceAt(state.src, state.pos)
+    if (!parsed) return false
 
     if (!silent) {
-      const latex = state.src.slice(start + 1, end)
-      try {
-        const html = katex.renderToString(latex, { throwOnError: false })
-        const token = state.push('html_inline', '', 0)
-        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->`
-      } catch (e) {
-        const token = state.push('html_inline', '', 0)
-        token.content = `<span class="katex-error">${latex}</span>`
+      const { reference } = parsed
+      const token = state.push('html_inline', '', 0)
+      if (reference.isEmbed && (reference.resourceKind === 'audio' || reference.resourceKind === 'video')) {
+        token.content = wikiMediaPlaceholderHtml(reference)
+      } else if (reference.isEmbed && reference.resourceKind === 'image') {
+        token.content = wikiImagePlaceholderHtml(reference)
+      } else if (reference.isEmbed && reference.resourceKind === 'special') {
+        const source = md.utils.escapeHtml(reference.path)
+        const label = md.utils.escapeHtml(reference.displayText)
+        token.content = reference.path.toLowerCase().endsWith('.bpmn')
+          ? `<div class="bpmn-file-placeholder" data-bpmn-src="${source}" data-bpmn-alt="${label}" data-bpmn-resolution-kind="workspace-wiki"></div>`
+          : `<div class="excalidraw-file-placeholder" data-excalidraw-src="${source}" data-excalidraw-alt="${label}" data-excalidraw-resolution-kind="workspace-wiki"></div>`
+      } else {
+        const marker = encodeLocalResourceMarker(reference)
+        const label = md.utils.escapeHtml(reference.displayText)
+        const className = reference.isEmbed ? 'wiki-embed-card' : 'wiki-link'
+        const embedLabel = reference.resourceKind === 'markdown' ? '嵌入文档' : '本地附件'
+        const prefix = reference.isEmbed ? `<span class="wiki-embed-label">${embedLabel}</span>` : ''
+        const href = !reference.isEmbed && !reference.path && reference.fragmentKind === 'block'
+          && BLOCK_ID_PATTERN.test(reference.fragment?.slice(1) ?? '') ? `#${reference.fragment}` : '#'
+        token.content = `<a href="${href}" class="${className}" ${WIKI_LINK_MARKER_ATTRIBUTE}="${marker}">${prefix}${label}</a>`
       }
     }
 
-    state.pos = end + 1
+    state.pos = parsed.end
     return true
   })
 
-  // 兼容 LaTeX 行内公式 \(...\)，在 markdown-it 转义规则前提取
-  md.inline.ruler.before('escape', 'math_inline_latex', (state: StateInline, silent: boolean): boolean => {
-    const start = state.pos
-    if (state.src.slice(start, start + 2) !== '\\(') return false
-    if (inlineStatesWithoutLatexClose.has(state)) return false
-
-    let end = start + 2
-    while (end < state.src.length) {
-      if (state.src.slice(end, end + 2) === '\\)' && !isEscapedDelimiter(state.src, end)) break
-      end++
-    }
-    if (end >= state.src.length) {
-      inlineStatesWithoutLatexClose.add(state)
-      return false
-    }
-
-    if (!silent) {
-      const latex = state.src.slice(start + 2, end)
+  installMathRules(md)
+  for (const kind of ['math_inline', 'math_block']) {
+    md.renderer.rules[kind] = (tokens, index) => {
+      const latex = tokens[index].content
+      const displayMode = kind === 'math_block'
       try {
-        const html = katex.renderToString(latex, { throwOnError: false })
-        const token = state.push('html_inline', '', 0)
-        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->`
-      } catch (e) {
-        const token = state.push('html_inline', '', 0)
-        token.content = `<span class="katex-error">${latex}</span>`
+        const html = katex.renderToString(latex, { throwOnError: false, ...(displayMode ? { displayMode: true } : {}) })
+        return `<!--KATEX_START-->${html}<!--KATEX_END-->${displayMode ? '\n' : ''}`
+      } catch {
+        return displayMode ? `<div class="katex-error">${latex}</div>\n` : `<span class="katex-error">${latex}</span>`
       }
     }
-
-    state.pos = end + 2
-    return true
-  })
-
-  // 块级数学公式 $$...$$
-  md.block.ruler.before('fence', 'math_block', (state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean => {
-    let pos = state.bMarks[startLine] + state.tShift[startLine]
-    let max = state.eMarks[startLine]
-
-    if (pos + 2 > max) return false
-    if (state.src.slice(pos, pos + 2) !== '$$') return false
-
-    pos += 2
-    let firstLine = state.src.slice(pos, max)
-
-    if (firstLine.trim().endsWith('$$')) {
-      firstLine = firstLine.trim().slice(0, -2)
-      const latex = firstLine
-      if (!silent) {
-        try {
-          const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
-          const token = state.push('html_block', '', 0)
-          token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->\n`
-        } catch (e) {
-          const token = state.push('html_block', '', 0)
-          token.content = `<div class="katex-error">${latex}</div>\n`
-        }
-      }
-      state.line = startLine + 1
-      return true
-    }
-
-    let nextLine = startLine
-    let lastLine = startLine
-    let lastPos = pos
-
-    while (nextLine < endLine) {
-      nextLine++
-      if (nextLine >= endLine) break
-
-      pos = state.bMarks[nextLine] + state.tShift[nextLine]
-      max = state.eMarks[nextLine]
-
-      if (pos < max && state.src.slice(pos, max).trim().endsWith('$$')) {
-        lastPos = state.src.slice(pos, max).lastIndexOf('$$')
-        lastLine = nextLine
-        break
-      }
-    }
-
-    if (lastLine === startLine) return false
-
-    if (!silent) {
-      const content = state.getLines(startLine, lastLine + 1, 0, false)
-      // 跳过开头的 $$ 和 firstLine 内容，取到结尾 $$ 之前的内容
-      const startOffset = 2 + firstLine.length  // "$$" 占 2 个字符
-      const latex = content.slice(startOffset, content.lastIndexOf('$$')).trim()
-      try {
-        const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
-        const token = state.push('html_block', '', 0)
-        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->\n`
-      } catch (e) {
-        const token = state.push('html_block', '', 0)
-        token.content = `<div class="katex-error">${latex}</div>\n`
-      }
-    }
-
-    state.line = lastLine + 1
-    return true
-  }, { alt: ['paragraph', 'reference', 'blockquote', 'list'] })
-
-  // 兼容 LaTeX 块级公式 \[...\]，避免定界符先被 markdown-it 当作转义字符
-  md.block.ruler.before('fence', 'math_block_latex', (state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean => {
-    let pos = state.bMarks[startLine] + state.tShift[startLine]
-    let max = state.eMarks[startLine]
-    const openingLine = state.src.slice(pos, max).trim()
-    if (openingLine !== '\\[') return false
-
-    const firstLine = ''
-
-    let lastLine = startLine
-    const latexLines = [firstLine]
-    for (let nextLine = startLine + 1; nextLine < endLine; nextLine++) {
-      pos = state.bMarks[nextLine] + state.tShift[nextLine]
-      max = state.eMarks[nextLine]
-      const line = state.src.slice(pos, max)
-      const trimmedLine = line.trim()
-      if (trimmedLine === '\\]') {
-        latexLines.push(line.slice(0, line.lastIndexOf('\\]')))
-        lastLine = nextLine
-        break
-      }
-      if (
-        state.isEmpty(nextLine)
-        || trimmedLine === '\\['
-        || /^(?:>\s*|[-+*]\s+|\d+[.)]\s+)\\\[$/.test(trimmedLine)
-      ) return false
-      latexLines.push(line)
-    }
-    if (lastLine === startLine) return false
-    if (!silent) {
-      const latex = latexLines.join('\n').trim()
-      try {
-        const html = katex.renderToString(latex, { throwOnError: false, displayMode: true })
-        const token = state.push('html_block', '', 0)
-        token.content = `<!--KATEX_START-->${html}<!--KATEX_END-->\n`
-      } catch (e) {
-        const token = state.push('html_block', '', 0)
-        token.content = `<div class="katex-error">${latex}</div>\n`
-      }
-    }
-    state.line = lastLine + 1
-    return true
-  }, { alt: ['paragraph', 'reference', 'blockquote', 'list'] })
+  }
 
   // ✅ 自定义标题渲染，为标题添加 id 属性支持目录跳转
   md.renderer.rules.heading_open = (tokens: Token[], idx: number, options: MdOptions, env: { _allocateHeadingId?: (text: string) => string }, self: Renderer): string => {
@@ -358,7 +230,7 @@ export const DOMPURIFY_CONFIG: Record<string, unknown> = {
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'p', 'a', 'ul', 'ol', 'li', 'blockquote',
     'code', 'pre', 'strong', 'em', 'del', 's', 'u',
-    'hr', 'br', 'img',
+    'hr', 'br', 'img', 'video', 'audio', 'source', 'track',
 
     // 表格标签
     'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'col', 'colgroup',
@@ -425,7 +297,11 @@ export const DOMPURIFY_CONFIG: Record<string, unknown> = {
     'data-plantuml-code',
 
     // 通用属性
-    'lang', 'dir', 'start', 'type', 'reversed', 'open'
+    'lang', 'dir', 'start', 'type', 'reversed', 'open',
+
+    // 本地媒体属性（sanitize 后还会重建为 inert canonical marker）
+    'controls', 'preload', 'playsinline', 'muted', 'poster',
+    'kind', 'srclang', 'label', 'default', 'aria-label'
   ],
 
   // ========== CSS 样式白名单（严格限制）==========
@@ -474,7 +350,6 @@ export const DOMPURIFY_CONFIG: Record<string, unknown> = {
     'object', 'embed', 'applet',
     'iframe',  // iframe 有特殊处理，暂时全部禁止
     'form', 'input', 'button', 'textarea', 'select',
-    'video', 'audio', 'track', 'source',
     'frame', 'frameset', 'noframes'
   ],
 
@@ -548,6 +423,9 @@ export function setupDOMPurifyHooks(): void {
   const ALLOWED_CLASSES = new Set([
     // Markdown 渲染相关
     'markdown-body', 'highlight', 'code-block',
+    'wiki-link', 'wiki-embed-card', 'wiki-embed-label',
+    'local-media-placeholder', 'local-media-player', 'local-media-fallback',
+    'local-media-label', 'local-media-track-warning',
 
     // 表格样式
     'table', 'table-bordered', 'table-striped',
@@ -705,8 +583,8 @@ export function setupDOMPurifyHooks(): void {
       }
     }
 
-    // 验证 href 和 src 属性（阻止危险协议）
-    if (data.attrName === 'href' || data.attrName === 'src') {
+    // 验证 href、src 和 poster 属性（阻止危险协议）
+    if (data.attrName === 'href' || data.attrName === 'src' || data.attrName === 'poster') {
       if (DANGEROUS_PROTOCOLS.test(data.attrValue)) {
         data.keepAttr = false
       }
@@ -715,6 +593,15 @@ export function setupDOMPurifyHooks(): void {
     // 验证 style 属性（阻止危险的 CSS 属性）
     if (data.attrName === 'style') {
       const element = node as Element
+      if (element.matches('video, audio, source, track')) {
+        const safeMediaStyles = data.attrValue
+          .split(';')
+          .map(style => style.trim())
+          .filter(style => /^(?:width\s*:\s*100%|height\s*:\s*auto)$/i.test(style))
+        if (safeMediaStyles.length === 0) data.keepAttr = false
+        else data.attrValue = safeMediaStyles.join('; ')
+        return
+      }
       const parent = element.parentElement
       const insideKatex = element.closest('.katex') !== null
       const isKatexVlistItem = insideKatex
@@ -777,9 +664,53 @@ export function setupDOMPurifyHooks(): void {
  * @returns 消毒后的安全 HTML
  * @version v1.4.6
  */
-export function sanitizeHtml(html: string): string {
+export function prepareMarkdownRender(md: MarkdownIt, source: string): { html: string; proofs: ReadonlyMap<string, string> } {
+  const env = {}
+  const tokens = md.parse(source, env)
+  const blocks = collectMarkdownBlocks(source, tokens)
+  const counts = new Map<string, number>()
+  for (const block of blocks) counts.set(block.id, (counts.get(block.id) ?? 0) + 1)
+  const proofs = new Map<string, string>()
+  const nonce = crypto.randomUUID()
+  for (const [index, block] of blocks.entries()) {
+    if (counts.get(block.id) !== 1) continue
+    const proof = `md-render-block:${nonce}:${index}`
+    block.owner.attrSet('id', proof)
+    proofs.set(proof, block.id)
+  }
+  return { html: md.renderer.render(tokens, md.options, env), proofs }
+}
+
+export function renderMarkdown(md: MarkdownIt, source: string): string {
+  const rendered = prepareMarkdownRender(md, source)
+  return sanitizeHtml(rendered.html, rendered.proofs)
+}
+
+export function sanitizeHtml(html: string, proofs: ReadonlyMap<string, string> = new Map()): string {
   // React effect 晚于首轮 render；在真正消毒前同步安装 hook，避免首个恢复文档与后续文档策略不一致。
   setupDOMPurifyHooks()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return String(DOMPurify.sanitize(html, DOMPURIFY_CONFIG as any))
+  const sanitized = String(DOMPurify.sanitize(html, DOMPURIFY_CONFIG as any))
+  const template = document.createElement('template')
+  template.innerHTML = canonicalizeLocalMediaMarkup(sanitized)
+  const ids = new Set<string>()
+  const proofCounts = new Map<string, number>()
+  for (const element of template.content.querySelectorAll('[id]')) proofCounts.set(element.id, (proofCounts.get(element.id) ?? 0) + 1)
+  for (const element of template.content.querySelectorAll('[id]')) {
+    const id = element.id
+    if (!id.startsWith(BLOCK_ANCHOR_PREFIX) && !id.startsWith('md-render-block:')) continue
+    element.removeAttribute('id')
+    const block = proofs.get(id)
+    if (block && proofCounts.get(id) === 1 && BLOCK_ID_PATTERN.test(block)) {
+      element.id = BLOCK_ANCHOR_PREFIX + block
+      ids.add(block)
+    }
+  }
+  for (const anchor of template.content.querySelectorAll('a[href]')) {
+    let fragment = anchor.getAttribute('href') ?? ''
+    if (!fragment.startsWith('#')) continue
+    try { fragment = decodeURIComponent(fragment.slice(1)) } catch { continue }
+    if (fragment.startsWith('^') && ids.has(fragment.slice(1))) anchor.setAttribute('href', '#' + BLOCK_ANCHOR_PREFIX + fragment.slice(1))
+  }
+  return template.innerHTML
 }

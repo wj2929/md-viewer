@@ -5,6 +5,7 @@ interface FileState {
   folderPath: string | null
   files: FileInfo[]
   isLoading: boolean
+  treeMetadataRefresh: number
   selectedPaths: Set<string>
 }
 
@@ -15,6 +16,7 @@ interface FileActions {
   setSelectedPaths: (paths: Set<string>) => void
   toggleSelection: (path: string) => void
   clearSelection: () => void
+  refreshTreeMetadata: () => void
 }
 
 type FileStore = FileState & FileActions
@@ -23,6 +25,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
   folderPath: null,
   files: [],
   isLoading: false,
+  treeMetadataRefresh: 0,
+  refreshTreeMetadata: () => set(state => ({ treeMetadataRefresh: state.treeMetadataRefresh + 1 })),
   selectedPaths: new Set(),
 
   setFolderPath: (path) => set({ folderPath: path, selectedPaths: new Set() }),

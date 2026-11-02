@@ -342,6 +342,7 @@ ipcMain.handle('context-menu:recent-folder', async (event, historyId: string) =>
 // v1.4.0：新增页面内搜索和查看快捷键入口
 // v1.4.2：新增打印和字体大小调节
 ipcMain.handle('preview:show-context-menu', async (event, params: {
+  readOnly?: boolean
   filePath: string
   tabId?: string
   leafId?: string | null
@@ -356,6 +357,18 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   linkHref: string | null
   basePath: string | null
 }) => {
+  // 只读菜单不使用文件路径；此标记只能删减动作，不能授予文件权限。
+  if (params.readOnly) {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window) Menu.buildFromTemplate([
+      { label: '外部只读 · 临时', enabled: false },
+      { label: '🔍 页面内搜索', click: () => event.sender.send('shortcut:open-in-page-search') },
+      { label: '📋 复制选中内容', enabled: params.hasSelection, click: () => event.sender.copy() },
+      { label: '📋 复制为 Markdown', click: () => event.sender.send('markdown:copy-source') },
+      { label: '📝 复制为纯文本', click: () => event.sender.send('markdown:copy-plain-text') },
+    ]).popup({ window })
+    return
+  }
   // ⚠️ 安全校验：按发起窗口根目录校验
   await validateSenderReadPath(ctx, event, params.filePath)
 

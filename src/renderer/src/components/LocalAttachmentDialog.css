@@ -1,0 +1,57 @@
+.local-attachment-backdrop {
+  position: fixed; inset: 0; z-index: 12000;
+  background: rgb(0 0 0 / 45%); display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.local-attachment-dialog {
+  width: min(1000px, 100%); max-height: calc(100vh - 40px); min-width: 0;
+  display: flex; flex-direction: column; gap: 12px; padding: 20px;
+  border: 1px solid var(--border-color); border-radius: 10px;
+  background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
+}
+.local-attachment-dialog header { display: flex; align-items: center; gap: 12px; }
+.local-attachment-dialog h2 { font-size: 16px; margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.local-attachment-dialog h2 span { font-weight: normal; color: var(--text-secondary); }
+.local-attachment-dialog p { margin: 0; overflow-wrap: anywhere; }
+.local-attachment-dialog button {
+  border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);
+  padding: 6px 10px; border-radius: 5px; cursor: pointer;
+}
+.local-attachment-dialog button:disabled { opacity: .5; cursor: default; }
+.local-attachment-dialog button[aria-pressed="true"] { border-color: var(--accent-color); }
+.local-attachment-dialog button:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.local-attachment-path { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.local-attachment-meta { color: var(--text-secondary); font-size: 12px; }
+.local-attachment-tools, .local-attachment-dialog footer { display: flex; gap: 8px; flex-wrap: wrap; }
+.local-attachment-dialog footer button:last-child { margin-left: auto; }
+.local-attachment-content { height: min(62vh, 650px); min-height: 160px; min-width: 0; overflow: hidden; }
+.local-attachment-content .markdown-editor-pane { height: 100%; }
+.local-attachment-content .cm-editor { height: 100%; }
+.local-attachment-content .cm-scroller { overflow: auto; }
+.local-attachment-content .cm-gutters, .local-attachment-content .cm-search {
+  background: var(--bg-secondary); color: var(--text-secondary); border-color: var(--border-color);
+}
+.local-attachment-content .cm-activeLineGutter { background: var(--accent-color-alpha); }
+.local-attachment-content .cm-search input { background: var(--bg-primary); color: var(--text-primary); }
+.local-attachment-highlight { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.local-attachment-content .markdown-editor-pane.readonly { opacity: 1; }
+.local-attachment-dialog {
+  --attachment-keyword: #8250df; --attachment-string: #0a6659; --attachment-number: #0550ae;
+  --attachment-property: #953800; --attachment-type: #9a2441; --attachment-comment: #57606a;
+}
+:root[data-theme="dark"] .local-attachment-dialog {
+  --attachment-keyword: #d2a8ff; --attachment-string: #a5d6ff; --attachment-number: #79c0ff;
+  --attachment-property: #ffa657; --attachment-type: #ff9bba; --attachment-comment: #9da7b3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .local-attachment-dialog {
+    --attachment-keyword: #d2a8ff; --attachment-string: #a5d6ff; --attachment-number: #79c0ff;
+    --attachment-property: #ffa657; --attachment-type: #ff9bba; --attachment-comment: #9da7b3;
+  }
+}
+.local-attachment-content .attachment-token-keyword { color: var(--attachment-keyword); }
+.local-attachment-content .attachment-token-string { color: var(--attachment-string); }
+.local-attachment-content .attachment-token-number { color: var(--attachment-number); }
+.local-attachment-content .attachment-token-property { color: var(--attachment-property); }
+.local-attachment-content .attachment-token-type { color: var(--attachment-type); }
+.local-attachment-content .attachment-token-comment { color: var(--attachment-comment); font-style: italic; }

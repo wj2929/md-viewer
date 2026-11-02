@@ -3,7 +3,8 @@ import { readFileWithCache, clearFileCache, getCacheStats } from '../../src/util
 
 // Mock window.api
 const mockApi = {
-  readFile: vi.fn()
+  readFile: vi.fn(),
+  recordDiagnosticRendererEvent: vi.fn(),
 }
 
 global.window.api = mockApi as any
@@ -41,6 +42,23 @@ describe('fileCache 工具函数测试', () => {
       expect(content).toBe('# Test Content')
       // API 只应该被调用一次（第二次从缓存读取）
       expect(mockApi.readFile).toHaveBeenCalledTimes(1)
+    })
+
+    it('watcher 失效后的诊断读取标记为 invalidated-by-watcher', async () => {
+      mockApi.readFile.mockResolvedValue('# Changed Content')
+      clearFileCache('/test/file.md', 'watcher')
+
+      await readFileWithCache('/test/file.md', true, {
+        context: { operationId: 'file_12345678', source: 'watcher' },
+        startedMonotonicMs: performance.now(),
+        startedUnixMs: Date.now(),
+      })
+
+      expect(mockApi.recordDiagnosticRendererEvent).toHaveBeenCalledWith(expect.objectContaining({
+        event: 'file.io.client',
+        operationId: 'file_12345678',
+        metadata: expect.objectContaining({ cacheOutcome: 'invalidated-by-watcher' }),
+      }))
     })
 
     it('不同的文件应该分别缓存', async () => {

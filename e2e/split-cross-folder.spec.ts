@@ -32,6 +32,8 @@ test.describe('跨文件夹分屏打开', () => {
     try {
       await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fileB)
       await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+      await expect(page.locator('.markdown-body h1')).toHaveText('Cross')
+      await expect(page.locator('.tab', { hasText: 'cross.md' })).toHaveAttribute('aria-selected', 'true')
       await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fileA)
       await page.waitForSelector('.file-tree-container', { timeout: 10000 })
       await expect(page.locator('.markdown-body h1')).toHaveText('A')
@@ -79,6 +81,8 @@ test.describe('跨文件夹分屏打开', () => {
       // 先打开 B（进入历史/最近），再打开 A（窗口当前根 = A 所在文件夹）
       await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fileB)
       await page.waitForSelector('.file-tree-container', { timeout: 10000 })
+      await expect(page.locator('.markdown-body h1')).toHaveText('Cross')
+      await expect(page.locator('.tab', { hasText: 'cross.md' })).toHaveAttribute('aria-selected', 'true')
       await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fileA)
       await page.waitForSelector('.file-tree-container', { timeout: 10000 })
       await expect(page.locator('.markdown-body h1')).toHaveText('A')

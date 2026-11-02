@@ -3,6 +3,7 @@ import * as fs from 'fs-extra'
 import * as path from 'path'
 import * as os from 'os'
 import { createHash, randomUUID } from 'crypto'
+import { performance } from 'perf_hooks'
 import { createCrossRootMoveImpactReport } from '../linking/CrossRootLinkImpactPlanner'
 import type { CrossRootMoveMapping } from '../../shared/crossRootMoveImpact'
 import { hasIgnoredPathSegment, isWatchPathSafe, workspaceWatchService } from '../watching/WorkspaceWatchService'
@@ -18,6 +19,11 @@ import {
   validateWorkspaceWritePath,
 } from './senderSecurity'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
+import { IMAGE_MIME_TYPES, type LocalResourceResolutionKind } from '../../shared/localMedia'
+import { resolveAuthorizedWorkspaceResource } from '../localResourceResolver'
+import { sanitizeDiagnosticTraceContext, type DiagnosticMetadata } from '../../shared/diagnostics'
+import { WatchReconcileSupersededError } from '../../shared/workspaceWatch'
+import { registerFileTreeSortHandlers } from './fileTreeSortHandlers'
 
 // 文件信息接口
 interface FileInfo {
@@ -31,16 +37,18 @@ interface FileInfo {
 // ============== 文件监听器状态 ==============
 
 const PREVIEWABLE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.excalidraw'])
-const LOCAL_ASSET_MIME_TYPES = new Map<string, string>([
-  ['.png', 'image/png'],
-  ['.jpg', 'image/jpeg'],
-  ['.jpeg', 'image/jpeg'],
-  ['.gif', 'image/gif'],
-  ['.webp', 'image/webp'],
-  ['.svg', 'image/svg+xml'],
-])
 const MAX_LOCAL_ASSET_SIZE = 10 * 1024 * 1024
 const DUPLICATE_SUFFIX_PATTERN = / - 副本(?: [1-9]\d*)?$/
+
+function diagnosticFileSizeBucket(bytes: number): string {
+  if (bytes < 4 * 1024) return '0-4KiB'
+  if (bytes < 16 * 1024) return '4-16KiB'
+  if (bytes < 64 * 1024) return '16-64KiB'
+  if (bytes < 256 * 1024) return '64-256KiB'
+  if (bytes < 1024 * 1024) return '256KiB-1MiB'
+  if (bytes <= 5 * 1024 * 1024) return '1-5MiB'
+  return '5MiB+'
+}
 
 async function validateClipboardSourceOrWorkspaceRoot(
   ctx: IPCContext,
@@ -209,26 +217,82 @@ function getWorkspaceWatcherKey(webContentsId: number, workspaceId: string): str
   return `${webContentsId}:${workspaceId}`
 }
 
+const watchReconciliations = new Map<string, {
+  key: string
+  epoch: number
+  senderId: number
+  isCurrent: () => boolean
+  resolve: () => void
+  reject: (result?: 'superseded' | 'failed') => void
+  timer: ReturnType<typeof setTimeout>
+}>()
+
+function cancelWatchReconciliations(key: string, epoch?: number): void {
+  for (const [id, pending] of watchReconciliations) {
+    if (pending.key !== key || (epoch !== undefined && pending.epoch !== epoch)) continue
+    clearTimeout(pending.timer)
+    watchReconciliations.delete(id)
+    pending.reject('superseded')
+  }
+}
+
 function createWatcherSubscription(
   ctx: IPCContext,
   sender: Electron.WebContents,
   context: WorkspaceWatchContext,
 ): import('../watching/WorkspaceWatchService').WorkspaceWatchSubscription {
   const key = getWorkspaceWatcherKey(sender.id, context.workspaceId)
-  const subscription = {
+  const previous = watcherSubscriptions.get(key)
+  if (previous && previous.lifecycleEpoch === context.lifecycleEpoch && previous.primaryRoot === context.primaryRoot) return previous
+  cancelWatchReconciliations(key)
+  const isCurrent = (): boolean => {
+    if (sender.isDestroyed()) return false
+    if (!context.strict) return watcherSubscriptions.get(key) === subscription
+    const window = BrowserWindow.fromWebContents(sender)
+    if (!window || (typeof window.isDestroyed === 'function' && window.isDestroyed())) return false
+    const workspace = ctx.windowManager.getWorkspace(window.id, context.workspaceId)
+    return Boolean(workspace && workspace.lifecycleEpoch === context.lifecycleEpoch && workspace.primaryRoot === context.primaryRoot &&
+      watcherSubscriptions.get(key) === subscription)
+  }
+  const inFlight = new Map<string, Promise<void>>()
+  const followUp = new Map<string, Promise<void>>()
+  const subscription: import('../watching/WorkspaceWatchService').WorkspaceWatchSubscription = {
     key,
     ...context,
-    deliver: (channel: import('../watching/WorkspaceWatchService').WorkspaceWatchChannel, event: import('../watching/WorkspaceWatchService').WorkspaceWatchEvent) => {
-      if (sender.isDestroyed()) return
-      if (context.strict) {
-        const window = BrowserWindow.fromWebContents(sender)
-        if (!window || (typeof window.isDestroyed === 'function' && window.isDestroyed())) return
-        const workspace = ctx.windowManager.getWorkspace(window.id, context.workspaceId)
-        if (!workspace || workspace.lifecycleEpoch !== context.lifecycleEpoch || workspace.primaryRoot !== context.primaryRoot) return
-      }
-      sender.send(channel, event)
+    isCurrent,
+    deliver: (channel, event) => { if (isCurrent()) sender.send(channel, event) },
+    onHealth: status => {
+      if (isCurrent()) sender.send('watch:status', { workspaceId: context.workspaceId, lifecycleEpoch: context.lifecycleEpoch, status })
     },
-    onFolderRemoved: (rootPath: string, removedPath: string) => {
+    reconcile: phase => {
+      if (!isCurrent()) return Promise.reject(new WatchReconcileSupersededError())
+      const existing = inFlight.get(phase)
+      if (existing) {
+        let trailing = followUp.get(phase)
+        if (!trailing) {
+          trailing = existing.catch(() => {}).then(() => {
+            followUp.delete(phase)
+            return subscription.reconcile!(phase)
+          })
+          followUp.set(phase, trailing)
+        }
+        return trailing
+      }
+      if (watchReconciliations.size >= 256) return Promise.reject(new Error('监听补查请求已达上限'))
+      const requestId = randomUUID()
+      const promise = new Promise<void>((resolve, reject) => {
+        const fail = (result: 'superseded' | 'failed' = 'failed'): void => {
+          watchReconciliations.delete(requestId)
+          reject(result === 'superseded' ? new WatchReconcileSupersededError() : new Error('文档变更补查未完成'))
+        }
+        const timer = setTimeout(fail, 30000)
+        watchReconciliations.set(requestId, { key, epoch: context.lifecycleEpoch, senderId: sender.id, isCurrent, resolve, reject: fail, timer })
+        sender.send('watch:reconcile', { workspaceId: context.workspaceId, lifecycleEpoch: context.lifecycleEpoch, requestId, phase })
+      }).finally(() => { if (inFlight.get(phase) === promise) inFlight.delete(phase) })
+      inFlight.set(phase, promise)
+      return promise
+    },
+    onFolderRemoved: (rootPath, removedPath) => {
       const changed = ctx.appDataManager?.removeDocumentMarks(rootPath, removedPath, true)
       if (changed) void broadcastDocumentMarksChanged(ctx)
     },
@@ -237,22 +301,44 @@ function createWatcherSubscription(
   return subscription
 }
 
-function cleanupWorkspaceWatchers(webContentsId: number, workspaceId?: string): void {
+function captureWatchAccess(senderId: number): ((canonicalPath: string) => void) | undefined {
+  const accesses = [...watcherSubscriptions.values()]
+    .filter(subscription => subscription.key.startsWith(`${senderId}:`))
+    .map(subscription => workspaceWatchService.captureAccess(subscription))
+  return accesses.length ? canonicalPath => { for (const accessed of accesses) accessed(canonicalPath) } : undefined
+}
+
+function cleanupWorkspaceWatchers(webContentsId: number, workspaceId?: string, epoch?: number): void {
   const key = workspaceId ? getWorkspaceWatcherKey(webContentsId, workspaceId) : null
-  workspaceWatchService.cleanupWebContents(webContentsId, workspaceId)
-  for (const candidate of watcherSubscriptions.keys()) {
-    if (!candidate.startsWith(`${webContentsId}:`)) continue
-    if (key && candidate !== key) continue
+  workspaceWatchService.cleanupWebContents(webContentsId, workspaceId, epoch)
+  for (const [candidate, subscription] of watcherSubscriptions) {
+    if (!candidate.startsWith(`${webContentsId}:`) || (key && candidate !== key) ||
+      (epoch !== undefined && subscription.lifecycleEpoch !== epoch)) continue
+    cancelWatchReconciliations(candidate, epoch)
     watcherSubscriptions.delete(candidate)
   }
 }
 
-const previewScanInFlight = new Map<string, Promise<FileInfo[]>>()
+interface PreviewScanResult {
+  tree: FileInfo[]
+  globMs: number
+  treeBuildMs: number
+  sortMs: number
+  matchedFileCount: number
+  matchedDirectoryCount: number
+}
+
+interface PreviewScanWork {
+  promise: Promise<PreviewScanResult>
+  workId: string
+}
+
+const previewScanInFlight = new Map<string, PreviewScanWork>()
 
 // 使用 glob 快速扫描可预览文件
-async function scanPreviewableFiles(rootPath: string): Promise<FileInfo[]> {
+async function scanPreviewableFiles(rootPath: string): Promise<PreviewScanResult> {
   const { glob } = await import('glob')
-
+  const globStarted = performance.now()
   const previewFiles = await glob('**/*.{md,markdown,mdown,mkd,mkdn,excalidraw}', {
     cwd: rootPath,
     ignore: ['**/node_modules/**', '**/.*/**', '**/venv/**', '**/.venv/**', '**/env/**'],
@@ -260,24 +346,40 @@ async function scanPreviewableFiles(rootPath: string): Promise<FileInfo[]> {
     absolute: false,
     nocase: true
   })
-
-  return buildFileTree(rootPath, previewFiles)
+  const globMs = performance.now() - globStarted
+  const built = buildFileTree(rootPath, previewFiles)
+  return {
+    ...built,
+    globMs,
+    matchedFileCount: previewFiles.length,
+  }
 }
 
-function scanPreviewableFilesSingleFlight(rootPath: string): Promise<FileInfo[]> {
+function scanPreviewableFilesSingleFlight(rootPath: string): {
+  promise: Promise<PreviewScanResult>
+  workId: string
+  joinedSingleFlight: boolean
+} {
   const existing = previewScanInFlight.get(rootPath)
-  if (existing) return existing
+  if (existing) return { ...existing, joinedSingleFlight: true }
 
-  let scan: Promise<FileInfo[]>
-  scan = scanPreviewableFiles(rootPath).finally(() => {
-    if (previewScanInFlight.get(rootPath) === scan) previewScanInFlight.delete(rootPath)
+  const workId = `scan_${randomUUID()}`
+  let promise: Promise<PreviewScanResult>
+  promise = scanPreviewableFiles(rootPath).finally(() => {
+    if (previewScanInFlight.get(rootPath)?.promise === promise) previewScanInFlight.delete(rootPath)
   })
-  previewScanInFlight.set(rootPath, scan)
-  return scan
+  previewScanInFlight.set(rootPath, { promise, workId })
+  return { promise, workId, joinedSingleFlight: false }
 }
 
 // 从 glob 结果构建文件树
-function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
+function buildFileTree(rootPath: string, relativePaths: string[]): {
+  tree: FileInfo[]
+  treeBuildMs: number
+  sortMs: number
+  matchedDirectoryCount: number
+} {
+  const started = performance.now()
   const tree: FileInfo[] = []
   const dirMap = new Map<string, FileInfo>()
 
@@ -340,7 +442,15 @@ function buildFileTree(rootPath: string, relativePaths: string[]): FileInfo[] {
     })
   }
 
-  return sortTree(tree)
+  const treeBuildMs = performance.now() - started
+  const sortStarted = performance.now()
+  const sortedTree = sortTree(tree)
+  return {
+    tree: sortedTree,
+    treeBuildMs,
+    sortMs: performance.now() - sortStarted,
+    matchedDirectoryCount: dirMap.size,
+  }
 }
 
 export { hasIgnoredPathSegment } from '../watching/WorkspaceWatchService'
@@ -355,6 +465,7 @@ export function getFileWatcherState() {
 }
 
 export function registerFileHandlers(ctx: IPCContext): void {
+  registerFileTreeSortHandlers(ctx)
   if (process.env.NODE_ENV === 'test') {
     ipcMain.handle('test:openMarkdownFile', async (event, filePath: string) => {
       const resolvedPath = path.resolve(filePath)
@@ -396,19 +507,86 @@ export function registerFileHandlers(ctx: IPCContext): void {
       return null
     }
 
-    return activateFolderForWindow(ctx, window, result.filePaths[0])
+    return activateFolderForWindow(ctx, window, result.filePaths[0], {
+      diagnosticSource: 'user',
+    })
   })
 
   // 读取目录
-  ipcMain.handle('fs:readDir', async (event, dirPath: string) => {
+  ipcMain.handle('fs:readDir', async (event, dirPath: string, rawTrace?: unknown) => {
+    const started = performance.now()
+    const requestId = `scan_request_${randomUUID()}`
+    const trace = sanitizeDiagnosticTraceContext(rawTrace)
+    let operationId: string | undefined
+    let source = 'unknown'
+    let resolvedDirectory: string | null = null
+    let workId: string | undefined
+    const accessed = captureWatchAccess(event.sender.id)
     try {
-      const resolvedDirectory = await validateSenderReadPath(ctx, event, dirPath)
-
-      const startTime = Date.now()
-      const result = await scanPreviewableFilesSingleFlight(resolvedDirectory)
-      console.log(`[MAIN] Scanned ${dirPath} in ${Date.now() - startTime}ms, found ${result.length} items`)
-      return result
+      resolvedDirectory = await validateSenderReadPath(ctx, event, dirPath)
+      const registeredOperation = trace && ctx.diagnosticEventLogService?.isRegisteredOperation(
+        event.sender.id,
+        trace.operationId,
+        'folder',
+        resolvedDirectory,
+      )
+        ? { operationId: trace.operationId, source: trace.source }
+        : ctx.diagnosticEventLogService?.findRegisteredOperation(
+            event.sender.id,
+            'folder',
+            resolvedDirectory,
+          )
+      operationId = registeredOperation?.operationId
+      source = registeredOperation?.source ?? 'unknown'
+      const scan = scanPreviewableFilesSingleFlight(resolvedDirectory)
+      workId = scan.workId
+      const result = await scan.promise
+      // glob can silently return [] for an unreadable root; an empty result is not access proof.
+      if (accessed && result.matchedFileCount === 0) await fs.readdir(resolvedDirectory)
+      accessed?.(resolvedDirectory)
+      const durationMs = performance.now() - started
+      ctx.diagnosticEventLogService?.recordMainEvent({
+        event: 'folder.scan.summary',
+        ...(operationId ? { operationId } : {}),
+        rawWorkspacePath: resolvedDirectory,
+        outcome: 'success',
+        metadata: {
+          source,
+          requestId,
+          workId,
+          joinedSingleFlight: scan.joinedSingleFlight,
+          durationMs,
+          globMs: result.globMs,
+          treeBuildMs: result.treeBuildMs,
+          sortMs: result.sortMs,
+          matchedFileCount: result.matchedFileCount,
+          matchedDirectoryCount: result.matchedDirectoryCount,
+          rootNodeCount: result.tree.length,
+        },
+      })
+      if (operationId) {
+        ctx.diagnosticEventLogService?.completeRegisteredOperation(event.sender.id, operationId)
+      }
+      console.log(`[MAIN] Scanned ${dirPath} in ${Math.round(durationMs)}ms, found ${result.matchedFileCount} previewable files`)
+      return result.tree
     } catch (error) {
+      ctx.diagnosticEventLogService?.recordMainEvent({
+        event: 'folder.scan.summary',
+        ...(operationId ? { operationId } : {}),
+        rawWorkspacePath: resolvedDirectory ?? dirPath,
+        outcome: 'error',
+        metadata: {
+          source,
+          requestId,
+          ...(workId ? { workId } : {}),
+          durationMs: performance.now() - started,
+          errorCode: 'DIRECTORY_SCAN_FAILED',
+        },
+        priority: 'critical',
+      })
+      if (operationId) {
+        ctx.diagnosticEventLogService?.completeRegisteredOperation(event.sender.id, operationId)
+      }
       console.error('Failed to read directory:', error)
       if (error instanceof Error && error.message.includes('安全错误')) {
         throw error
@@ -443,21 +621,90 @@ export function registerFileHandlers(ctx: IPCContext): void {
   })
 
   // 读取文件内容
-  ipcMain.handle('fs:readFile', async (event, filePath: string) => {
-    try {
-      const resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
+  ipcMain.handle('fs:readFile', async (event, filePath: string, rawTrace?: unknown) => {
+    const handlerStarted = performance.now()
+    const trace = sanitizeDiagnosticTraceContext(rawTrace)
+    const operationId = trace?.operationId ?? `file_${randomUUID()}`
+    const source = trace?.source ?? 'unknown'
+    let resolvedFilePath: string | null = null
+    let authorizationMs = 0
+    let statMs = 0
+    let readWallMs = 0
+    let fileSize = 0
+    let phase: 'authorization' | 'stat' | 'read' | 'size' = 'authorization'
+    const accessed = captureWatchAccess(event.sender.id)
+    if (trace) ctx.diagnosticEventLogService?.registerOperation(event.sender.id, operationId)
 
+    try {
+      const authorizationStarted = performance.now()
+      resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
+      authorizationMs = performance.now() - authorizationStarted
+
+      phase = 'stat'
+      const statStarted = performance.now()
       const stats = await fs.stat(resolvedFilePath)
+      statMs = performance.now() - statStarted
+      fileSize = stats.size
       const MAX_SIZE = 5 * 1024 * 1024
 
       if (stats.size > MAX_SIZE) {
+        phase = 'size'
         const sizeMB = (stats.size / 1024 / 1024).toFixed(2)
         throw new Error(`文件过大 (${sizeMB}MB)，请选择小于 5MB 的文件`)
       }
 
+      phase = 'read'
+      const readStarted = performance.now()
       const content = await fs.readFile(resolvedFilePath, 'utf-8')
+      accessed?.(resolvedFilePath)
+      readWallMs = performance.now() - readStarted
+      const indexActivity = ctx.workspaceIndexService?.getDiagnosticActivity() ?? {
+        activeIndexBuilds: 0,
+        activeIndexReads: 0,
+      }
+      ctx.diagnosticEventLogService?.recordMainEvent({
+        event: 'file.io.summary',
+        operationId,
+        rawPath: resolvedFilePath,
+        outcome: 'success',
+        metadata: {
+          source,
+          authorizationMs,
+          statMs,
+          readWallMs,
+          mainHandlerMs: performance.now() - handlerStarted,
+          fileSizeBucket: diagnosticFileSizeBucket(fileSize),
+          activeIndexBuilds: indexActivity.activeIndexBuilds,
+          activeIndexReads: indexActivity.activeIndexReads,
+          writerWriteActive: ctx.diagnosticEventLogService?.getHealth().writerWriteActive ?? false,
+        },
+      })
       return content
     } catch (error) {
+      const errorCode = phase === 'authorization'
+        ? 'FILE_AUTHORIZATION_FAILED'
+        : phase === 'stat'
+          ? 'FILE_STAT_FAILED'
+          : phase === 'size'
+            ? 'FILE_TOO_LARGE'
+            : 'FILE_READ_FAILED'
+      ctx.diagnosticEventLogService?.recordMainEvent({
+        event: 'file.io.summary',
+        operationId,
+        rawPath: resolvedFilePath ?? filePath,
+        outcome: 'error',
+        metadata: {
+          source,
+          authorizationMs,
+          statMs,
+          readWallMs,
+          mainHandlerMs: performance.now() - handlerStarted,
+          fileSizeBucket: diagnosticFileSizeBucket(fileSize),
+          errorCode,
+          writerWriteActive: ctx.diagnosticEventLogService?.getHealth().writerWriteActive ?? false,
+        },
+        priority: 'critical',
+      })
       if (error instanceof Error) {
         throw error
       }
@@ -469,6 +716,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
   ipcMain.handle('fs:readLocalAssetBase64', async (event, payload: {
     markdownFilePath: string
     refPath: string
+    resolutionKind?: LocalResourceResolutionKind
   }) => {
     const markdownFilePath = payload?.markdownFilePath
     const refPath = payload?.refPath
@@ -477,15 +725,22 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw new Error('缺少本地图片读取参数')
     }
 
-    const canonicalMarkdownPath = await validateSenderReadPath(ctx, event, markdownFilePath)
-    const resolvedPath = await validateSenderReadPath(
-      ctx,
-      event,
-      resolveMarkdownRelativePath(canonicalMarkdownPath, decodeURIComponent(refPath))
-    )
+    const resolutionKind = payload.resolutionKind ?? 'markdown-relative'
+    if (resolutionKind !== 'markdown-relative' && resolutionKind !== 'workspace-wiki') {
+      throw new Error('本地图片解析类型无效')
+    }
+    const resolvedPath = (
+      await resolveAuthorizedWorkspaceResource(
+        ctx,
+        event,
+        markdownFilePath,
+        refPath,
+        resolutionKind,
+      )
+    ).canonicalPath
 
     const ext = path.extname(resolvedPath).toLowerCase()
-    const mimeType = LOCAL_ASSET_MIME_TYPES.get(ext)
+    const mimeType = IMAGE_MIME_TYPES[ext]
     if (!mimeType) {
       throw new Error(`不支持的本地图片格式：${ext || '未知'}`)
     }
@@ -510,36 +765,49 @@ export function registerFileHandlers(ctx: IPCContext): void {
   ipcMain.handle('fs:readExcalidrawFile', async (event, payload: {
     markdownFilePath: string
     refPath: string
+    resolutionKind?: LocalResourceResolutionKind
   }) => {
     const markdownFilePath = payload?.markdownFilePath
     const refPath = payload?.refPath
+    const resolutionKind = payload?.resolutionKind ?? 'markdown-relative'
 
     if (!markdownFilePath || !refPath) {
       throw new Error('缺少 Excalidraw 文件读取参数')
+    }
+    if (resolutionKind !== 'markdown-relative' && resolutionKind !== 'workspace-wiki') {
+      throw new Error('Excalidraw 文件解析类型无效')
     }
     const hasUrlScheme = /^[a-z][a-z0-9+.-]*:/i.test(refPath)
     const isWindowsAbsolutePath = /^[a-z]:[\\/]/i.test(refPath)
     if (hasUrlScheme && !isWindowsAbsolutePath) {
       throw new Error('不支持 URL 形式的 .excalidraw 文件')
     }
-
-    await validateSenderReadPath(ctx, event, markdownFilePath)
-
-    const markdownDir = path.dirname(markdownFilePath)
-    const candidatePath = path.isAbsolute(refPath)
-      ? path.resolve(refPath)
-      : path.resolve(markdownDir, refPath)
-
-    if (path.extname(candidatePath).toLowerCase() !== '.excalidraw') {
+    if (path.extname(refPath).toLowerCase() !== '.excalidraw') {
       throw new Error('只能读取 .excalidraw 文件')
     }
 
-    const resolvedPath = await fs.realpath(candidatePath)
+    let resolvedPath: string
+    if (resolutionKind === 'workspace-wiki') {
+      resolvedPath = (await resolveAuthorizedWorkspaceResource(
+        ctx,
+        event,
+        markdownFilePath,
+        refPath,
+        resolutionKind,
+      )).canonicalPath
+    } else {
+      await validateSenderReadPath(ctx, event, markdownFilePath)
+      const markdownDir = path.dirname(markdownFilePath)
+      const candidatePath = path.isAbsolute(refPath)
+        ? path.resolve(refPath)
+        : path.resolve(markdownDir, refPath)
+      resolvedPath = await fs.realpath(candidatePath)
+      await validateSenderReadPath(ctx, event, resolvedPath)
+    }
+
     if (path.extname(resolvedPath).toLowerCase() !== '.excalidraw') {
       throw new Error('只能读取 .excalidraw 文件')
     }
-    await validateSenderReadPath(ctx, event, resolvedPath)
-
     const stats = await fs.stat(resolvedPath)
     if (!stats.isFile()) {
       throw new Error('目标不是普通文件')
@@ -557,12 +825,17 @@ export function registerFileHandlers(ctx: IPCContext): void {
   ipcMain.handle('fs:readBpmnFile', async (event, payload: {
     markdownFilePath: string
     refPath: string
+    resolutionKind?: LocalResourceResolutionKind
   }) => {
     const markdownFilePath = payload?.markdownFilePath
     const refPath = payload?.refPath
+    const resolutionKind = payload?.resolutionKind ?? 'markdown-relative'
 
     if (!markdownFilePath || !refPath) {
       throw new Error('缺少 BPMN 文件读取参数')
+    }
+    if (resolutionKind !== 'markdown-relative' && resolutionKind !== 'workspace-wiki') {
+      throw new Error('BPMN 文件解析类型无效')
     }
     const hasUrlScheme = /^[a-z][a-z0-9+.-]*:/i.test(refPath)
     const isWindowsAbsolutePath = /^[a-z]:[\\/]/i.test(refPath)
@@ -570,24 +843,32 @@ export function registerFileHandlers(ctx: IPCContext): void {
       throw new Error('不支持 URL 形式的 .bpmn 文件')
     }
 
-    await validateSenderReadPath(ctx, event, markdownFilePath)
-
     const cleanRefPath = refPath.split(/[?#]/, 1)[0] || refPath
-    const markdownDir = path.dirname(markdownFilePath)
-    const candidatePath = path.isAbsolute(cleanRefPath)
-      ? path.resolve(cleanRefPath)
-      : path.resolve(markdownDir, cleanRefPath)
-
-    if (path.extname(candidatePath).toLowerCase() !== '.bpmn') {
+    if (path.extname(cleanRefPath).toLowerCase() !== '.bpmn') {
       throw new Error('只能读取 .bpmn 文件')
     }
+    let resolvedPath: string
+    if (resolutionKind === 'workspace-wiki') {
+      resolvedPath = (await resolveAuthorizedWorkspaceResource(
+        ctx,
+        event,
+        markdownFilePath,
+        cleanRefPath,
+        resolutionKind,
+      )).canonicalPath
+    } else {
+      await validateSenderReadPath(ctx, event, markdownFilePath)
+      const markdownDir = path.dirname(markdownFilePath)
+      const candidatePath = path.isAbsolute(cleanRefPath)
+        ? path.resolve(cleanRefPath)
+        : path.resolve(markdownDir, cleanRefPath)
+      resolvedPath = await fs.realpath(candidatePath)
+      await validateSenderReadPath(ctx, event, resolvedPath)
+    }
 
-    const resolvedPath = await fs.realpath(candidatePath)
     if (path.extname(resolvedPath).toLowerCase() !== '.bpmn') {
       throw new Error('只能读取 .bpmn 文件')
     }
-    await validateSenderReadPath(ctx, event, resolvedPath)
-
     const stats = await fs.stat(resolvedPath)
     if (!stats.isFile()) {
       throw new Error('目标不是普通文件')
@@ -734,6 +1015,7 @@ export function registerFileHandlers(ctx: IPCContext): void {
         const resolvedFolderPath = context.strict
           ? await validateWorkspaceWritePath(ctx, event, context.workspaceId, folderPath)
           : await validateSenderReadPath(ctx, event, folderPath)
+        resolveWatchContext(event, workspaceId, lifecycleEpoch)
         const pathCheck = isWatchPathSafe(resolvedFolderPath)
         if (!pathCheck.safe) {
           console.warn(`[WATCHER] Rejected unsafe path: ${resolvedFolderPath} - ${pathCheck.reason}`)
@@ -756,11 +1038,9 @@ export function registerFileHandlers(ctx: IPCContext): void {
     async (event, filePath: string, workspaceId?: string, lifecycleEpoch?: number) => {
       const context = resolveWatchContext(event, workspaceId, lifecycleEpoch)
       const resolvedFilePath = await validateSenderReadPath(ctx, event, filePath)
-      const key = getWorkspaceWatcherKey(event.sender.id, context.workspaceId)
-      const subscription = watcherSubscriptions.get(key) ?? createWatcherSubscription(ctx, event.sender, context)
-      if (!workspaceWatchService.hasRootSubscription(key, resolvedFilePath)) {
-        workspaceWatchService.watchOpenedFile(resolvedFilePath, subscription)
-      }
+      resolveWatchContext(event, workspaceId, lifecycleEpoch)
+      const subscription = createWatcherSubscription(ctx, event.sender, context)
+      workspaceWatchService.watchOpenedFile(resolvedFilePath, subscription)
       console.log(`[MAIN] Workspace ${context.workspaceId} opened: ${resolvedFilePath}`)
       return { success: true }
     }
@@ -789,10 +1069,55 @@ export function registerFileHandlers(ctx: IPCContext): void {
       if (typeof workspaceId !== 'string' || !Number.isInteger(lifecycleEpoch)) {
         throw new Error('安全错误：监听请求缺少完整工作区上下文')
       }
-      cleanupWorkspaceWatchers(event.sender.id, workspaceId)
+      cleanupWorkspaceWatchers(event.sender.id, workspaceId, lifecycleEpoch)
       return { success: true }
     }
   )
+
+  ipcMain.handle('watch:getStatus', (event, workspaceId?: string, lifecycleEpoch?: number) => {
+    const context = resolveWatchContext(event, workspaceId, lifecycleEpoch)
+    return workspaceWatchService.getHealth(getWorkspaceWatcherKey(event.sender.id, context.workspaceId))
+  })
+  ipcMain.handle('watch:gap', (event, workspaceId?: string, lifecycleEpoch?: number) => {
+    const context = resolveWatchContext(event, workspaceId, lifecycleEpoch)
+    workspaceWatchService.reportGap(getWorkspaceWatcherKey(event.sender.id, context.workspaceId))
+    return true
+  })
+  ipcMain.handle('watch:retry', (event, workspaceId?: string, lifecycleEpoch?: number) => {
+    const operationId = `watch_retry_${randomUUID()}`
+    let context: WorkspaceWatchContext | undefined
+    const observe = (metadata: DiagnosticMetadata): void => {
+      try {
+        ctx.diagnosticEventLogService?.recordMainEvent({
+          event: 'watcher.work.summary', operationId, metadata,
+          rawWorkspacePath: context?.primaryRoot ?? undefined,
+        })
+      } catch { /* 诊断写入失败不能改变重试或安全校验结果。 */ }
+    }
+    observe({ watchRetryStage: 'received' })
+    try {
+      context = resolveWatchContext(event, workspaceId, lifecycleEpoch)
+    } catch (error) {
+      observe({ watchRetryStage: 'context-rejected' })
+      throw error
+    }
+    workspaceWatchService.retry(getWorkspaceWatcherKey(event.sender.id, context.workspaceId), observe)
+    return { accepted: true }
+  })
+  ipcMain.handle('watch:reconciled', (event, requestId: unknown, result: unknown) => {
+    if (typeof requestId !== 'string' || (result !== 'ok' && result !== 'superseded' && result !== 'failed')) return false
+    const pending = watchReconciliations.get(requestId)
+    if (!pending || pending.senderId !== event.sender.id) return false
+    clearTimeout(pending.timer)
+    watchReconciliations.delete(requestId)
+    if (!pending.isCurrent()) {
+      pending.reject('superseded')
+      return false
+    }
+    if (result === 'ok') pending.resolve()
+    else pending.reject(result)
+    return true
+  })
 
   // 重命名文件/文件夹
   ipcMain.handle('fs:rename', async (
@@ -1021,9 +1346,12 @@ export function registerFileHandlers(ctx: IPCContext): void {
           ctx.workspaceIndexService.waitUntilIdle(originRoot),
           ctx.workspaceIndexService.waitUntilIdle(targetRoot),
         ])
-        return createCrossRootMoveImpactReport({
-          originDocuments: ctx.workspaceIndexService.getIndexedDocuments(originRoot),
-          targetDocuments: ctx.workspaceIndexService.getIndexedDocuments(targetRoot),
+        const originWiki = ctx.workspaceIndexService.getWikiSnapshot(originRoot)
+        const targetWiki = ctx.workspaceIndexService.getWikiSnapshot(targetRoot)
+        return await createCrossRootMoveImpactReport({
+          originDocuments: originWiki ? [...originWiki.documents.values()] : ctx.workspaceIndexService.getIndexedDocuments(originRoot),
+          targetDocuments: targetWiki ? [...targetWiki.documents.values()] : ctx.workspaceIndexService.getIndexedDocuments(targetRoot),
+          originRoot, targetRoot, originWiki, targetWiki,
           mappings,
         })
       } finally {

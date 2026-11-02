@@ -114,7 +114,7 @@ describe('useExport immediate feedback', () => {
       await Promise.resolve()
     })
 
-    expect(toast.info).toHaveBeenCalledWith('正在导出 PDF...', { duration: 60000 })
+    expect(toast.info).toHaveBeenCalledWith('正在导出 PDF...', { duration: 0 })
     expect(mocks.buildExportHtmlContent).not.toHaveBeenCalled()
 
     await act(async () => {

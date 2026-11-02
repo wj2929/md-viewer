@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VirtualizedMarkdown } from '../../src/components/VirtualizedMarkdown'
 import { useRemoteChartSettingsStore } from '../../src/stores/remoteChartSettingsStore'
+import { sanitizeRendererDiagnosticEvent } from '../../../shared/diagnostics'
 
 const mockRenderExcalidrawToSvg = vi.hoisted(() => vi.fn())
 const mockRenderVegaLiteToSvg = vi.hoisted(() => vi.fn())
@@ -50,6 +51,7 @@ vi.mock('../../src/utils/krokiRenderer', () => ({
 // Mock window.api
 const mockShowMarkdownContextMenu = vi.fn().mockResolvedValue({ success: true })
 const mockShowPreviewContextMenu = vi.fn().mockResolvedValue({ success: true })
+const mockIssueLocalMediaUrl = vi.hoisted(() => vi.fn())
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -58,6 +60,7 @@ beforeEach(() => {
     ...global.window.api,
     readFile: vi.fn(),
     issueLocalImageUrl: vi.fn().mockResolvedValue('local-image://asset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    issueLocalMediaUrl: mockIssueLocalMediaUrl,
     readExcalidrawFile: undefined,
     openExternal: vi.fn().mockResolvedValue({ success: true }),
     openMdLink: vi.fn().mockResolvedValue({ success: true }),
@@ -65,6 +68,7 @@ beforeEach(() => {
     showPreviewContextMenu: mockShowPreviewContextMenu,
     getAppSettings: vi.fn().mockResolvedValue({ autoRenderRemoteCharts: true }),
     updateAppSettings: vi.fn().mockResolvedValue(undefined),
+    recordDiagnosticRendererEvent: vi.fn(),
   } as typeof window.api
   useRemoteChartSettingsStore.setState({
     hydration: 'ready',
@@ -102,11 +106,302 @@ beforeEach(() => {
     ok: true,
     svg: '<svg viewBox="0 0 100 40"><text>Kroki</text></svg>',
   })
+  mockIssueLocalMediaUrl.mockResolvedValue('local-media://asset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
   // 默认没有选中文本
   vi.spyOn(window, 'getSelection').mockReturnValue(null)
 })
 
 describe('VirtualizedMarkdown', () => {
+  it('源码行落在同一段落内时，定位该行对应的后一次关键词而非首个命中', async () => {
+    vi.useFakeTimers()
+    let view
+    try {
+      const original = document.createRange.bind(document)
+      const ranges = []
+      vi.spyOn(document, 'createRange').mockImplementation(() => {
+        const range = original()
+        Object.defineProperty(range, 'getBoundingClientRect', { value: () => {
+          ranges.push({ text: range.toString(), startText: range.startContainer.textContent })
+          return { top: 900, height: 20 }
+        } })
+        return range
+      })
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ top: 200, height: 20 })
+      const complete = vi.fn()
+      view = render(<div className="preview"><VirtualizedMarkdown content={'needle first\n**needle** chosen'}
+        renderDebounceMs={0} scrollToLine={2} highlightKeyword="needle" onScrollToLineComplete={complete} /></div>)
+      const preview = view.container.querySelector('.preview')
+      preview.scrollTop = 100
+      preview.scrollTo = vi.fn()
+      await act(async () => { await vi.advanceTimersByTimeAsync(350) })
+      expect(preview.scrollTo).toHaveBeenCalledWith({ top: 700, behavior: 'auto' })
+      expect(ranges).toEqual([{ text: 'needle', startText: 'needle' }])
+      expect(complete).toHaveBeenCalledOnce()
+    } finally {
+      view?.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('临时搜索高亮超时清除不会删除页面内搜索的标记', async () => {
+    vi.useFakeTimers()
+    let view
+    try {
+      view = render(<div className="preview"><VirtualizedMarkdown content="needle content"
+        renderDebounceMs={0} highlightKeyword="needle" /></div>)
+      const mark = document.createElement('mark')
+      mark.className = 'search-highlight'
+      mark.setAttribute('data-markjs', 'true')
+      mark.textContent = 'in-page result'
+      view.container.querySelector('.markdown-body').append(mark)
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+      expect(view.container.querySelector('.search-temp-highlight')).toBeNull()
+      expect(view.container.querySelector('.search-highlight')).toBe(mark)
+    } finally {
+      view?.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('在离线 DOM 上准备编辑属性，挂入后源码行、编辑与块定位仍可用', async () => {
+    const connectedWrites: boolean[] = []
+    const setAttribute = Element.prototype.setAttribute
+    vi.spyOn(Element.prototype, 'setAttribute').mockImplementation(function (name, value) {
+      if (name === 'contenteditable' && value === 'true') connectedWrites.push(this.isConnected)
+      return setAttribute.call(this, name, value)
+    })
+    const view = render(<VirtualizedMarkdown content={'# Heading\n\nParagraph ^target'}
+      renderDebounceMs={0} previewEditingEnabled onPreviewBlockEdit={vi.fn()} />)
+    await waitFor(() => expect(view.container.querySelector('p')?.getAttribute('contenteditable')).toBe('true'))
+    expect(connectedWrites.length).toBeGreaterThan(0)
+    expect(connectedWrites.every(connected => !connected)).toBe(true)
+    expect(view.container.querySelector('p')?.dataset.sourceLine).toBe('3')
+    expect(view.container.querySelector('[id="md-block:target"]')?.isConnected).toBe(true)
+    view.unmount()
+  })
+
+  it('未匹配段落不会反复规范化每条源码行，表格行定位保持一致', async () => {
+    const line = 'normalization-cache-probe &amp; value'
+    const source = Array(100).fill(line).join('\n\n') + '\n\n| A | B |\n| --- | --- |\n| left | right |'
+    const replace = vi.spyOn(String.prototype, 'replace')
+    const view = render(<VirtualizedMarkdown content={source} renderDebounceMs={0}
+      previewEditingEnabled onPreviewBlockEdit={vi.fn()} />)
+    await waitFor(() => expect(view.container.querySelectorAll('p')).toHaveLength(100))
+    const calls = replace.mock.calls.filter(([pattern], index) =>
+      replace.mock.contexts[index] === line && pattern instanceof RegExp && pattern.source === '\\s+',
+    ).length
+    expect(calls).toBeGreaterThanOrEqual(100)
+    expect(calls).toBeLessThanOrEqual(400)
+    const cell = Array.from(view.container.querySelectorAll('td')).find(item => item.textContent === 'left')
+    expect(cell?.dataset.sourceLine).toBe(String(source.split('\n').indexOf('| left | right |') + 1))
+    expect(cell?.getAttribute('contenteditable')).toBe('true')
+    view.unmount()
+  })
+
+  it('精确块请求跨渲染 cleanup 不提前完成，目标版本提交后才定位', async () => {
+    vi.useFakeTimers()
+    try {
+      const source = '目标 ^block'
+      const onComplete = vi.fn()
+      const request = { id: 'block-request', filePath: '/docs/target.md', position: { scrollRatio: 0.9 },
+        block: { id: 'block', source, deadline: performance.now() + 2000 },
+        isCurrent: () => true, canFocus: () => false, onComplete }
+      const view = render(<VirtualizedMarkdown content="旧版本" filePath="/docs/target.md" renderDebounceMs={0} linkPositionRequest={request} />)
+      expect(onComplete).not.toHaveBeenCalled()
+      view.rerender(<VirtualizedMarkdown content={source} filePath="/docs/target.md" renderDebounceMs={0} linkPositionRequest={request} />)
+      expect(onComplete).not.toHaveBeenCalled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(view.container.querySelector('[id="md-block:block"]')).not.toBeNull()
+      await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+      expect(onComplete).toHaveBeenCalledExactlyOnceWith('positioned')
+      view.unmount()
+      expect(onComplete).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+  it('用户滚动取消块校正，过期请求不触发终态提示', async () => {
+    vi.useFakeTimers()
+    try {
+      const source = '目标 ^block'
+      const onComplete = vi.fn()
+      let current = true
+      const request = { id: 'block-request', filePath: '/docs/target.md', position: { scrollRatio: 0.9 },
+        block: { id: 'block', source, deadline: performance.now() + 2000 },
+        isCurrent: () => current, canFocus: () => false, onComplete }
+      const view = render(<div className="preview"><VirtualizedMarkdown content={source} filePath="/docs/target.md" renderDebounceMs={0} linkPositionRequest={request} /></div>)
+      fireEvent.wheel(view.container.querySelector('.preview')!, { deltaY: 100 })
+      expect(onComplete).toHaveBeenCalledExactlyOnceWith('cancelled')
+      await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+      expect(onComplete).toHaveBeenCalledTimes(1)
+      current = false
+      view.rerender(<div className="preview"><VirtualizedMarkdown content="新版本" filePath="/docs/target.md" renderDebounceMs={0} linkPositionRequest={{ ...request, id: 'stale' }} /></div>)
+      await act(async () => { await vi.advanceTimersByTimeAsync(2200) })
+      expect(onComplete).toHaveBeenCalledTimes(1)
+      view.unmount()
+    } finally { vi.useRealTimers() }
+  })
+  it('同页块直接使用 committed DOM，不发文档读取；伪造 ID 不进入定位表', () => {
+    const onMarkdownLinkClick = vi.fn()
+    const error = vi.fn()
+    window.addEventListener('md-link-error', error)
+    const view = render(<VirtualizedMarkdown content={'[[#^block|真实]]\n\n[伪造](#^fake)\n\n正文 ^block\n\n<p id="md-block:fake">伪造节点</p>'} filePath="/docs/a.md" onMarkdownLinkClick={onMarkdownLinkClick} />)
+    fireEvent.click(screen.getByRole('link', { name: '真实' }))
+    expect(error).not.toHaveBeenCalled()
+    expect(onMarkdownLinkClick).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('link', { name: '伪造' }))
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(view.container.querySelector('[id="md-block:fake"]')).toBeNull()
+    window.removeEventListener('md-link-error', error)
+  })
+  it('媒体首次网络读取失败时应更换实例 URL 自动重试', async () => {
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const content = '<video src="videos/01.mp4" controls preload="metadata"></video>'
+
+    const { container } = render(
+      <VirtualizedMarkdown
+        content={content}
+        filePath="/docs/index.md"
+        renderDebounceMs={0}
+      />,
+    )
+
+    await waitFor(() => expect(mockIssueLocalMediaUrl).toHaveBeenCalledTimes(1))
+    const video = container.querySelector<HTMLVideoElement>('video')
+    expect(video).toBeTruthy()
+    const source = video?.querySelector('source')
+    expect(source).toBeTruthy()
+    const firstUrl = source?.src
+
+    Object.defineProperty(video, 'error', {
+      configurable: true,
+      value: { code: 2, message: 'PipelineStatus::PIPELINE_ERROR_READ' },
+    })
+    Object.defineProperty(video, 'readyState', {
+      configurable: true,
+      value: HTMLMediaElement.HAVE_METADATA,
+    })
+    fireEvent.error(video)
+
+    await waitFor(() => expect(source?.src).not.toBe(firstUrl))
+    expect(container.querySelector('.local-media-fallback')).not.toBeInTheDocument()
+    expect(loadSpy).toHaveBeenCalledTimes(2)
+    loadSpy.mockRestore()
+  })
+
+  describe('媒体终态失败提示', () => {
+    beforeEach(() => {
+      vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    })
+
+    it.each([
+      [2, '本地媒体读取失败，请确认文件存在且可读取'],
+      [3, '本地媒体解码失败，文件可能损坏或编码不受支持'],
+      [4, '无法加载或播放本地媒体，文件可能无法读取或格式不受支持'],
+    ])('错误码 %s 仅在终态展示相符原因且不泄露底层信息', async (code, reason) => {
+      const { container } = render(<VirtualizedMarkdown
+        content={'<video src="videos/01.mp4" controls></video>'}
+        filePath="/private/docs/index.md" renderDebounceMs={0}
+      />)
+      await waitFor(() => expect(container.querySelector('video source')).not.toBeNull())
+      const video = container.querySelector('video')!
+      Object.defineProperty(video, 'error', {
+        value: { code, message: 'PIPELINE_ERROR /private/docs/01.mp4 local-media://asset/secret' },
+      })
+      fireEvent.error(video)
+      if (code === 2) {
+        expect(container.querySelector('.local-media-fallback')).toBeNull()
+        fireEvent.error(video)
+      }
+      const note = container.querySelector('.local-media-fallback')!
+      expect(note).toHaveTextContent(`${reason}：videos/01.mp4`)
+      expect(note).toHaveTextContent('可尝试使用支持该格式的系统播放器打开原文件。')
+      expect(note.textContent).not.toMatch(/PIPELINE|\/private\/|local-media:|secret/)
+      expect(note.querySelector('a, button')).toBeNull()
+    })
+
+    it('所有本地引用访问失败时提示检查文件，不暴露 IPC 错误', async () => {
+      mockIssueLocalMediaUrl.mockRejectedValue(new Error('ENOENT /private/docs/missing.mp4'))
+      const { container } = render(<VirtualizedMarkdown
+        content={'<video src="missing.mp4" title="演示片段" controls></video>'}
+        filePath="/private/docs/index.md" renderDebounceMs={0}
+      />)
+      await waitFor(() => expect(container.querySelector('.local-media-fallback')).not.toBeNull())
+      const note = container.querySelector('.local-media-fallback')!
+      expect(note).toHaveTextContent('无法访问本地媒体，请确认文件存在且可读取：演示片段')
+      expect(note).toHaveTextContent('可尝试使用支持该格式的系统播放器打开原文件。')
+      expect(note.textContent).not.toMatch(/ENOENT|\/private\//)
+    })
+
+    it('单个候选失败不覆盖其它可用媒体，等待和暂停也不提示', async () => {
+      mockIssueLocalMediaUrl.mockRejectedValueOnce(new Error('missing'))
+      const { container } = render(<VirtualizedMarkdown
+        content={'<video controls><source src="missing.mp4"><source src="valid.mp4"></video>'}
+        filePath="/docs/index.md" renderDebounceMs={0}
+      />)
+      await waitFor(() => expect(container.querySelectorAll('video source')).toHaveLength(1))
+      const video = container.querySelector('video')!
+      for (const event of ['waiting', 'stalled', 'pause', 'error']) fireEvent(video, new Event(event))
+      expect(container.querySelector('.local-media-fallback')).toBeNull()
+      expect(video).toBeInTheDocument()
+    })
+
+    it.each([
+      ['none', HTMLMediaElement.NETWORK_IDLE, false],
+      ['metadata', HTMLMediaElement.NETWORK_LOADING, false],
+      ['metadata', HTMLMediaElement.NETWORK_NO_SOURCE, true],
+    ])('preload=%s networkState=%s 的原有超时判定保持不变', async (preload, networkState, failed) => {
+      const { container, unmount } = render(<VirtualizedMarkdown
+        content={`<audio src="sample.wav" controls preload="${preload}"></audio>`}
+        filePath="/docs/index.md" renderDebounceMs={0}
+      />)
+      // 只捕获媒体五秒终态检查，不改变 React 的渲染计时。
+      const setTimeout = window.setTimeout.bind(window)
+      let checkFailure: (() => void) | undefined
+      vi.spyOn(window, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+        if (delay === 5000) checkFailure = callback as () => void
+        return setTimeout(callback, delay, ...args)
+      })
+      await waitFor(() => expect(container.querySelector('audio source')).not.toBeNull())
+      const audio = container.querySelector('audio')!
+      Object.defineProperty(audio, 'networkState', { value: networkState })
+      expect(checkFailure).toBeTypeOf('function')
+      act(() => checkFailure!())
+      const note = container.querySelector('.local-media-fallback')
+      if (failed) {
+        expect(note).toHaveTextContent('无法加载或播放本地媒体，文件可能无法读取或格式不受支持')
+        expect(note).toHaveTextContent('系统播放器')
+      } else {
+        expect(note).toBeNull()
+        expect(audio).toBeInTheDocument()
+      }
+      unmount()
+    })
+  })
+
+  it('卸载媒体先中止字幕读取再释放 Blob', async () => {
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:subtitle')
+    window.api.readLocalWebVtt = vi.fn().mockResolvedValue('WEBVTT\n\n')
+    const { container, unmount } = render(<VirtualizedMarkdown
+      content={'<video src="clip.mp4" controls><track src="sub.vtt" kind="subtitles" srclang="zh" default></video>'}
+      filePath="/docs/index.md" renderDebounceMs={0}
+    />)
+    await waitFor(() => expect(container.querySelector('video track')).not.toBeNull())
+    const video = container.querySelector('video')!
+    const track = video.querySelector('track')!
+    Object.defineProperty(track, 'track', { value: { mode: 'showing' } })
+    load.mockClear()
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {
+      expect(track.track.mode).toBe('disabled')
+      expect(track.hasAttribute('src')).toBe(false)
+      expect(video.querySelector('source, track')).toBeNull()
+      expect(load).toHaveBeenCalledTimes(1)
+    })
+    unmount()
+    expect(revoke).toHaveBeenCalledWith('blob:subtitle')
+  })
+
   describe('小文件渲染（非虚拟滚动）', () => {
     it('应该渲染基础 Markdown 内容', () => {
       const content = '# 标题\n\n这是一段文本'
@@ -127,6 +422,64 @@ describe('VirtualizedMarkdown', () => {
       const { container } = render(<VirtualizedMarkdown content="      " />)
 
       expect(container.innerHTML).toContain('文件内容为空')
+    })
+
+    describe('大文档限制', () => {
+      it('应完整渲染恰好 20,000 行的内容', () => {
+        const content = `首行${'\n'.repeat(19_999)}`
+        render(<VirtualizedMarkdown content={content} />)
+
+        expect(screen.getByText('首行')).toBeInTheDocument()
+        expect(screen.queryByText('内容过长，已截断显示')).not.toBeInTheDocument()
+      })
+
+      it('20,001 行应先确认，继续后包含末行而不是截断', () => {
+        const content = `首行${'\n'.repeat(20_000)}末行`
+        render(<VirtualizedMarkdown content={content} />)
+
+        expect(screen.getByText('文档较大，请选择预览方式')).toBeInTheDocument()
+        expect(document.querySelector('.markdown-body')).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: '完整渲染' }))
+        expect(screen.getByText('末行')).toBeInTheDocument()
+        expect(screen.queryByText('内容过长，已截断显示')).not.toBeInTheDocument()
+      })
+
+      it('应渲染恰好 1,500,000 个字符的内容', () => {
+        const content = `# 边界\n\n${'x'.repeat(1_500_000 - 6)}`
+        render(<VirtualizedMarkdown content={content} />)
+
+        expect(screen.getByText('边界')).toBeInTheDocument()
+        expect(screen.queryByText('文件过大，无法渲染')).not.toBeInTheDocument()
+      })
+
+      it('1,500,001 个字符应显示可覆盖的提示', () => {
+        render(<VirtualizedMarkdown content={'x'.repeat(1_500_001)} />)
+
+        expect(screen.getByRole('button', { name: '完整渲染' })).toBeInTheDocument()
+      })
+
+      it('双超限时不应解析或截断正文', () => {
+        render(<VirtualizedMarkdown content={`${'x'.repeat(1_500_001)}${'\n'.repeat(20_000)}`} />)
+
+        expect(screen.getByRole('button', { name: '完整渲染' })).toBeInTheDocument()
+        expect(screen.queryByText('内容过长，已截断显示')).not.toBeInTheDocument()
+      })
+    })
+
+    it('编辑回调身份变化保留实际正文节点，并使用最新回调；能力移除仍更新只读标注', async () => {
+      const oldEdit = vi.fn(), latestEdit = vi.fn()
+      const props = { content: '# 源文档\n\n可编辑段落', filePath: '/notes/source.md', previewEditingEnabled: true, renderDebounceMs: 0 }
+      const { container, rerender } = render(<VirtualizedMarkdown {...props} onPreviewBlockEdit={oldEdit} onSourceEditRequest={vi.fn()} />)
+      const paragraph = container.querySelector('p.markdown-preview-editable-block')!
+      expect(paragraph).toBeInTheDocument()
+      rerender(<VirtualizedMarkdown {...props} onPreviewBlockEdit={latestEdit} onSourceEditRequest={vi.fn()} />)
+      expect(container.querySelector('p.markdown-preview-editable-block')).toBe(paragraph)
+      paragraph.textContent = '新段落'
+      fireEvent.blur(paragraph)
+      expect(latestEdit).toHaveBeenCalledWith(expect.objectContaining({ nextText: '新段落' }))
+      expect(oldEdit).not.toHaveBeenCalled()
+      rerender(<VirtualizedMarkdown {...props} onSourceEditRequest={vi.fn()} />)
+      expect(container.querySelector('p')).not.toHaveAttribute('contenteditable')
     })
 
     it('应该应用自定义 className', () => {
@@ -479,7 +832,7 @@ describe('VirtualizedMarkdown', () => {
       render(
         <VirtualizedMarkdown
           content={'![欢迎图](<./images/user manual/欢迎页.png>)'}
-          filePath="/Users/mac/Documents/test/testmd/md-viewer/docs/user-manual.md"
+          filePath="/docs/user-manual.md"
           renderDebounceMs={0}
         />
       )
@@ -497,14 +850,14 @@ describe('VirtualizedMarkdown', () => {
       render(
         <VirtualizedMarkdown
           content={'![欢迎图](<./images/user manual/欢迎页.png>)'}
-          filePath="/Users/mac/Documents/test/testmd/md-viewer/docs/user-manual.md"
+          filePath="/docs/user-manual.md"
           renderDebounceMs={0}
         />
       )
 
       await waitFor(() => {
         expect(issueLocalImageUrl).toHaveBeenCalledWith(
-          '/Users/mac/Documents/test/testmd/md-viewer/docs/user-manual.md',
+          '/docs/user-manual.md',
           './images/user manual/欢迎页.png'
         )
         expect(document.querySelector('img[alt="欢迎图"]')?.getAttribute('src')).toBe(
@@ -843,7 +1196,12 @@ fn main() {}
 
       fireEvent.click(screen.getByRole('link', { name: '目标文档' }))
 
-      expect(onMarkdownLinkClick).toHaveBeenCalledWith('./目标 文档.md#二级标题', '/docs/current.md')
+      expect(onMarkdownLinkClick).toHaveBeenCalledWith(
+        encodeURI('./目标 文档.md#二级标题'), '/docs/current.md',
+        expect.objectContaining({ filePath: '/docs/current.md', leafId: 'single',
+          anchor: screen.getByRole('link', { name: '目标文档' }),
+          position: expect.objectContaining({ ordinal: 0 }), revision: expect.any(Promise) }),
+      )
       expect(window.api.openMdLink).not.toHaveBeenCalled()
     })
 
@@ -863,6 +1221,16 @@ fn main() {}
   })
 
   describe('渲染区块编辑', () => {
+    it('块标记可见且编辑回传仅含原文，不回写生成锚点或随机证明', () => {
+      const onPreviewBlockEdit = vi.fn()
+      const { container } = render(<VirtualizedMarkdown content="正文 ^stable" renderDebounceMs={0} previewEditingEnabled onPreviewBlockEdit={onPreviewBlockEdit} />)
+      const paragraph = container.querySelector('p')!
+      expect(paragraph.id).toBe('md-block:stable')
+      expect(paragraph.textContent).toBe('正文 ^stable')
+      paragraph.textContent = '修改正文 ^stable'
+      fireEvent.blur(paragraph)
+      expect(onPreviewBlockEdit).toHaveBeenCalledWith({ sourceLine: 1, originalText: '正文 ^stable', nextText: '修改正文 ^stable' })
+    })
     it('默认预览不允许直接编辑渲染块', () => {
       const { container } = render(<VirtualizedMarkdown content={'# 标题\n\n正文'} renderDebounceMs={0} />)
 
@@ -1352,7 +1720,7 @@ fn main() {}
       }
     })
 
-    it('无 key prop 时，切换文件不会重新挂载组件（旧行为）', () => {
+    it('无 key prop 时仍隔离实际文档DOM，不能把旧正文链接归给新文件', () => {
       const { rerender, container } = render(
         <VirtualizedMarkdown
           content="# File 1"
@@ -1372,8 +1740,50 @@ fn main() {}
 
       const secondInstance = container.firstChild
 
-      // 验证是同一个 DOM 实例（组件未重新挂载，只是 props 更新）
-      expect(firstInstance).toBe(secondInstance)
+      expect(firstInstance).not.toBe(secondInstance)
+      expect(firstInstance?.isConnected).toBe(false)
+      expect(screen.getByRole('heading', { name: 'File 2' })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'File 1' })).not.toBeInTheDocument()
     })
+  })
+
+  it('记录 coreReady 阶段但不把异步图表快照伪装成完成', async () => {
+    const operation = {
+      context: {
+        operationId: 'file_preview_diagnostic_12345678',
+        source: 'user' as const,
+        rendererStartedUnixMs: Date.now(),
+      },
+      startedMonotonicMs: performance.now(),
+      startedUnixMs: Date.now(),
+    }
+
+    render(
+      <VirtualizedMarkdown
+        content="# 诊断预览\n\n正文"
+        filePath="/docs/index.md"
+        renderDebounceMs={0}
+        diagnosticOperation={operation}
+      />,
+    )
+
+    await waitFor(() => {
+      const events = vi.mocked(window.api.recordDiagnosticRendererEvent).mock.calls.map(([event]) => event)
+      expect(events.some(event => event.event === 'file.preview.summary')).toBe(true)
+      expect(events.some(event => event.event === 'file.open.terminal' && event.outcome === 'success')).toBe(true)
+    })
+    const emittedEvents = vi.mocked(window.api.recordDiagnosticRendererEvent).mock.calls
+      .map(([event]) => event)
+    const summary = emittedEvents.find(event => event.event === 'file.preview.summary')
+    expect(emittedEvents.every(event =>
+      sanitizeRendererDiagnosticEvent(event, event.observedUnixMs) !== null
+    )).toBe(true)
+    expect(summary?.metadata).toEqual(expect.objectContaining({
+      coreReadyMs: expect.any(Number),
+      markdownRenderMs: expect.any(Number),
+      domPopulateMs: expect.any(Number),
+      panelKind: 'main',
+    }))
+    expect(summary?.metadata).not.toHaveProperty('hydrationComplete')
   })
 })

@@ -27,5 +27,7 @@ module.exports = {
     'out/**/*',
     'package.json',
     'node_modules/**/*',
+    '!node_modules/**/*.d.ts.map',
+    '!node_modules/axios/MIGRATION_GUIDE.md',
   ],
 }

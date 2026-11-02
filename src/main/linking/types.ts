@@ -12,6 +12,8 @@ export interface LinkImpactItem {
   resolvedTargetRelativePath: string
   destinationRange?: SourceRange
   relation: 'inbound' | 'outbound'
+  syntax?: 'wiki'
+  provenance?: 'alias' | 'uncertain'
   confidence: 'exact' | 'candidate'
 }
 
@@ -33,6 +35,23 @@ export interface LinkOperationReceipt {
   expiresAt: number
   mapping: LinkMoveMapping
   status: 'success'
+}
+
+export interface LinkMoveBatchOperation {
+  impactId: string
+  mapping: LinkMoveMapping
+}
+
+export interface LinkMoveBatchItemResult extends LinkMoveBatchOperation {
+  status: 'success' | 'failed' | 'not-executed'
+  newPath?: string
+  receipt?: LinkOperationReceipt
+  message?: string
+}
+
+export interface LinkMoveBatchResult {
+  items: LinkMoveBatchItemResult[]
+  warning?: string
 }
 
 export interface LinkRewriteChange {

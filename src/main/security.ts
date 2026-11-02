@@ -12,6 +12,8 @@ import * as fs from 'fs-extra'
  * 这些路径即使在允许的基础路径内也不允许操作
  * v1.3 扩展：30+ 条规则
  */
+const PRIVATE_SYSTEM_PATH_PATTERN = /^\/private\//
+
 const PROTECTED_PATTERNS = [
   // ========== Unix/Linux/macOS 系统目录 ==========
   /^\/etc\//,
@@ -21,7 +23,7 @@ const PROTECTED_PATTERNS = [
   /^\/bin\//,
   /^\/sbin\//,
   /^\/var\//,
-  /^\/private\//,
+  PRIVATE_SYSTEM_PATH_PATTERN,
   /^\/opt\//,
   /^\/root\//,
 
@@ -74,7 +76,7 @@ const PROTECTED_PATTERNS = [
   // ========== 数据库和密码存储 ==========
   /\.kdbx?$/,            // KeePass 数据库
   /\.1pux$/,             // 1Password 导出
-  /password/i,           // 任何包含 password 的文件
+  /\/(?:\.?(?:my)?passwords?(?:\.[^/]*)?|\.password-store)(?:\/|$)/i,
 
   // ========== 系统隐藏目录下的敏感文件 ==========
   /\/\.[^/]+\/.*\.key$/,
@@ -85,8 +87,14 @@ const PROTECTED_PATTERNS = [
 
   // ========== Windows 系统目录（路径已在 isProtectedPath 内归一化为 / 分隔）==========
   /^[a-zA-Z]:\/Windows\//i,        // C:/Windows/...
-  /^[a-zA-Z]:\/Program Files/i     // C:/Program Files, C:/Program Files (x86)
+  /^[a-zA-Z]:\/Program Files/i,    // C:/Program Files, C:/Program Files (x86)
+  /^[a-zA-Z]:\/ProgramData(?:\/|$)/i,
+  /^[a-zA-Z]:\/Users\/[^/]+\/AppData(?:\/|$)/i,
 ]
+
+const WINDOWS_PROTECTED_PATTERNS = PROTECTED_PATTERNS.map(pattern =>
+  new RegExp(pattern.source, pattern.flags.includes('i') ? pattern.flags : `${pattern.flags}i`),
+)
 
 /**
  * 检查路径是否为受保护的系统路径
@@ -97,13 +105,26 @@ export function isProtectedPath(targetPath: string): boolean {
   // 归一化为 / 分隔再匹配：PROTECTED_PATTERNS 用 / 书写，Windows 上 path.resolve
   // 产出 \ 分隔会导致 .ssh/.aws 等跨平台敏感目录漏判。转成 / 让规则跨平台一致生效。
   const normalized = path.resolve(targetPath).replace(/\\/g, '/')
-  const isProtected = PROTECTED_PATTERNS.some(pattern => pattern.test(normalized))
+  const isPrivateTemporaryPath = normalized === '/private/tmp'
+    || normalized.startsWith('/private/tmp/')
+  const patterns = process.platform === 'win32' ? WINDOWS_PROTECTED_PATTERNS : PROTECTED_PATTERNS
+  const isProtected = patterns.some(pattern => {
+    if (isPrivateTemporaryPath && pattern === PRIVATE_SYSTEM_PATH_PATTERN) return false
+    return pattern.test(normalized)
+  })
 
   if (isProtected) {
-    console.warn(`[SECURITY] Protected path detected: ${targetPath}`)
+    console.warn('[SECURITY] Protected path rejected')
   }
 
   return isProtected
+}
+
+export class ProtectedPathError extends Error {
+  constructor() {
+    super('安全错误：无法操作受保护的系统路径。此路径包含系统文件或敏感配置。')
+    this.name = 'ProtectedPathError'
+  }
 }
 
 /**
@@ -113,10 +134,7 @@ export function isProtectedPath(targetPath: string): boolean {
  */
 export function validateNotProtected(targetPath: string): void {
   if (isProtectedPath(targetPath)) {
-    throw new Error(
-      `安全错误：无法操作受保护的系统路径 "${targetPath}"。` +
-      `此路径包含系统文件或敏感配置。`
-    )
+    throw new ProtectedPathError()
   }
 }
 
@@ -196,8 +214,7 @@ async function resolvePathFromNearestExistingAncestor(targetPath: string): Promi
  * 用于跨文件夹搜索场景
  */
 export function validateSearchPath(targetPath: string): void {
-  const normalized = path.resolve(targetPath)
-  if (PROTECTED_PATTERNS.some(pattern => pattern.test(normalized))) {
+  if (isProtectedPath(targetPath)) {
     throw new Error(`安全错误：路径 "${targetPath}" 是受保护的系统路径`)
   }
 }

@@ -1,6 +1,7 @@
 import { cleanUserFacingError } from './userFacingErrors'
 import { escapeHtml, rendererErrorHtml, serializeTemplate } from './d2Renderer'
 import { makeRendererSvgResponsive, sanitizeRendererSvg } from './rendererSvgSanitizer'
+import type { LocalResourceResolutionKind } from '../../../shared/localMedia'
 
 export interface BpmnHtmlOptions {
   markdownFilePath?: string
@@ -201,9 +202,18 @@ export async function renderBpmnToSvg(source: string): Promise<BpmnRenderResult>
   }
 }
 
-async function readBpmnForExport(markdownFilePath: string | undefined, refPath: string): Promise<string> {
+async function readBpmnForExport(
+  markdownFilePath: string | undefined,
+  refPath: string,
+  resolutionKind: LocalResourceResolutionKind = 'markdown-relative',
+): Promise<string> {
   const cleanRef = resolveBpmnRefPath(markdownFilePath, refPath)
-  if (!window.api?.readBpmnFile && typeof window.api?.readFile === 'function' && markdownFilePath) {
+  if (
+    resolutionKind === 'markdown-relative'
+    && !window.api?.readBpmnFile
+    && typeof window.api?.readFile === 'function'
+    && markdownFilePath
+  ) {
     return window.api.readFile(resolveBpmnFallbackPath(markdownFilePath, cleanRef))
   }
   if (!window.api?.readBpmnFile) throw new Error('当前环境不支持读取 BPMN 文件')
@@ -211,10 +221,16 @@ async function readBpmnForExport(markdownFilePath: string | undefined, refPath: 
     const result = await window.api.readBpmnFile({
       markdownFilePath: markdownFilePath || '',
       refPath: cleanRef,
+      ...(resolutionKind === 'workspace-wiki' ? { resolutionKind } : {}),
     })
     return result.content
   } catch (error) {
-    if (markdownFilePath && typeof window.api?.readFile === 'function' && isMissingReadBpmnFileHandlerError(error)) {
+    if (
+      resolutionKind === 'markdown-relative'
+      && markdownFilePath
+      && typeof window.api?.readFile === 'function'
+      && isMissingReadBpmnFileHandlerError(error)
+    ) {
       return window.api.readFile(resolveBpmnFallbackPath(markdownFilePath, cleanRef))
     }
     throw error
@@ -224,13 +240,14 @@ async function readBpmnForExport(markdownFilePath: string | undefined, refPath: 
 async function renderBpmnReferenceForExport(
   refPath: string,
   label: string,
-  options: BpmnHtmlOptions
+  options: BpmnHtmlOptions,
+  resolutionKind: LocalResourceResolutionKind = 'markdown-relative',
 ): Promise<HTMLElement> {
   const wrapper = document.createElement('div')
   wrapper.className = 'bpmn-wrapper'
   wrapper.setAttribute('role', 'group')
   try {
-    const source = await readBpmnForExport(options.markdownFilePath, refPath)
+    const source = await readBpmnForExport(options.markdownFilePath, refPath, resolutionKind)
     const result = await renderBpmnToSvg(source)
     wrapper.innerHTML = result.ok
       ? `<div class="bpmn-container" aria-label="${escapeHtml(label || refPath)}">${result.svg}</div>`
@@ -266,7 +283,14 @@ export async function processBpmnInHtml(html: string, options: BpmnHtmlOptions =
   for (const placeholder of placeholders) {
     const src = placeholder.dataset.bpmnSrc || ''
     const label = placeholder.dataset.bpmnAlt || src
-    const wrapper = await renderBpmnReferenceForExport(src, label, options)
+    const wrapper = await renderBpmnReferenceForExport(
+      src,
+      label,
+      options,
+      placeholder.dataset.bpmnResolutionKind === 'workspace-wiki'
+        ? 'workspace-wiki'
+        : 'markdown-relative',
+    )
     placeholder.replaceWith(wrapper)
   }
 

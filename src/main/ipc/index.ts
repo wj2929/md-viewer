@@ -6,6 +6,8 @@ import { registerMenuHandlers } from './menuHandlers'
 import { registerDataHandlers } from './dataHandlers'
 import { registerTtsHandlers } from './ttsHandlers'
 import { registerLocalImageHandlers } from './localImageHandlers'
+import { registerLocalMediaHandlers } from './localMediaHandlers'
+import { registerLinkReadHandlers } from './linkReadHandlers'
 import { registerWorkspaceIndexHandlers } from './workspaceIndexHandlers'
 import { registerLinkRewriteHandlers } from './linkRewriteHandlers'
 import { registerDiagnosticsHandlers } from './diagnosticsHandlers'
@@ -25,6 +27,8 @@ export function registerAllHandlers(ctx: IPCContext): void {
   registerDataHandlers(ctx)
   registerTtsHandlers(ctx)
   registerLocalImageHandlers(ctx)
+  registerLocalMediaHandlers(ctx)
+  registerLinkReadHandlers(ctx)
   registerWorkspaceIndexHandlers(ctx)
   registerLinkRewriteHandlers(ctx)
   registerDiagnosticsHandlers(ctx)

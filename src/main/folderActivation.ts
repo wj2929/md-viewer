@@ -1,9 +1,21 @@
 import { BrowserWindow } from 'electron'
 import * as fs from 'fs/promises'
+import { randomUUID } from 'crypto'
+import { performance } from 'perf_hooks'
 import type { IPCContext } from './ipc/context'
 import { validateNotProtected } from './security'
-
 import { type FolderActivation } from '../shared/workspace'
+import type { DiagnosticSource } from '../shared/diagnostics'
+
+interface FolderActivationTiming {
+  realpathMs: number
+  statMs: number
+}
+
+interface FolderActivationOptions {
+  notifyRenderer?: boolean
+  diagnosticSource?: DiagnosticSource
+}
 
 export type { FolderActivation } from '../shared/workspace'
 
@@ -12,10 +24,15 @@ export async function activateFolderForWorkspace(
   window: BrowserWindow,
   workspaceId: string,
   folderPath: string,
-  options: { notifyRenderer?: boolean } = {}
+  options: FolderActivationOptions = {},
+  diagnosticTiming?: FolderActivationTiming
 ): Promise<FolderActivation> {
+  const realpathStarted = performance.now()
   const resolvedPath = await fs.realpath(folderPath)
+  if (diagnosticTiming) diagnosticTiming.realpathMs += performance.now() - realpathStarted
+  const statStarted = performance.now()
   const stats = await fs.stat(resolvedPath)
+  if (diagnosticTiming) diagnosticTiming.statMs += performance.now() - statStarted
   if (!stats.isDirectory()) {
     throw new Error('安全错误：目标不是目录')
   }
@@ -71,62 +88,134 @@ export async function activateFolderForWindow(
   ctx: IPCContext,
   window: BrowserWindow,
   folderPath: string,
-  options: { notifyRenderer?: boolean } = {}
+  options: FolderActivationOptions = {}
 ): Promise<FolderActivation> {
-  const activeWorkspaceId = ctx.windowManager.getActiveWorkspaceId(window.id)
-  if (activeWorkspaceId) {
-    const activation = await activateFolderForWorkspace(ctx, window, activeWorkspaceId, folderPath, options)
-    if (options.notifyRenderer) {
-      window.webContents.send('restore-folder', activation)
+  const source = options.diagnosticSource ?? 'unknown'
+  const operationId = `folder_${randomUUID()}`
+  const started = performance.now()
+  const timing = { realpathMs: 0, statMs: 0 }
+  ctx.diagnosticEventLogService?.registerOperation(window.webContents.id, operationId, 'folder', source)
+  ctx.diagnosticEventLogService?.bindRegisteredOperationPath(window.webContents.id, operationId, folderPath)
+  ctx.diagnosticEventLogService?.recordMainEvent({
+    event: 'folder.open.start',
+    operationId,
+    rawWorkspacePath: folderPath,
+    metadata: { source },
+    priority: 'critical',
+  })
+
+  const complete = (activation: FolderActivation): FolderActivation => {
+    const durationMs = performance.now() - started
+    ctx.diagnosticEventLogService?.bindRegisteredOperationPath(
+      window.webContents.id,
+      operationId,
+      activation.path,
+    )
+    ctx.diagnosticEventLogService?.recordMainEvent({
+      event: 'folder.open.summary',
+      operationId,
+      rawWorkspacePath: activation.path,
+      outcome: 'success',
+      metadata: {
+        source,
+        activationMs: durationMs,
+        realpathMs: timing.realpathMs,
+        statMs: timing.statMs,
+      },
+    })
+    ctx.diagnosticEventLogService?.recordMainEvent({
+      event: 'folder.open.terminal',
+      operationId,
+      outcome: 'success',
+      metadata: { source, durationMs },
+      priority: 'critical',
+    })
+    return { ...activation, diagnosticOperationId: operationId, diagnosticSource: source }
+  }
+
+  try {
+    const activeWorkspaceId = ctx.windowManager.getActiveWorkspaceId(window.id)
+    if (activeWorkspaceId) {
+      const activation = await activateFolderForWorkspace(
+        ctx,
+        window,
+        activeWorkspaceId,
+        folderPath,
+        options,
+        timing,
+      )
+      const completedActivation = complete(activation)
+      if (options.notifyRenderer) {
+        window.webContents.send('restore-folder', completedActivation)
+      }
+      return completedActivation
     }
-    return activation
-  }
 
-  const resolvedPath = await fs.realpath(folderPath)
-  const stats = await fs.stat(resolvedPath)
-  if (!stats.isDirectory()) {
-    throw new Error('安全错误：目标不是目录')
-  }
-  validateNotProtected(resolvedPath)
+    const realpathStarted = performance.now()
+    const resolvedPath = await fs.realpath(folderPath)
+    timing.realpathMs += performance.now() - realpathStarted
+    const statStarted = performance.now()
+    const stats = await fs.stat(resolvedPath)
+    timing.statMs += performance.now() - statStarted
+    if (!stats.isDirectory()) {
+      throw new Error('安全错误：目标不是目录')
+    }
+    validateNotProtected(resolvedPath)
 
-  const historyItem = await ctx.folderHistoryManager.addFolder(resolvedPath)
-  if (!historyItem) {
-    throw new Error('安全错误：无法记录已验证的目录')
-  }
+    const historyItem = await ctx.folderHistoryManager.addFolder(resolvedPath)
+    if (!historyItem) {
+      throw new Error('安全错误：无法记录已验证的目录')
+    }
 
-  const workspace = ctx.windowManager.getActiveWorkspace(window.id)
-  if (!workspace) {
-    throw new Error('工作区初始化失败')
-  }
-  const previousRoot = workspace.primaryRoot
-  const previousEpoch = workspace.lifecycleEpoch
-  const replacedWorkspace = ctx.windowManager.replaceWorkspaceRoot(window.id, workspace.id, resolvedPath)
-  ctx.linkRewritePlanner?.cleanupOwner(`${window.webContents.id}:${workspace.id}:${previousEpoch}`)
-  const indexConsumerId = `workspace:${window.webContents.id}:${workspace.id}`
-  if (previousRoot && previousRoot !== resolvedPath) {
-    void Promise.resolve(ctx.workspaceIndexService?.detach(previousRoot, indexConsumerId))
-      .catch(error => console.error('[WorkspaceIndex] Failed to detach previous folder:', error))
-  }
-  void ctx.workspaceIndexService?.attach(resolvedPath, indexConsumerId)
-    .catch(error => console.error('[WorkspaceIndex] Failed to attach activated folder:', error))
-  ctx.store.set('lastOpenedFolder', resolvedPath)
+    const workspace = ctx.windowManager.getActiveWorkspace(window.id)
+    if (!workspace) {
+      throw new Error('工作区初始化失败')
+    }
+    const previousRoot = workspace.primaryRoot
+    const previousEpoch = workspace.lifecycleEpoch
+    const replacedWorkspace = ctx.windowManager.replaceWorkspaceRoot(window.id, workspace.id, resolvedPath)
+    ctx.linkRewritePlanner?.cleanupOwner(`${window.webContents.id}:${workspace.id}:${previousEpoch}`)
+    const indexConsumerId = `workspace:${window.webContents.id}:${workspace.id}`
+    if (previousRoot && previousRoot !== resolvedPath) {
+      void Promise.resolve(ctx.workspaceIndexService?.detach(previousRoot, indexConsumerId))
+        .catch(error => console.error('[WorkspaceIndex] Failed to detach previous folder:', error))
+    }
+    void ctx.workspaceIndexService?.attach(resolvedPath, indexConsumerId)
+      .catch(error => console.error('[WorkspaceIndex] Failed to attach activated folder:', error))
+    ctx.store.set('lastOpenedFolder', resolvedPath)
 
-  const activation: FolderActivation = {
-    id: historyItem.id,
-    path: resolvedPath,
-    name: historyItem.name,
-    workspace: {
-      id: replacedWorkspace.id,
-      primaryRoot: resolvedPath,
-      lifecycleEpoch: replacedWorkspace.lifecycleEpoch,
-    },
-  }
+    const activation: FolderActivation = {
+      id: historyItem.id,
+      path: resolvedPath,
+      name: historyItem.name,
+      workspace: {
+        id: replacedWorkspace.id,
+        primaryRoot: resolvedPath,
+        lifecycleEpoch: replacedWorkspace.lifecycleEpoch,
+      },
+    }
 
-  if (options.notifyRenderer) {
-    window.webContents.send('restore-folder', activation)
-  }
+    const completedActivation = complete(activation)
+    if (options.notifyRenderer) {
+      window.webContents.send('restore-folder', completedActivation)
+    }
 
-  return activation
+    return completedActivation
+  } catch (error) {
+    ctx.diagnosticEventLogService?.recordMainEvent({
+      event: 'folder.open.terminal',
+      operationId,
+      outcome: 'error',
+      metadata: {
+        source,
+        durationMs: performance.now() - started,
+        errorCode: 'FOLDER_ACTIVATION_FAILED',
+      },
+      priority: 'critical',
+    })
+    ctx.diagnosticEventLogService?.completeRegisteredOperation(window.webContents.id, operationId)
+    throw error
+  }
 }
 
 export async function activateHistoryFolderForWindow(
@@ -139,7 +228,9 @@ export async function activateHistoryFolderForWindow(
     throw new Error('安全错误：历史目录不存在、不可访问或未经授权')
   }
 
-  return activateFolderForWindow(ctx, window, resolvedPath)
+  return activateFolderForWindow(ctx, window, resolvedPath, {
+    diagnosticSource: 'recent',
+  })
 }
 
 /**

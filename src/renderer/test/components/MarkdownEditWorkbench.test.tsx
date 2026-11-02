@@ -61,6 +61,12 @@ vi.mock('../../src/components/FloatingNav', () => ({
   default: () => null,
 }))
 
+vi.mock('../../src/components/ReadAloudBar', () => ({
+  default: ({ filePath, contentKey }: { filePath: string; contentKey?: string }) => (
+    <div data-testid="workbench-read-aloud" data-file-path={filePath} data-content-key={contentKey} />
+  ),
+}))
+
 const tab = {
   id: 'tab-a',
   file: { name: 'a.md', path: '/docs/a.md', isDirectory: false },
@@ -106,6 +112,24 @@ describe('MarkdownEditWorkbench', () => {
     expect(screen.getByTestId('draft-preview')).toHaveTextContent('# A draft')
     expect(screen.getByTestId('draft-preview')).toHaveAttribute('data-preview-editing-enabled', 'true')
     expect(screen.getByText('草稿预览，未保存到磁盘')).toBeInTheDocument()
+    expect(screen.getByTestId('workbench-read-aloud')).toHaveAttribute('data-file-path', '/docs/a.md')
+    expect(screen.getByTestId('workbench-read-aloud')).toHaveAttribute('data-content-key', '# A draft')
+  })
+
+  it('mounts speech controls only for the active visible preview', () => {
+    const props = {
+      tab, leafId: 'pane-a', canonicalPath: '/real/docs/a.md', compareRatio: 0.5, target: null,
+      onModeChange: vi.fn(), onCompareRatioChange: vi.fn(), onSave: vi.fn(),
+      onCopyDraft: vi.fn(), onReloadFromDisk: vi.fn(), onLocateComplete: vi.fn(),
+    }
+    const { rerender } = render(<MarkdownEditWorkbench {...props} mode="compare" isActive={false} />)
+    expect(screen.queryByTestId('workbench-read-aloud')).not.toBeInTheDocument()
+    rerender(<MarkdownEditWorkbench {...props} mode="compare" isActive />)
+    expect(screen.getByTestId('workbench-read-aloud')).toBeInTheDocument()
+    rerender(<MarkdownEditWorkbench {...props} mode="edit" isActive />)
+    expect(screen.queryByTestId('workbench-read-aloud')).not.toBeInTheDocument()
+    rerender(<MarkdownEditWorkbench {...props} mode="preview" isActive />)
+    expect(screen.getByTestId('workbench-read-aloud')).toBeInTheDocument()
   })
 
   it('enables scroll sync controls only in compare mode', () => {
@@ -532,6 +556,7 @@ describe('MarkdownEditWorkbench', () => {
   })
 
   it('offers a force-save action when the disk version conflicts', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const onSave = vi.fn().mockResolvedValue(undefined)
     useEditSessionStore.getState().markConflict('/real/docs/a.md', 'external_changed', '2000:20')
 
@@ -554,7 +579,39 @@ describe('MarkdownEditWorkbench', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '保存并覆盖' }))
 
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('覆盖'))
     expect(onSave).toHaveBeenCalledWith('/real/docs/a.md', '# A', '1000:3', true, expect.any(Number))
+    confirm.mockRestore()
+  })
+
+  it('keeps the draft when force-save is declined', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const onReloadFromDisk = vi.fn().mockResolvedValue(undefined)
+    useEditSessionStore.getState().updateDraft('/real/docs/a.md', '# Local draft')
+    useEditSessionStore.getState().markConflict('/real/docs/a.md', 'external_changed', '2000:20')
+    render(
+      <MarkdownEditWorkbench
+        tab={tab}
+        leafId="single"
+        canonicalPath="/real/docs/a.md"
+        mode="compare"
+        compareRatio={0.5}
+        target={null}
+        onModeChange={vi.fn()}
+        onCompareRatioChange={vi.fn()}
+        onSave={onSave}
+        onCopyDraft={vi.fn()}
+        onReloadFromDisk={onReloadFromDisk}
+        onLocateComplete={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: '保存并覆盖' }))
+    expect(confirm).toHaveBeenCalled()
+    expect(onSave).not.toHaveBeenCalled()
+    expect(onReloadFromDisk).not.toHaveBeenCalled()
+    expect(useEditSessionStore.getState().sessions['/real/docs/a.md'].draft).toBe('# Local draft')
+    confirm.mockRestore()
   })
 
   it('persists compare ratio changes from the separator keyboard control', () => {

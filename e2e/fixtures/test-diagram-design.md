@@ -4,7 +4,9 @@
 >
 > 生成新图时应迁移案例的**表达模型、布局策略和连线语义**，不要照抄案例中的业务名称。`md-case-*` 是自动化测试锚点，普通 Markdown 输出中禁止复制。
 
-当前包含 **93 个可执行正例**，覆盖 9 种离线图表语言：D2 15、Graphviz 13、Mermaid 16、Structurizr 9、DBML 9、AntV G6 5、DrawIO 13、SVG 10、Markmap 3。这里的案例强调结构质量和可迁移性；其他 fixture 可能包含压力输入、极端尺寸或故意错误，不应直接当作 AI 设计模板。
+当前包含 **129 个可执行正例**，覆盖 9 种离线图表语言：D2 16、Graphviz 21、Mermaid 17、Structurizr 9、DBML 10、AntV G6 5、DrawIO 25、SVG 22、Markmap 4。这里的案例强调结构质量和可迁移性；其他 fixture 可能包含压力输入、极端尺寸或故意错误，不应直接当作 AI 设计模板。
+
+参考图分为**架构主视图**与**机制/分析辅助视图**：架构图先交代组件、数据归属与接口关系，再说明局部门禁；字段来源、请求判定、权限矩阵、耗时、成本和鱼骨只作配套，不替代目标架构。新增通用工程16例按10张主视图、6张辅助视图组织，各算例独立，不代表同一个系统。
 
 ## 1. 在 Claude Code 中如何使用
 
@@ -39,29 +41,37 @@
 基于真实系统生成一张迁移图。
 ```
 
-### 1.2 常见任务的组合参考
+### 1.2 技术方案章节与交付物参考
 
-| 任务 | 推荐案例组合 | 分工 |
+先按交付物要回答的问题组织技术方案，而不是先选图形语言。建议章节顺序为：**背景与约束 → 目标架构 → 关键机制 → 数据与安全不变式 → 迁移/上线计划 → 验证证据 → 运维与退役**。每张图必须绑定一个章节问题、一个可审查结论和一组可验证证据；同一事实若跨图出现，名称、边界和状态含义应一致。
+
+| 技术方案章节 / 交付物 | 推荐案例组合 | 审查结论与证据 |
 |---|---|---|
-| 多租户 SaaS | `structurizr-saas-control-data-plane` + `antv-g6-multi-tenant-cell-isolation` | 静态容器边界 + 运行时 Cell 拓扑 |
-| 隐私与数据生命周期 | `d2-data-residency-sovereignty` + `mermaid-privacy-erasure-workflow` + `dbml-privacy-consent-retention-erasure` | 地域边界 + 操作流程 + 数据约束 |
-| 渐进式遗留迁移 | `drawio-strangler-cdc-migration` + `graphviz-expand-contract-schema-migration` | 交付级总体版式 + 严格阶段依赖 |
-| DDD 设计 | `d2-ddd-context-map` + `mermaid-ddd-aggregate-class-model` | 战略上下文 + 战术聚合模型 |
-| Agent 工具安全 | `d2-agent-platform-control-data-plane` + `mermaid-agent-tool-authorization-sequence` | 静态信任边界 + 动态授权时序 |
-| AI 平台编辑式总览 | `svg-editorial-platform-architecture` + `d2-agent-platform-control-data-plane` | 精确视觉总览 + 控制/执行边界语义 |
-| 架构方案决策 | `svg-architecture-tradeoff-decision-canvas` + `markmap-quality-attribute-tradeoffs` | 硬约束下的候选比较 + 质量属性讨论框架 |
-| 事故恢复编排 | `svg-incident-recovery-multi-plane-storyboard` + `graphviz-incident-cause-tree` | 多平面恢复门禁 + 原因与证据树 |
-| 领域事件探索 | `svg-event-storming-domain-flow` + `d2-ddd-context-map` | 命令/事件/策略叙事 + 上下文契约 |
-| 用户旅程与系统协作 | `svg-service-blueprint-export-journey` + `structurizr-c4-container` | 前后台服务蓝图 + 稳定容器边界 |
-| 迁移组合分波 | `svg-migration-portfolio-wave-map` + `drawio-strangler-cdc-migration` | 组合优先级与波次 + 单系统迁移机制 |
-| 团队交互与平台边界 | `svg-team-topology-interaction-map` + `structurizr-internal-developer-platform-landscape` | 团队认知负载/交互模式 + 平台能力景观 |
-| 容量与饱和预算 | `svg-capacity-budget-saturation-corridor` + `drawio-performance-governance-loop` | 同单位容量刻度 + 压测与生产反馈闭环 |
-| 故障传播与隔离 | `svg-failure-propagation-blast-radius-overlay` + `drawio-high-availability-dr` | 实测爆炸半径叠层 + 故障域与切换机制 |
-| 单元迁移一致性 | `svg-state-data-migration-visibility-overlay` + `drawio-strangler-cdc-migration` | 水位/可见性/回滚窗口 + 迁移交付全貌 |
-| GitOps 与供应链 | `mermaid-gitops-environment-promotion` + `graphviz-software-supply-chain-provenance` | 环境晋级 + 制品证明链 |
-| API 生命周期 | `mermaid-api-version-deprecation-gantt` + `dbml-api-contract-version-subscription` | 时间窗口 + 契约数据模型 |
-| FinOps | `mermaid-finops-cost-allocation-sankey` + `markmap-finops-operating-model` | 成本流向 + 运营责任体系 |
-| 部署实施与验收 | `drawio-phased-implementation-roadmap` + `drawio-image-promotion-rollout` + `drawio-deployment-test-acceptance-flow` | 项目阶段 + 制品晋级 + 测试验收闭环 |
+| 目标架构与系统边界 | `drawio-api-ecosystem-boundaries` + `d2-architecture-zoned-flow` | 明确责任归属、信任边界、协议与非目标；附接口清单和 owner |
+| 混合云网络落地区 | `drawio-hybrid-network-landing-zone` + `d2-zero-trust` | 路由、DNS、检查点和故障域可落地；附 CIDR、策略与连通性测试 |
+| 多租户与共享平台 | `drawio-shared-platform-tenant-boundaries` + `svg-tenant-isolation-invariants` + `antv-g6-multi-tenant-cell-isolation` | 共享面不突破租户隔离不变式；附策略测试和隔离演练 |
+| 身份与密钥治理 | `svg-identity-lifecycle-governance` + `svg-key-rotation-break-glass` | 入转离、轮换和紧急访问均有时限、复核和证据 |
+| 事务消息可靠性 | `dbml-transactional-outbox-inbox-dedup` + `mermaid-outbox-event-delivery` | 本地提交、投递、去重和重放边界明确；附唯一约束和故障注入结果 |
+| Saga 跨服务一致性 | `mermaid-choreography-saga-timeout` + `mermaid-saga-compensation-sequence` | 超时、迟到事件、补偿和人工接管可判定 |
+| 分片重平衡 | `d2-stateful-shard-rebalance` + `graphviz-stream-partition-rebalance` | 所有权切换不双写、不漏读；附水位和守恒校验 |
+| 关键路径与依赖影响 | `graphviz-critical-path-deadline-dag` + `graphviz-dependency-impact-cut-set` | 截止期裕量、单点与最小隔离集可计算 |
+| 需求到证据追踪 | `graphviz-requirements-design-test-evidence-traceability` + `markmap-adr-options-evidence` | 每项需求可追至设计、测试、运行证据和 ADR 决策 |
+| 安全控制保证 | `drawio-security-control-assurance-evidence` + `svg-solution-assumptions-evidence-ledger` | 控制目标、实现、测试、证据和失效假设闭环 |
+| 可访问性交付 | `svg-accessible-architecture-reading-order` | 视觉顺序与 DOM 阅读顺序一致；附键盘和读屏检查 |
+| 事故指挥与升级 | `drawio-incident-command-escalation` + `svg-incident-recovery-multi-plane-storyboard` | 决策权、沟通节奏、升级阈值和恢复门禁明确 |
+| 迁移切换指挥 | `drawio-migration-cutover-command-center` + `svg-state-data-migration-visibility-overlay` | Go/No-Go、冻结、回滚和业务验收均有 owner 与证据 |
+| 系统退役分波 | `graphviz-decommission-wave-dependency-dag` + `svg-migration-portfolio-wave-map` | 消费者清零、数据保留、访问撤销和成本停止按依赖排序 |
+| API 生命周期 | `mermaid-api-version-deprecation-gantt` + `dbml-api-contract-version-subscription` | 时间窗口、消费者确认和退役条件可审计 |
+| 部署实施与验收 | `drawio-phased-implementation-roadmap` + `drawio-image-promotion-rollout` + `drawio-deployment-test-acceptance-flow` | 阶段出口、不可变制品、测试结果和业务签字闭环 |
+| 文件上传与结构化导入 | `drawio-upload-quarantine-processing` + `drawio-file-import-field-provenance` | 未校验输入不发布，字段来源与未知状态明确 |
+| 任务排队与取消 | `svg-task-queue-worker-capacity` + `graphviz-task-cancel-dependency-cleanup` | 容量上限、等待状态、执行退出与资源清理分开 |
+| API 访问与文件共享 | `svg-api-allow-deny-policy-traces` + `svg-file-sharing-permission-matrix` | 拒绝原因、首次分歧与条件授权可解释 |
+| 搜索与插件更新 | `graphviz-search-index-publication-gates` + `graphviz-plugin-required-optional-failure` | 版本门禁与依赖失败传播只影响真实消费者 |
+| 通知与服务升级 | `drawio-notification-preferences-delivery` + `drawio-rolling-upgrade-connection-drain` | 退订与失败不同，升级观察与旧连接排空不同 |
+| 发布边界与数据恢复 | `drawio-artifact-approved-blocked-paths` + `drawio-backup-restore-validation` | 门禁不被旁路，恢复校验失败不开放写入 |
+| 性能、成本与故障解释 | `svg-request-latency-stage-breakdown` + `svg-service-monthly-cost-bridge` + `svg-upload-incident-cause-evidence` | 区间与预算可对账，原因结论必须有证据 |
+
+组合时由第一案例决定主视角，其余案例只补机制或证据。一次最多组合三个案例；若“当前态、目标态、迁移过程”无法在一个抽象层级内表达，应拆成相互引用的独立交付物。
 
 
 ### 1.3 完整案例目录
@@ -85,6 +95,7 @@
 | `d2-data-residency-sovereignty` | D2 | 数据驻留与主权：全球控制、区域处理 | H |
 | `d2-agent-platform-control-data-plane` | D2 | Agent 平台：控制平面、执行平面与人工接管 | H |
 | `d2-serverless-concurrency-guardrails` | D2 | Serverless 并发与成本护栏 | H |
+| `d2-stateful-shard-rebalance` | D2 | 有状态分片重平衡：所有权、水位与回滚 | H |
 | `graphviz-dependency-ranks-cycle` | Graphviz | 分层依赖、汇聚与回边 | M |
 | `graphviz-build-dag` | Graphviz | 构建 DAG：并行任务与汇合产物 | M |
 | `graphviz-module-fanin-fanout` | Graphviz | 模块依赖：扇入、共享核心与扇出 | M |
@@ -98,6 +109,11 @@
 | `graphviz-software-supply-chain-provenance` | Graphviz | 软件供应链：制品、SBOM 与来源证明 | M |
 | `graphviz-expand-contract-schema-migration` | Graphviz | Expand/Contract：零停机 Schema 迁移 | M |
 | `graphviz-quorum-consensus-recovery` | Graphviz | 多数派共识：提交、分区与副本恢复 | M |
+| `graphviz-critical-path-deadline-dag` | Graphviz | 关键路径：截止期、裕量与压缩候选 | H |
+| `graphviz-dependency-impact-cut-set` | Graphviz | 依赖影响：故障传播与最小隔离集 | H |
+| `graphviz-stream-partition-rebalance` | Graphviz | 流分区重平衡：安全依赖与检查点 | H |
+| `graphviz-requirements-design-test-evidence-traceability` | Graphviz | 需求—设计—测试—证据追踪 | H |
+| `graphviz-decommission-wave-dependency-dag` | Graphviz | 系统退役：依赖分波与退出门禁 | H |
 | `mermaid-sequence-alt-refresh` | Mermaid | 令牌刷新与异步审计 | M |
 | `mermaid-sync-export-sequence` | Mermaid | 同步导出端到端时序 | M |
 | `mermaid-cache-miss-read-through` | Mermaid | Read-through 缓存 Miss | M |
@@ -114,6 +130,7 @@
 | `mermaid-gitops-environment-promotion` | Mermaid | GitOps：不可变制品的环境晋级 | M |
 | `mermaid-api-version-deprecation-gantt` | Mermaid | API 版本发布与退役窗口 | M |
 | `mermaid-finops-cost-allocation-sankey` | Mermaid | FinOps：成本归集与二次分摊 | M |
+| `mermaid-choreography-saga-timeout` | Mermaid | 编舞式 Saga：超时、迟到事件与补偿 | H |
 | `structurizr-c4-context` | Structurizr | C4 系统上下文：全渠道零售平台 | M |
 | `structurizr-c4-container` | Structurizr | C4 容器：模块化单体到服务化交易平台 | M |
 | `structurizr-c4-component` | Structurizr | C4 组件：订单 API 内部协作 | M |
@@ -132,6 +149,7 @@
 | `dbml-privacy-consent-retention-erasure` | DBML | 隐私同意、处理依据、保留与删除证据 | H |
 | `dbml-bitemporal-audit-ledger` | DBML | 双时态审计与追加式更正账本 | M |
 | `dbml-api-contract-version-subscription` | DBML | API 契约、版本、订阅与退役确认 | H |
+| `dbml-transactional-outbox-inbox-dedup` | DBML | 事务 Outbox、Inbox 去重与投递游标 | H |
 | `antv-g6-microservice-runtime-topology` | AntV G6 | 微服务同步调用与共享基础设施 | M |
 | `antv-g6-event-message-flow` | AntV G6 | 订单事件、重试与死信消息流 | M |
 | `antv-g6-failure-domain-combos` | AntV G6 | 双可用区故障域与流量切换 | M |
@@ -150,6 +168,12 @@
 | `drawio-phased-implementation-roadmap` | DrawIO | 案例 11：分阶段实施路线图与退出证据 | X |
 | `drawio-image-promotion-rollout` | DrawIO | 案例 12：不可变镜像晋级、渐进发布与回滚 | X |
 | `drawio-deployment-test-acceptance-flow` | DrawIO | 案例 13：部署测试、缺陷闭环与验收放行 | X |
+| `drawio-hybrid-network-landing-zone` | DrawIO | 混合云 Landing Zone：路由、DNS 与检查边界 | X |
+| `drawio-api-ecosystem-boundaries` | DrawIO | API 生态边界：渠道、网关、域服务与伙伴 | X |
+| `drawio-shared-platform-tenant-boundaries` | DrawIO | 共享平台与租户边界：控制面、Cell 与数据隔离 | X |
+| `drawio-incident-command-escalation` | DrawIO | 事故指挥：角色、升级阈值与沟通节奏 | X |
+| `drawio-security-control-assurance-evidence` | DrawIO | 安全控制保证：目标、实现、测试与证据 | X |
+| `drawio-migration-cutover-command-center` | DrawIO | 迁移切换指挥：Go/No-Go、回滚与验收 | X |
 | `svg-editorial-platform-architecture` | SVG | 编辑式 AI 平台：上下文、控制、执行与证据闭环 | X |
 | `svg-architecture-tradeoff-decision-canvas` | SVG | 架构权衡画布：硬约束、候选比较、结论与证据 | X |
 | `svg-incident-recovery-multi-plane-storyboard` | SVG | 事故恢复故事板：流量、数据、控制与人工门禁 | X |
@@ -160,11 +184,35 @@
 | `svg-capacity-budget-saturation-corridor` | SVG | 容量预算：需求守恒、同单位通道、饱和走廊与约束维度 | X |
 | `svg-failure-propagation-blast-radius-overlay` | SVG | 故障传播：共同原因、路径门禁、爆炸半径与影响账本 | X |
 | `svg-state-data-migration-visibility-overlay` | SVG | 单元迁移：快照、CDC 水位、可见性切换与回滚窗口 | X |
+| `svg-solution-assumptions-evidence-ledger` | SVG | 方案假设与证据账本：状态、owner 与失效影响 | X |
+| `svg-accessible-architecture-reading-order` | SVG | 可访问架构图：视觉与 DOM 阅读顺序 | X |
+| `svg-identity-lifecycle-governance` | SVG | 身份生命周期：入转离、复核与证据 | X |
+| `svg-key-rotation-break-glass` | SVG | 密钥轮换与 Break-glass：时限、双人授权与追溯 | X |
+| `svg-tenant-isolation-invariants` | SVG | 租户隔离不变式：入口、计算、数据与观测 | X |
 | `markmap-system-decomposition` | Markmap | MD Viewer 系统分解 | M |
 | `markmap-quality-attribute-tradeoffs` | Markmap | 质量属性权衡图 | M |
 | `markmap-finops-operating-model` | Markmap | FinOps 运营模型：责任、闭环与指标 | M |
+| `markmap-adr-options-evidence` | Markmap | ADR 选项与证据：约束、权衡、验证和复审 | M |
+| `svg-task-queue-worker-capacity` | SVG | 任务执行：接纳、调度与工作池 · 架构主视图 | X |
+| `drawio-upload-quarantine-processing` | DrawIO | 文件上传：隔离处理与下载架构 · 架构主视图 | X |
+| `graphviz-plugin-required-optional-failure` | Graphviz | 插件宿主：能力依赖与失败隔离 · 架构主视图 | M |
+| `graphviz-task-cancel-dependency-cleanup` | Graphviz | 任务系统：取消控制与资源归属 · 架构主视图 | M |
+| `graphviz-search-index-publication-gates` | Graphviz | 搜索索引：构建面与查询面 · 架构主视图 | M |
+| `drawio-file-import-field-provenance` | DrawIO | 文件导入：字段提取与来源追溯 · 辅助·数据来源 | X |
+| `drawio-notification-preferences-delivery` | DrawIO | 通知服务：偏好过滤与多渠道投递 · 架构主视图 | X |
+| `drawio-rolling-upgrade-connection-drain` | DrawIO | 滚动升级：流量平面与控制平面 · 架构主视图 | X |
+| `drawio-backup-restore-validation` | DrawIO | 备份恢复：隔离环境与服务写入边界 · 架构主视图 | X |
+| `drawio-artifact-approved-blocked-paths` | DrawIO | 制品交付：数据路径与发布权限边界 · 架构主视图 | X |
+| `svg-api-allow-deny-policy-traces` | SVG | API 访问：允许与拒绝的判定对照 · 辅助·请求判定 | X |
+| `svg-file-service-residual-risk` | SVG | 文件服务：控制边界与剩余风险 · 架构主视图 | X |
+| `svg-file-sharing-permission-matrix` | SVG | 文件共享：角色、动作与条件授权 · 辅助·授权矩阵 | X |
+| `svg-request-latency-stage-breakdown` | SVG | 请求耗时：执行与等待的阶段分解 · 辅助·性能 | X |
+| `svg-service-monthly-cost-bridge` | SVG | 服务成本：扩容与优化的预算桥 · 辅助·成本 | X |
+| `svg-upload-incident-cause-evidence` | SVG | 上传失败：候选原因与证据状态 · 辅助·复盘 | X |
 
 ## 2. 图形语言选择指南
+
+**先选视图角色，再选语言。** 架构主图须直接看见组件/存储、读写或任务连接、运行与信任边界及控制反馈；不能只把动作流程装进分区框。辅助图按来源追踪、规则判定、权限、性能、成本、复盘各自的视觉语法绘制。示例中的逻辑职责不默认意味着独立微服务或数据库，未给定的部署与状态归属要明确标为建模假设。
 
 | 要回答的问题 | 首选语言 | 识别信号 | 不适合 |
 |---|---|---|---|
@@ -179,6 +227,29 @@
 | 系统分解、能力地图、质量属性权衡 | Markmap | 主要是树形分解和讨论框架 | 需要表达跨分支调用关系 |
 
 本文件优先收录当前应用可离线稳定渲染的语言。DrawIO 虽然 XML 较长，但能表达人工坐标、复杂分区和交付级版式，已依据真实高质量方案图纳入核心参考。受限 SVG 用于把自包含编辑式图稿直接留在 Markdown 源码中，仅支持静态安全子集。PlantUML、C4-PlantUML 和 Kroki 依赖显式远程服务；Excalidraw 和 BPMN 暂留在专项 fixture。
+
+### 2.1 先选问题，再选表达方式
+
+案例采用通用软件工程情境，不映射个人工作资料。首先说明读者要理解什么，再选图形模式，最后选语言；不要先固定一种语言再硬套版式。
+
+| 要理解的问题 | 表达模型 | 案例入口 |
+|---|---|---|
+| 为什么任务等待？ | 队列槽位 + 有限工作池 + 拒绝出口 | `svg-task-queue-worker-capacity` |
+| 请求为何被拒绝？ | 同序规则双轨 + 首次分歧 | `svg-api-allow-deny-policy-traces` |
+| 文件何时可用？ | 隔离/处理/发布边界与校验门 | `drawio-upload-quarantine-processing` |
+| 数据字段从哪里来？ | 来源片段 + 字段映射 + 未知状态 | `drawio-file-import-field-provenance` |
+| 更新为何尚不可见？ | 构建依赖 + 版本复核 + 原子发布 | `graphviz-search-index-publication-gates` |
+| 为什么还有剩余风险？ | 每层缓解 + 限制 + 响应 | `svg-file-service-residual-risk` |
+| 时间和预算怎样解释？ | 时钟区间条 / 带符号预算桥 | `svg-request-latency-stage-breakdown` + `svg-service-monthly-cost-bridge` |
+| 原因是不是已经确认？ | 原因分类 + 确认/排除/待证 | `svg-upload-incident-cause-evidence` |
+
+### 2.2 默认交付与详略
+
+- 默认输出中文 Markdown 图表 fence，一张图只回答一个主问题；标题采用“场景：问题或机制”，方法术语只放在说明里。
+- 给工程师看机制、条件与异常出口；给混合受众看责任与主路径；给决策者看约束、结论和证据。不把“面向决策者”理解成删除关键限制。
+- 概览保持 7–12 个主要节点；机制图可展示明确分支，字段/规则/数值细节进入图外短表。不要把所有视角强拼成一张全景图。
+- 示例数值、版本号和容量均为说明性算例，不是用户系统事实、真实性能结果或生产建议。
+- 图外表格是成本、时间、权限条件和字段来源的完整记录；复制案例时必须同时保留，不能只复制图像。
 
 ## 3. 全局生成约束
 
@@ -240,6 +311,16 @@
 | 一张图同时表达部署、时序和数据模型 | 拆成相互链接的多个视角 |
 | 复制 `md-case-*` HTML | 普通输出只保留图表代码围栏 |
 | DBML 外键指向未定义表 | 补全真实目标实体，或删除无依据关系 |
+
+### 3.7 连线几何与图形诚实性
+
+- 多条关系进入同一节点边缘时分散连接点；独立关系不能长距离共用同一笔画。边标签与线留出可见间隔，不能被后绘制节点遮挡。
+- 分区先绘制、连线随后、节点与标签最后；禁止连接线穿过非端点节点。跨区绕行使用专用 gutter，不靠遮罩伪装正确路由。
+- 正交连接适合人工布局的架构与流程；鱼骨的斜骨、数据图的区间/曲线和 Graphviz 自动关系线按各自语法处理，不套同一种路径规则。
+- 实际显示尺寸下检查中文字号，宽画布缩放后的小字不算可读；窄屏使用已有缩放/全屏或滚动能力，不把拥挤问题转嫁给更小字号。
+- 时间条按同一时钟映射区间，存在并行时不能相加重叠耗时；预算桥使用同单位、同期间，起始值加增量必须对得上最终值。
+- 允许、禁止、附条件、未定义，以及跳过、未执行均是不同状态。不得把空白/未知或“未报错”解释为通过。
+- 证据不足的原因保持待验证；无量化模型时不编造精确评分、风险降低率或收益。例外、退避、回退窗口与剩余风险必须明确。
 
 ## 4. D2：系统边界、分区与数据流
 
@@ -1449,6 +1530,73 @@ governance: 容量、SLO 与成本保护闭环（T→G-S/G-E/G-B） {
 - **设计要点 1：** 三类工作负载使用独立保留并发，交互请求不会被批任务或积压事件耗尽；有限队列把突发流量转为受控消费。
 - **设计要点 2：** 重试必须重新经过队列和并发护栏；容量、时长和费用共同进入配额调整门禁，不能只按 CPU 或请求量扩容。
 
+### 有状态分片重平衡：所有权、水位与回滚
+
+**交付问题：** 在扩容或热点治理时，怎样迁移分片而不发生双写、漏读或不可逆切换，并留下可核验的水位证据？
+
+<div id="md-case-d2-stateful-shard-rebalance"></div>
+
+```d2
+direction: down
+grid-columns: 1
+
+plan: 1 · PLAN & FREEZE｜计划与租约冻结 {
+  grid-columns: 3
+  planner: 重平衡计划\n目标分布 · 速率上限
+  lease: 所有权租约\nshard-42 · epoch 17
+  freeze: 冻结旧 owner\n拒绝新会话 {shape: hexagon}
+  planner -> lease: 候选 e18
+  lease -> freeze: 冻结 e17
+}
+
+copy: 2 · COPY & CATCH UP｜快照基线与增量追赶 {
+  grid-columns: 2
+  source: 源节点 A｜当前 owner@e17 {
+    grid-columns: 1
+    snapshot: 一致性快照\nbase=88000 {shape: cylinder}
+    log: 变更日志\ncheckpoint=88420 {shape: queue}
+    snapshot -> log: 追加期间继续记录
+  }
+  target: 目标节点 B｜候选 owner@e18 {
+    grid-columns: 1
+    restore: 恢复 snapshot@88000
+    catchup: 追赶 CDC\napply 88001..88420
+    restore -> catchup
+  }
+  source.snapshot -> target.restore: 限速复制
+  source.log -> target.catchup: 连续增量
+}
+
+cutover: 3 · VERIFY & SWITCH｜校验后原子切换 {
+  grid-columns: 3
+  shadowRead: 影子读校验\ncount · hash · invariant
+  gate: 切换门禁\nlag=0 · 校验通过 {shape: diamond}
+  result: 门禁结果｜路径互斥 {
+    grid-columns: 1
+    owner: PASS｜原子租约切换\nowner@e18 · next=88421
+    rollback: FAIL｜保留 e17\n解除冻结并诊断 {shape: hexagon}
+  }
+  shadowRead -> gate: 守恒
+  gate -> result.owner: 发布
+  gate -> result.rollback: 阻断 {style.stroke-dash: 4}
+}
+
+operate: 4 · ROUTE & REVERSIBILITY｜路由、观察窗口与证据 {
+  grid-columns: 3
+  router: 分片路由\n拒绝旧 epoch
+  probe: 合成读写探针\n旧/新结果守恒
+  evidence: 迁移证据包\n租约 + 水位 + 校验 {shape: document}
+  router -> probe -> evidence
+}
+
+plan -> copy: 冻结基线 + 授权复制
+copy -> cutover: 水位追平后验收
+cutover -> operate: 仅 PASS 发布 owner 映射
+```
+
+- **不变式：** 任一时刻只有一个有效 epoch 可写；目标追平且影子校验通过前不切换，失败回滚只恢复源租约，不倒放已确认序号。
+- **交付证据：** 计划版本、租约历史、快照基线、CDC 水位、守恒校验和切换探针共同构成审计包。
+
 ## 5. Graphviz：依赖、DAG、决策与回边
 
 > 优先迁移 rank、shape、汇聚关系和 constraint 策略。
@@ -1880,6 +2028,8 @@ digraph BackpressureBulkhead {
 - **设计要点 1：** 关键与标准任务分别占用有限队列和工作池，低优先级积压不会越过舱壁挤占关键业务资源。
 - **设计要点 2：** 背压由真实水位、超时和下游利用率触发并反馈到入口；拒绝和降级都有明确终点，不使用无界重试。
 
+- **相关案例：** 若要直观看到等待与执行占用，用 `svg-task-queue-worker-capacity`；此依赖图不提供单个任务的执行时间线。
+
 ### 软件供应链：制品、SBOM 与来源证明
 
 **适用/迁移模式：** 适用于需要验证“部署内容从哪里来、由什么构建、通过哪些策略”的交付链；迁移时先使制品不可变，再把 SBOM、签名和 provenance 绑定到同一摘要。
@@ -2038,6 +2188,432 @@ digraph QuorumRecovery {
 - **设计要点 1：** 副本收到日志不代表客户端写入已经提交；只有当前任期内达到多数派确认，才能推进提交索引并返回成功。
 - **设计要点 2：** 失去多数派的一侧明确拒写，恢复后先按新任期完成日志或快照追赶，避免双主和旧日志重新进入集群。
 
+### 关键路径：截止期、裕量与压缩候选
+
+**交付问题：** 哪些任务决定上线截止期，延误首先影响哪里，优先压缩哪一步才真正缩短总工期？
+
+<div id="md-case-graphviz-critical-path-deadline-dag"></div>
+
+```graphviz
+digraph CriticalPath {
+  graph [rankdir=TB, bgcolor="transparent", pad=0.30, nodesep=0.55, ranksep=0.48, splines=polyline, label="上线关键路径｜纵向时间阶梯；粗线为零裕量链", labelloc=t, fontname="sans-serif", fontsize=16]
+  node [shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#667085", fontname="sans-serif", fontsize=10, margin="0.14,0.09"]
+  edge [color="#667085", fontname="sans-serif", fontsize=9, arrowsize=0.72]
+
+  d0 [label="D0", shape=plaintext, fontcolor="#3974c6"]
+  d3 [label="D3", shape=plaintext, fontcolor="#3974c6"]
+  d9 [label="D9", shape=plaintext, fontcolor="#3974c6"]
+  d12 [label="D12", shape=plaintext, fontcolor="#3974c6"]
+  d13 [label="D13", shape=plaintext, fontcolor="#3974c6"]
+  start [label="需求冻结", shape=ellipse]
+  schema [label="契约与 Schema\n3d · slack=0", fillcolor="#e8f1ff", color="#3974c6", penwidth=2]
+  build [label="核心实现\n6d · slack=0", fillcolor="#e8f1ff", color="#3974c6", penwidth=2]
+  data [label="数据演练\n4d · slack=2d"]
+  sec [label="安全评审\n2d · slack=4d"]
+  perf [label="容量验证\n3d · slack=0", fillcolor="#e8f1ff", color="#3974c6", penwidth=2]
+  go [label="Go / No-Go\n截止 D12", shape=diamond, fillcolor="#fff7e6", color="#b87503"]
+  release [label="切换\n1d", shape=doublecircle, fillcolor="#d5e8d4", color="#82b366"]
+
+  start -> schema [label="ES=0 / LS=0", penwidth=3, color="#3974c6"]
+  schema -> build [label="关键", penwidth=3, color="#3974c6"]
+  schema -> data [label="并行"]
+  schema -> sec [label="并行"]
+  build -> perf [label="关键", penwidth=3, color="#3974c6"]
+  data -> go [label="验收证据"]
+  sec -> go [label="审批证据"]
+  perf -> go [label="ES=12 / LS=12", penwidth=3, color="#3974c6"]
+  go -> release [label="批准", penwidth=3, color="#3974c6"]
+
+  { rank=same; d0; start }
+  { rank=same; d3; schema }
+  { rank=same; d9; build; data; sec }
+  { rank=same; d12; perf }
+  { rank=same; go }
+  { rank=same; d13; release }
+  d0 -> d3 -> d9 -> d12 -> d13 [style=dotted, arrowhead=none, color="#98a2b3"]
+}
+```
+
+关键路径由零裕量边组成；压缩非关键任务不会改变 D12，交付计划应同时给出工期依据和重算规则。
+
+### 依赖影响：故障传播与最小隔离集
+
+**交付问题：** 哪组最小控制动作可以阻断支付依赖故障向下单主路径传播，同时保留可降级能力？
+
+<div id="md-case-graphviz-dependency-impact-cut-set"></div>
+
+```graphviz
+digraph CutSet {
+  graph [rankdir=TB, bgcolor="transparent", pad=0.38, nodesep=0.62, ranksep=0.58, splines=polyline, label="依赖影响与最小隔离集｜虚线红边为传播，盾形节点为切断点", labelloc=t, fontname="sans-serif", fontsize=16]
+  node [shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#667085", fontname="sans-serif", fontsize=10, margin="0.16,0.10"]
+  edge [fontname="sans-serif", fontsize=9, color="#667085", arrowsize=0.72]
+
+  pay [label="外部支付故障", shape=octagon, fillcolor="#f8cecc", color="#b85450"]
+  adapter [label="支付适配器"]
+  retry [label="无界重试"]
+  pool [label="订单线程池"]
+  api [label="下单 API"]
+  checkout [label="结算体验"]
+  breaker [label="切断 A\n熔断 + 有界重试", shape=hexagon, fillcolor="#e8f1ff", color="#3974c6"]
+  bulkhead [label="切断 B\n独立线程池", shape=hexagon, fillcolor="#e8f1ff", color="#3974c6"]
+  pending [label="保留能力\n订单转待支付", fillcolor="#d5e8d4", color="#82b366"]
+
+  pay -> adapter -> retry -> pool -> api -> checkout [style=dashed, color="#b85450", label="传播"]
+  adapter -> breaker [label="控制点"]
+  retry -> bulkhead [label="控制点"]
+  breaker -> pending [label="失败快速返回"]
+  bulkhead -> pending [label="容量隔离"]
+
+  { rank=same; adapter; breaker }
+  { rank=same; retry; bulkhead }
+  { rank=same; checkout; pending }
+}
+```
+
+A 阻断时间放大，B 阻断资源耗尽；两者构成最小割集，删除任一个都存在到结算体验的未受控传播路径。
+
+### 流分区重平衡：安全依赖与检查点
+
+**交付问题：** 消费组重平衡必须按什么依赖顺序执行，才能保证旧 owner 停止、状态追平且新 owner 从唯一检查点继续？
+
+<div id="md-case-graphviz-stream-partition-rebalance"></div>
+
+```graphviz
+digraph StreamRebalance {
+  graph [rankdir=TB, bgcolor="transparent", pad=0.30, nodesep=0.52, ranksep=0.58, splines=polyline, compound=true, label="partition-7 重平衡｜四阶段纵向主链 + 右侧异常支路", labelloc=t, fontname="sans-serif", fontsize=16]
+  node [shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#667085", fontname="sans-serif", fontsize=10, margin="0.14,0.09"]
+  edge [fontname="sans-serif", fontsize=9, color="#667085", arrowsize=0.72]
+
+  subgraph cluster_1 {
+    label="1 QUIESCE · 停稳"; color="#6c8ebf"; style="rounded,dashed"
+    detect [label="成员变化", shape=ellipse]
+    pause [label="暂停拉取"]
+    drain [label="排空 in-flight"]
+    detect -> pause -> drain
+    { rank=same; detect; pause; drain }
+  }
+  subgraph cluster_2 {
+    label="2 CHECKPOINT · 固化"; color="#7c5cbf"; style="rounded,dashed"
+    commit [label="提交 offset=88420", shape=cylinder]
+    revoke [label="撤销 owner@e17"]
+    commit -> revoke [label="持久化后撤权"]
+    { rank=same; commit; revoke }
+  }
+  subgraph cluster_3 {
+    label=""; color="#d6b656"; style="rounded,dashed"; margin=18
+    stage3 [label="3 TRANSFER · 交接", shape=plaintext, style="", fontsize=13, margin=0]
+    transfer [label="传输 state@88420"]
+    verify [label="状态 + 水位 + epoch\n全部一致？", shape=diamond, fillcolor="#fff7e6", color="#b87503"]
+    stage3 -> transfer [style=invis]
+    transfer -> verify [label="校验"]
+    { rank=same; transfer; verify }
+  }
+  subgraph cluster_4 {
+    label="4 RESUME · 恢复"; color="#82b366"; style="rounded,dashed"
+    assign [label="授予 owner@e18", fillcolor="#e8f1ff", color="#3974c6", penwidth=2]
+    resume [label="从 88421 恢复", shape=doublecircle, fillcolor="#d5e8d4", color="#82b366"]
+    assign -> resume [label="唯一接续点"]
+    { rank=same; assign; resume }
+  }
+
+  quarantine [label="异常支路\n隔离候选状态", shape=octagon, fillcolor="#f8cecc", color="#b85450"]
+  repair [label="修复 / 重传\n保留 checkpoint", fillcolor="#fff7e6", color="#b87503"]
+  drain -> commit [label="in-flight=0"]
+  revoke -> transfer [label="旧 owner 已失效"]
+  verify -> assign [label="通过"]
+  verify -> quarantine [label="失败", color="#b85450"]
+  quarantine -> repair [label="诊断", color="#b85450"]
+  repair -> transfer [label="短回补", style=dashed, color="#b85450", constraint=false]
+  { rank=same; verify; quarantine }
+}
+```
+
+提交检查点先于撤销，授予新 epoch 晚于状态校验；失败路径不得让旧 owner 恢复写入同一分区。
+
+### 需求—设计—测试—证据追踪
+
+**交付问题：** 如何证明每项关键需求都被设计覆盖、被测试验证，并有不可变运行证据，而不是只靠文档勾选？
+
+<div id="md-case-graphviz-requirements-design-test-evidence-traceability"></div>
+
+```graphviz
+digraph Traceability {
+  graph [rankdir=TB, bgcolor="transparent", pad=0.30, nodesep=0.86, ranksep=0.54, splines=polyline, label="需求—设计—测试—证据｜双链向下汇聚，缺口阻止发布", labelloc=t, fontname="sans-serif", fontsize=16]
+  node [shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#667085", fontname="sans-serif", fontsize=10, margin="0.15,0.09"]
+  edge [fontname="sans-serif", fontsize=9, color="#667085", arrowsize=0.72]
+
+  r1 [label="R1 租户数据\n不可串读", shape=note]
+  r2 [label="R2 RTO\n≤ 30min", shape=note]
+  d1 [label="D1 tenant predicate\n+ RLS"]
+  d2 [label="D2 双区\n恢复方案"]
+  t1 [label="T1 跨租户\n负向测试"]
+  t2 [label="T2 灾备\n演练"]
+  e1 [label="E1 签名\n测试报告", shape=folder]
+  e2 [label="E2 演练\n时间线", shape=folder]
+  gate [label="覆盖率=100%\n且证据有效？", shape=diamond, fillcolor="#fff7e6", color="#b87503"]
+  release [label="发布基线", shape=doublecircle, fillcolor="#d5e8d4", color="#82b366"]
+
+  r1 -> d1 [label="satisfied by"]
+  r2 -> d2 [label="satisfied by"]
+  d1 -> t1 [label="verified by"]
+  d2 -> t2 [label="verified by"]
+  t1 -> e1 [label="produces"]
+  t2 -> e2 [label="produces"]
+  e1 -> gate [label="签名 + 新鲜度"]
+  e2 -> gate [label="签名 + 新鲜度"]
+  gate -> release [label="通过"]
+  gate -> r1 [label="缺口回补", style=dashed, color="#b85450", constraint=false]
+
+  { rank=same; r1; r2 }
+  { rank=same; d1; d2 }
+  { rank=same; t1; t2 }
+  { rank=same; e1; e2 }
+}
+```
+
+节点使用稳定 ID，边表达可审计关系；需求、设计、测试或证据任一孤儿节点都必须使门禁失败。
+
+### 系统退役：依赖分波与退出门禁
+
+**交付问题：** 在哪些消费者、数据与访问依赖解除后，旧系统才能按波次安全退役并停止成本？
+
+<div id="md-case-graphviz-decommission-wave-dependency-dag"></div>
+
+```graphviz
+digraph Decommission {
+  graph [rankdir=TB, bgcolor="transparent", pad=0.30, nodesep=0.56, ranksep=0.54, splines=polyline, label="系统退役｜退出证据扇入门禁；未知依赖就地短回补", labelloc=t, fontname="sans-serif", fontsize=16]
+  node [shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#667085", fontname="sans-serif", fontsize=10, margin="0.14,0.09"]
+  edge [fontname="sans-serif", fontsize=9, color="#667085", arrowsize=0.72]
+
+  inventory [label="依赖清册冻结\nowner + 最后活动时间", shape=note, fillcolor="#e8f1ff", color="#3974c6"]
+  api [label="E1 API 消费者\n迁移确认", shape=folder]
+  batch [label="E2 批任务\n改源确认", shape=folder]
+  report [label="E3 报表\n新仓对账", shape=folder]
+  archive [label="E4 归档保留\n恢复演练", shape=folder]
+  access [label="E5 账号 / 密钥\n撤销清单", shape=folder]
+  gate [label="退出证据齐全？\n流量 30d=0 · 可恢复 · 可追溯", shape=diamond, fillcolor="#fff7e6", color="#b87503"]
+  unknown [label="发现未知消费者", shape=octagon, fillcolor="#f8cecc", color="#b85450"]
+  repair [label="补 owner + 迁移\n更新清册", fillcolor="#fff7e6", color="#b87503"]
+  delete [label="删除运行资源", shape=octagon]
+  cost [label="账单归零\nCMDB 关闭", shape=doublecircle, fillcolor="#d5e8d4", color="#82b366"]
+
+  inventory -> api
+  inventory -> batch
+  inventory -> report
+  inventory -> archive
+  inventory -> access
+  api -> gate [label="consumer=0"]
+  batch -> gate [label="jobs=0"]
+  report -> gate [label="差异=0"]
+  archive -> gate [label="restore PASS"]
+  access -> gate [label="principal=0"]
+  gate -> delete [label="通过"]
+  delete -> cost [label="成本与资产证据"]
+  gate -> unknown [label="不通过", color="#b85450"]
+  unknown -> repair [label="登记", color="#b85450"]
+  repair -> inventory [label="短回补", style=dashed, color="#b85450", constraint=false]
+
+  { rank=same; api; batch; report; archive; access }
+  { rank=same; gate; unknown; repair }
+}
+```
+
+退役不是一次删除：消费者清零、归档可恢复、访问撤销和成本归零分别形成独立证据，按依赖汇聚后才允许执行不可逆动作。
+
+### 插件宿主：能力依赖与失败隔离
+
+**要回答的问题：** 依赖缺失时，为什么有的插件不能加载，有的可以降级，而其他插件仍正常？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看宿主、管理器与独立插件的职责，再看能力依赖与局部失败。此处隔离是失败影响范围，不宣称进程沙箱；可选增强不可用时检索插件明确本地降级。
+
+<div id="md-case-graphviz-plugin-required-optional-failure"></div>
+
+```graphviz
+digraph PluginArchitecture {
+ graph [layout=neato, overlap=false];
+ graph [fontname="Arial", fontsize=22, bgcolor="#ffffff", pad=0.25, nodesep=0.4, ranksep=0.65, splines=ortho];
+node [fontname="Arial", fontsize=20, shape=box, style="rounded,filled", fillcolor="#ffffff", color="#94a3b8", width=3.4, height=0.95, margin="0.15,0.10"];
+edge [fontname="Arial", fontsize=17, color="#475569", arrowsize=0.7];
+ label="插件宿主：能力依赖与失败隔离\n架构主视图 · 实线必需 / 虚线管理或可选"; labelloc=t;
+ subgraph cluster_dependencies {
+ caption_dependencies [label="能力提供者 · 可用性快照", shape=plaintext, style="", fontsize=20, width=0, height=0, pos="6.5,6.1!"];
+  label=""; color="#cbd5e1";
+  core [label="解析内核\n可用", fillcolor="#f1f5f9"];
+  dictionary [label="可选云词典\n不可用", style="rounded,dashed,filled", fillcolor="#f8fafc"];
+  pdf [label="必需 PDF 引擎\n缺失", fillcolor="#fff7ed", color="#d6b79b"];
+  {rank=same; core; dictionary; pdf;}
+ }
+ subgraph cluster_host {
+ caption_host [label="宿主 · 独立模块，非进程沙箱", shape=plaintext, style="", fontsize=20, width=0, height=0, pos="6.5,4!"];
+  label=""; color="#93c5fd"; style=filled; fillcolor="#eff6ff";
+  manager [label="插件管理器\n装载状态 / 能力协商", fillcolor="#ffffff"];
+  preview [label="预览插件\n正常加载"];
+  search [label="检索插件\n本地降级"];
+  pdfPlugin [label="PDF 插件\n不加载", fillcolor="#fff7ed", color="#d6b79b"];
+  {rank=same; preview; search; pdfPlugin;}
+  manager -> preview [xlabel="装载", style=dashed, color="#1d4ed8"];
+  manager -> search [style=dashed, color="#1d4ed8"];
+  manager -> pdfPlugin [xlabel="失败登记", style=dashed, color="#1d4ed8"];
+ }
+ core -> manager [style=invis];
+ core -> preview [xlabel="必需"];
+ core -> search;
+ dictionary -> search [xlabel="可选增强", style=dashed];
+ pdf -> pdfPlugin [xlabel="缺失阻断", color="#92400e"];
+ core [pos="2,5!"];
+ dictionary [pos="6.5,5!"];
+ pdf [pos="11,5!"];
+ manager [pos="6.5,3!"];
+ preview [pos="2,1!"];
+ search [pos="6.5,1!"];
+ pdfPlugin [pos="11,1!"];
+}
+```
+
+- **适用：** 编辑器、开发工具及模块化服务的扩展加载。实线是必需依赖，虚线是可选增强。
+- **迁移提示：** 依赖缺失的影响只传播到实际消费者；可选增强必须有明确的本地降级能力，不能仅把错误吞掉。
+- **不适用：** 本图不表达插件 API 兼容版本或完整加载时序。
+- **不变式：** PDF 引擎缺失阻止 PDF 插件，不阻止预览插件；检索插件仍需可用解析内核。
+
+### 任务系统：取消控制与资源归属
+
+**要回答的问题：** 发出取消请求以后，什么时候任务才算真正取消？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看协调器、执行域与资源回收职责，再看控制和确认回路，最后看AND终态门禁。任务状态与消费者计数归协调器内部；共享任务须先判断剩余消费者，不能直接套用独占任务的取消传播。
+
+<div id="md-case-graphviz-task-cancel-dependency-cleanup"></div>
+
+```graphviz
+digraph CancelArchitecture {
+ graph [layout=neato, overlap=false];
+ graph [fontname="Arial", fontsize=22, bgcolor="#ffffff", pad=0.25, nodesep=0.4, ranksep=0.65, splines=ortho];
+node [fontname="Arial", fontsize=20, shape=box, style="rounded,filled", fillcolor="#ffffff", color="#94a3b8", width=3.4, height=0.95, margin="0.15,0.10"];
+edge [fontname="Arial", fontsize=17, color="#475569", arrowsize=0.7];
+ label="任务系统：取消控制与资源归属\n架构主视图 · 实线职责依赖 / 虚线控制与反馈"; labelloc=t;
+ request [label="取消请求入口", shape=ellipse];
+ coordinator [label="任务协调器\n内部状态 / 消费者计数", fillcolor="#eff6ff", color="#93c5fd"];
+ {rank=same; request; coordinator;}
+ request -> coordinator [xlabel="cancel 请求"];
+ subgraph cluster_execution {
+ caption_execution [label="执行域 · 独占任务示例", shape=plaintext, style="", fontsize=20, width=0, height=0, pos="7,5.65!"];
+  label=""; color="#cbd5e1"; style=filled; fillcolor="#f8fafc";
+  running [label="任务执行器\n运行中 / 停止点"];
+  queued [label="依赖任务登记\n未启动 → 跳过\n不创建新资源", shape=note, fillcolor="#f1f5f9"];
+  {rank=same; running; queued;}
+ }
+ subgraph cluster_resources {
+ caption_resources [label="资源归属与回收", shape=plaintext, style="", fontsize=20, width=0, height=0, pos="4.4,3.4!"];
+  label=""; color="#cbd5e1";
+  resources [label="临时资源登记\n资源所有权", shape=cylinder, fillcolor="#f1f5f9"];
+  cleanup [label="资源回收器\n失败保留待处理"];
+  {rank=same; resources; cleanup;}
+  resources -> cleanup [xlabel="回收清单"];
+ }
+ coordinator -> running [xlabel="协作取消", style=dashed];
+ coordinator -> queued [xlabel="停止调度", style=dashed];
+ running -> resources [xlabel="已有资源", constraint=false];
+ running -> cleanup [xlabel="退出已确认"];
+ queued -> cleanup [xlabel="停止新资源"];
+ gate [label="退出确认 AND\n资源回收完成", shape=hexagon, fillcolor="#eff6ff"];
+ done [label="终态：已取消", fillcolor="#1d4ed8", color="#1d4ed8", fontcolor="#ffffff"];
+ failed [label="回收未完成\n待重试 / 待处理", fillcolor="#fff7ed", color="#d6b79b"];
+ cleanup -> gate [xlabel="回收完成"];
+ running -> gate [xlabel="退出确认", style=dashed, constraint=false];
+ gate -> done [color="#1d4ed8"];
+ cleanup -> failed [xlabel="清理失败", style=dashed, color="#92400e"];
+ {rank=same; gate; failed;}
+ done -> coordinator [style=dashed, constraint=false];
+ failed -> coordinator [style=dashed, constraint=false];
+ request [pos="2,7!"];
+ coordinator [pos="7.3,7!"];
+ running [pos="4,4.7!"];
+ queued [pos="10,4.7!"];
+ resources [pos="2,2.5!"];
+ cleanup [pos="6.8,2.5!"];
+ gate [pos="11,2.5!"];
+ failed [pos="6.8,0.5!"];
+ done [pos="11,0.5!"];
+}
+```
+
+- **适用：** 含排队依赖和临时产物的后台任务。实线表达职责依赖，虚线表达取消控制与确认反馈；终态门禁为局部机制。
+- **迁移提示：** 未启动任务不应再创建资源；执行中任务需要可检查的停止点。共享工作应另用引用计数或消费者预算，不能直接套用此图。
+- **不变式：** 已取消终态必须等待执行退出和资源回收；清理失败只进入待处理，不能宣称取消收尾完成。
+
+### 搜索索引：构建面与查询面
+
+**要回答的问题：** 读取到新内容以后，为什么搜索仍可能暂时看到上一版本？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看构建/查询两面并存，再看中间的局部发布门禁。查询持有不可变快照，g11保留到在途请求完成；控制器和内容归属是说明性划分。
+
+<div id="md-case-graphviz-search-index-publication-gates"></div>
+
+```graphviz
+digraph IndexArchitecture {
+ graph [layout=neato, overlap=false];
+ graph [fontname="Arial", fontsize=23, bgcolor="#ffffff", pad=0.3, nodesep=0.4, ranksep=0.7, splines=ortho];
+ node [fontname="Arial", fontsize=20, shape=box, style="rounded,filled", fillcolor="#ffffff", color="#94a3b8", width=3.4, height=0.95, margin="0.16,0.12"];
+ edge [fontname="Arial", fontsize=16, color="#475569", arrowsize=0.7];
+ label="搜索索引：构建面与查询面\n架构主视图 · 实线读写 / 虚线事件与反馈"; labelloc=t;
+ subgraph cluster_build {
+ caption_build [label="构建面\n候选不可直接查询", shape=plaintext, style="", fontsize=20, width=0, height=0, pos="2,7.3!"];
+  label=""; color="#cbd5e1"; style=filled; fillcolor="#f8fafc";
+  content [label="版本化内容库\n当前 r7 / 后续 r8", shape=cylinder, fillcolor="#f1f5f9"];
+  watcher [label="变更监听器\n聚合变更与重排"];
+  build [label="构建工作器\n读取 r7 快照\n失败不切换 g11"];
+  candidate [label="候选索引 g12\n记录来源 r7", shape=cylinder, fillcolor="#f1f5f9"];
+  {rank=same; content; watcher; build; candidate;}
+  content -> watcher [xlabel="变更", style=dashed];
+  watcher -> build [xlabel="任务", style=dashed];
+  build -> candidate [xlabel="写候选"];
+  content -> build [xlabel="读 r7", constraint=false];
+ }
+ subgraph cluster_publish {
+ caption_publish [label="发布控制器\n局部版本门禁", shape=plaintext, style="", fontsize=20, width=0, height=0, pos="6.5,5.6!"];
+  label=""; color="#93c5fd"; style=filled; fillcolor="#eff6ff";
+  gate [label="复核 revision\n仍为 r7?", shape=hexagon, fontsize=18];
+  publish [label="原子发布 g12", fillcolor="#1d4ed8", fontcolor="#ffffff", color="#1d4ed8", fontsize=18];
+  discard [label="已变为 r8\n丢弃并重新排队", fillcolor="#fff7ed", color="#d6b79b", fontsize=18];
+  {rank=same; gate; publish; discard;}
+  gate -> publish [xlabel="仍为 r7", color="#1d4ed8"];
+  gate -> discard [xlabel="已为 r8", style=dashed, color="#92400e"];
+  publish -> discard [style=invis];
+ }
+ candidate -> gate [xlabel="候选 r7"];
+ content -> gate [xlabel="复核版本", style=dashed, constraint=false];
+ subgraph cluster_query {
+ caption_query [label="查询面\n每请求固定快照", shape=plaintext, style="", fontsize=20, width=0, height=0, pos="11,7.3!"];
+  label=""; color="#cbd5e1";
+  current [label="可见版本指针\nCURRENT", shape=cylinder, fillcolor="#f1f5f9"];
+  client [label="查询客户端", shape=ellipse];
+  query [label="查询服务\n请求持有快照"];
+  keep [label="不可变索引集合\n保持可用 g11\n纳入已验证 g12", shape=cylinder, fillcolor="#f1f5f9"];
+  {rank=same; current; client; query; keep;}
+  current -> client [style=invis];
+  client -> query [xlabel="请求"];
+  query -> keep [xlabel="按快照读"];
+  query -> current [xlabel="读指针\n新请求", constraint=false];
+ }
+ publish -> current [xlabel="切指针", color="#1d4ed8"];
+ publish -> keep [xlabel="写 g12\n留 g11", color="#1d4ed8"];
+ content [pos="2,6.2!"];
+ watcher [pos="2,4.5!"];
+ build [pos="2,2.8!"];
+ candidate [pos="2,1.1!"];
+ gate [pos="6.5,4.4!"];
+ publish [pos="6.5,2.8!"];
+ discard [pos="6.5,1.1!"];
+ current [pos="11,6.2!"];
+ client [pos="11,4.5!"];
+ query [pos="11,2.8!"];
+ keep [pos="11,1.1!"];
+}
+```
+
+- **适用：** 本地搜索、文档检索和内容缓存的不可变索引发布。r7/g12 仅为说明性版本标识。
+- **迁移提示：** 候选构建和查询可见性分开；发布前校验内容版本，并用原子切换保证新查询只读一个可用 generation。
+- **不变式：** 当前内容已为 r8 时，r7 候选不得发布；构建失败保持上一可用 g11。已有查询可完成旧快照，不要求在中途切换 generation。
+
 ## 6. Mermaid：交互时序、流程与状态
 
 > 优先迁移参与者、条件分支、返回线和状态转换语义。
@@ -2162,6 +2738,8 @@ sequenceDiagram
 
 - single-flight 只合并同一键的并发回源，不应把不同版本或不同授权上下文错误合并。
 - 回填失败不阻断本次读取，但应记录指标以识别持续缓存失效。
+
+- **边界与相关案例：** 此图只解释一次读穿透 miss，不承诺解决并发更新或缓存失效竞态；版本复核与可见性问题参考 `graphviz-search-index-publication-gates`。
 
 ### Outbox 事件发布与幂等消费
 
@@ -2708,6 +3286,43 @@ SharedPlatform,Unallocated,5000
 
 - **设计要点 1：** 云账单总额为 100,000，计算、存储、网络和共享平台的流入与流出分别守恒。
 - **设计要点 2：** `Unallocated` 显式暴露标签缺失和规则覆盖不足；Sankey 当前解析器要求该 CSV 案例使用 ASCII 标签，生成其他图时仍优先使用用户的主要语言。
+
+### 编舞式 Saga：超时、迟到事件与补偿
+
+**交付问题：** 无中央编排器时，如何让各服务仅凭事件在超时、重复与迟到情况下收敛到可解释终态？
+
+<div id="md-case-mermaid-choreography-saga-timeout"></div>
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Buyer as 买家
+    participant Order as 订单服务
+    participant Stock as 库存服务
+    participant Pay as 支付服务
+    participant Deadline as Deadline 定时器
+
+    Buyer->>Order: 创建订单(commandId)
+    Order--)Stock: OrderPlaced(sagaId, deadline)
+    Stock--)Pay: StockReserved(operationId)
+
+    alt 截止期前扣款成功
+        Pay--)Order: PaymentCaptured
+        Order--)Buyer: CONFIRMED + sagaId
+    else Deadline 先到
+        Deadline--)Order: SagaTimedOut
+        Deadline--)Stock: SagaTimedOut
+        Stock--)Order: StockReleased
+        Order--)Buyer: CANCELLED + sagaId
+        opt PaymentCaptured 迟到
+            Pay--)Order: PaymentCaptured(late=true)
+            Order--)Pay: RefundRequested(operationId)
+        end
+    end
+    Note over Order,Pay: 虚线消息均经事件总线；消费者按 eventId / sagaId 去重
+```
+
+每个消费者以 `eventId/sagaId` 去重并做条件状态迁移；超时是业务事件而非“假定失败”，迟到扣款必须走幂等退款或人工对账。
 
 ## 7. Structurizr：C4 与部署视角
 
@@ -3730,6 +4345,68 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
 
 - 消费者订阅精确关联契约版本，而不是只关联逻辑 API；同一消费者可以独立迁移并保留确认状态。
 - 兼容性检查和迁移确认通过复合外键强制限定在同一 contract、同一 consumer 内；退役窗口分开记录通知、停止新增和最终下线三个控制点。
+
+### 事务 Outbox、Inbox 去重与投递游标
+
+**交付问题：** 数据模型如何保证业务变更与待发事件同事务提交，并让多消费者独立去重、重试和推进投递水位？
+
+<div id="md-case-dbml-transactional-outbox-inbox-dedup"></div>
+
+```dbml
+Table orders {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  status varchar(24) [not null]
+  version int [not null, default: 1]
+  updated_at timestamp [not null]
+  indexes { (tenant_id, id) [unique] }
+}
+Table outbox_events {
+  id uuid [pk, note: '全局 eventId']
+  tenant_id uuid [not null]
+  aggregate_type varchar(64) [not null]
+  aggregate_id uuid [not null]
+  aggregate_version int [not null]
+  event_type varchar(96) [not null]
+  payload_json text [not null]
+  occurred_at timestamp [not null]
+  published_at timestamp
+  indexes { (aggregate_type, aggregate_id, aggregate_version) [unique] (published_at, occurred_at) }
+}
+Table consumer_inbox {
+  consumer_name varchar(96) [not null]
+  event_id uuid [not null]
+  received_at timestamp [not null]
+  outcome varchar(24) [not null, note: 'processing|applied|failed']
+  attempt_count int [not null, default: 1]
+  last_error varchar(512)
+  applied_at timestamp
+  indexes { (consumer_name, event_id) [pk] (outcome, received_at) }
+}
+Table relay_partitions {
+  partition_key varchar(96) [pk]
+  lease_owner varchar(128)
+  lease_until timestamp
+  last_occurred_at timestamp
+  last_event_id uuid
+  updated_at timestamp [not null]
+}
+Table delivery_attempts {
+  id uuid [pk]
+  event_id uuid [not null]
+  consumer_name varchar(96) [not null]
+  attempt_no int [not null]
+  started_at timestamp [not null]
+  completed_at timestamp
+  result varchar(24) [not null]
+  indexes { (event_id, consumer_name, attempt_no) [unique] }
+}
+Ref: outbox_events.aggregate_id > orders.id
+Ref: consumer_inbox.event_id > outbox_events.id
+Ref: delivery_attempts.event_id > outbox_events.id
+```
+
+`orders` 与 `outbox_events` 必须同事务写入；Inbox 复合主键定义消费幂等边界，投递尝试保留历史而不覆盖事实，游标只在已确认批次后推进。
 
 ## 9. AntV G6：运行时拓扑与故障域
 
@@ -4784,6 +5461,8 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
 - **结构要点：** 阅读路径：主流程沿任务链推进，虚线表示并行支撑活动；上线门禁不通过时沿底部红色回路退回构建阶段。
 - **迁移提示：** 迁移要点：每个阶段只保留可验收产物，门禁必须有通过条件与回退去向，避免把流程图画成无责任人的时间轴。
 
+- **边界与相关案例：** 阶段放行不等于连接排空或绕过发布授权；分别参考 `drawio-rolling-upgrade-connection-drain` 与 `drawio-artifact-approved-blocked-paths`。
+
 ### 案例 5：纵深防御与安全运营闭环
 
 - **适用：** 适合安全总体设计、威胁建模沟通、控制措施盘点和审计说明。
@@ -5072,6 +5751,8 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
 
 - **结构要点：** 阅读路径：常态流量分散到主地域两个故障域；故障时全局调度切向灾备入口，数据副本与离线备份提供恢复基础。
 - **迁移提示：** 迁移要点：先画故障域再放副本，并明确健康探测、判定、切换、校验和回切；不要把“备份”等同于“可切换灾备”。
+
+- **边界与相关案例：** 复制与故障切换不替代备份恢复校验，不自动推出 RPO=0；独立恢复验证参考 `drawio-backup-restore-validation`。
 
 ### 案例 7：性能治理与弹性优化闭环
 
@@ -6591,6 +7272,1026 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
 - **连线语义：** 实线是递进测试与处置主流程，虚线是证据或失败反馈；修复后返回责任阶段，并重跑受影响的后续阶段。
 
 
+### 混合云 Landing Zone：路由、DNS 与检查边界
+
+**交付问题：** 本地数据中心与云 Landing Zone 怎样互联，才能把路由传播、名称解析、流量检查和故障切换边界交付给网络团队？
+
+<div id="md-case-drawio-hybrid-network-landing-zone"></div>
+
+```drawio
+<mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/><mxCell id="1" parent="0"/>
+    <mxCell id="dhnlz-boundary-onprem" value="本地数据中心 · 10.0/16" style="swimlane;html=1;rounded=1;startSize=30;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="170" width="260" height="400" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-boundary-cloud" value="云 Landing Zone · 路由域与 Spoke" style="swimlane;html=1;rounded=1;startSize=30;fillColor=#eef4ff;strokeColor=#3974c6;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="330" y="40" width="950" height="660" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-e-0" value="BGP 主备" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="dhnlz-n-router" target="dhnlz-n-connect"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-e-1" value="批准前缀" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="dhnlz-n-connect" target="dhnlz-n-hub"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-e-2" value="生产路由" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="dhnlz-n-hub" target="dhnlz-n-prod"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-e-3" value="共享服务路由" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="dhnlz-n-hub" target="dhnlz-n-shared"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-e-4" value="强制检查" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#b85450;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" parent="1" source="dhnlz-n-hub" target="dhnlz-n-firewall"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="880" y="460"/><mxPoint x="880" y="520"/><mxPoint x="920" y="520"/></Array></mxGeometry></mxCell>
+    <mxCell id="dhnlz-e-5" value="私网终端" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="dhnlz-n-shared" target="dhnlz-n-endpoint"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-e-6" value="条件转发" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;dashed=1;" edge="1" parent="1" source="dhnlz-n-dns" target="dhnlz-n-resolver"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-e-7" value="路由 / DNS / 禁止路径" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;dashed=1;" edge="1" parent="1" source="dhnlz-n-probe" target="dhnlz-n-evidence"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-router" value="核心路由器&lt;br&gt;CIDR 10.0/16" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dhnlz-boundary-onprem"><mxGeometry x="50" y="90" width="160" height="60" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-dns" value="企业 DNS&lt;br&gt;权威私有域" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dhnlz-boundary-onprem"><mxGeometry x="50" y="230" width="160" height="60" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-connect" value="双专线 / VPN&lt;br&gt;BGP + BFD" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="1"><mxGeometry x="310" y="300" width="150" height="70" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-hub" value="Transit Hub&lt;br&gt;路由域隔离" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=3;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="300" y="245" width="150" height="150" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-prod" value="生产 Spoke&lt;br&gt;10.20/16" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7c5cbf;strokeWidth=2;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="610" y="80" width="180" height="80" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-shared" value="共享服务 Spoke&lt;br&gt;10.30/16" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0086c9;strokeWidth=2;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="610" y="260" width="180" height="80" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-firewall" value="检查 Spoke&lt;br&gt;东西 / 南北向防火墙" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="610" y="440" width="180" height="80" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-resolver" value="DNS Resolver&lt;br&gt;条件转发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="70" y="90" width="170" height="70" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-endpoint" value="对象 / 密钥服务&lt;br&gt;Private Endpoint" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="600" y="570" width="200" height="60" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-probe" value="连通性探针" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="70" y="500" width="150" height="60" as="geometry"/></mxCell>
+    <mxCell id="dhnlz-n-evidence" value="验收证据包&lt;br&gt;主备链路 · DNS · 禁止路径" style="shape=document;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#2e7d32;strokeWidth=2;" vertex="1" parent="dhnlz-boundary-cloud"><mxGeometry x="290" y="530" width="220" height="70" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
+```
+
+- **设计要点：** 连接、解析与检查分别建模；所有跨域路由经显式传播策略，验收证据覆盖主链路、备链路、DNS 和禁止路径。
+
+### API 生态边界：渠道、网关、域服务与伙伴
+
+**交付问题：** 怎样划清第一方渠道、API 产品边界、内部域服务和第三方伙伴责任，并明确同步、事件与回调契约？
+
+<div id="md-case-drawio-api-ecosystem-boundaries"></div>
+
+```drawio
+<mxGraphModel dx="1200" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+        <mxCell id="daeb-lane-0" value="消费方" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="20" y="40" width="240" height="500" as="geometry"/></mxCell>
+        <mxCell id="daeb-lane-1" value="API 产品与治理" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="290" y="40" width="360" height="500" as="geometry"/></mxCell>
+        <mxCell id="daeb-lane-2" value="领域与事件" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="680" y="40" width="350" height="500" as="geometry"/></mxCell>
+        <mxCell id="daeb-lane-3" value="伙伴边界" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="1060" y="40" width="260" height="500" as="geometry"/></mxCell>
+        <mxCell id="daeb-e-0" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="daeb-n-0" target="daeb-n-2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="daeb-e-1" value="受控访问" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="daeb-n-1" target="daeb-n-2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="275" y="270"/><mxPoint x="275" y="145"/></Array></mxGeometry></mxCell>
+        <mxCell id="daeb-e-2" value="发现与订阅" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" edge="1" parent="1" source="daeb-n-0" target="daeb-n-3"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="130" y="90"/><mxPoint x="545" y="90"/></Array></mxGeometry></mxCell>
+        <mxCell id="daeb-e-3" value="路由" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="daeb-n-2" target="daeb-n-4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="daeb-e-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="daeb-n-4" target="daeb-n-5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="daeb-e-5" value="命令" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" parent="1" source="daeb-n-4" target="daeb-n-6"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="395" y="370"/><mxPoint x="660" y="370"/><mxPoint x="660" y="150"/></Array></mxGeometry></mxCell>
+        <mxCell id="daeb-e-6" value="事件" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="daeb-n-6" target="daeb-n-7"><mxGeometry x="0" y="-16" relative="1" as="geometry"/></mxCell>
+        <mxCell id="daeb-e-7" value="签名回调" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="daeb-n-7" target="daeb-n-8"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="930" y="260"/><mxPoint x="880" y="310"/></Array></mxGeometry></mxCell>
+        <mxCell id="daeb-e-8" value="伙伴请求" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" edge="1" parent="1" source="daeb-n-6" target="daeb-n-9"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="780" y="90"/><mxPoint x="1165" y="90"/></Array></mxGeometry></mxCell>
+        <mxCell id="daeb-e-9" value="HTTPS callback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="daeb-n-8" target="daeb-n-10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="daeb-e-10" value="契约校验" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="daeb-n-3" target="daeb-n-11"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="640" y="145"/><mxPoint x="640" y="435"/></Array></mxGeometry></mxCell>
+        <mxCell id="daeb-e-11" value="发布前通过" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="daeb-n-11" target="daeb-n-4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-0" value="Web / Mobile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="daeb-lane-0"><mxGeometry x="30" y="80" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-1" value="内部运营" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="daeb-lane-0"><mxGeometry x="30" y="200" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-2" value="API Gateway&lt;br&gt;OAuth · 配额 · WAF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="daeb-lane-1"><mxGeometry x="30" y="70" width="150" height="70" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-3" value="开发者门户&lt;br&gt;契约/订阅/SLA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="daeb-lane-1"><mxGeometry x="190" y="70" width="130" height="70" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-4" value="订单 API 产品&lt;br&gt;版本 owner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="daeb-lane-1"><mxGeometry x="30" y="230" width="150" height="70" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-5" value="审计与用量证据" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="daeb-lane-1"><mxGeometry x="190" y="230" width="130" height="70" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-6" value="订单域服务" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="daeb-lane-2"><mxGeometry x="30" y="80" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-7" value="事件总线&lt;br&gt;版本化事件" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="daeb-lane-2"><mxGeometry x="190" y="80" width="120" height="60" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-8" value="回调派发器&lt;br&gt;签名 + 重试" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="daeb-lane-2"><mxGeometry x="30" y="240" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-9" value="支付伙伴 API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="daeb-lane-3"><mxGeometry x="30" y="100" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-10" value="伙伴 Webhook" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="daeb-lane-3"><mxGeometry x="30" y="250" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="daeb-n-11" value="契约门禁&lt;br&gt;兼容性 + owner" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="daeb-lane-1"><mxGeometry x="190" y="360" width="130" height="70" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
+```
+
+- **设计要点：** 网关负责入口控制而不承载业务规则；API 产品有版本 owner，事件和回调均显示契约、签名、重试与证据归属。
+
+### 共享平台与租户边界：控制面、Cell 与数据隔离
+
+**交付问题：** 哪些能力可以共享，哪些必须按租户或 Cell 隔离，控制面怎样在不接触业务数据的前提下完成调度？
+
+<div id="md-case-drawio-shared-platform-tenant-boundaries"></div>
+
+```drawio
+<mxGraphModel dx="1200" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+        <mxCell id="dsptb-lane-0" value="共享控制面（无租户业务数据）" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="20" y="40" width="1100" height="180" as="geometry"/></mxCell>
+        <mxCell id="dsptb-lane-1" value="Tenant A · Cell 01" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="20" y="250" width="530" height="330" as="geometry"/></mxCell>
+        <mxCell id="dsptb-lane-2" value="Tenant B · Cell 02" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="590" y="250" width="530" height="330" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dsptb-n-0" target="dsptb-n-1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-1" value="调度" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dsptb-n-1" target="dsptb-n-2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-2" value="配置 A" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="dsptb-n-2" target="dsptb-n-4"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="545" y="235"/><mxPoint x="120" y="235"/></Array></mxGeometry></mxCell>
+        <mxCell id="dsptb-e-3" value="配置 B" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="dsptb-n-2" target="dsptb-n-7"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="545" y="235"/><mxPoint x="690" y="235"/></Array></mxGeometry></mxCell>
+        <mxCell id="dsptb-e-4" value="A 上下文" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dsptb-n-4" target="dsptb-n-5"><mxGeometry x="0" y="-16" relative="1" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-5" value="A 凭证" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dsptb-n-5" target="dsptb-n-6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-6" value="B 上下文" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dsptb-n-7" target="dsptb-n-8"><mxGeometry x="0" y="-16" relative="1" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-7" value="B 凭证" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dsptb-n-8" target="dsptb-n-9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-8" value="元数据审计" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dsptb-n-2" target="dsptb-n-3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dsptb-e-9" value="A 负向测试" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" parent="1" source="dsptb-n-6" target="dsptb-n-10"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="355" y="610"/><mxPoint x="470" y="610"/></Array></mxGeometry></mxCell>
+        <mxCell id="dsptb-e-10" value="B 负向测试" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="dsptb-n-9" target="dsptb-n-10"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="925" y="610"/><mxPoint x="660" y="610"/></Array></mxGeometry></mxCell>
+        <mxCell id="dsptb-n-0" value="租户目录&lt;br&gt;opaque tenantId" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dsptb-lane-0"><mxGeometry x="30" y="60" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-1" value="策略与配额" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="dsptb-lane-0"><mxGeometry x="240" y="60" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-2" value="Cell 调度器&lt;br&gt;仅下发配置引用" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dsptb-lane-0"><mxGeometry x="430" y="60" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-3" value="平台审计&lt;br&gt;元数据" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dsptb-lane-0"><mxGeometry x="680" y="60" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-4" value="入口 A&lt;br&gt;绑定 tenant=A" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="dsptb-lane-1"><mxGeometry x="30" y="70" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-5" value="计算池 A&lt;br&gt;独立身份/配额" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dsptb-lane-1"><mxGeometry x="250" y="70" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-6" value="数据库 A&lt;br&gt;独立密钥" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dsptb-lane-1"><mxGeometry x="250" y="200" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-7" value="入口 B&lt;br&gt;绑定 tenant=B" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="dsptb-lane-2"><mxGeometry x="30" y="70" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-8" value="计算池 B&lt;br&gt;独立身份/配额" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dsptb-lane-2"><mxGeometry x="250" y="70" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-9" value="数据库 B&lt;br&gt;独立密钥" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dsptb-lane-2"><mxGeometry x="250" y="200" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dsptb-n-10" value="隔离证据&lt;br&gt;负向测试 + 审计" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="1"><mxGeometry x="470" y="600" width="190" height="80" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
+```
+
+- **设计要点：** 控制面只处理租户元数据和配置引用；入口绑定租户上下文，计算身份、配额、密钥和数据存储按 Cell 隔离，并用跨租户负向测试证明。
+
+### 事故指挥：角色、升级阈值与沟通节奏
+
+**交付问题：** 严重事故中谁拥有决策权，何时升级，技术处置、业务沟通和证据记录如何并行而不互相阻塞？
+
+<div id="md-case-drawio-incident-command-escalation"></div>
+
+```drawio
+<mxGraphModel dx="1200" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+        <mxCell id="dice-lane-0" value="信号与分级" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="20" y="40" width="250" height="520" as="geometry"/></mxCell>
+        <mxCell id="dice-lane-1" value="指挥与处置" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="300" y="40" width="500" height="520" as="geometry"/></mxCell>
+        <mxCell id="dice-lane-2" value="沟通与治理" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="830" y="40" width="420" height="520" as="geometry"/></mxCell>
+        <mxCell id="dice-e-0" value="触发" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dice-n-0" target="dice-n-1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dice-e-1" value="任命" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="dice-n-1" target="dice-n-2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="285" y="295"/><mxPoint x="285" y="145"/></Array></mxGeometry></mxCell>
+        <mxCell id="dice-e-2" value="授权缓解" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dice-n-2" target="dice-n-3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dice-e-3" value="授权诊断" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=1;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="dice-n-2" target="dice-n-4"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="780" y="145"/><mxPoint x="780" y="230"/><mxPoint x="630" y="230"/></Array></mxGeometry></mxCell>
+        <mxCell id="dice-e-4" value="状态" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dice-n-3" target="dice-n-5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dice-e-5" value="状态" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dice-n-4" target="dice-n-5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dice-e-6" value="升级 SEV1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="dice-n-5" target="dice-n-2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="320" y="435"/><mxPoint x="320" y="145"/></Array></mxGeometry></mxCell>
+        <mxCell id="dice-e-7" value="批准消息" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="dice-n-2" target="dice-n-6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dice-e-8" value="业务取舍" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" edge="1" parent="1" source="dice-n-7" target="dice-n-2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1125" y="90"/><mxPoint x="420" y="90"/></Array></mxGeometry></mxCell>
+        <mxCell id="dice-e-9" value="对外更新" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dice-n-6" target="dice-n-8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dice-e-10" value="持续记录" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=1;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="dice-n-2" target="dice-n-9"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="820" y="145"/><mxPoint x="820" y="220"/><mxPoint x="1125" y="220"/></Array></mxGeometry></mxCell>
+        <mxCell id="dice-e-11" value="恢复候选" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="1" source="dice-n-3" target="dice-n-10"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="410" y="510"/><mxPoint x="1025" y="510"/></Array></mxGeometry></mxCell>
+        <mxCell id="dice-e-12" value="验收后关闭" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0;exitY=0.5;entryX=1;entryY=0;" edge="1" parent="1" source="dice-n-10" target="dice-n-2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="815" y="455"/><mxPoint x="815" y="90"/><mxPoint x="510" y="90"/></Array></mxGeometry></mxCell>
+        <mxCell id="dice-n-0" value="SLO 告警&lt;br&gt;用户影响" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="dice-lane-0"><mxGeometry x="30" y="80" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dice-n-1" value="事件分级&lt;br&gt;SEV2 / SEV1?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="dice-lane-0"><mxGeometry x="30" y="220" width="150" height="70" as="geometry"/></mxCell>
+        <mxCell id="dice-n-2" value="Incident Commander&lt;br&gt;唯一决策日志" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="dice-lane-1"><mxGeometry x="30" y="70" width="180" height="70" as="geometry"/></mxCell>
+        <mxCell id="dice-n-3" value="Ops Lead&lt;br&gt;缓解/回滚" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dice-lane-1"><mxGeometry x="30" y="220" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="dice-n-4" value="Tech Lead&lt;br&gt;诊断/修复" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dice-lane-1"><mxGeometry x="250" y="220" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="dice-n-5" value="升级门禁&lt;br&gt;15min 无缓解或影响扩大" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="dice-lane-1"><mxGeometry x="150" y="360" width="200" height="70" as="geometry"/></mxCell>
+        <mxCell id="dice-n-6" value="Comms Lead&lt;br&gt;15min 节奏" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dice-lane-2"><mxGeometry x="30" y="90" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="dice-n-7" value="业务负责人&lt;br&gt;影响与取舍" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dice-lane-2"><mxGeometry x="220" y="90" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dice-n-8" value="状态页 / 客服" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dice-lane-2"><mxGeometry x="30" y="240" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="dice-n-9" value="证据包&lt;br&gt;时间线/命令/指标" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dice-lane-2"><mxGeometry x="220" y="240" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dice-n-10" value="恢复确认&lt;br&gt;SLO+业务探针" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="dice-lane-2"><mxGeometry x="100" y="380" width="190" height="70" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
+```
+
+- **设计要点：** 指挥官拥有唯一决策日志；技术与沟通并行，升级由时间和影响阈值触发，关闭前要求 SLO、业务探针和证据包同时通过。
+
+### 安全控制保证：目标、实现、测试与证据
+
+**交付问题：** 怎样把安全目标追踪到预防/检测控制、自动测试和签名证据，并让失效控制进入整改门禁？
+
+<div id="md-case-drawio-security-control-assurance-evidence"></div>
+
+```drawio
+<mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="900" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/><mxCell id="1" parent="0"/>
+    <mxCell id="dscae-table" value="安全控制保证矩阵 · 控制目标 × 实现 × 测试 × 证据" style="swimlane;html=1;rounded=1;startSize=40;fillColor=#f8fafc;strokeColor=#667085;fontStyle=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="30" y="30" width="1320" height="620" as="geometry"/></mxCell>
+    <mxCell id="dscae-h-0" value="控制目标" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#344054;fontColor=#ffffff;fontStyle=1;" vertex="1" parent="dscae-table"><mxGeometry x="20" y="60" width="220" height="50" as="geometry"/></mxCell>
+    <mxCell id="dscae-h-1" value="预防 / 检测实现" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#344054;fontColor=#ffffff;fontStyle=1;" vertex="1" parent="dscae-table"><mxGeometry x="240" y="60" width="290" height="50" as="geometry"/></mxCell>
+    <mxCell id="dscae-h-2" value="验证测试" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#344054;fontColor=#ffffff;fontStyle=1;" vertex="1" parent="dscae-table"><mxGeometry x="530" y="60" width="260" height="50" as="geometry"/></mxCell>
+    <mxCell id="dscae-h-3" value="不可变证据" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#344054;fontColor=#ffffff;fontStyle=1;" vertex="1" parent="dscae-table"><mxGeometry x="790" y="60" width="280" height="50" as="geometry"/></mxCell>
+    <mxCell id="dscae-h-4" value="门禁状态" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#344054;fontColor=#ffffff;fontStyle=1;" vertex="1" parent="dscae-table"><mxGeometry x="1070" y="60" width="210" height="50" as="geometry"/></mxCell>
+    <mxCell id="dscae-r1-0" value="SC-01&lt;br&gt;&lt;b&gt;租户数据不可串读&lt;/b&gt;&lt;br&gt;owner: 平台安全" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#eef4ff;strokeColor=#d0d5dd;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="20" y="110" width="220" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r1-1" value="入口 tenant binding&lt;br&gt;数据库 RLS&lt;br&gt;查询审计" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d0d5dd;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="240" y="110" width="290" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r1-2" value="跨租户读写负向测试&lt;br&gt;策略配置扫描&lt;br&gt;故障注入：缺失 tenant" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d0d5dd;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="530" y="110" width="260" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r1-3" value="artifact://SC-01/run-184&lt;br&gt;签名：qa-key-7&lt;br&gt;新鲜度：2d" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f3ff;strokeColor=#d0d5dd;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="790" y="110" width="280" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r1-4" value="PASS&lt;br&gt;coverage 3/3" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#2e7d32;fontStyle=1;fontColor=#1b5e20;" vertex="1" parent="dscae-table"><mxGeometry x="1070" y="110" width="210" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r2-0" value="SC-02&lt;br&gt;&lt;b&gt;特权访问可追溯&lt;/b&gt;&lt;br&gt;owner: IAM" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#eef4ff;strokeColor=#d0d5dd;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="20" y="260" width="220" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r2-1" value="JIT + MFA&lt;br&gt;双人审批&lt;br&gt;不可变审计" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d0d5dd;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="240" y="260" width="290" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r2-2" value="Break-glass 演练&lt;br&gt;超时自动吊销&lt;br&gt;审批人分离检查" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d0d5dd;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="530" y="260" width="260" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r2-3" value="artifact://SC-02/drill-31&lt;br&gt;缺：吊销确认 hash&lt;br&gt;due: T-5d" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="790" y="260" width="280" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-r2-4" value="BLOCKED&lt;br&gt;证据缺口 1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontColor=#8f1d18;" vertex="1" parent="dscae-table"><mxGeometry x="1070" y="260" width="210" height="150" as="geometry"/></mxCell>
+    <mxCell id="dscae-rule" value="发布规则：控制目标必须有 owner；实现、测试、证据三列不得为空；证据须签名且在有效期内。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;fontStyle=1;align=left;spacingLeft=12;" vertex="1" parent="dscae-table"><mxGeometry x="20" y="440" width="850" height="90" as="geometry"/></mxCell>
+    <mxCell id="dscae-gate" value="NO-GO&lt;br&gt;SC-02 补证后重评" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontStyle=1;" vertex="1" parent="dscae-table"><mxGeometry x="920" y="430" width="260" height="110" as="geometry"/></mxCell>
+    <mxCell id="dscae-e-0" value="矩阵汇总" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#b85450;" edge="1" parent="1" source="dscae-r2-4" target="dscae-gate"><mxGeometry relative="1" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
+```
+
+- **设计要点：** 每条控制目标都有实现、测试、证据和 owner；门禁同时检查覆盖率、证据新鲜度与例外期限，失败只能进入可追踪整改而非口头放行。
+
+### 迁移切换指挥：Go/No-Go、回滚与验收
+
+**交付问题：** 切换窗口内怎样汇聚数据水位、技术健康和业务验收，确保每个不可逆动作都有门禁、owner 与回滚期限？
+
+<div id="md-case-drawio-migration-cutover-command-center"></div>
+
+```drawio
+<mxGraphModel dx="1200" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+        <mxCell id="dmccc-lane-0" value="切换前准备" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="20" y="40" width="300" height="520" as="geometry"/></mxCell>
+        <mxCell id="dmccc-lane-1" value="指挥中心" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="350" y="40" width="420" height="520" as="geometry"/></mxCell>
+        <mxCell id="dmccc-lane-2" value="执行与验收" style="swimlane;html=1;rounded=1;startSize=30;horizontal=1;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="800" y="40" width="470" height="520" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-0" value="准备就绪" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-0" target="dmccc-n-3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-1" value="演练证据" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-1" target="dmccc-n-3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-2" value="水位" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-2" target="dmccc-n-3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-3" value="批准" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-3" target="dmccc-n-6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-4" value="记录" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-3" target="dmccc-n-4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-5" value="最终水位" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-6" target="dmccc-n-7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-6" value="通过" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-7" target="dmccc-n-8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-7" value="观测" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-8" target="dmccc-n-9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-8" value="业务验证" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-8" target="dmccc-n-10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-9" value="共同通过" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-9" target="dmccc-n-11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-10" value="共同通过" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;" edge="1" parent="1" source="dmccc-n-10" target="dmccc-n-11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="dmccc-e-11" value="越阈值回滚" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="dmccc-n-9" target="dmccc-n-5"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1085" y="500"/><mxPoint x="780" y="500"/><mxPoint x="780" y="435"/></Array></mxGeometry></mxCell>
+        <mxCell id="dmccc-e-12" value="执行回滚" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=block;endFill=1;strokeColor=#667085;exitX=1;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="dmccc-n-5" target="dmccc-n-6"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="785" y="435"/><mxPoint x="785" y="90"/><mxPoint x="900" y="90"/></Array></mxGeometry></mxCell>
+        <mxCell id="dmccc-n-0" value="变更冻结&lt;br&gt;范围与例外" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dmccc-lane-0"><mxGeometry x="30" y="80" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-1" value="全量演练&lt;br&gt;回滚计时" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dmccc-lane-0"><mxGeometry x="30" y="210" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-2" value="数据预同步&lt;br&gt;lag &lt; 30s" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dmccc-lane-0"><mxGeometry x="30" y="340" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-3" value="Go/No-Go&lt;br&gt;IC + 技术 + 业务" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="dmccc-lane-1"><mxGeometry x="50" y="80" width="230" height="80" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-4" value="决策日志&lt;br&gt;时间/owner/证据" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dmccc-lane-1"><mxGeometry x="50" y="230" width="230" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-5" value="回滚门限&lt;br&gt;T+30min 前可逆" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="dmccc-lane-1"><mxGeometry x="50" y="360" width="230" height="70" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-6" value="冻结写入" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dmccc-lane-2"><mxGeometry x="30" y="80" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-7" value="最终追平&lt;br&gt;lag=0 + hash" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f3ff;strokeColor=#7c5cbf;" vertex="1" parent="dmccc-lane-2"><mxGeometry x="200" y="80" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-8" value="切换路由&lt;br&gt;渐进 10→100%" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#3974c6;strokeWidth=2;" vertex="1" parent="dmccc-lane-2"><mxGeometry x="30" y="220" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-9" value="技术探针&lt;br&gt;错误率/SLO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dmccc-lane-2"><mxGeometry x="210" y="220" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-10" value="业务验收&lt;br&gt;关键旅程/账务" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#667085;" vertex="1" parent="dmccc-lane-2"><mxGeometry x="30" y="360" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="dmccc-n-11" value="关闭旧写&lt;br&gt;保留回读窗口" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#b87503;" vertex="1" parent="dmccc-lane-2"><mxGeometry x="210" y="360" width="150" height="60" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel>
+```
+
+- **设计要点：** Go/No-Go 由三方共同确认；数据、技术和业务证据独立汇聚，路由渐进切换，超过时间或质量阈值立即沿预演路径回滚。
+
+### 文件上传：隔离处理与下载架构
+
+**要回答的问题：** 文件上传以后，怎样避免未校验文件直接成为可下载产物？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看上传/下载两入口与三类存储，再看队列驱动工作池；最后看双校验失败与清理。逻辑状态存储及分区为说明性设计，不要求独立数据库。
+
+<div id="md-case-drawio-upload-quarantine-processing"></div>
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram id="r6-editorial" name="文件上传：隔离处理与下载架构">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1240" pageHeight="900">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas-background" value="" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;fillColor=#FFFFFF;strokeColor=none;">
+          <mxGeometry x="0" y="0" width="1240" height="900" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="文件上传：隔离处理与下载架构" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=30;fontStyle=1;fontColor=#172033;align=left;spacing=0;">
+          <mxGeometry x="26" y="14" width="1188" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="架构主视图 · 实线：请求/读写；虚线：任务/反馈 · 存储分区为说明性设计" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#475569;align=left;spacing=0;">
+          <mxGeometry x="26" y="66" width="1188" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="isolation" value="隔离执行环境 · 下载入口不可直读输入" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="650" y="310" width="545" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="client" value="&lt;b&gt;上传客户端&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;提交文件&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="35" y="180" width="170" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="entry" value="&lt;b&gt;上传入口&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;准入与任务登记&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="290" y="180" width="230" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="queue" value="&lt;b&gt;任务队列&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;只传任务引用，不传文件字节&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="750" y="180" width="300" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="worker" value="&lt;b&gt;工作池&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;输入校验 · 处理 · 产物校验&lt;/font&gt;" vertex="1" parent="isolation" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="120" y="65" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="input-reject" value="输入失败 → 清理" vertex="1" parent="isolation" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=none;strokeWidth=1.5;fontSize=19;fontColor=#92400E;">
+          <mxGeometry x="35" y="185" width="205" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="artifact-reject" value="产物失败 → 清理" vertex="1" parent="isolation" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=none;strokeWidth=1.5;fontSize=19;fontColor=#92400E;">
+          <mxGeometry x="300" y="185" width="210" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="quarantine" value="&lt;b&gt;隔离存储&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;原始输入 · 临时资源&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="290" y="495" width="230" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="metadata" value="&lt;b&gt;元数据存储&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;任务状态 / 发布状态&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="590" y="640" width="250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="artifact" value="&lt;b&gt;产物存储&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;仅已校验产物可发布&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="945" y="640" width="250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="download" value="&lt;b&gt;授权下载入口&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;核对归属与发布状态&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="290" y="710" width="230" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="reader" value="&lt;b&gt;下载客户端&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;申请已批准内容&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="35" y="710" width="170" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="上传" edge="1" parent="1" source="client" target="entry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="任务引用" edge="1" parent="1" source="entry" target="queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="写输入" edge="1" parent="1" source="entry" target="quarantine" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.4;exitY=1;entryX=0.4;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="登记任务" edge="1" parent="1" source="entry" target="metadata" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.82;entryX=0;entryY=0.28;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="555" y="260" />
+              <mxPoint x="555" y="671" />
+            </Array>
+            <mxPoint x="-58" y="-36" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-5" value="" edge="1" parent="1" source="queue" target="worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.6;exitY=1;entryX=0.4;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="读输入" edge="1" parent="1" source="quarantine" target="worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.3;entryX=0;entryY=0.65;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="620" y="528" />
+              <mxPoint x="620" y="440" />
+            </Array>
+            <mxPoint x="72" y="-22" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-7" value="发布状态 / 结果" edge="1" parent="1" source="worker" target="metadata" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.1;exitY=1;entryX=0.65;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="802" y="605" />
+              <mxPoint x="752" y="605" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-8" value="写校验后产物" edge="1" parent="1" source="worker" target="artifact" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.9;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1058" y="595" />
+              <mxPoint x="1070" y="595" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-9" value="" edge="1" parent="1" source="worker" target="input-reject" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.16;exitY=1;entryX=0.5;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-10" value="" edge="1" parent="1" source="worker" target="artifact-reject" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.82;exitY=1;entryX=0.5;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-11" value="读权限与状态" edge="1" parent="1" source="metadata" target="download" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.78;entryX=1;entryY=0.2;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-12" value="读已批准产物" edge="1" parent="1" source="artifact" target="download" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.7;exitY=1;entryX=0.9;entryY=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="850" />
+              <mxPoint x="497" y="850" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-13" value="请求" edge="1" parent="1" source="reader" target="download" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.22;entryX=0;entryY=0.22;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-14" value="内容" edge="1" parent="1" source="download" target="reader" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.78;entryX=1;entryY=0.78;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="visibility-note" value="隔离输入不能经下载入口读取；失败清理临时资源，未经双校验不得发布。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#92400e;align=left;spacing=0;">
+          <mxGeometry x="28" y="860" width="1180" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+- **适用：** 通用文件服务、图片转换或文档转码。
+- **迁移提示：** 上传只写隔离暂存，创建任务前校验输入，授权下载前校验产物；两次校验不能互相替代。
+- **不变式：** 校验未通过不得发布；输入拒绝和处理失败均有结果与临时资源清理。产物校验失败同样拒绝发布并清理，此图不表示恶意内容能被百分之百识别。
+
+### 文件导入：字段提取与来源追溯
+
+**要回答的问题：** 怎样知道字段从哪里来，缺失信息为什么不能被自动补成确定事实？
+
+**视图角色：** 辅助·数据来源。**阅读顺序：** 先对照来源片段与字段，再看未知字段进入待确认草稿；不表达导入组件总体架构。
+
+<div id="md-case-drawio-file-import-field-provenance"></div>
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram id="r6-editorial" name="文件导入：字段提取与来源追溯">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="665">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas-background" value="" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;fillColor=#FFFFFF;strokeColor=none;">
+          <mxGeometry x="0" y="0" width="1120" height="665" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="文件导入：字段提取与来源追溯" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=30;fontStyle=1;fontColor=#172033;align=left;spacing=0;">
+          <mxGeometry x="26" y="14" width="1068" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="按源行号追踪字段；缺失日期保留未知，不能被推断为今天" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#475569;align=left;spacing=0;">
+          <mxGeometry x="26" y="66" width="1068" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="source" value="源文件 · import.md" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="28" y="140" width="350" height="385" as="geometry" />
+        </mxCell>
+        <mxCell id="record" value="结构化记录 · 待确认草稿" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#eff6ff;">
+          <mxGeometry x="680" y="140" width="410" height="385" as="geometry" />
+        </mxCell>
+        <mxCell id="source-title" value="L2  标题 = 草稿" vertex="1" parent="source" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;align=left;spacingLeft=16;">
+          <mxGeometry x="22" y="70" width="306" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="source-author" value="L3  作者 = Alex" vertex="1" parent="source" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;align=left;spacingLeft=16;">
+          <mxGeometry x="22" y="160" width="306" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="missing" value="日期未提供" vertex="1" parent="source" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;align=left;spacingLeft=16;">
+          <mxGeometry x="22" y="250" width="306" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="fields" value="title    草稿    ← L2" vertex="1" parent="record" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;align=left;spacingLeft=16;">
+          <mxGeometry x="26" y="70" width="356" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="author-field" value="author   Alex   ← L3" vertex="1" parent="record" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;align=left;spacingLeft=16;">
+          <mxGeometry x="26" y="160" width="356" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="unknown" value="date     —       未知" vertex="1" parent="record" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=none;strokeWidth=1.5;align=left;spacingLeft=16;">
+          <mxGeometry x="26" y="250" width="356" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="mapping" value="字段解析 + 来源定位" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=22;fontStyle=1;fontColor=#172033;align=left;spacing=0;">
+          <mxGeometry x="415" y="153" width="230" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="title" edge="1" parent="1" source="source-title" target="fields" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="author" edge="1" parent="1" source="source-author" target="author-field" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="未提供" edge="1" parent="1" source="missing" target="unknown" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="draft" value="缺必填日期 → 待确认&#10;不是正式记录，不开放发布" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=#d6b79b;strokeWidth=1.5;">
+          <mxGeometry x="680" y="560" width="410" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="" edge="1" parent="1" source="unknown" target="draft" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="source-note" value="行号是来源，不是可信度评分。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#475569;align=left;spacing=0;">
+          <mxGeometry x="28" y="560" width="520" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="view-role" value="辅助·数据来源" vertex="1" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=20;fontColor=#475569;align=right;spacing=0;">
+          <mxGeometry x="885" y="19" width="205" height="36" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+- **适用：** 文档导入、配置导入和结构化资料整理。图内文本是虚构示例，不来自真实用户文件。
+- **迁移提示：** 字段记录保留源行号或定位范围；没有来源的推断须标为未知或人工确认，正式入库前执行必填检查。
+- **不变式：** 缺失日期不得被补成“今天”；待确认草稿不具有正式记录的发布资格。
+
+| 字段 | 示例值 | 来源 | 状态 |
+|---|---|---|---|
+| title | 草稿 | 第 2 行 | 已提取 |
+| author | Alex | 第 3 行 | 已提取 |
+| date | — | 未提供 | 未知 / 待确认 |
+
+### 通知服务：偏好过滤与多渠道投递
+
+**要回答的问题：** 多渠道通知怎样区别成功、退订跳过和发送失败？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看偏好读取与分发扇出，再看各渠道独立结果与记录，最后看短信有限重试回路。本例邮件已退订，不创建投递任务；灰色连线仅表示适配器接口关系。
+
+<div id="md-case-drawio-notification-preferences-delivery"></div>
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram id="r6-editorial" name="通知服务：偏好过滤与多渠道投递">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1240" pageHeight="990">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas-background" value="" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;fillColor=#FFFFFF;strokeColor=none;">
+          <mxGeometry x="0" y="0" width="1240" height="990" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="通知服务：偏好过滤与多渠道投递" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=30;fontStyle=1;fontColor=#172033;align=left;spacing=0;">
+          <mxGeometry x="26" y="14" width="1188" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="架构主视图 · 实线：调用/读写；虚线：任务/反馈 · 组合幂等键见说明" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#475569;align=left;spacing=0;">
+          <mxGeometry x="26" y="66" width="1188" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="event" value="&lt;b&gt;事件来源&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;通知请求&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="165" width="195" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="preference-filter" value="&lt;b&gt;偏好过滤器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;核对收件人及渠道偏好&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="325" y="165" width="265" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="dispatch" value="&lt;b&gt;通知分发器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;按订阅渠道建立投递任务&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="730" y="165" width="305" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="preferences" value="&lt;b&gt;偏好存储&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;收件人 / 渠道订阅状态&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="350" y="350" width="250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="channels" value="渠道执行 · 三个适配器互不代替成功结果" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="700" y="345" width="510" height="555" as="geometry" />
+        </mxCell>
+        <mxCell id="inapp" value="&lt;b&gt;站内信适配器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;站内信：已写入&lt;/font&gt;" vertex="1" parent="channels" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="80" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="inapp-store" value="&lt;b&gt;站内信存储&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;仅当前收件人可读&lt;/font&gt;" vertex="1" parent="channels" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="295" y="75" width="190" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="email" value="&lt;b&gt;邮件适配器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;邮件：已退订，本例跳过&lt;/font&gt;" vertex="1" parent="channels" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="250" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="email-provider" value="&lt;b&gt;邮件供应商&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;本例未调用&lt;/font&gt;" vertex="1" parent="channels" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="295" y="250" width="190" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="sms" value="&lt;b&gt;短信适配器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;短信：失败，预算内重试&lt;/font&gt;" vertex="1" parent="channels" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="420" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="sms-provider" value="&lt;b&gt;短信供应商&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;外部投递结果&lt;/font&gt;" vertex="1" parent="channels" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="295" y="420" width="190" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ledger" value="&lt;b&gt;投递记录&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;渠道状态 / 去重 / 重试次数&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="350" y="545" width="250" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="skip" value="&lt;b&gt;退订结果&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;跳过，不计为投递失败&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="365" width="250" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="retry" value="&lt;b&gt;有限重试任务&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;预算耗尽 → 明确失败&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=#d6b79b;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="160" y="775" width="285" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="请求" edge="1" parent="1" source="event" target="preference-filter" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="读取偏好" edge="1" parent="1" source="preferences" target="preference-filter" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.4;exitY=0;entryX=0.4;entryY=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="已订阅任务" edge="1" parent="1" source="preference-filter" target="dispatch" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="退订" edge="1" parent="1" source="preference-filter" target="skip" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.8;entryX=1;entryY=0.2;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="298" y="243" />
+              <mxPoint x="298" y="383" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-5" value="任务" edge="1" parent="1" source="dispatch" target="inapp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.3;exitY=1;entryX=0.5;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="任务" edge="1" parent="1" source="dispatch" target="sms" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.95;exitY=1;entryX=0.5;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1225" y="295" />
+              <mxPoint x="1225" y="745" />
+              <mxPoint x="845" y="745" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-7" value="写入" edge="1" parent="1" source="inapp" target="inapp-store" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-8" value="调用" edge="1" parent="1" source="sms" target="sms-provider" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-9" value="接口关系" edge="1" parent="1" source="email" target="email-provider" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-10" value="成功回写" edge="1" parent="1" source="inapp" target="ledger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.6;entryX=1;entryY=0.18;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="665" y="479" />
+              <mxPoint x="665" y="567" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-11" value="失败回写" edge="1" parent="1" source="sms" target="ledger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.2;entryX=1;entryY=0.82;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="635" y="783" />
+              <mxPoint x="635" y="643" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-12" value="失败且预算有余" edge="1" parent="1" source="sms" target="retry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.65;entryX=1;entryY=0.65;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-13" value="重试任务" edge="1" parent="1" source="retry" target="sms" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.9;exitY=1;entryX=0.2;entryY=1;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="417" y="928" />
+              <mxPoint x="776" y="928" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="unsubscribed-note" value="本例邮件在过滤器处跳过：不创建邮件任务、不调用供应商。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#92400e;align=left;spacing=0;">
+          <mxGeometry x="28" y="690" width="620" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="boundary-note" value="本地去重键：notificationId / recipientId / channel；供应商无幂等时不保证端到端恰好一次。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=19;fontStyle=0;fontColor=#92400e;align=left;spacing=0;">
+          <mxGeometry x="28" y="950" width="1180" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+- **适用：** 通用站内信、邮件与短信服务，不指定真实供应商或地址。
+- **迁移提示：** 幂等键至少包含 notificationId、recipientId、channel，不能一次站内成功就标记全部渠道成功；发送前复核最新退订状态。
+- **不变式：** 已退订渠道只记跳过，不执行投递；临时失败按预算重试，耗尽后记录结果而不是无限重排。第三方无幂等接口时不能承诺端到端恰好一次。
+
+### 滚动升级：流量平面与控制平面
+
+**要回答的问题：** 新版本接流量以后，旧版本为什么不能立即退出？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看入口与两组实例同时运行，再看观测反馈进入升级控制器，最后看active=0与新版本验证的AND停止门。实例数仅为说明性布局，不是容量建议。
+
+<div id="md-case-drawio-rolling-upgrade-connection-drain"></div>
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram id="r6-editorial" name="滚动升级：流量平面与控制平面">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1240" pageHeight="1040">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas-background" value="" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;fillColor=#FFFFFF;strokeColor=none;">
+          <mxGeometry x="0" y="0" width="1240" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="滚动升级：流量平面与控制平面" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=30;fontStyle=1;fontColor=#172033;align=left;spacing=0;">
+          <mxGeometry x="26" y="14" width="1188" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="架构主视图 · 代表性流量连接；虚线：观测/控制 · 停止门禁为控制器局部逻辑" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#475569;align=left;spacing=0;">
+          <mxGeometry x="26" y="66" width="1188" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="client" value="&lt;b&gt;访问客户端&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;长连接与新请求&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="505" y="120" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="load" value="&lt;b&gt;负载入口&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;就绪后引流 / 不再新建 v1 连接&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="480" y="255" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="old" value="旧实例池 v1 · 排空期间保留存量连接" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="40" y="410" width="495" height="265" as="geometry" />
+        </mxCell>
+        <mxCell id="new" value="新实例池 v2 · 就绪后承接新流量" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#eff6ff;">
+          <mxGeometry x="705" y="410" width="495" height="265" as="geometry" />
+        </mxCell>
+        <mxCell id="old-1" value="&lt;b&gt;v1 实例 A&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;已有连接继续&lt;/font&gt;" vertex="1" parent="old" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="35" y="70" width="200" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="old-2" value="&lt;b&gt;v1 实例 B&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;不再接新连接&lt;/font&gt;" vertex="1" parent="old" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="265" y="70" width="200" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="new-1" value="&lt;b&gt;v2 实例 A&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;就绪检查通过&lt;/font&gt;" vertex="1" parent="new" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="35" y="70" width="200" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="new-2" value="&lt;b&gt;v2 实例 B&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;承接新流量&lt;/font&gt;" vertex="1" parent="new" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="265" y="70" width="200" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="empty" value="排空已确认 · active=0" vertex="1" parent="old" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=none;strokeWidth=1.5;fontSize=21;">
+          <mxGeometry x="90" y="180" width="310" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="stable" value="健康验证通过 · 观察窗口完成" vertex="1" parent="new" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;fontSize=21;">
+          <mxGeometry x="50" y="180" width="390" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="control" value="升级控制器 · 观测状态与控制决策" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="400" y="745" width="775" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="policy" value="&lt;b&gt;路由与排空控制&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;引流 / 排空 / 兼容窗口&lt;/font&gt;" vertex="1" parent="control" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="65" width="245" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="gate" value="active=0 AND 新版本验证通过" vertex="1" parent="control" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;fontSize=22;fontStyle=1;">
+          <mxGeometry x="310" y="65" width="435" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="stop" value="才停止 v1" vertex="1" parent="control" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#1d4ed8;strokeColor=#1d4ed8;strokeWidth=1.5;fontColor=#FFFFFF;fontStyle=1;">
+          <mxGeometry x="355" y="165" width="275" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="请求" edge="1" parent="1" source="client" target="load" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="已有连接继续" edge="1" parent="1" source="load" target="old-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.15;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="525" y="375" />
+              <mxPoint x="175" y="375" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-3" value="新流量" edge="1" parent="1" source="load" target="new-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.85;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="735" y="375" />
+              <mxPoint x="840" y="375" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-4" value="排空反馈" edge="1" parent="1" source="empty" target="gate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.2;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="285" y="710" />
+              <mxPoint x="797" y="710" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-5" value="健康反馈" edge="1" parent="1" source="stable" target="gate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.8;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="AND 通过" edge="1" parent="1" source="gate" target="stop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.45;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-7" value="引流 / 排空控制" edge="1" parent="1" source="policy" target="load" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.3;entryX=0;entryY=0.55;dashed=1;">
+          <mxGeometry relative="1" as="geometry" x=".65">
+            <Array as="points">
+              <mxPoint x="20" y="834" />
+              <mxPoint x="20" y="305" />
+            </Array>
+            <mxPoint x="0" y="-20" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-8" value="停止控制" edge="1" parent="1" source="stop" target="old-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;entryX=0.5;entryY=1;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="345" y="932" />
+              <mxPoint x="345" y="702" />
+              <mxPoint x="405" y="702" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rollback" value="就绪 → 引流 → 排空 → 验证 → 停止；健康异常仅在新旧数据/API兼容窗口内回退。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#92400e;align=left;spacing=0;">
+          <mxGeometry x="28" y="994" width="1170" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+- **适用：** 无状态 API、WebSocket 网关和有长请求的多实例服务。v1/v2 只是说明性版本。
+- **迁移提示：** 就绪检查只允许开始引流，不等于观察完成；旧版本停止接新连接后，仍处理已有连接。长连接需另定最大寿命与排空超时。
+- **不变式：** active=0 与新版本验证通过都满足才正常停止旧实例；超时不能伪报排空完成。此图的回退仅适用于新旧数据/API 兼容的窗口。
+
+### 备份恢复：隔离环境与服务写入边界
+
+**要回答的问题：** 备份数据写回以后，还要经过哪些检查才能重新提供服务？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看备份写入隔离数据库，再看两类验证读取同一恢复结果，最后看控制器按双验证和审批开放写入。恢复控制职责为逻辑划分，不新增物理部署承诺。
+
+<div id="md-case-drawio-backup-restore-validation"></div>
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram id="r6-editorial" name="备份恢复：隔离环境与服务写入边界">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1240" pageHeight="980">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas-background" value="" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;fillColor=#FFFFFF;strokeColor=none;">
+          <mxGeometry x="0" y="0" width="1240" height="980" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="备份恢复：隔离环境与服务写入边界" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=30;fontStyle=1;fontColor=#172033;align=left;spacing=0;">
+          <mxGeometry x="26" y="14" width="1188" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="架构主视图 · 实线：恢复/读写；虚线：验证反馈/控制 · 默认写入关闭" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#475569;align=left;spacing=0;">
+          <mxGeometry x="26" y="66" width="1188" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="isolated" value="隔离恢复环境 · 验证失败不得开放写入" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="270" y="160" width="655" height="710" as="geometry" />
+        </mxCell>
+        <mxCell id="snapshot" value="&lt;b&gt;备份与增量日志&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;恢复目标水位 H&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="30" y="240" width="215" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="restore" value="&lt;b&gt;恢复执行器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;重放到水位 H&lt;/font&gt;" vertex="1" parent="isolated" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="35" y="80" width="240" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="database" value="&lt;b&gt;待恢复数据库&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;仅隔离环境可访问&lt;/font&gt;" vertex="1" parent="isolated" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="375" y="80" width="245" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="check" value="&lt;b&gt;校验器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;校验和 / 记录数 / 一致性&lt;/font&gt;" vertex="1" parent="isolated" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="375" y="280" width="245" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="readonly" value="&lt;b&gt;只读功能验证器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;只读功能验证&lt;/font&gt;" vertex="1" parent="isolated" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="375" y="445" width="245" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="controller" value="&lt;b&gt;恢复控制器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;双验证 AND 审批通过后开放&lt;/font&gt;" vertex="1" parent="isolated" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="35" y="460" width="270" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="blocked" value="失败：保持隔离 · 禁止开放写入" vertex="1" parent="isolated" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=#d6b79b;strokeWidth=1.5;fontSize=23;fontColor=#92400E;">
+          <mxGeometry x="60" y="620" width="550" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="client" value="&lt;b&gt;服务客户端&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;验证与审批后访问&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="980" y="455" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="open" value="&lt;b&gt;服务写入开关&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;默认关闭；批准后开放&lt;/font&gt;" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="980" y="640" width="230" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="读备份" edge="1" parent="1" source="snapshot" target="restore" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="写回至 H" edge="1" parent="1" source="restore" target="database" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="读数据" edge="1" parent="1" source="database" target="check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.4;exitY=1;entryX=0.4;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="只读请求" edge="1" parent="1" source="database" target="readonly" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.55;entryX=1;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="911" y="306" />
+              <mxPoint x="911" y="653" />
+            </Array>
+            <mxPoint x="-40" y="55" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-5" value="校验通过反馈" edge="1" parent="1" source="check" target="controller" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;entryX=0.8;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="612" y="488" />
+              <mxPoint x="612" y="581" />
+              <mxPoint x="521" y="581" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-6" value="只读验证反馈" edge="1" parent="1" source="readonly" target="controller" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.7;entryX=1;entryY=0.7;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="0" y="-32" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-7" value="校验失败" edge="1" parent="1" source="check" target="blocked" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.8;exitY=1;entryX=0.95;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="841" y="567" />
+              <mxPoint x="905" y="567" />
+              <mxPoint x="905" y="762" />
+              <mxPoint x="853" y="762" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-8" value="验证失败" edge="1" parent="1" source="readonly" target="blocked" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.6;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-9" value="双验证与审批通过" edge="1" parent="1" source="controller" target="open" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.1;exitY=1;entryX=0.5;entryY=1;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="332" y="910" />
+              <mxPoint x="1095" y="910" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-10" value="服务请求" edge="1" parent="1" source="client" target="open" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-11" value="批准后才允许写" edge="1" parent="1" source="open" target="database" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0.85;entryY=0;">
+          <mxGeometry relative="1" as="geometry" x=".55">
+            <Array as="points">
+              <mxPoint x="1225" y="693" />
+              <mxPoint x="1225" y="120" />
+              <mxPoint x="853" y="120" />
+            </Array>
+            <mxPoint x="0" y="-20" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rpo" value="恢复到水位 H ≠ RPO=0；验证失败保持隔离，不能把“数据写回”当成“可重新服务”。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#92400e;align=left;spacing=0;">
+          <mxGeometry x="28" y="937" width="1180" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+- **适用：** 关系库、文档库和文件索引的恢复演练；H 是通用恢复目标水位。
+- **迁移提示：** 明确快照与增量覆盖范围，恢复后先校验再只读验证，审批和真实恢复结果分别记录。实际恢复演练须获得目标环境授权，此处仅是静态案例。
+- **不变式：** 校验失败或只读验证失败时保持隔离，禁止开放服务写入；恢复到 H 不等于恢复到最新数据，也不等于 RPO=0。
+
+### 制品交付：数据路径与发布权限边界
+
+**要回答的问题：** 为什么能够构建产物，不意味着拥有部署它的资格？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看产物跨区存储与验证，再看发布控制器的身份门禁及运行实例，最后看旁路阻断与审计。部署代理及实例数为说明性建模；按批准摘要读取，存储待验制品不赋予其运行资格。
+
+<div id="md-case-drawio-artifact-approved-blocked-paths"></div>
+
+```drawio
+<mxfile host="app.diagrams.net">
+  <diagram id="r6-editorial" name="制品交付：数据路径与发布权限边界">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1240" pageHeight="1030">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas-background" value="" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;fillColor=#FFFFFF;strokeColor=none;">
+          <mxGeometry x="0" y="0" width="1240" height="1030" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="制品交付：数据路径与发布权限边界" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=30;fontStyle=1;fontColor=#172033;align=left;spacing=0;">
+          <mxGeometry x="26" y="14" width="1188" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="架构主视图 · 三个信任区；实线：产物/调用；虚线：控制/审计或阻断旁路" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#475569;align=left;spacing=0;">
+          <mxGeometry x="26" y="66" width="1188" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="dev" value="开发与构建区" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="25" y="150" width="340" height="625" as="geometry" />
+        </mxCell>
+        <mxCell id="verified" value="可信发布边界 · 验证后使用" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#eff6ff;">
+          <mxGeometry x="455" y="150" width="340" height="625" as="geometry" />
+        </mxCell>
+        <mxCell id="runtime" value="运行环境" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=42;horizontal=1;fontSize=22;fontStyle=1;swimlaneFillColor=#f8fafc;">
+          <mxGeometry x="890" y="150" width="320" height="625" as="geometry" />
+        </mxCell>
+        <mxCell id="source" value="&lt;b&gt;源代码仓库&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;构建输入&lt;/font&gt;" vertex="1" parent="dev" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="80" width="275" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="build" value="&lt;b&gt;构建执行器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;产物与签名&lt;/font&gt;" vertex="1" parent="dev" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="260" width="275" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="artifact" value="&lt;b&gt;制品存储&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;待验证产物 / 签名&lt;/font&gt;" vertex="1" parent="verified" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="30" y="80" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="gate" value="&lt;b&gt;签名验证器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;核对签名与产物一致性&lt;/font&gt;" vertex="1" parent="verified" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="270" width="280" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="publisher" value="&lt;b&gt;发布控制器&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;发布身份门禁&lt;/font&gt;" vertex="1" parent="verified" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="480" width="280" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="agent" value="&lt;b&gt;部署代理&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;按批准摘要读取制品&lt;/font&gt;" vertex="1" parent="runtime" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#eff6ff;strokeColor=#93c5fd;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="25" y="80" width="270" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="pool" value="运行实例池" vertex="1" parent="runtime" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;swimlane;startSize=38;fontSize=21;fontStyle=1;">
+          <mxGeometry x="20" y="305" width="290" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="run" value="&lt;b&gt;实例 A&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;获准制品&lt;/font&gt;" vertex="1" parent="pool" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="15" y="55" width="125" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="run-b" value="&lt;b&gt;实例 B&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;获准制品&lt;/font&gt;" vertex="1" parent="pool" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="150" y="55" width="125" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="bypass" value="&lt;b&gt;本机构建产物&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;无有效签名 / 无发布身份&lt;/font&gt;" vertex="1" parent="dev" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=#d6b79b;strokeWidth=1.5;spacing=10;">
+          <mxGeometry x="30" y="480" width="275" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="stop" value="⊥ 阻断：禁止绕过门禁" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#fff7ed;strokeColor=#d6b79b;strokeWidth=1.5;fontColor=#92400E;fontSize=23;">
+          <mxGeometry x="430" y="820" width="390" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="audit" value="&lt;b&gt;审计存储&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:18px;color:#475569&quot;&gt;验证 / 发布身份 / 部署结果&lt;/font&gt;" vertex="1" parent="runtime" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#f1f5f9;strokeColor=#94a3b8;strokeWidth=1.5;spacing=10;shape=cylinder;boundedLbl=1;">
+          <mxGeometry x="25" y="505" width="270" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="源码" edge="1" parent="1" source="source" target="build" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="写产物与签名" edge="1" parent="1" source="build" target="artifact" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.4;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="401" y="448" />
+              <mxPoint x="401" y="285" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-3" value="读取待验制品" edge="1" parent="1" source="artifact" target="gate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="验证通过" edge="1" parent="1" source="gate" target="publisher" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-5" value="获准部署" edge="1" parent="1" source="publisher" target="agent" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="855" y="677" />
+              <mxPoint x="855" y="285" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-6" value="按批准摘要读" edge="1" parent="1" source="agent" target="artifact" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.15;entryX=1;entryY=0.15;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-7" value="装载" edge="1" parent="1" source="agent" target="run" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.25;exitY=1;entryX=0.5;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-8" value="装载" edge="1" parent="1" source="agent" target="run-b" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#1d4ed8;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.8;exitY=1;entryX=0.5;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-9" value="无权绕过" edge="1" parent="1" source="bypass" target="stop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#92400e;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.7;exitY=1;entryX=0;entryY=0.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="248" y="856" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-10" value="发布记录" edge="1" parent="1" source="publisher" target="audit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.85;entryX=0;entryY=0.45;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-11" value="运行结果" edge="1" parent="1" source="run" target="audit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.2;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-12" value="运行结果" edge="1" parent="1" source="run-b" target="audit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeWidth=2;strokeColor=#475569;fontSize=18;fontFamily=Arial;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.8;entryY=0;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="trust-note" value="构建产物不等于发布资格；存储中的签名必须验证，部署调用还必须通过发布身份门禁。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Arial;fontSize=22;fontColor=#172033;align=center;verticalAlign=middle;spacing=8;fillColor=#ffffff;strokeColor=none;strokeWidth=1.5;text;fillColor=none;fontSize=20;fontStyle=0;fontColor=#92400e;align=left;spacing=0;">
+          <mxGeometry x="28" y="978" width="1180" height="32" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+- **适用：** 通用软件构建与发布的信任边界说明。开发、验证、运行三区只描述责任边界，不代表三台具体服务器。
+- **迁移提示：** 在验证区检查制品签名和发布身份，再允许进入受限运行区；审计是结果记录，不替代发布前校验。
+- **不变式：** 阻断旁路终止在验证区，不能指向运行实例或汇入批准通道；外部直连运行区同样默认拒绝。
+
 ## 11. SVG：编辑式架构画布与精确视觉叙事
 
 > 受限 SVG 适合把自包含的编辑式架构海报直接保存在 Markdown 中。只使用静态图元、系统字体、简单本地 class CSS 和 fragment 引用；禁止脚本、动画、`foreignObject`、图片、外部字体及网络资源。
@@ -7740,11 +9441,12 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
   <desc id="svg-mig-desc">源端 epoch E 在写入栅栏和事务收敛后记录 Hc，目标端追平并验证到 Hc，先武装反向 CDC 再通过 CAS 在 C_vis 切换到 epoch E+1；回滚窗口保持源端 shadow，退出在线回滚获准、旧端外部读者/业务直写者/作业清零且最终验证通过后，C_final 才停止反向同步并退役旧端。</desc>
   <defs>
     <pattern id="svg-mig-hidden" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M-2 10 L10 -2 M6 14 L14 6" fill="none" stroke="#4f8a55" stroke-width="1" opacity=".30" /></pattern>
-    <pattern id="svg-mig-rollback" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M-2 0 L10 12 M6 -4 L14 4" fill="none" stroke="#b87503" stroke-width="1" opacity=".34" /></pattern>
+    <pattern id="svg-mig-rollback" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M-2 0 L10 12 M6 -4 L14 4" fill="none" stroke="#7a4b00" stroke-width="1" opacity=".34" /></pattern>
     <marker id="svg-mig-arrow-blue" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L0,6 L8,3 z" fill="#3974c6" /></marker>
     <marker id="svg-mig-arrow-green" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L0,6 L8,3 z" fill="#4f8a55" /></marker>
     <marker id="svg-mig-arrow-red" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L0,6 L8,3 z" fill="#c2413b" /></marker>
-    <marker id="svg-mig-arrow-amber" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L0,6 L8,3 z" fill="#b87503" /></marker>
+    <marker id="svg-mig-arrow-purple" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L0,6 L8,3 z" fill="#6d5bd0" /></marker>
+    <marker id="svg-mig-arrow-amber" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L0,6 L8,3 z" fill="#7a4b00" /></marker>
     <style>
       .svg-mig-title { font: 700 29px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #172033; }
       .svg-mig-subtitle { font: 500 13px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #667085; }
@@ -7757,7 +9459,7 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
       .svg-mig-source { fill: none; stroke: #3974c6; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
       .svg-mig-target { fill: none; stroke: #4f8a55; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
       .svg-mig-control { fill: none; stroke: #6d5bd0; stroke-width: 1.8; stroke-dasharray: 6 4; stroke-linecap: round; stroke-linejoin: round; }
-      .svg-mig-rollback-edge { fill: none; stroke: #b87503; stroke-width: 2; stroke-dasharray: 6 4; stroke-linecap: round; stroke-linejoin: round; }
+      .svg-mig-rollback-edge { fill: none; stroke: #7a4b00; stroke-width: 2; stroke-dasharray: 6 4; stroke-linecap: round; stroke-linejoin: round; }
     </style>
   </defs>
   <rect width="1200" height="920" rx="28" fill="#f3f6fb" />
@@ -7776,7 +9478,7 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
   <line x1="180" y1="250" x2="180" y2="680" stroke="#94a3b8" stroke-width="1.5" />
   <line x1="330" y1="250" x2="330" y2="680" stroke="#7c8aa0" stroke-dasharray="5 4" /><line x1="604" y1="250" x2="604" y2="680" stroke="#7c8aa0" stroke-dasharray="5 4" /><line x1="742" y1="250" x2="742" y2="680" stroke="#7c8aa0" stroke-dasharray="5 4" />
   <line x1="874" y1="242" x2="874" y2="688" stroke="#6d5bd0" stroke-width="2.5" />
-  <line x1="1010" y1="242" x2="1010" y2="688" stroke="#b87503" stroke-width="2.5" />
+  <line x1="1010" y1="242" x2="1010" y2="688" stroke="#7a4b00" stroke-width="2.5" />
   <rect x="810" y="238" width="128" height="22" fill="#ffffff" /><text class="svg-mig-small" x="818" y="253">C_vis · 可协议回滚</text><rect x="944" y="238" width="154" height="22" fill="#ffffff" /><text class="svg-mig-small" x="952" y="253">C_final · 撤销在线回滚</text>
 
   <line x1="58" y1="336" x2="1142" y2="336" stroke="#e2e8f0" /><line x1="58" y1="422" x2="1142" y2="422" stroke="#e2e8f0" /><line x1="58" y1="508" x2="1142" y2="508" stroke="#e2e8f0" /><line x1="58" y1="594" x2="1142" y2="594" stroke="#e2e8f0" />
@@ -7786,19 +9488,19 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
   <text class="svg-mig-lane" x="76" y="552">控制与验证</text><text class="svg-mig-small" x="76" y="570">Fence / pointer</text>
   <text class="svg-mig-lane" x="76" y="638">回滚保持</text><text class="svg-mig-small" x="76" y="656">Reverse CDC</text>
 
-  <path class="svg-mig-source" d="M208 294 L604 294" marker-end="url(#svg-mig-arrow-blue)" /><text class="svg-mig-mono" x="220" y="284">Client → Router → Source · epoch E</text>
+  <path class="svg-mig-source" d="M208 294 L596 294" marker-end="url(#svg-mig-arrow-blue)" /><text class="svg-mig-mono" x="220" y="284">Client → Router → Source · epoch E</text>
   <path class="svg-mig-target" d="M874 294 L1088 294" marker-end="url(#svg-mig-arrow-green)" /><text class="svg-mig-mono" x="894" y="274"><tspan x="894">Target G · visible</tspan><tspan x="894" dy="14">write epoch E+1</tspan></text>
   <rect x="596" y="274" width="16" height="40" rx="4" fill="#fde8e7" stroke="#c2413b" /><text class="svg-mig-small" x="618" y="300">旧 epoch 写入拒绝</text>
 
-  <path class="svg-mig-source" d="M208 380 L604 380" marker-end="url(#svg-mig-arrow-blue)" /><text class="svg-mig-mono" x="220" y="370">Source commit log · B0[src]=500 … Hc[src]=504</text>
+  <path class="svg-mig-source" d="M208 380 L588 380" marker-end="url(#svg-mig-arrow-blue)" /><text class="svg-mig-mono" x="220" y="370">Source commit log · B0[src]=500 … Hc[src]=504</text>
   <rect x="588" y="360" width="32" height="40" rx="6" fill="#eef4ff" stroke="#3974c6" /><text class="svg-mig-small" x="596" y="384">Hc</text>
 
-  <path class="svg-mig-target" d="M330 466 L742 466" marker-end="url(#svg-mig-arrow-green)" /><text class="svg-mig-mono" x="344" y="448">Snapshot @B0 → replay (B0,Hc] → source_cursor_applied=504</text>
+  <path class="svg-mig-target" d="M346 466 L726 466" marker-end="url(#svg-mig-arrow-green)" /><text class="svg-mig-mono" x="356" y="448">Snapshot @B0 → replay (B0,Hc] → source_cursor_applied=504</text>
   <rect x="314" y="446" width="32" height="40" rx="6" fill="#e7f3e4" stroke="#4f8a55" /><text class="svg-mig-small" x="320" y="470">B0</text>
   <rect x="726" y="446" width="32" height="40" rx="6" fill="#e7f3e4" stroke="#4f8a55" /><text class="svg-mig-small" x="731" y="470">504</text>
   <text class="svg-mig-small" x="770" y="470">Target G 仍 hidden</text>
 
-  <path class="svg-mig-control" d="M604 570 L742 570 L874 570" marker-end="url(#svg-mig-arrow-blue)" />
+  <path class="svg-mig-control" d="M604 570 L742 570 L858 570" marker-end="url(#svg-mig-arrow-purple)" />
   <text class="svg-mig-small" x="614" y="530"><tspan x="614">Fence E → drain</tspan><tspan x="614" dy="14">record Hc</tspan></text>
   <text class="svg-mig-small" x="748" y="516"><tspan x="748">source_cursor_applied ≥ Hc</tspan><tspan x="748" dy="14">validate · park forward@Hc</tspan><tspan x="748" dy="14">R0 · arm reverse</tspan></text>
   <polygon points="874,554 890,570 874,586 858,570" fill="#ede9fe" stroke="#6d5bd0" stroke-width="1.5" /><text class="svg-mig-small" x="896" y="560"><tspan x="896">CAS pointer → G</tspan><tspan x="896" dy="14">write_epoch = E+1</tspan></text>
@@ -7824,6 +9526,1178 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
 - **结构要点：** 五条泳道共享 `B0、Hc、C_vis、C_final` 因果基准线；目标在验证前保持 hidden，`C_vis` 后进入有界在线回滚窗口，`C_final gate` 汇聚退出在线回滚获准、旧端外部读者/业务直写者/作业清零和最终验证，通过前 Reverse CDC 仍保持活跃，通过后才停止反向同步并退役源端。
 - **连线语义：** 蓝线属于源端权威与前向日志，绿线属于目标数据与新权威，紫色虚线是栅栏、验证和 CAS 控制；琥珀色竖向箭头专门表示 `Target G log → Source shadow` 的反向复制方向，横向括号只表示在线回滚窗口。不同日志域的 `Hc` 与 `Hr` 不按数值大小比较。
 - **生成约束：** 必须先建 CDC 保留再取得与 B0 原子对应的快照；Hc 只能在旧写栅栏和在途事务收敛后记录，目标的 source-domain cursor 追平并验证到 Hc、前向 CDC 固定在 Hc 防回环、记录 R0 且武装反向 CDC 后才能执行 `C_vis`。`C_final` 必须等待退出在线回滚获准、旧端外部读者/业务直写者/作业清零及最终验证通过；Reverse CDC 不属于旧业务写者，在 gate 通过前必须继续写 Source shadow，不能只因时间到期就提前停止。
+
+### 方案假设与证据账本
+
+**交付问题：** 哪些关键假设仍未验证、适用于什么范围、由谁负责，以及证据失效会推翻哪项方案结论？
+
+<div id="md-case-svg-solution-assumptions-evidence-ledger"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 760" role="img" aria-labelledby="ssae-title ssae-desc">
+  <title id="ssae-title">方案范围、假设与证据账本</title>
+  <desc id="ssae-desc">表格式账本。先读范围基线，再按 A-01 到 A-05 逐行读取假设、证据、状态、负责人和复审触发器，最后读取发布判定。</desc>
+  <defs><marker id="ssae-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#b42318"/></marker></defs>
+  <rect width="1400" height="760" fill="#fbfcfe"/>
+  <text x="42" y="48" font-size="25" fill="#101828" font-weight="700">方案范围、假设与证据账本</text>
+  <text x="42" y="76" font-size="13" fill="#475467">评审基线 v7 · 结论必须能回溯到带日期的证据；未知项不得被默认成真</text>
+  <g aria-label="范围基线">
+  <rect x="42" y="98" width="1316" height="72" rx="10" fill="#eef4ff" stroke="#3974c6" stroke-width="2"/>
+  <text x="68" y="126" font-size="11" fill="#3974c6" font-weight="700">范围内</text>
+  <text x="68" y="151" font-size="14" fill="#101828" font-weight="600">订单写路径 · 双区</text>
+  <text x="372" y="126" font-size="11" fill="#3974c6" font-weight="700">范围外</text>
+  <text x="372" y="151" font-size="14" fill="#101828" font-weight="600">分析副本 · BI</text>
+  <text x="676" y="126" font-size="11" fill="#3974c6" font-weight="700">硬约束</text>
+  <text x="676" y="151" font-size="14" fill="#101828" font-weight="600">RPO=0 · 数据驻留</text>
+  <text x="1012" y="126" font-size="11" fill="#3974c6" font-weight="700">评审时点</text>
+  <text x="1012" y="151" font-size="14" fill="#101828" font-weight="600">2026-09-06 · 架构委员会</text>
+  </g>
+  <g aria-label="账表表头"><rect x="42" y="192" width="1316" height="48" rx="6" fill="#344054"/>
+  <text x="54" y="222" font-size="12" fill="#ffffff" font-weight="700">ID / 关键假设</text>
+  <text x="144" y="222" font-size="12" fill="#ffffff" font-weight="700">适用范围与量化阈值</text>
+  <text x="474" y="222" font-size="12" fill="#ffffff" font-weight="700">验证证据 / 新鲜度</text>
+  <text x="804" y="222" font-size="12" fill="#ffffff" font-weight="700">状态</text>
+  <text x="954" y="222" font-size="12" fill="#ffffff" font-weight="700">Owner</text>
+  <text x="1124" y="222" font-size="12" fill="#ffffff" font-weight="700">失效与复审触发器</text>
+  </g>
+  <g aria-label="A-01 峰值写入 ≤ 2k/s；已验证">
+  <rect x="42" y="240" width="1316" height="78" fill="#ffffff" stroke="#d0d5dd"/>
+  <line x1="132" y1="240" x2="132" y2="318" stroke="#e4e7ec"/>
+  <line x1="462" y1="240" x2="462" y2="318" stroke="#e4e7ec"/>
+  <line x1="792" y1="240" x2="792" y2="318" stroke="#e4e7ec"/>
+  <line x1="942" y1="240" x2="942" y2="318" stroke="#e4e7ec"/>
+  <line x1="1112" y1="240" x2="1112" y2="318" stroke="#e4e7ec"/>
+  <text x="56" y="271" font-size="13" fill="#101828" font-weight="700">A-01</text>
+  <text x="56" y="293" font-size="10" fill="#667085">critical</text>
+  <text x="144" y="268" font-size="13" fill="#101828" font-weight="600">峰值写入 ≤ 2k/s</text>
+  <text x="144" y="292" font-size="11" fill="#475467">核心订单路径；5 分钟峰值</text>
+  <text x="474" y="268" font-size="12" fill="#344054" font-weight="600">E-17 压测：2.4k/s · 09-02</text>
+  <text x="474" y="293" font-size="10" fill="#667085">artifact://assurance/a-01</text>
+  <rect x="810" y="258" width="114" height="34" rx="17" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="867" y="280" font-size="11" fill="#2e7d32" font-weight="700" text-anchor="middle">已验证</text>
+  <text x="958" y="274" font-size="12" fill="#344054" font-weight="600">容量组</text>
+  <text x="958" y="295" font-size="10" fill="#667085">due: quarterly</text>
+  <text x="1124" y="269" font-size="11" fill="#344054">预测提升 20% 或机型变更</text>
+  <text x="1124" y="293" font-size="10" fill="#667085">触发即重开 ADR-042</text>
+  </g>
+  <g aria-label="A-02 跨区 RTT p95 ≤ 40ms；已验证">
+  <rect x="42" y="318" width="1316" height="78" fill="#f8fafc" stroke="#d0d5dd"/>
+  <line x1="132" y1="318" x2="132" y2="396" stroke="#e4e7ec"/>
+  <line x1="462" y1="318" x2="462" y2="396" stroke="#e4e7ec"/>
+  <line x1="792" y1="318" x2="792" y2="396" stroke="#e4e7ec"/>
+  <line x1="942" y1="318" x2="942" y2="396" stroke="#e4e7ec"/>
+  <line x1="1112" y1="318" x2="1112" y2="396" stroke="#e4e7ec"/>
+  <text x="56" y="349" font-size="13" fill="#101828" font-weight="700">A-02</text>
+  <text x="56" y="371" font-size="10" fill="#667085">material</text>
+  <text x="144" y="346" font-size="13" fill="#101828" font-weight="600">跨区 RTT p95 ≤ 40ms</text>
+  <text x="144" y="370" font-size="11" fill="#475467">生产双区；工作日全时段</text>
+  <text x="474" y="346" font-size="12" fill="#344054" font-weight="600">E-18 探针：32ms · 连续 14d</text>
+  <text x="474" y="371" font-size="10" fill="#667085">artifact://assurance/a-02</text>
+  <rect x="810" y="336" width="114" height="34" rx="17" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="867" y="358" font-size="11" fill="#2e7d32" font-weight="700" text-anchor="middle">已验证</text>
+  <text x="958" y="352" font-size="12" fill="#344054" font-weight="600">网络组</text>
+  <text x="958" y="373" font-size="10" fill="#667085">due: quarterly</text>
+  <text x="1124" y="347" font-size="11" fill="#344054">p95 &gt; 40ms 持续 1h</text>
+  <text x="1124" y="371" font-size="10" fill="#667085">触发即重开 ADR-042</text>
+  </g>
+  <g aria-label="A-03 伙伴支持幂等键；证据缺口">
+  <rect x="42" y="396" width="1316" height="78" fill="#ffffff" stroke="#d0d5dd"/>
+  <line x1="132" y1="396" x2="132" y2="474" stroke="#e4e7ec"/>
+  <line x1="462" y1="396" x2="462" y2="474" stroke="#e4e7ec"/>
+  <line x1="792" y1="396" x2="792" y2="474" stroke="#e4e7ec"/>
+  <line x1="942" y1="396" x2="942" y2="474" stroke="#e4e7ec"/>
+  <line x1="1112" y1="396" x2="1112" y2="474" stroke="#e4e7ec"/>
+  <text x="56" y="427" font-size="13" fill="#101828" font-weight="700">A-03</text>
+  <text x="56" y="449" font-size="10" fill="#667085">critical</text>
+  <text x="144" y="424" font-size="13" fill="#101828" font-weight="600">伙伴支持幂等键</text>
+  <text x="144" y="448" font-size="11" fill="#475467">支付 capture / refund</text>
+  <text x="474" y="424" font-size="12" fill="#344054" font-weight="600">E-19 沙箱：未覆盖超时后重试</text>
+  <text x="474" y="449" font-size="10" fill="#667085">artifact://assurance/a-03</text>
+  <rect x="810" y="414" width="114" height="34" rx="17" fill="#fce8e6" stroke="#b42318"/>
+  <text x="867" y="436" font-size="11" fill="#b42318" font-weight="700" text-anchor="middle">证据缺口</text>
+  <text x="958" y="430" font-size="12" fill="#344054" font-weight="600">集成组</text>
+  <text x="958" y="451" font-size="10" fill="#667085">due: T-7d</text>
+  <text x="1124" y="425" font-size="11" fill="#344054">契约升级或上线前 T-7d</text>
+  <text x="1124" y="449" font-size="10" fill="#667085">触发即重开 ADR-042</text>
+  </g>
+  <g aria-label="A-04 回放不触发重复副作用；有条件">
+  <rect x="42" y="474" width="1316" height="78" fill="#f8fafc" stroke="#d0d5dd"/>
+  <line x1="132" y1="474" x2="132" y2="552" stroke="#e4e7ec"/>
+  <line x1="462" y1="474" x2="462" y2="552" stroke="#e4e7ec"/>
+  <line x1="792" y1="474" x2="792" y2="552" stroke="#e4e7ec"/>
+  <line x1="942" y1="474" x2="942" y2="552" stroke="#e4e7ec"/>
+  <line x1="1112" y1="474" x2="1112" y2="552" stroke="#e4e7ec"/>
+  <text x="56" y="505" font-size="13" fill="#101828" font-weight="700">A-04</text>
+  <text x="56" y="527" font-size="10" fill="#667085">material</text>
+  <text x="144" y="502" font-size="13" fill="#101828" font-weight="600">回放不触发重复副作用</text>
+  <text x="144" y="526" font-size="11" fill="#475467">outbox consumer v3</text>
+  <text x="474" y="502" font-size="12" fill="#344054" font-weight="600">E-20 故障注入：10k 重放 · 09-04</text>
+  <text x="474" y="527" font-size="10" fill="#667085">artifact://assurance/a-04</text>
+  <rect x="810" y="492" width="114" height="34" rx="17" fill="#fff4e5" stroke="#7a4b00"/>
+  <text x="867" y="514" font-size="11" fill="#7a4b00" font-weight="700" text-anchor="middle">有条件</text>
+  <text x="958" y="508" font-size="12" fill="#344054" font-weight="600">消息组</text>
+  <text x="958" y="529" font-size="10" fill="#667085">due: quarterly</text>
+  <text x="1124" y="503" font-size="11" fill="#344054">Inbox 唯一键或保留期变化</text>
+  <text x="1124" y="527" font-size="10" fill="#667085">触发即重开 ADR-042</text>
+  </g>
+  <g aria-label="A-05 值班可在 20min 内切换；已验证">
+  <rect x="42" y="552" width="1316" height="78" fill="#ffffff" stroke="#d0d5dd"/>
+  <line x1="132" y1="552" x2="132" y2="630" stroke="#e4e7ec"/>
+  <line x1="462" y1="552" x2="462" y2="630" stroke="#e4e7ec"/>
+  <line x1="792" y1="552" x2="792" y2="630" stroke="#e4e7ec"/>
+  <line x1="942" y1="552" x2="942" y2="630" stroke="#e4e7ec"/>
+  <line x1="1112" y1="552" x2="1112" y2="630" stroke="#e4e7ec"/>
+  <text x="56" y="583" font-size="13" fill="#101828" font-weight="700">A-05</text>
+  <text x="56" y="605" font-size="10" fill="#667085">material</text>
+  <text x="144" y="580" font-size="13" fill="#101828" font-weight="600">值班可在 20min 内切换</text>
+  <text x="144" y="604" font-size="11" fill="#475467">SEV1 夜间窗口</text>
+  <text x="474" y="580" font-size="12" fill="#344054" font-weight="600">E-21 演练：18min · 09-05</text>
+  <text x="474" y="605" font-size="10" fill="#667085">artifact://assurance/a-05</text>
+  <rect x="810" y="570" width="114" height="34" rx="17" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="867" y="592" font-size="11" fill="#2e7d32" font-weight="700" text-anchor="middle">已验证</text>
+  <text x="958" y="586" font-size="12" fill="#344054" font-weight="600">SRE</text>
+  <text x="958" y="607" font-size="10" fill="#667085">due: quarterly</text>
+  <text x="1124" y="581" font-size="11" fill="#344054">人员/Runbook/拓扑变化</text>
+  <text x="1124" y="605" font-size="10" fill="#667085">触发即重开 ADR-042</text>
+  </g>
+  <g aria-label="发布判定">
+  <path d="M762 682 H1008" fill="none" stroke="#b42318" stroke-width="3" marker-end="url(#ssae-arrow)"/>
+  <rect x="42" y="650" width="720" height="64" rx="8" fill="#fff7ed" stroke="#7a4b00" stroke-width="2"/>
+  <text x="62" y="677" font-size="12" fill="#7a4b00" font-weight="700">门禁规则</text>
+  <text x="156" y="677" font-size="13" fill="#101828" font-weight="600">critical 假设必须“已验证”；证据须未过期且 artifact 可读取</text>
+  <text x="62" y="700" font-size="12" fill="#b42318" font-weight="700">当前缺口</text>
+  <text x="156" y="700" font-size="12" fill="#475467">A-03 阻断生产流量；仅允许完成沙箱故障注入</text>
+  <polygon points="1050,646 1168,646 1210,682 1168,718 1050,718 1008,682" fill="#fce8e6" stroke="#b42318" stroke-width="3"/>
+  <text x="1109" y="676" font-size="20" fill="#b42318" font-weight="700" text-anchor="middle">NO-GO</text>
+  <text x="1109" y="698" font-size="11" fill="#7a271a" font-weight="600" text-anchor="middle">缺口 1 / 关键 2</text>
+  <rect x="1230" y="650" width="128" height="64" rx="8" fill="#ffffff" stroke="#667085"/>
+  <text x="1294" y="677" font-size="11" fill="#667085" font-weight="700" text-anchor="middle">下一评审</text>
+  <text x="1294" y="701" font-size="13" fill="#101828" font-weight="700" text-anchor="middle">T-7d 16:00</text>
+  </g></svg>
+```
+
+- **交付要点：** 以范围条带和逐行证据矩阵代替架构卡片；每条假设都有量化阈值、证据 URI、新鲜度、owner 与触发器，关键缺口直接汇聚为 NO-GO。
+
+### 可访问架构图：视觉与 DOM 阅读顺序
+
+**交付问题：** 怎样用明确编号、蛇形主路径与语义图例，让视觉、键盘和读屏用户获得相同的系统顺序、分支和结论？
+
+<div id="md-case-svg-accessible-architecture-reading-order"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 780" role="img" aria-labelledby="saaro-title saaro-desc">
+  <title id="saaro-title">可访问架构图：编号蛇形阅读路径</title>
+  <desc id="saaro-desc">按编号一至八蛇形读取：请求、认证、授权、读取、响应、拒绝说明、审计和验收。连接线与装饰对辅助技术隐藏，节点顺序与编号一致。</desc>
+  <defs>
+    <marker id="saaro-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#3974c6"/></marker>
+    <marker id="saaro-error-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#b42318"/></marker>
+  </defs>
+  <rect width="1320" height="780" fill="#ffffff"/>
+  <text x="46" y="50" font-size="25" fill="#101828" font-weight="700">可访问架构图 · 编号蛇形阅读路径</text>
+  <text x="46" y="79" font-size="13" fill="#475467">视觉顺序 = DOM 顺序 = 键盘说明顺序；颜色从不单独承载状态</text>
+  <g aria-hidden="true" fill="none" stroke="#3974c6" stroke-width="4" marker-end="url(#saaro-arrow)">
+  <path d="M210 190 H390"/>
+  <path d="M540 190 H720"/>
+  <path d="M870 190 H1050"/>
+  <path d="M1150 245 V365"/>
+  <path d="M1050 420 H870"/>
+  <path d="M720 420 H540"/>
+  <path d="M390 420 H210"/>
+  </g>
+  <g aria-hidden="true" fill="none" stroke="#b42318" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#saaro-error-arrow)"><path d="M795 245 V302 H465 V365"/></g>
+  <text x="600" y="290" font-size="11" fill="#b42318" font-weight="700" text-anchor="middle">拒绝结果同样写入审计</text>
+  <g aria-label="步骤 1：用户请求；键盘/读屏进入主路径">
+  <ellipse cx="160" cy="190" rx="90" ry="55" fill="#eef4ff" stroke="#3974c6" stroke-width="3"/>
+  <circle cx="88" cy="153" r="17" fill="#3974c6"/>
+  <text x="88" y="158" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">1</text>
+  <text x="160" y="187" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">用户请求</text>
+  <text x="160" y="212" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">键盘/读屏进入主路径</text>
+  <rect x="186" y="143" width="54" height="18" rx="9" fill="#f8fafc" stroke="#3974c6"/>
+  <text x="213" y="156" font-size="9" fill="#3974c6" font-weight="700" text-anchor="middle">DOM 1</text>
+  </g>
+  <g aria-label="步骤 2：身份认证；subject + tenant claims">
+  <rect x="400" y="135" width="180" height="110" rx="14" fill="#ffffff" stroke="#667085" stroke-width="3"/>
+  <circle cx="418" cy="153" r="17" fill="#667085"/>
+  <text x="418" y="158" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">2</text>
+  <text x="490" y="187" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">身份认证</text>
+  <text x="490" y="212" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">subject + tenant claims</text>
+  <rect x="516" y="143" width="54" height="18" rx="9" fill="#f8fafc" stroke="#667085"/>
+  <text x="543" y="156" font-size="9" fill="#667085" font-weight="700" text-anchor="middle">DOM 2</text>
+  </g>
+  <g aria-label="步骤 3：授权判定；策略 ID + 可解释结果">
+  <polygon points="820,135 910,190 820,245 730,190" fill="#fff4e5" stroke="#7a4b00" stroke-width="3"/>
+  <circle cx="748" cy="153" r="17" fill="#7a4b00"/>
+  <text x="748" y="158" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">3</text>
+  <text x="820" y="187" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">授权判定</text>
+  <text x="820" y="212" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">策略 ID + 可解释结果</text>
+  <rect x="846" y="143" width="54" height="18" rx="9" fill="#f8fafc" stroke="#7a4b00"/>
+  <text x="873" y="156" font-size="9" fill="#7a4b00" font-weight="700" text-anchor="middle">DOM 3</text>
+  </g>
+  <g aria-label="步骤 4：读取文档；仅使用 scoped capability">
+  <rect x="1060" y="135" width="180" height="110" rx="14" fill="#ffffff" stroke="#667085" stroke-width="3"/>
+  <circle cx="1078" cy="153" r="17" fill="#667085"/>
+  <text x="1078" y="158" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">4</text>
+  <text x="1150" y="187" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">读取文档</text>
+  <text x="1150" y="212" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">仅使用 scoped capability</text>
+  <rect x="1176" y="143" width="54" height="18" rx="9" fill="#f8fafc" stroke="#667085"/>
+  <text x="1203" y="156" font-size="9" fill="#667085" font-weight="700" text-anchor="middle">DOM 4</text>
+  </g>
+  <g aria-label="步骤 5：可访问响应；文本、状态与焦点恢复">
+  <rect x="1060" y="365" width="180" height="110" rx="14" fill="#ecfdf3" stroke="#2e7d32" stroke-width="3"/>
+  <circle cx="1078" cy="383" r="17" fill="#2e7d32"/>
+  <text x="1078" y="388" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">5</text>
+  <text x="1150" y="417" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">可访问响应</text>
+  <text x="1150" y="442" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">文本、状态与焦点恢复</text>
+  <rect x="1176" y="373" width="54" height="18" rx="9" fill="#f8fafc" stroke="#2e7d32"/>
+  <text x="1203" y="386" font-size="9" fill="#2e7d32" font-weight="700" text-anchor="middle">DOM 5</text>
+  </g>
+  <g aria-label="步骤 6：拒绝说明；错误码 + 下一步，不只红色">
+  <polygon points="752,365 888,365 910,387 910,453 888,475 752,475 730,453 730,387" fill="#fef3f2" stroke="#b42318" stroke-width="3"/>
+  <circle cx="748" cy="383" r="17" fill="#b42318"/>
+  <text x="748" y="388" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">6</text>
+  <text x="820" y="417" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">拒绝说明</text>
+  <text x="820" y="442" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">错误码 + 下一步</text>
+  <text x="820" y="459" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">不只红色</text>
+  <rect x="846" y="373" width="54" height="18" rx="9" fill="#f8fafc" stroke="#b42318"/>
+  <text x="873" y="386" font-size="9" fill="#b42318" font-weight="700" text-anchor="middle">DOM 6</text>
+  </g>
+  <g aria-label="步骤 7：异步审计；旁路关系有文字说明">
+  <rect x="400" y="365" width="180" height="110" rx="14" fill="#f8fafc" stroke="#667085" stroke-width="3"/>
+  <circle cx="418" cy="383" r="17" fill="#667085"/>
+  <text x="418" y="388" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">7</text>
+  <text x="490" y="417" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">异步审计</text>
+  <text x="490" y="442" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">旁路关系有文字说明</text>
+  <rect x="516" y="373" width="54" height="18" rx="9" fill="#f8fafc" stroke="#667085"/>
+  <text x="543" y="386" font-size="9" fill="#667085" font-weight="700" text-anchor="middle">DOM 7</text>
+  </g>
+  <g aria-label="步骤 8：验收证据；DOM 序列 + 读屏录制">
+  <rect x="70" y="365" width="180" height="110" rx="14" fill="#eef4ff" stroke="#3974c6" stroke-width="3"/>
+  <circle cx="88" cy="383" r="17" fill="#3974c6"/>
+  <text x="88" y="388" font-size="13" fill="#ffffff" font-weight="700" text-anchor="middle">8</text>
+  <text x="160" y="417" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">验收证据</text>
+  <text x="160" y="442" font-size="11" fill="#475467" font-weight="500" text-anchor="middle">DOM 序列 + 读屏录制</text>
+  <rect x="186" y="373" width="54" height="18" rx="9" fill="#f8fafc" stroke="#3974c6"/>
+  <text x="213" y="386" font-size="9" fill="#3974c6" font-weight="700" text-anchor="middle">DOM 8</text>
+  </g>
+  <g aria-label="语义图例和阅读契约"><rect x="46" y="540" width="1228" height="184" rx="14" fill="#f8fafc" stroke="#d0d5dd"/>
+  <text x="70" y="574" font-size="15" fill="#101828" font-weight="700">语义图例</text>
+  <rect x="80" y="596" width="34" height="24" rx="5" fill="#ffffff" stroke="#3974c6" stroke-width="3"/>
+  <text x="126" y="608" font-size="12" fill="#344054" font-weight="700">主路径 / 关键能力</text>
+  <text x="126" y="626" font-size="10" fill="#667085">实线箭头 + 编号</text>
+  <rect x="380" y="596" width="34" height="24" rx="5" fill="#ffffff" stroke="#7a4b00" stroke-width="3"/>
+  <text x="426" y="608" font-size="12" fill="#344054" font-weight="700">判定门</text>
+  <text x="426" y="626" font-size="10" fill="#667085">菱形 + 结果文本</text>
+  <rect x="680" y="596" width="34" height="24" rx="5" fill="#ffffff" stroke="#b42318" stroke-width="3"/>
+  <text x="726" y="608" font-size="12" fill="#344054" font-weight="700">拒绝 / 异常</text>
+  <text x="726" y="626" font-size="10" fill="#667085">八边形 + 虚线旁路</text>
+  <rect x="980" y="596" width="34" height="24" rx="5" fill="#ffffff" stroke="#2e7d32" stroke-width="3"/>
+  <text x="1026" y="608" font-size="12" fill="#344054" font-weight="700">成功结果</text>
+  <text x="1026" y="626" font-size="10" fill="#667085">文字“响应” + 绿色边框</text>
+  <line x1="70" y1="648" x2="1250" y2="648" stroke="#d0d5dd"/>
+  <text x="70" y="675" font-size="12" fill="#3974c6" font-weight="700">读屏契约</text>
+  <text x="170" y="675" font-size="12" fill="#344054">title → desc → 步骤 1…8 → 本图例；所有装饰和连接线 aria-hidden</text>
+  <text x="70" y="702" font-size="12" fill="#3974c6" font-weight="700">键盘契约</text>
+  <text x="170" y="702" font-size="12" fill="#344054">图表容器单一焦点；Enter 展开同序文本清单；Esc 返回正文锚点</text>
+  </g></svg>
+```
+
+- **交付要点：** 编号 1–8 决定视觉与 DOM 阅读顺序；主路径、判定、拒绝和成功同时由形状、线型、编号与文字编码，底部单独交付读屏和键盘契约。
+
+### 身份生命周期：入转离、复核与证据
+
+**交付问题：** 员工和机器身份怎样沿时间轴经过入职、在岗、转岗、离职和关闭状态，并由状态门保证最小权限与及时撤销？
+
+<div id="md-case-svg-identity-lifecycle-governance"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1420 760" role="img" aria-labelledby="silg-title silg-desc">
+  <title id="silg-title">身份生命周期时间轴与状态门</title>
+  <desc id="silg-desc">从左到右读取入职、在岗、转岗、离职和关闭五个时间状态；每个状态下方对应授权门、时限和证据。</desc>
+  <defs><marker id="silg-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#344054"/></marker></defs>
+  <rect width="1420" height="760" fill="#fdfdfc"/>
+  <text x="44" y="48" font-size="25" fill="#101828" font-weight="700">身份生命周期 · 时间轴 / 状态门 / 撤销证据</text>
+  <text x="44" y="77" font-size="13" fill="#475467">权威事件驱动状态迁移；任何门禁失败都停在当前安全状态</text>
+  <g aria-hidden="true"><line x1="145" y1="164" x2="1190" y2="164" stroke="#344054" stroke-width="5" marker-end="url(#silg-arrow)"/>
+  <line x1="145" y1="164" x2="145" y2="230" stroke="#98a2b3" stroke-width="2"/>
+  <line x1="395" y1="164" x2="395" y2="230" stroke="#98a2b3" stroke-width="2"/>
+  <line x1="645" y1="164" x2="645" y2="230" stroke="#98a2b3" stroke-width="2"/>
+  <line x1="895" y1="164" x2="895" y2="230" stroke="#98a2b3" stroke-width="2"/>
+  <line x1="1145" y1="164" x2="1145" y2="230" stroke="#98a2b3" stroke-width="2"/>
+  </g>
+  <g aria-label="S0 待入职；HR offer / workload registration"><circle cx="145" cy="164" r="34" fill="#ffffff" stroke="#667085" stroke-width="5"/>
+  <text x="145" y="160" font-size="11" fill="#667085" font-weight="700" text-anchor="middle">S0</text>
+  <text x="145" y="178" font-size="11" fill="#667085" font-weight="700" text-anchor="middle">0</text>
+  <text x="145" y="219" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">待入职</text>
+  <text x="145" y="241" font-size="10" fill="#667085" font-weight="500" text-anchor="middle">HR offer / workload registration</text>
+  </g>
+  <g aria-label="S1 在岗；active · least privilege"><circle cx="395" cy="164" r="34" fill="#ffffff" stroke="#3974c6" stroke-width="5"/>
+  <text x="395" y="160" font-size="11" fill="#3974c6" font-weight="700" text-anchor="middle">S1</text>
+  <text x="395" y="178" font-size="11" fill="#3974c6" font-weight="700" text-anchor="middle">1</text>
+  <text x="395" y="219" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">在岗</text>
+  <text x="395" y="241" font-size="10" fill="#667085" font-weight="500" text-anchor="middle">active · least privilege</text>
+  </g>
+  <g aria-label="S2 转岗中；old access frozen"><circle cx="645" cy="164" r="34" fill="#ffffff" stroke="#7a4b00" stroke-width="5"/>
+  <text x="645" y="160" font-size="11" fill="#7a4b00" font-weight="700" text-anchor="middle">S2</text>
+  <text x="645" y="178" font-size="11" fill="#7a4b00" font-weight="700" text-anchor="middle">2</text>
+  <text x="645" y="219" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">转岗中</text>
+  <text x="645" y="241" font-size="10" fill="#667085" font-weight="500" text-anchor="middle">old access frozen</text>
+  </g>
+  <g aria-label="S3 离职中；all sessions revoked"><circle cx="895" cy="164" r="34" fill="#ffffff" stroke="#b42318" stroke-width="5"/>
+  <text x="895" y="160" font-size="11" fill="#b42318" font-weight="700" text-anchor="middle">S3</text>
+  <text x="895" y="178" font-size="11" fill="#b42318" font-weight="700" text-anchor="middle">3</text>
+  <text x="895" y="219" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">离职中</text>
+  <text x="895" y="241" font-size="10" fill="#667085" font-weight="500" text-anchor="middle">all sessions revoked</text>
+  </g>
+  <g aria-label="S4 已关闭；evidence sealed"><circle cx="1145" cy="164" r="34" fill="#ffffff" stroke="#2e7d32" stroke-width="5"/>
+  <text x="1145" y="160" font-size="11" fill="#2e7d32" font-weight="700" text-anchor="middle">S4</text>
+  <text x="1145" y="178" font-size="11" fill="#2e7d32" font-weight="700" text-anchor="middle">4</text>
+  <text x="1145" y="219" font-size="15" fill="#101828" font-weight="700" text-anchor="middle">已关闭</text>
+  <text x="1145" y="241" font-size="10" fill="#667085" font-weight="500" text-anchor="middle">evidence sealed</text>
+  </g>
+  <g aria-label="权威事件泳道"><rect x="44" y="274" width="1330" height="82" rx="10" fill="#eef4ff" stroke="#84adff"/>
+  <text x="62" y="302" font-size="12" fill="#3974c6" font-weight="700">权威事件</text>
+  <circle cx="150" cy="320" r="10" fill="#3974c6"/>
+  <text x="168" y="318" font-size="12" fill="#101828" font-weight="700">Hire</text>
+  <text x="168" y="338" font-size="10" fill="#475467">personId + startAt</text>
+  <circle cx="400" cy="320" r="10" fill="#3974c6"/>
+  <text x="418" y="318" font-size="12" fill="#101828" font-weight="700">Review</text>
+  <text x="418" y="338" font-size="10" fill="#475467">每季 / 高权每月</text>
+  <circle cx="650" cy="320" r="10" fill="#3974c6"/>
+  <text x="668" y="318" font-size="12" fill="#101828" font-weight="700">Transfer</text>
+  <text x="668" y="338" font-size="10" fill="#475467">newOrg + effectiveAt</text>
+  <circle cx="900" cy="320" r="10" fill="#3974c6"/>
+  <text x="918" y="318" font-size="12" fill="#101828" font-weight="700">Terminate</text>
+  <text x="918" y="338" font-size="10" fill="#475467">endAt + reason</text>
+  <circle cx="1150" cy="320" r="10" fill="#3974c6"/>
+  <text x="1168" y="318" font-size="12" fill="#101828" font-weight="700">Close</text>
+  <text x="1168" y="338" font-size="10" fill="#475467">evidenceHash</text>
+  </g>
+  <g aria-label="G1 身份关联；唯一 person/workload ID；重复身份 → 拒绝"><polygon points="162,392 260,426 236,510 162,544 88,510 64,426" fill="#ffffff" stroke="#3974c6" stroke-width="3"/>
+  <text x="162" y="434" font-size="13" fill="#101828" font-weight="700" text-anchor="middle">G1 身份关联</text>
+  <text x="162" y="462" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">唯一 person/workload ID</text>
+  <line x1="90" y1="479" x2="234" y2="479" stroke="#d0d5dd"/>
+  <text x="162" y="502" font-size="10" fill="#3974c6" font-weight="700" text-anchor="middle">重复身份 → 拒绝</text>
+  <text x="162" y="524" font-size="9" fill="#667085" font-weight="500" text-anchor="middle">PASS 才推进状态</text>
+  </g>
+  <g aria-label="G2 SoD + 最小权限；角色与属性联合计算；冲突权限 → 审批"><polygon points="422,392 520,426 496,510 422,544 348,510 324,426" fill="#ffffff" stroke="#7a4b00" stroke-width="3"/>
+  <text x="422" y="434" font-size="13" fill="#101828" font-weight="700" text-anchor="middle">G2 SoD + 最小权限</text>
+  <text x="422" y="462" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">角色与属性联合计算</text>
+  <line x1="350" y1="479" x2="494" y2="479" stroke="#d0d5dd"/>
+  <text x="422" y="502" font-size="10" fill="#7a4b00" font-weight="700" text-anchor="middle">冲突权限 → 审批</text>
+  <text x="422" y="524" font-size="9" fill="#667085" font-weight="500" text-anchor="middle">PASS 才推进状态</text>
+  </g>
+  <g aria-label="G3 差异撤换；先撤旧权，再授新权；超 15min → 升级"><polygon points="682,392 780,426 756,510 682,544 608,510 584,426" fill="#ffffff" stroke="#7a4b00" stroke-width="3"/>
+  <text x="682" y="434" font-size="13" fill="#101828" font-weight="700" text-anchor="middle">G3 差异撤换</text>
+  <text x="682" y="462" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">先撤旧权，再授新权</text>
+  <line x1="610" y1="479" x2="754" y2="479" stroke="#d0d5dd"/>
+  <text x="682" y="502" font-size="10" fill="#7a4b00" font-weight="700" text-anchor="middle">超 15min → 升级</text>
+  <text x="682" y="524" font-size="9" fill="#667085" font-weight="500" text-anchor="middle">PASS 才推进状态</text>
+  </g>
+  <g aria-label="G4 全面撤销；会话/令牌/密钥/组；目标 ≤ 15min"><polygon points="942,392 1040,426 1016,510 942,544 868,510 844,426" fill="#ffffff" stroke="#b42318" stroke-width="3"/>
+  <text x="942" y="434" font-size="13" fill="#101828" font-weight="700" text-anchor="middle">G4 全面撤销</text>
+  <text x="942" y="462" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">会话/令牌/密钥/组</text>
+  <line x1="870" y1="479" x2="1014" y2="479" stroke="#d0d5dd"/>
+  <text x="942" y="502" font-size="10" fill="#b42318" font-weight="700" text-anchor="middle">目标 ≤ 15min</text>
+  <text x="942" y="524" font-size="9" fill="#667085" font-weight="500" text-anchor="middle">PASS 才推进状态</text>
+  </g>
+  <g aria-label="G5 关闭确认；资源 owner 接管完成；孤儿资源 = 0"><polygon points="1202,392 1300,426 1276,510 1202,544 1128,510 1104,426" fill="#ffffff" stroke="#2e7d32" stroke-width="3"/>
+  <text x="1202" y="434" font-size="13" fill="#101828" font-weight="700" text-anchor="middle">G5 关闭确认</text>
+  <text x="1202" y="462" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">资源 owner 接管完成</text>
+  <line x1="1130" y1="479" x2="1274" y2="479" stroke="#d0d5dd"/>
+  <text x="1202" y="502" font-size="10" fill="#2e7d32" font-weight="700" text-anchor="middle">孤儿资源 = 0</text>
+  <text x="1202" y="524" font-size="9" fill="#667085" font-weight="500" text-anchor="middle">PASS 才推进状态</text>
+  </g>
+  <g aria-label="证据与例外"><rect x="44" y="582" width="1330" height="124" rx="12" fill="#f8fafc" stroke="#98a2b3"/>
+  <text x="64" y="610" font-size="13" fill="#344054" font-weight="700">证据轨</text>
+  <rect x="150" y="600" width="208" height="48" rx="7" fill="#ffffff" stroke="#667085"/>
+  <text x="162" y="621" font-size="11" fill="#3974c6" font-weight="700">E1</text>
+  <text x="162" y="640" font-size="10" fill="#344054">创建依据 + policyVersion</text>
+  <rect x="400" y="600" width="208" height="48" rx="7" fill="#ffffff" stroke="#667085"/>
+  <text x="412" y="621" font-size="11" fill="#3974c6" font-weight="700">E2</text>
+  <text x="412" y="640" font-size="10" fill="#344054">复核决定 + reviewer</text>
+  <rect x="650" y="600" width="208" height="48" rx="7" fill="#ffffff" stroke="#667085"/>
+  <text x="662" y="621" font-size="11" fill="#3974c6" font-weight="700">E3</text>
+  <text x="662" y="640" font-size="10" fill="#344054">撤旧/授新时间差</text>
+  <rect x="900" y="600" width="208" height="48" rx="7" fill="#ffffff" stroke="#667085"/>
+  <text x="912" y="621" font-size="11" fill="#3974c6" font-weight="700">E4</text>
+  <text x="912" y="640" font-size="10" fill="#344054">撤销完成时间 + session count</text>
+  <rect x="1150" y="600" width="208" height="48" rx="7" fill="#ffffff" stroke="#667085"/>
+  <text x="1162" y="621" font-size="11" fill="#3974c6" font-weight="700">E5</text>
+  <text x="1162" y="640" font-size="10" fill="#344054">关闭 hash + orphan scan</text>
+  <text x="64" y="682" font-size="11" fill="#b42318" font-weight="700">例外规则</text>
+  <text x="150" y="682" font-size="11" fill="#344054">仅允许带 riskOwner、到期时间和补偿控制的例外；到期自动转为撤销事件</text>
+  </g></svg>
+```
+
+- **交付要点：** 主轴是生命周期状态而非系统分层；五个盾形门分别控制身份关联、职责分离、差异撤换、全面撤销和关闭确认，底部证据轨保留每次状态推进依据。
+
+### 密钥轮换与 Break-glass
+
+**交付问题：** 正常轮换和紧急访问怎样沿上下双轨执行，在不共享授权捷径的前提下汇入同一审计链与关闭门？
+
+<div id="md-case-svg-key-rotation-break-glass"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1420 790" role="img" aria-labelledby="skrbg-title skrbg-desc">
+  <title id="skrbg-title">正常密钥轮换与 Break-glass 双轨对照</title>
+  <desc id="skrbg-desc">先读上方正常轮换轨，再读下方紧急访问轨；两条轨道在右侧汇入同一不可变审计和关闭门。</desc>
+  <defs>
+    <marker id="skrbg-blue-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#3974c6"/></marker>
+    <marker id="skrbg-red-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#b42318"/></marker>
+    <marker id="skrbg-gray-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#667085"/></marker>
+  </defs>
+  <rect width="1420" height="790" fill="#fffdfb"/>
+  <text x="44" y="48" font-size="25" fill="#101828" font-weight="700">密钥治理 · 正常轮换 vs Break-glass</text>
+  <text x="44" y="77" font-size="13" fill="#475467">两条轨道共享证据链，但触发、授权、有效期和关闭条件不同</text>
+  <g aria-hidden="true">
+    <rect x="44" y="110" width="1040" height="252" rx="18" fill="#eef4ff" stroke="#84adff"/>
+    <rect x="44" y="390" width="1040" height="252" rx="18" fill="#fef3f2" stroke="#fda29b"/>
+    <path d="M210 238 H360" fill="none" stroke="#3974c6" stroke-width="4" marker-end="url(#skrbg-blue-arrow)"/>
+    <path d="M490 238 H640" fill="none" stroke="#3974c6" stroke-width="4" marker-end="url(#skrbg-blue-arrow)"/>
+    <path d="M770 238 H920" fill="none" stroke="#3974c6" stroke-width="4" marker-end="url(#skrbg-blue-arrow)"/>
+    <path d="M183 518 H360" fill="none" stroke="#b42318" stroke-width="4" marker-end="url(#skrbg-red-arrow)"/>
+    <path d="M490 518 H640" fill="none" stroke="#b42318" stroke-width="4" marker-end="url(#skrbg-red-arrow)"/>
+    <path d="M770 518 H920" fill="none" stroke="#b42318" stroke-width="4" marker-end="url(#skrbg-red-arrow)"/>
+    <path d="M1010 238 H1120 V330 H1160" fill="none" stroke="#3974c6" stroke-width="3" marker-end="url(#skrbg-gray-arrow)"/>
+    <path d="M1010 518 H1120 V470 H1160" fill="none" stroke="#b42318" stroke-width="3" marker-end="url(#skrbg-gray-arrow)"/>
+  </g>
+  <g aria-label="正常轮换轨"><text x="70" y="145" font-size="17" font-weight="700" fill="#3974c6">NORMAL · 计划轮换轨</text>
+  <rect x="80" y="184" width="130" height="108" rx="9" fill="#ffffff" stroke="#3974c6" stroke-width="3"/><line x1="80" y1="210" x2="210" y2="210" stroke="#3974c6" stroke-width="3"/>
+  <circle cx="96" cy="198" r="13" fill="#3974c6"/>
+  <text x="96" y="202" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">1</text>
+  <text x="145" y="230" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">N1 到期扫描</text>
+  <text x="145" y="252" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">T-30d · owner</text>
+  <polygon points="382,184 468,184 490,238 468,292 382,292 360,238" fill="#ffffff" stroke="#3974c6" stroke-width="3"/>
+  <circle cx="376" cy="198" r="13" fill="#3974c6"/>
+  <text x="376" y="202" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">2</text>
+  <text x="425" y="230" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">N2 新建版本</text>
+  <text x="425" y="252" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">密钥库内生成</text>
+  <polygon points="705,184 770,238 705,292 640,238" fill="#ffffff" stroke="#3974c6" stroke-width="3"/>
+  <circle cx="656" cy="198" r="13" fill="#3974c6"/>
+  <text x="656" y="202" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">3</text>
+  <text x="705" y="230" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">N3 双读验证</text>
+  <text x="705" y="252" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">新版本成功</text>
+  <polygon points="940,184 1030,184 1050,204 1050,272 1030,292 940,292 920,272 920,204" fill="#ffffff" stroke="#3974c6" stroke-width="3"/>
+  <circle cx="936" cy="198" r="13" fill="#3974c6"/>
+  <text x="936" y="202" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">4</text>
+  <text x="985" y="230" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">N4 退役旧版</text>
+  <text x="985" y="252" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">使用量归零</text>
+  <text x="80" y="325" font-size="11" fill="#3974c6" font-weight="700">凭证暴露：0</text>
+  <text x="250" y="325" font-size="11" fill="#344054">并行有效期：≤ 24h</text>
+  <text x="490" y="325" font-size="11" fill="#344054">失败动作：保持旧版 active</text>
+  </g>
+  <g aria-label="Break-glass 紧急轨"><text x="70" y="425" font-size="17" font-weight="700" fill="#b42318">EMERGENCY · Break-glass 轨</text>
+  <polygon points="145,462 220,572 70,572" fill="#ffffff" stroke="#b42318" stroke-width="3"/>
+  <circle cx="121" cy="478" r="13" fill="#b42318"/>
+  <text x="121" y="482" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">1</text>
+  <text x="145" y="516" font-size="11" fill="#101828" font-weight="700" text-anchor="middle">B1</text>
+  <text x="145" y="534" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">事故申请</text>
+  <text x="145" y="554" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">SEV + scope</text>
+  <polygon points="425,464 490,518 425,572 360,518" fill="#ffffff" stroke="#b42318" stroke-width="3"/>
+  <circle cx="376" cy="478" r="13" fill="#b42318"/>
+  <text x="376" y="482" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">2</text>
+  <text x="425" y="510" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">B2 双人审批</text>
+  <text x="425" y="535" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">申请/审批分离</text>
+  <rect x="640" y="464" width="130" height="108" rx="54" fill="#ffffff" stroke="#b42318" stroke-width="3"/>
+  <circle cx="656" cy="478" r="13" fill="#b42318"/>
+  <text x="656" y="482" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">3</text>
+  <text x="705" y="510" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">B3 代理签发</text>
+  <text x="705" y="535" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">15min scoped token</text>
+  <polygon points="948,464 1022,464 1050,492 1050,544 1022,572 948,572 920,544 920,492" fill="#ffffff" stroke="#b42318" stroke-width="3"/>
+  <circle cx="936" cy="478" r="13" fill="#b42318"/>
+  <text x="936" y="482" font-size="9" fill="#ffffff" font-weight="700" text-anchor="middle">4</text>
+  <text x="985" y="510" font-size="12" fill="#101828" font-weight="700" text-anchor="middle">B4 自动吊销</text>
+  <text x="985" y="535" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">到期/恢复即撤销</text>
+  <text x="80" y="605" font-size="11" fill="#b42318" font-weight="700">长期密钥：禁止下发</text>
+  <text x="300" y="605" font-size="11" fill="#344054">最大权限：事故所需最小范围</text>
+  <text x="610" y="605" font-size="11" fill="#344054">失败动作：拒绝签发并升级 IC</text>
+  </g>
+  <g aria-label="共享审计与关闭门"><rect x="1160" y="170" width="216" height="420" rx="18" fill="#ffffff" stroke="#667085" stroke-width="3"/>
+  <text x="1268" y="205" font-size="16" fill="#101828" font-weight="700" text-anchor="middle">共享证据链</text>
+  <circle cx="1190" cy="232" r="13" fill="#344054"/>
+  <text x="1190" y="236" font-size="10" fill="#ffffff" font-weight="700" text-anchor="middle">1</text>
+  <text x="1214" y="230" font-size="10" fill="#3974c6" font-weight="700">E1</text>
+  <text x="1214" y="248" font-size="10" fill="#344054">触发与 ticket</text>
+  <line x1="1190" y1="246" x2="1190" y2="272" stroke="#98a2b3"/>
+  <circle cx="1190" cy="286" r="13" fill="#344054"/>
+  <text x="1190" y="290" font-size="10" fill="#ffffff" font-weight="700" text-anchor="middle">2</text>
+  <text x="1214" y="284" font-size="10" fill="#3974c6" font-weight="700">E2</text>
+  <text x="1214" y="302" font-size="10" fill="#344054">审批与 policy</text>
+  <line x1="1190" y1="300" x2="1190" y2="326" stroke="#98a2b3"/>
+  <circle cx="1190" cy="340" r="13" fill="#344054"/>
+  <text x="1190" y="344" font-size="10" fill="#ffffff" font-weight="700" text-anchor="middle">3</text>
+  <text x="1214" y="338" font-size="10" fill="#3974c6" font-weight="700">E3</text>
+  <text x="1214" y="356" font-size="10" fill="#344054">签发/版本 hash</text>
+  <line x1="1190" y1="354" x2="1190" y2="380" stroke="#98a2b3"/>
+  <circle cx="1190" cy="394" r="13" fill="#344054"/>
+  <text x="1190" y="398" font-size="10" fill="#ffffff" font-weight="700" text-anchor="middle">4</text>
+  <text x="1214" y="392" font-size="10" fill="#3974c6" font-weight="700">E4</text>
+  <text x="1214" y="410" font-size="10" fill="#344054">使用与拒绝日志</text>
+  <line x1="1190" y1="408" x2="1190" y2="434" stroke="#98a2b3"/>
+  <circle cx="1190" cy="448" r="13" fill="#344054"/>
+  <text x="1190" y="452" font-size="10" fill="#ffffff" font-weight="700" text-anchor="middle">5</text>
+  <text x="1214" y="446" font-size="10" fill="#3974c6" font-weight="700">E5</text>
+  <text x="1214" y="464" font-size="10" fill="#344054">吊销确认</text>
+  <polygon points="1200,518 1336,518 1360,542 1336,566 1200,566 1176,542" fill="#fff4e5" stroke="#7a4b00" stroke-width="2"/>
+  <text x="1268" y="539" font-size="12" fill="#7a4b00" font-weight="700" text-anchor="middle">关闭门</text>
+  <text x="1268" y="556" font-size="10" fill="#344054" font-weight="600" text-anchor="middle">旧用量=0 / token=0</text>
+  </g>
+  <g aria-label="轨道差异摘要"><rect x="44" y="674" width="1332" height="72" rx="10" fill="#f8fafc" stroke="#d0d5dd"/>
+  <text x="68" y="700" font-size="11" fill="#3974c6" font-weight="700">触发</text>
+  <text x="68" y="724" font-size="12" fill="#344054" font-weight="600">计划 / 泄露信号</text>
+  <text x="330" y="700" font-size="11" fill="#7a4b00" font-weight="700">授权</text>
+  <text x="330" y="724" font-size="12" fill="#344054" font-weight="600">变更批准 / 双人批准</text>
+  <text x="650" y="700" font-size="11" fill="#b42318" font-weight="700">有效期</text>
+  <text x="650" y="724" font-size="12" fill="#344054" font-weight="600">并行 ≤24h / token 15min</text>
+  <text x="1000" y="700" font-size="11" fill="#2e7d32" font-weight="700">共同关闭</text>
+  <text x="1000" y="724" font-size="12" fill="#344054" font-weight="600">证据齐全 + 使用归零</text>
+  </g></svg>
+```
+
+- **交付要点：** 上轨表达计划轮换和双读退役，下轨表达事故申请、双人审批、短期代理凭证与自动吊销；两轨只共享不可变证据链，不共享授权捷径。
+
+### 租户隔离不变式：入口、计算、数据与观测
+
+**交付问题：** 怎样用嵌套租户边界、运行时控制探针与独立证据面板，证明共享平台不会让身份、数据、密钥或观测跨租户泄漏？
+
+<div id="md-case-svg-tenant-isolation-invariants"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 820" role="img" aria-labelledby="stii-title stii-desc">
+  <title id="stii-title">租户隔离嵌套边界、控制探针与证据面板</title>
+  <desc id="stii-desc">先读左侧共享控制面，再读中部平台边界内的租户 A 与租户 B 嵌套边界，最后读右侧隔离证据面板。跨租户禁止路径用带叉虚线表示。</desc>
+  <defs>
+    <marker id="stii-gray-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#667085"/></marker>
+    <marker id="stii-purple-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#7c5cbf"/></marker>
+    <marker id="stii-cyan-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 Z" fill="#0086c9"/></marker>
+  </defs>
+  <rect width="1440" height="820" fill="#fbfcfe"/>
+  <text x="42" y="48" font-size="24" fill="#101828" font-weight="700">租户隔离不变式 · 嵌套边界 / 控制探针 / 证据面板</text>
+  <text x="42" y="77" font-size="13" fill="#475467">控制面只下发引用；每个租户从入口、计算、数据到密钥保持同一 tenant context</text>
+  <g aria-label="边界结构"><rect x="42" y="108" width="230" height="610" rx="18" fill="#f8fafc" stroke="#98a2b3" stroke-width="2" stroke-dasharray="9 6"/>
+  <rect x="298" y="108" width="790" height="610" rx="20" fill="#eef4ff" stroke="#3974c6" stroke-width="3"/>
+  <rect x="326" y="190" width="350" height="478" rx="16" fill="#ffffff" stroke="#7c5cbf" stroke-width="3"/>
+  <rect x="708" y="190" width="350" height="478" rx="16" fill="#ffffff" stroke="#0086c9" stroke-width="3"/>
+  <rect x="344" y="346" width="314" height="132" rx="12" fill="#f8fafc" stroke="#7c5cbf" stroke-dasharray="6 4"/>
+  <rect x="344" y="500" width="314" height="132" rx="12" fill="#f5f3ff" stroke="#7c5cbf" stroke-dasharray="6 4"/>
+  <rect x="726" y="346" width="314" height="132" rx="12" fill="#f8fafc" stroke="#0086c9" stroke-dasharray="6 4"/>
+  <rect x="726" y="500" width="314" height="132" rx="12" fill="#f5f3ff" stroke="#0086c9" stroke-dasharray="6 4"/>
+  <rect x="1114" y="108" width="284" height="610" rx="18" fill="#fffaf0" stroke="#7a4b00" stroke-width="3"/>
+  </g>
+  <g aria-hidden="true" fill="none">
+    <path d="M250 234 H300 V281 H358" stroke="#667085" stroke-width="2" marker-end="url(#stii-gray-arrow)"/>
+    <path d="M250 316 H286 V180 H724 V281 H740" stroke="#667085" stroke-width="2" marker-end="url(#stii-gray-arrow)"/>
+    <path d="M426 314 V382" stroke="#7c5cbf" stroke-width="2" marker-end="url(#stii-purple-arrow)"/>
+    <path d="M426 452 V522" stroke="#7c5cbf" stroke-width="2" marker-end="url(#stii-purple-arrow)"/>
+    <path d="M808 314 V382" stroke="#0086c9" stroke-width="2" marker-end="url(#stii-cyan-arrow)"/>
+    <path d="M808 452 V522" stroke="#0086c9" stroke-width="2" marker-end="url(#stii-cyan-arrow)"/>
+    <path d="M644 420 H690 V690 H1098 V610 H1140" stroke="#667085" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#stii-gray-arrow)"/>
+    <path d="M1026 420 H1098 V610 H1140" stroke="#667085" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#stii-gray-arrow)"/>
+  </g>
+  <text x="850" y="682" font-size="10" fill="#475467" font-weight="600" text-anchor="middle">脱敏遥测 · 仅 tenantId hash</text>
+  <g aria-hidden="true" fill="none" stroke="#b42318" stroke-width="3" stroke-dasharray="8 6"><path d="M610 414 C680 350 705 350 774 414"/><path d="M610 566 C680 510 705 510 774 566"/></g>
+  <g aria-hidden="true" stroke="#b42318" stroke-width="3"><line x1="677" y1="374" x2="697" y2="394"/><line x1="697" y1="374" x2="677" y2="394"/><line x1="677" y1="526" x2="697" y2="546"/><line x1="697" y1="526" x2="677" y2="546"/></g>
+  <g aria-label="共享控制面，只处理元数据"><text x="62" y="144" font-size="16" font-weight="700" fill="#344054">共享控制面</text><text x="62" y="166" font-size="10" fill="#667085">禁止租户业务数据</text>
+  <rect x="62" y="204" width="188" height="60" rx="8" fill="#ffffff" stroke="#667085"/>
+  <text x="74" y="229" font-size="12" fill="#101828" font-weight="700">租户目录</text>
+  <text x="74" y="249" font-size="10" fill="#667085">opaque tenantId</text>
+  <rect x="62" y="286" width="188" height="60" rx="8" fill="#ffffff" stroke="#667085"/>
+  <text x="74" y="311" font-size="12" fill="#101828" font-weight="700">策略与配额</text>
+  <text x="74" y="331" font-size="10" fill="#667085">policyRef only</text>
+  <rect x="62" y="368" width="188" height="60" rx="8" fill="#ffffff" stroke="#667085"/>
+  <text x="74" y="393" font-size="12" fill="#101828" font-weight="700">Cell 调度器</text>
+  <text x="74" y="413" font-size="10" fill="#667085">configRef only</text>
+  <rect x="62" y="450" width="188" height="60" rx="8" fill="#ffffff" stroke="#667085"/>
+  <text x="74" y="475" font-size="12" fill="#101828" font-weight="700">平台审计</text>
+  <text x="74" y="495" font-size="10" fill="#667085">metadata only</text>
+  <polygon points="156,548 234,584 156,620 78,584" fill="#fff4e5" stroke="#7a4b00" stroke-width="2"/>
+  <text x="156" y="580" font-size="12" fill="#7a4b00" font-weight="700" text-anchor="middle">配置门</text>
+  <text x="156" y="597" font-size="9" fill="#344054" font-weight="600" text-anchor="middle">无数据权限</text>
+  </g>
+  <g aria-label="平台数据平面"><text x="320" y="145" font-size="17" font-weight="700" fill="#3974c6">平台数据平面 · Cell 边界</text><text x="320" y="169" font-size="11" fill="#475467">未知 tenant、上下文冲突或跨边界 ID 全部 fail closed</text></g>
+  <g aria-label="Tenant A · Cell 01，入口、计算、数据和密钥隔离"><text x="358" y="224" font-size="15" font-weight="700" fill="#7c5cbf">Tenant A · Cell 01</text>
+  <rect x="358" y="248" width="286" height="66" rx="10" fill="#eef4ff" stroke="#7c5cbf" stroke-width="2"/>
+  <text x="374" y="274" font-size="12" fill="#101828" font-weight="700">入口绑定 · tenant=A</text>
+  <text x="374" y="297" font-size="10" fill="#475467">path tenant == token claim</text>
+  <text x="358" y="372" font-size="11" fill="#7c5cbf" font-weight="700">计算隔离</text>
+  <rect x="358" y="388" width="136" height="64" rx="8" fill="#ffffff" stroke="#7c5cbf"/>
+  <text x="426" y="414" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">身份 role/cell01</text>
+  <text x="426" y="435" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">独立 quota</text>
+  <rect x="508" y="388" width="136" height="64" rx="8" fill="#ffffff" stroke="#7c5cbf"/>
+  <text x="576" y="414" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">Probe A</text>
+  <text x="576" y="435" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">context assert</text>
+  <text x="358" y="526" font-size="11" fill="#7c5cbf" font-weight="700">数据与密钥隔离</text>
+  <ellipse cx="426" cy="566" rx="67" ry="38" fill="#ffffff" stroke="#7c5cbf" stroke-width="2"/>
+  <text x="426" y="562" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">RLS tenant=A</text>
+  <text x="426" y="581" font-size="9" fill="#475467" font-weight="500" text-anchor="middle">独立 schema</text>
+  <polygon points="562,528 630,566 562,604 494,566" fill="#fff4e5" stroke="#7c5cbf" stroke-width="2"/>
+  <text x="562" y="562" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">key/A</text>
+  <text x="562" y="581" font-size="9" fill="#475467" font-weight="500" text-anchor="middle">scoped decrypt</text>
+  </g>
+  <g aria-label="Tenant B · Cell 02，入口、计算、数据和密钥隔离"><text x="740" y="224" font-size="15" font-weight="700" fill="#0086c9">Tenant B · Cell 02</text>
+  <rect x="740" y="248" width="286" height="66" rx="10" fill="#eef4ff" stroke="#0086c9" stroke-width="2"/>
+  <text x="756" y="274" font-size="12" fill="#101828" font-weight="700">入口绑定 · tenant=B</text>
+  <text x="756" y="297" font-size="10" fill="#475467">path tenant == token claim</text>
+  <text x="740" y="372" font-size="11" fill="#0086c9" font-weight="700">计算隔离</text>
+  <rect x="740" y="388" width="136" height="64" rx="8" fill="#ffffff" stroke="#0086c9"/>
+  <text x="808" y="414" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">身份 role/cell02</text>
+  <text x="808" y="435" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">独立 quota</text>
+  <rect x="890" y="388" width="136" height="64" rx="8" fill="#ffffff" stroke="#0086c9"/>
+  <text x="958" y="414" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">Probe B</text>
+  <text x="958" y="435" font-size="10" fill="#475467" font-weight="500" text-anchor="middle">context assert</text>
+  <text x="740" y="526" font-size="11" fill="#0086c9" font-weight="700">数据与密钥隔离</text>
+  <ellipse cx="808" cy="566" rx="67" ry="38" fill="#ffffff" stroke="#0086c9" stroke-width="2"/>
+  <text x="808" y="562" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">RLS tenant=B</text>
+  <text x="808" y="581" font-size="9" fill="#475467" font-weight="500" text-anchor="middle">独立 schema</text>
+  <polygon points="944,528 1012,566 944,604 876,566" fill="#fff4e5" stroke="#0086c9" stroke-width="2"/>
+  <text x="944" y="562" font-size="10" fill="#101828" font-weight="700" text-anchor="middle">key/B</text>
+  <text x="944" y="581" font-size="9" fill="#475467" font-weight="500" text-anchor="middle">scoped decrypt</text>
+  </g>
+  <g aria-label="隔离证据面板"><text x="1138" y="145" font-size="16" font-weight="700" fill="#7a4b00">隔离保证证据</text><text x="1138" y="168" font-size="10" fill="#667085">release gate · run 2026-09-06</text>
+  <g aria-label="P1 入口冲突拒绝 PASS"><rect x="1138" y="205" width="236" height="72" rx="9" fill="#ffffff" stroke="#d0d5dd"/>
+  <text x="1152" y="229" font-size="11" fill="#3974c6" font-weight="700">P1</text>
+  <text x="1186" y="229" font-size="11" fill="#101828" font-weight="700">入口冲突拒绝</text>
+  <rect x="1298" y="215" width="62" height="24" rx="12" fill="#ecfdf3" stroke="#2e7d32"/>
+  <text x="1329" y="232" font-size="9" fill="#2e7d32" font-weight="700" text-anchor="middle">PASS</text>
+  <text x="1152" y="256" font-size="10" fill="#475467">claim/path mismatch</text>
+  </g>
+  <g aria-label="P2 跨租户读取 PASS"><rect x="1138" y="287" width="236" height="72" rx="9" fill="#ffffff" stroke="#d0d5dd"/>
+  <text x="1152" y="311" font-size="11" fill="#3974c6" font-weight="700">P2</text>
+  <text x="1186" y="311" font-size="11" fill="#101828" font-weight="700">跨租户读取</text>
+  <rect x="1298" y="297" width="62" height="24" rx="12" fill="#ecfdf3" stroke="#2e7d32"/>
+  <text x="1329" y="314" font-size="9" fill="#2e7d32" font-weight="700" text-anchor="middle">PASS</text>
+  <text x="1152" y="338" font-size="10" fill="#475467">A token → B id = 403</text>
+  </g>
+  <g aria-label="P3 跨租户写入 PASS"><rect x="1138" y="369" width="236" height="72" rx="9" fill="#ffffff" stroke="#d0d5dd"/>
+  <text x="1152" y="393" font-size="11" fill="#3974c6" font-weight="700">P3</text>
+  <text x="1186" y="393" font-size="11" fill="#101828" font-weight="700">跨租户写入</text>
+  <rect x="1298" y="379" width="62" height="24" rx="12" fill="#ecfdf3" stroke="#2e7d32"/>
+  <text x="1329" y="396" font-size="9" fill="#2e7d32" font-weight="700" text-anchor="middle">PASS</text>
+  <text x="1152" y="420" font-size="10" fill="#475467">RLS affected rows = 0</text>
+  </g>
+  <g aria-label="P4 密钥错域解密 PASS"><rect x="1138" y="451" width="236" height="72" rx="9" fill="#ffffff" stroke="#d0d5dd"/>
+  <text x="1152" y="475" font-size="11" fill="#3974c6" font-weight="700">P4</text>
+  <text x="1186" y="475" font-size="11" fill="#101828" font-weight="700">密钥错域解密</text>
+  <rect x="1298" y="461" width="62" height="24" rx="12" fill="#ecfdf3" stroke="#2e7d32"/>
+  <text x="1329" y="478" font-size="9" fill="#2e7d32" font-weight="700" text-anchor="middle">PASS</text>
+  <text x="1152" y="502" font-size="10" fill="#475467">key/A ≠ key/B</text>
+  </g>
+  <g aria-label="P5 观测高基数泄漏 WARN"><rect x="1138" y="533" width="236" height="72" rx="9" fill="#ffffff" stroke="#d0d5dd"/>
+  <text x="1152" y="557" font-size="11" fill="#3974c6" font-weight="700">P5</text>
+  <text x="1186" y="557" font-size="11" fill="#101828" font-weight="700">观测高基数泄漏</text>
+  <rect x="1298" y="543" width="62" height="24" rx="12" fill="#fff4e5" stroke="#7a4b00"/>
+  <text x="1329" y="560" font-size="9" fill="#7a4b00" font-weight="700" text-anchor="middle">WARN</text>
+  <text x="1152" y="584" font-size="10" fill="#475467">原始 tenantId 已 hash</text>
+  </g>
+  <polygon points="1170,632 1340,632 1370,664 1340,696 1170,696 1140,664" fill="#ecfdf3" stroke="#2e7d32" stroke-width="3"/>
+  <text x="1255" y="659" font-size="15" fill="#2e7d32" font-weight="700" text-anchor="middle">RELEASE</text>
+  <text x="1255" y="679" font-size="10" fill="#344054" font-weight="600" text-anchor="middle">4 PASS · 1 guarded WARN</text>
+  </g>
+  <g aria-label="隔离不变式"><rect x="42" y="744" width="1356" height="48" rx="8" fill="#344054"/>
+  <text x="66" y="774" font-size="11" fill="#84adff" font-weight="700">不变式</text>
+  <text x="144" y="774" font-size="12" fill="#ffffff" font-weight="600">tenant context 必须在入口、计算身份、查询谓词和密钥引用四处一致；任何未知或冲突均拒绝。</text>
+  </g></svg>
+```
+
+- **交付要点：** 共享控制面与数据平面分离，Tenant A/B 各自嵌套入口、计算、数据和密钥边界；跨租户路径显式画叉，侧边探针面板以负向测试证据决定发布。
+
+### 任务执行：接纳、调度与工作池
+
+**要回答的问题：** 为什么任务等待，队列和执行槽位都满了以后，新任务走向哪里？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看接纳入口、队列、调度器与工作池的结构关系，再看嵌入其中的占用快照，最后看满容量拒绝与结果反馈。任务状态画为协调器内部逻辑存储。
+
+<div id="md-case-svg-task-queue-worker-capacity"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="835" viewBox="0 0 800 835" role="img" aria-labelledby="r6-queue-title r6-queue-desc">
+<title id="r6-queue-title">任务执行：接纳、调度与工作池</title>
+<desc id="r6-queue-desc">通用工程说明性算例；任务执行：接纳、调度与工作池。</desc>
+<defs><marker id="r6-queue-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker><pattern id="r6-queue-hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 L10 0" fill="none" stroke="#94a3b8" stroke-width="1"/></pattern></defs>
+<rect x="0" y="0" width="800" height="835" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="28" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#172033" text-anchor="start">任务执行：接纳、调度与工作池</text>
+<text x="28" y="82" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">架构主视图 · 结构关系 + 时刻 t 容量快照</text>
+<rect id="r6-queue-producer" x="25" y="180" width="175" height="90" rx="3" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="112.5" y="211" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">任务提交方</text>
+<text x="112.5" y="240" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">上传 / 导入 / 定时</text>
+<rect id="r6-queue-acceptor" x="260" y="180" width="160" height="90" rx="3" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="340.0" y="211" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">接纳入口</text>
+<text x="340.0" y="240" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">检查等待余量</text>
+<rect id="r6-queue-buffer" x="485" y="150" width="290" height="252" rx="3" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="630" y="185" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">等待队列 4 / 4</text>
+<rect id="r6-queue-slot-0" x="510" y="217" width="95" height="66" rx="2" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="557.5" y="245" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="middle">Q1</text>
+<text x="557.5" y="270" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">等待</text>
+<rect id="r6-queue-slot-1" x="650" y="217" width="95" height="66" rx="2" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="697.5" y="245" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="middle">Q2</text>
+<text x="697.5" y="270" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">等待</text>
+<rect id="r6-queue-slot-2" x="510" y="299" width="95" height="66" rx="2" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="557.5" y="327" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="middle">Q3</text>
+<text x="557.5" y="352" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">等待</text>
+<rect id="r6-queue-slot-3" x="650" y="299" width="95" height="66" rx="2" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="697.5" y="327" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="middle">Q4</text>
+<text x="697.5" y="352" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">等待</text>
+<rect id="r6-queue-dispatcher" x="385" y="450" width="185" height="80" rx="3" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="477.5" y="481" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">调度器</text>
+<text x="477.5" y="510" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">有空闲槽才派发</text>
+<rect id="r6-queue-worker-1" x="635" y="438" width="140" height="112" rx="3" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="655" y="467" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="start">W1</text>
+<rect x="709" y="448" width="48" height="37" rx="2" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="733" y="474" font-family="Arial, Microsoft YaHei, sans-serif" font-size="21" font-weight="600" fill="#ffffff" text-anchor="middle">T1</text>
+<text x="705" y="510" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">并发占用 1 / 1</text>
+<text x="705" y="536" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">执行器</text>
+<rect id="r6-queue-worker-2" x="635" y="585" width="140" height="112" rx="3" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="655" y="614" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="start">W2</text>
+<rect x="709" y="595" width="48" height="37" rx="2" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="733" y="621" font-family="Arial, Microsoft YaHei, sans-serif" font-size="21" font-weight="600" fill="#ffffff" text-anchor="middle">T2</text>
+<text x="705" y="657" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">并发占用 1 / 1</text>
+<text x="705" y="683" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">执行器</text>
+<rect id="r6-queue-state" x="250" y="615" width="295" height="108" rx="0" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+<ellipse cx="397.5" cy="615" rx="147.5" ry="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+<path d="M250 723 A147.5 10 0 0 0 545 723" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="397.5" y="647" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="600" fill="#172033" text-anchor="middle">协调器内任务状态</text>
+<text x="397.5" y="677" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">等待 4 + 执行 2 = 6</text>
+<text x="397.5" y="703" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">逻辑状态，不承诺独立数据库</text>
+<line id="r6-queue-submit" x1="200" y1="215" x2="260" y2="215" stroke="#475569" stroke-width="2" marker-end="url(#r6-queue-arrow)"/>
+<text x="230" y="199" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">请求</text>
+<line id="r6-queue-accept" x1="420" y1="215" x2="485" y2="215" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<text x="453" y="135" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">有空位时接纳</text>
+<path id="r6-queue-take" d="M630 402 V424 H477 V450" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<text x="550" y="435" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="start">取任务</text>
+<path id="r6-queue-dispatch-w1" d="M570 474 H635" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<text x="600" y="460" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">派发</text>
+<path id="r6-queue-dispatch-w2" d="M570 510 H602 V622 H635" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<path id="r6-queue-result-w1" d="M775 520 H790 V753 H470 V733" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<text x="772" y="776" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="end">完成反馈</text>
+<path id="r6-queue-capacity-feedback" d="M477 605 V530" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<text x="469" y="573" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="end">槽位反馈</text>
+<line id="r6-queue-result-w2" x1="635" y1="674" x2="545" y2="674" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<text x="590" y="704" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">结果</text>
+<path id="r6-queue-register" d="M340 270 V565 H350 V605" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#r6-queue-arrow)"/>
+<text x="326" y="548" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="end">登记状态</text>
+<rect id="r6-queue-rejected" x="25" y="345" width="300" height="82" rx="3" fill="#fff7ed" stroke="#d6b79b" stroke-width="1.5"/>
+<text x="45" y="377" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#92400e" text-anchor="start">队列已满 → 拒绝新任务</text>
+<text x="45" y="406" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">不占等待槽位 · 退避重试</text>
+<path id="r6-queue-reject" d="M275 270 V310 H175 V345" fill="none" stroke="#92400e" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-queue-arrow)"/>
+<text x="28" y="785" font-family="Arial, Microsoft YaHei, sans-serif" font-size="21" font-weight="400" fill="#475569" text-anchor="start">有效速率 6 任务/s：吞吐量，不是并发槽位</text>
+<text x="28" y="817" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="start">实线：请求/状态读写；虚线：任务/结果反馈；拒绝不占槽。</text>
+</svg>
+```
+
+- **适用：** 文件转换、批量导入、定时任务等共享工作池。此图是时刻 t 的占用快照，不是按时间排列的执行记录。
+- **迁移提示：** 分别替换等待容量、执行并发与有效处理速率；队列中 Q1–Q4 是已经接纳的任务，顶部旁路是容量满时拒绝的新任务。
+- **不变式：** 已接纳存量 = 等待 4 + 执行 2 = 6；拒绝的新任务不占等待槽位。真实项目应另行规定退避和重试预算。
+
+### API 访问：允许与拒绝的判定对照
+
+**要回答的问题：** 两个身份都有效的请求，为什么一个允许，另一个拒绝？
+
+**视图角色：** 辅助·请求判定。**阅读顺序：** 先找资源授权首次分歧，再沿A/B两轨看通过、失败、跳过和未执行；这是局部规则追踪。
+
+<div id="md-case-svg-api-allow-deny-policy-traces"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="610" viewBox="0 0 800 610" role="img" aria-labelledby="r6-policy-title r6-policy-desc">
+<title id="r6-policy-title">API 访问：允许与拒绝的判定对照</title>
+<desc id="r6-policy-desc">通用工程说明性算例；API 访问：允许与拒绝的判定对照。</desc>
+<defs><marker id="r6-policy-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker><pattern id="r6-policy-hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 L10 0" fill="none" stroke="#94a3b8" stroke-width="1"/></pattern></defs>
+<rect x="0" y="0" width="800" height="610" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="28" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#172033" text-anchor="start">API 访问：允许与拒绝的判定对照</text>
+<text x="28" y="82" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">身份都有效，资源授权不同；先看首次分歧</text>
+<text x="345" y="135" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="middle">A · 有资源权限</text>
+<text x="655" y="135" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#92400e" text-anchor="middle">B · 无资源权限</text>
+<rect id="r6-policy-first-divergence" x="24" y="222" width="752" height="70" rx="0" fill="#fff7ed" stroke="none" stroke-width="1.5"/>
+<rect x="24" y="222" width="4" height="70" rx="0" fill="#d97706" stroke="none" stroke-width="1.5"/>
+<line x1="24" y1="215" x2="776" y2="215" stroke="#e2e8f0" stroke-width="1"/>
+<text x="40" y="190" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="start">身份有效</text>
+<text x="345" y="190" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#1d4ed8" text-anchor="middle">✓ 通过</text>
+<text x="655" y="190" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#475569" text-anchor="middle">✓ 通过</text>
+<text x="40" y="267" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="start">资源授权</text>
+<text x="345" y="267" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="600" fill="#1d4ed8" text-anchor="middle">✓ 通过</text>
+<text x="655" y="267" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="600" fill="#92400e" text-anchor="middle">× 失败</text>
+<line x1="24" y1="369" x2="776" y2="369" stroke="#e2e8f0" stroke-width="1"/>
+<text x="40" y="344" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="start">附加复核</text>
+<text x="345" y="344" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#475569" text-anchor="middle">◇ 跳过</text>
+<text x="655" y="344" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#475569" text-anchor="middle">— 未执行</text>
+<line x1="24" y1="446" x2="776" y2="446" stroke="#e2e8f0" stroke-width="1"/>
+<text x="40" y="421" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="start">速率预算</text>
+<text x="345" y="421" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#1d4ed8" text-anchor="middle">✓ 通过</text>
+<text x="655" y="421" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#475569" text-anchor="middle">— 未执行</text>
+<text x="180" y="265" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#92400e" text-anchor="start">首次分歧</text>
+<line x1="345" y1="199" x2="345" y2="232" stroke="#475569" stroke-width="2" marker-end="url(#r6-policy-arrow)"/>
+<line x1="345" y1="282" x2="345" y2="309" stroke="#475569" stroke-width="2" marker-end="url(#r6-policy-arrow)"/>
+<line x1="345" y1="359" x2="345" y2="386" stroke="#475569" stroke-width="2" marker-end="url(#r6-policy-arrow)"/>
+<line x1="345" y1="436" x2="345" y2="487" stroke="#475569" stroke-width="2" marker-end="url(#r6-policy-arrow)"/>
+<line x1="655" y1="199" x2="655" y2="232" stroke="#475569" stroke-width="2" marker-end="url(#r6-policy-arrow)"/>
+<path d="M655 282 H750 V523 H720" fill="none" stroke="#92400e" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-policy-arrow)"/>
+<rect x="240" y="487" width="210" height="74" rx="5" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="345" y="532" font-family="Arial, Microsoft YaHei, sans-serif" font-size="28" font-weight="600" fill="#1d4ed8" text-anchor="middle">结果：允许</text>
+<rect x="510" y="487" width="210" height="74" rx="5" fill="#fff7ed" stroke="#d97706" stroke-width="1.5"/>
+<text x="615" y="518" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#92400e" text-anchor="middle">结果：拒绝</text>
+<text x="615" y="548" font-family="Arial, Microsoft YaHei, sans-serif" font-size="28" font-weight="600" fill="#92400e" text-anchor="middle">403</text>
+<text x="28" y="594" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">跳过有规则依据；未执行表示前序规则已经终止请求。</text>
+<text x="772" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" fill="#475569" text-anchor="end">辅助·请求判定</text>
+</svg>
+```
+
+- **适用：** API 授权排查及规则解释，不是完整身份协议或 OAuth 握手。
+- **迁移提示：** 两条轨迹保持同一规则顺序。算例允许 A 的低风险读取按规则跳过附加复核；B 因资源授权失败而终止，后续规则从未执行。
+- **不变式：** 首次分歧在资源授权；跳过与未执行不同，不能把拒绝之后的速率检查标成通过。
+
+| 规则 | 请求 A | 请求 B |
+|---|---|---|
+| 身份有效 | 通过 | 通过 |
+| 资源授权 | 通过 | 失败 |
+| 附加复核 | 按低风险规则跳过 | 未执行 |
+| 速率预算 | 通过 | 未执行 |
+
+### 文件服务：控制边界与剩余风险
+
+**要回答的问题：** 叠加多层控制以后，哪些风险仍需要处置而不能宣称已经消失？
+
+**视图角色：** 架构主视图。**阅读顺序：** 先看入口、授权、受限工作池和受保护资产，再看检测与响应控制回路；威胁路径表示合法请求仍可能造成影响，不是各防线被攻破。授权与检测为逻辑职责，不要求独立服务。
+
+<div id="md-case-svg-file-service-residual-risk"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="980" viewBox="0 0 800 980" role="img" aria-labelledby="r6-risk-title r6-risk-desc">
+<title id="r6-risk-title">文件服务：控制边界与剩余风险</title>
+<desc id="r6-risk-desc">通用工程说明性算例；文件服务：控制边界与剩余风险。</desc>
+<defs><marker id="r6-risk-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker><pattern id="r6-risk-hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 L10 0" fill="none" stroke="#94a3b8" stroke-width="1"/></pattern></defs>
+<rect x="0" y="0" width="800" height="980" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="28" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#172033" text-anchor="start">文件服务：控制边界与剩余风险</text>
+<text x="28" y="82" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">架构主视图 · 同一威胁：合法身份提交有害或过量文件</text>
+<rect id="r6-risk-client" x="25" y="170" width="190" height="95" rx="3" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="120.0" y="201" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">合法身份客户端</text>
+<text x="120.0" y="230" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">行为仍可能滥用</text>
+<rect id="r6-risk-entry" x="300" y="170" width="200" height="95" rx="3" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="400.0" y="201" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">上传网关</text>
+<text x="400.0" y="230" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">类型 / 大小准入</text>
+<rect id="r6-risk-auth" x="590" y="170" width="185" height="95" rx="3" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="682.5" y="201" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">授权职责</text>
+<text x="682.5" y="230" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">核对资源归属</text>
+<rect id="r6-risk-isolated" x="265" y="340" width="290" height="355" rx="3" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="285" y="371" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="start">受限执行边界</text>
+<rect id="r6-risk-worker" x="295" y="410" width="230" height="95" rx="3" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="410.0" y="441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">工作池</text>
+<text x="410.0" y="470" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">执行与资源预算</text>
+<text x="285" y="554" font-family="Arial, Microsoft YaHei, sans-serif" font-size="21" font-weight="600" fill="#172033" text-anchor="start">03 · 隔离限制影响范围</text>
+<text x="285" y="590" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">受限运行仍可能区内耗尽</text>
+<text x="285" y="626" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">存储 / CPU / 并发预算</text>
+<rect id="r6-risk-storage" x="590" y="430" width="185" height="118" rx="0" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+<ellipse cx="682.5" cy="430" rx="92.5" ry="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+<path d="M590 548 A92.5 10 0 0 0 775 548" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="682.5" y="462" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="600" fill="#172033" text-anchor="middle">受保护文件存储</text>
+<text x="682.5" y="492" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">已批准产物</text>
+<text x="682.5" y="518" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">归属不等于内容无害</text>
+<rect id="r6-risk-detection" x="590" y="655" width="185" height="95" rx="3" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="682.5" y="686" font-family="Arial, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#172033" text-anchor="middle">异常检测</text>
+<text x="682.5" y="715" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#475569" text-anchor="middle">资源 / 失败信号</text>
+<text x="28" y="305" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#92400e" text-anchor="start">01 · 格式合法仍可能有害</text>
+<text x="28" y="334" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#92400e" text-anchor="start">02 · 权限正确不等于无滥用</text>
+<text x="590" y="607" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#92400e" text-anchor="start">04 · 检测有延迟</text>
+<line id="r6-risk-threat-entry" x1="215" y1="215" x2="300" y2="215" stroke="#92400e" stroke-width="2" marker-end="url(#r6-risk-arrow)"/>
+<text x="257" y="199" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#92400e" text-anchor="middle">有害输入</text>
+<line id="r6-risk-authorize" x1="500" y1="202" x2="590" y2="202" stroke="#475569" stroke-width="2" marker-end="url(#r6-risk-arrow)"/>
+<text x="545" y="184" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">核对归属</text>
+<path id="r6-risk-auth-result" d="M590 242 H548 V292 H400 V265" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-risk-arrow)"/>
+<text x="546" y="283" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">授权反馈</text>
+<path id="r6-risk-threat-worker" d="M432 265 V410" fill="none" stroke="#92400e" stroke-width="2" marker-end="url(#r6-risk-arrow)"/>
+<text x="450" y="324" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#92400e" text-anchor="start">检查与授权通过后</text>
+<line id="r6-risk-write" x1="525" y1="465" x2="590" y2="465" stroke="#475569" stroke-width="2" marker-end="url(#r6-risk-arrow)"/>
+<text x="557" y="448" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">写产物</text>
+<path id="r6-risk-monitor-worker" d="M525 490 H569 V702 H590" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-risk-arrow)"/>
+<text x="573" y="638" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="middle">信号</text>
+<line id="r6-risk-monitor-store" x1="685" y1="558" x2="685" y2="655" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-risk-arrow)"/>
+<rect id="r6-risk-response" x="290" y="820" width="485" height="104" rx="3" fill="#fff7ed" stroke="#d6b79b" stroke-width="1.5"/>
+<text x="310" y="854" font-family="Arial, Microsoft YaHei, sans-serif" font-size="25" font-weight="600" fill="#92400e" text-anchor="start">最终剩余风险 · 需要响应</text>
+<text x="310" y="889" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="start">配额处置 / 暂停任务 / 人工复核</text>
+<path id="r6-risk-alert" d="M682 750 V820" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-risk-arrow)"/>
+<text x="675" y="794" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#92400e" text-anchor="end">告警（影响可能已发生）</text>
+<path id="r6-risk-response-control" d="M290 870 H240 V460 H295" fill="none" stroke="#92400e" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#r6-risk-arrow)"/>
+<text x="238" y="737" font-family="Arial, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#92400e" text-anchor="end">控制反馈</text>
+<text x="28" y="956" font-family="Arial, Microsoft YaHei, sans-serif" font-size="21" font-weight="400" fill="#475569" text-anchor="start">多层控制不保证风险归零；检测不是预防，仍需明确响应。</text>
+</svg>
+```
+
+- **适用：** 上传、导入和转换服务的防线评审。此图沿一条滥用风险线索展开，不混入无关网络攻击。
+- **迁移提示：** 每层同时说明缓解与限制；权限正确不等于用户行为无害，检测记录不等于阻止首个损害。
+- **不变式：** 最后一层仍有剩余风险和响应措施；不提供缺乏测量依据的“风险降低百分比”。
+
+### 文件共享：角色、动作与条件授权
+
+**要回答的问题：** 拥有不同职责的用户，能否读取、修改、转授和删除同一个文件？
+
+**视图角色：** 辅助·授权矩阵。**阅读顺序：** 先按角色与动作交叉查权限，再看附条件与未定义；管理员内容读取不能默认允许。
+
+<div id="md-case-svg-file-sharing-permission-matrix"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520" role="img" aria-labelledby="r6-permission-title r6-permission-desc">
+<title id="r6-permission-title">文件共享：角色、动作与条件授权</title>
+<desc id="r6-permission-desc">通用工程说明性算例；文件共享：角色、动作与条件授权。</desc>
+<defs><marker id="r6-permission-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker><pattern id="r6-permission-hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 L10 0" fill="none" stroke="#94a3b8" stroke-width="1"/></pattern></defs>
+<rect x="0" y="0" width="800" height="520" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="28" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#172033" text-anchor="start">文件共享：角色、动作与条件授权</text>
+<text x="28" y="83" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">先看附条件与未定义项，而不是根据职位猜权限</text>
+<text x="248.0" y="133" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">读取</text>
+<text x="364.0" y="133" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">编辑</text>
+<text x="480.0" y="133" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">分享</text>
+<text x="596.0" y="133" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">删除</text>
+<text x="712.0" y="133" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">审计</text>
+<line x1="28" y1="148" x2="772" y2="148" stroke="#94a3b8" stroke-width="2"/>
+<rect x="28" y="153" width="744" height="65" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.5"/>
+<text x="40" y="195" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="start">所有者</text>
+<rect id="r6-permission-0-0" x="190" y="160" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="248.0" y="195" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">✓ 允许</text>
+<rect id="r6-permission-0-1" x="306" y="160" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="364.0" y="195" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">✓ 允许</text>
+<rect id="r6-permission-0-2" x="422" y="160" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="480.0" y="195" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">✓ 允许</text>
+<rect id="r6-permission-0-3" x="538" y="160" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="596.0" y="195" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">✓ 允许</text>
+<rect id="r6-permission-0-4" x="654" y="160" width="116" height="51" rx="0" fill="#fff7ed" stroke="none" stroke-width="1.5"/>
+<text x="712.0" y="195" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#92400e" text-anchor="middle">◇ 附条件</text>
+<line x1="28" y1="218" x2="772" y2="218" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="28" y="218" width="744" height="65" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="40" y="260" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="start">编辑者</text>
+<rect id="r6-permission-1-0" x="190" y="225" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="248.0" y="260" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">✓ 允许</text>
+<rect id="r6-permission-1-1" x="306" y="225" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="364.0" y="260" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">✓ 允许</text>
+<rect id="r6-permission-1-2" x="422" y="225" width="116" height="51" rx="0" fill="#fff7ed" stroke="none" stroke-width="1.5"/>
+<text x="480.0" y="260" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#92400e" text-anchor="middle">◇ 附条件</text>
+<rect id="r6-permission-1-3" x="538" y="225" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="596.0" y="260" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<rect id="r6-permission-1-4" x="654" y="225" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="712.0" y="260" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<line x1="28" y1="283" x2="772" y2="283" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="28" y="283" width="744" height="65" rx="0" fill="#f8fafc" stroke="none" stroke-width="1.5"/>
+<text x="40" y="325" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="start">访问者</text>
+<rect id="r6-permission-2-0" x="190" y="290" width="116" height="51" rx="0" fill="#fff7ed" stroke="none" stroke-width="1.5"/>
+<text x="248.0" y="325" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#92400e" text-anchor="middle">◇ 附条件</text>
+<rect id="r6-permission-2-1" x="306" y="290" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="364.0" y="325" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<rect id="r6-permission-2-2" x="422" y="290" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="480.0" y="325" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<rect id="r6-permission-2-3" x="538" y="290" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="596.0" y="325" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<rect id="r6-permission-2-4" x="654" y="290" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="712.0" y="325" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<line x1="28" y1="348" x2="772" y2="348" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="28" y="348" width="744" height="65" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="40" y="390" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="start">管理员</text>
+<rect id="r6-permission-3-0" x="190" y="355" width="116" height="51" rx="0" fill="#fff7ed" stroke="none" stroke-width="1.5"/>
+<text x="248.0" y="390" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#92400e" text-anchor="middle">? 未定义</text>
+<rect id="r6-permission-3-1" x="306" y="355" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="364.0" y="390" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<rect id="r6-permission-3-2" x="422" y="355" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="480.0" y="390" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">× 禁止</text>
+<rect id="r6-permission-3-3" x="538" y="355" width="116" height="51" rx="0" fill="#fff7ed" stroke="none" stroke-width="1.5"/>
+<text x="596.0" y="390" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#92400e" text-anchor="middle">◇ 附条件</text>
+<rect id="r6-permission-3-4" x="654" y="355" width="116" height="51" rx="0" fill="none" stroke="none" stroke-width="1.5"/>
+<text x="712.0" y="390" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="middle">✓ 允许</text>
+<line x1="28" y1="413" x2="772" y2="413" stroke="#e2e8f0" stroke-width="1"/>
+<text x="28" y="460" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">◇ 附条件：详见图外权限表；? 未定义：不能默认允许。</text>
+<text x="28" y="495" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#92400e" text-anchor="start">管理员职责 ≠ 文件内容访问权</text>
+<text x="772" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" fill="#475569" text-anchor="end">辅助·授权矩阵</text>
+</svg>
+```
+
+- **适用：** 通用文件共享服务的授权讨论，不代表任何具体产品的默认权限。
+- **迁移提示：** 将角色替换成目标产品的有效身份，动作与条件必须进入可执行策略；不要根据组织职位推断内容访问权。
+- **不变式：** 未定义不等于允许；所有条件都必须有可验证依据，管理员内容访问需要另行设计和授权。
+
+| 附条件单元格 | 条件依据 |
+|---|---|
+| 所有者 / 审计 | 仅查看本文件相关审计记录 |
+| 编辑者 / 分享 | 所有者显式授予转授权限 |
+| 访问者 / 读取 | 分享授权仍有效且未撤销 |
+| 管理员 / 删除 | 经审批的合规处置，不据此获得内容读取权 |
+
+### 请求耗时：执行与等待的阶段分解
+
+**要回答的问题：** 一个慢请求的时间到底花在读取、等待、计算还是输出？
+
+**视图角色：** 辅助·性能。**阅读顺序：** 先看总计400ms与等待180ms，再对照严格比例区间及源表；不是调用拓扑。
+
+<div id="md-case-svg-request-latency-stage-breakdown"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520" role="img" aria-labelledby="r6-latency-title r6-latency-desc">
+<title id="r6-latency-title">请求耗时：执行与等待的阶段分解</title>
+<desc id="r6-latency-desc">通用工程说明性算例；请求耗时：执行与等待的阶段分解。</desc>
+<defs><marker id="r6-latency-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker><pattern id="r6-latency-hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 L10 0" fill="none" stroke="#94a3b8" stroke-width="1"/></pattern></defs>
+<rect x="0" y="0" width="800" height="520" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="28" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#172033" text-anchor="start">请求耗时：执行与等待的阶段分解</text>
+<text x="28" y="82" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">说明性算例 · 单请求无并行 · 同一单调时钟</text>
+<text x="28" y="130" font-family="Arial, Microsoft YaHei, sans-serif" font-size="38" font-weight="700" fill="#1d4ed8" text-anchor="start">400 ms</text>
+<text x="210" y="125" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="start">其中等待 180 ms，占总耗时 45%</text>
+<rect id="r6-latency-stage-0" x="60.0" y="213" width="34.0" height="83" rx="0" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<rect id="r6-latency-stage-1" x="94.0" y="213" width="102.0" height="83" rx="0" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="145.0" y="264" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#172033" text-anchor="middle">读取</text>
+<rect id="r6-latency-stage-2" x="196.0" y="213" width="306.0" height="83" rx="0" fill="url(#r6-latency-hatch)" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="349.0" y="264" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="600" fill="#1d4ed8" text-anchor="middle">等待</text>
+<rect id="r6-latency-stage-3" x="502.0" y="213" width="170.0" height="83" rx="0" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="587.0" y="264" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#172033" text-anchor="middle">计算</text>
+<rect id="r6-latency-stage-4" x="672.0" y="213" width="68.0" height="83" rx="0" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="706.0" y="264" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="400" fill="#172033" text-anchor="middle">输出</text>
+<path id="r6-latency-auth-leader" d="M77 213 V178 H115" fill="none" stroke="#475569" stroke-width="2"/>
+<text x="115" y="173" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">授权 20 ms</text>
+<line x1="60.0" y1="306" x2="60.0" y2="318" stroke="#475569" stroke-width="1.5"/>
+<text x="60.0" y="348" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="middle">0</text>
+<line x1="196.0" y1="306" x2="196.0" y2="318" stroke="#475569" stroke-width="1.5"/>
+<text x="196.0" y="348" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="middle">80</text>
+<line x1="332.0" y1="306" x2="332.0" y2="318" stroke="#475569" stroke-width="1.5"/>
+<text x="332.0" y="348" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="middle">160</text>
+<line x1="468.0" y1="306" x2="468.0" y2="318" stroke="#475569" stroke-width="1.5"/>
+<text x="468.0" y="348" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="middle">240</text>
+<line x1="604.0" y1="306" x2="604.0" y2="318" stroke="#475569" stroke-width="1.5"/>
+<text x="604.0" y="348" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="middle">320</text>
+<line x1="740.0" y1="306" x2="740.0" y2="318" stroke="#475569" stroke-width="1.5"/>
+<text x="740.0" y="348" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="middle">400</text>
+<text x="760" y="380" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="end">ms</text>
+<rect x="28" y="414" width="744" height="60" rx="5" fill="#eff6ff" stroke="none" stroke-width="1.5"/>
+<text x="50" y="453" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="start">执行 220ms + 等待 180ms = 总计 400ms</text>
+<text x="28" y="503" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">宽度严格表示时长；并行请求须改用重叠轨道。</text>
+<text x="772" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" fill="#475569" text-anchor="end">辅助·性能</text>
+</svg>
+```
+
+- **适用：** 单请求耗时解释和性能排查报告。所有数值为说明性算例，不是测试结果。
+- **迁移提示：** 阶段端点取自同一单调时钟；等待并非 CPU 计算，也不能在没有证据时归因于磁盘。
+- **不变式：** 无重叠区间覆盖 [0,400]ms；执行 220 + 等待 180 = 总计 400ms。存在并行或跨进程时不能直接相加，应画独立轨道并对齐时钟。
+
+| 阶段 | 开始 ms | 结束 ms | 时长 ms | 类型 |
+|---|---:|---:|---:|---|
+| 授权 | 0 | 20 | 20 | 执行 |
+| 读取 | 20 | 80 | 60 | 执行 |
+| 等待 | 80 | 260 | 180 | 等待 |
+| 计算 | 260 | 360 | 100 | 执行 |
+| 输出 | 360 | 400 | 40 | 执行 |
+
+### 服务成本：扩容与优化的预算桥
+
+**要回答的问题：** 为什么新增资源之后，最终预算不是只增加，而是由多项变化共同决定？
+
+**视图角色：** 辅助·成本。**阅读顺序：** 先看20000到26000，再沿正负增量和累计连接线对账；不是资源部署图。
+
+<div id="md-case-svg-service-monthly-cost-bridge"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="790" viewBox="0 0 800 790" role="img" aria-labelledby="r6-cost-title r6-cost-desc">
+<title id="r6-cost-title">服务成本：扩容与优化的预算桥</title>
+<desc id="r6-cost-desc">通用工程说明性算例；服务成本：扩容与优化的预算桥。</desc>
+<defs><marker id="r6-cost-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker><pattern id="r6-cost-hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 L10 0" fill="none" stroke="#94a3b8" stroke-width="1"/></pattern></defs>
+<rect x="0" y="0" width="800" height="790" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="28" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#172033" text-anchor="start">服务成本：扩容与优化的预算桥</text>
+<text x="28" y="82" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">说明性算例 · 统一口径：元/月</text>
+<text x="28" y="128" font-family="Arial, Microsoft YaHei, sans-serif" font-size="28" font-weight="600" fill="#1d4ed8" text-anchor="start">预算净增 +6,000</text>
+<text x="772" y="128" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="end">20,000 → 26,000（+30%）</text>
+<line x1="72" y1="560.0" x2="752" y2="560.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="68" y="566.0" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="end">0</text>
+<line x1="72" y1="426.66666666666663" x2="752" y2="426.66666666666663" stroke="#e2e8f0" stroke-width="1"/>
+<text x="68" y="432.66666666666663" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="end">10000</text>
+<line x1="72" y1="293.3333333333333" x2="752" y2="293.3333333333333" stroke="#e2e8f0" stroke-width="1"/>
+<text x="68" y="299.3333333333333" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="end">20000</text>
+<line x1="72" y1="160.0" x2="752" y2="160.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="68" y="166.0" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#475569" text-anchor="end">30000</text>
+<line id="r6-cost-carry-0" x1="154" y1="293.3333333333333" x2="202" y2="293.3333333333333" stroke="#94a3b8" stroke-width="1.5"/>
+<line id="r6-cost-carry-1" x1="266" y1="213.33333333333331" x2="314" y2="213.33333333333331" stroke="#94a3b8" stroke-width="1.5"/>
+<line id="r6-cost-carry-2" x1="378" y1="240.0" x2="426" y2="240.0" stroke="#94a3b8" stroke-width="1.5"/>
+<line id="r6-cost-carry-3" x1="490" y1="200.0" x2="538" y2="200.0" stroke="#94a3b8" stroke-width="1.5"/>
+<line id="r6-cost-carry-4" x1="602" y1="213.33333333333331" x2="650" y2="213.33333333333331" stroke="#94a3b8" stroke-width="1.5"/>
+<rect id="r6-cost-bar-0" x="90" y="293.333" width="64" height="266.667" rx="0" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+<text x="122" y="281.3333333333333" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">20000</text>
+<text x="122" y="605" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="middle">现状</text>
+<rect id="r6-cost-bar-1" x="202" y="213.333" width="64" height="80.0" rx="0" fill="#dbeafe" stroke="#475569" stroke-width="1.5"/>
+<text x="234" y="201.33333333333331" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">+6000</text>
+<text x="234" y="605" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="middle">计算</text>
+<text x="234" y="638" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="middle">扩容</text>
+<rect id="r6-cost-bar-2" x="314" y="213.333" width="64" height="26.667" rx="0" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+<text x="346" y="267.0" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">-2000</text>
+<text x="346" y="605" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="middle">冷数据</text>
+<text x="346" y="638" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="middle">分层</text>
+<rect id="r6-cost-bar-3" x="426" y="200.0" width="64" height="40.0" rx="0" fill="#dbeafe" stroke="#475569" stroke-width="1.5"/>
+<text x="458" y="188.0" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">+3000</text>
+<text x="458" y="605" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="middle">新增</text>
+<text x="458" y="638" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="middle">工作池</text>
+<rect id="r6-cost-bar-4" x="538" y="200.0" width="64" height="13.333" rx="0" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+<text x="570" y="240.33333333333334" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">-1000</text>
+<text x="570" y="605" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="middle">规格</text>
+<text x="570" y="638" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="middle">优化</text>
+<rect id="r6-cost-bar-5" x="650" y="213.333" width="64" height="346.667" rx="0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="682" y="201.33333333333331" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="middle">26000</text>
+<text x="682" y="605" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#172033" text-anchor="middle">目标</text>
+<text x="28" y="710" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="600" fill="#172033" text-anchor="start">20,000 + 6,000 − 2,000 + 3,000 − 1,000 = 26,000</text>
+<text x="28" y="759" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">总量落到零基线；增量浮动，连接线承接累计值。</text>
+<text x="772" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" fill="#475569" text-anchor="end">辅助·成本</text>
+</svg>
+```
+
+- **适用：** 通用服务的资源成本估算与变更说明。图中预算均为虚构算例，未引用真实账单。
+- **迁移提示：** 每项贡献使用同一币种、期间和税费口径；减少用空心柱、负号和下移几何共同表示，不依赖红绿。
+- **不变式：** 起始值加全部带符号增量等于目标；增量柱高度与累计连接线使用同一比例尺，不能为看起来明显而放大一项。
+
+| 项目 | 类型 | 数值 元/月 | 变化后累计 元/月 |
+|---|---|---:|---:|
+| 现状 | 总量 | 20000 | 20000 |
+| 计算扩容 | 增量 | +6000 | 26000 |
+| 冷数据分层 | 增量 | -2000 | 24000 |
+| 新增工作池 | 增量 | +3000 | 27000 |
+| 规格优化 | 增量 | -1000 | 26000 |
+| 目标 | 总量 | 26000 | 26000 |
+
+### 上传失败：候选原因与证据状态
+
+**要回答的问题：** 调查了哪些原因，哪些有证据，哪些还不能下结论？
+
+**视图角色：** 辅助·复盘。**阅读顺序：** 先分辨确认、排除、待验证，再沿原因分支查证据；虚构复盘不冒充真实事故。
+
+<div id="md-case-svg-upload-incident-cause-evidence"></div>
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="650" viewBox="0 0 800 650" role="img" aria-labelledby="r6-fishbone-title r6-fishbone-desc">
+<title id="r6-fishbone-title">上传失败：候选原因与证据状态</title>
+<desc id="r6-fishbone-desc">通用工程说明性算例；上传失败：候选原因与证据状态。</desc>
+<defs><marker id="r6-fishbone-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker><pattern id="r6-fishbone-hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 L10 0" fill="none" stroke="#94a3b8" stroke-width="1"/></pattern></defs>
+<rect x="0" y="0" width="800" height="650" rx="0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="28" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#172033" text-anchor="start">上传失败：候选原因与证据状态</text>
+<text x="28" y="82" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">虚构复盘算例 · 原因结论必须跟随证据</text>
+<line x1="45" y1="322" x2="622" y2="322" stroke="#475569" stroke-width="3" marker-end="url(#r6-fishbone-arrow)"/>
+<line x1="150" y1="125" x2="300" y2="322" stroke="#94a3b8" stroke-width="2"/>
+<line x1="530" y1="125" x2="610" y2="322" stroke="#1d4ed8" stroke-width="2"/>
+<line x1="380" y1="525" x2="490" y2="322" stroke="#b45309" stroke-width="2"/>
+<text x="150" y="116" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#172033" text-anchor="middle">客户端</text>
+<text x="530" y="116" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="middle">存储</text>
+<text x="380" y="558" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#92400e" text-anchor="middle">工作池</text>
+<line x1="222" y1="220" x2="192" y2="220" stroke="#94a3b8" stroke-width="2"/>
+<text x="186" y="202" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="400" fill="#475569" text-anchor="end">网络 · 排除</text>
+<text x="186" y="247" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="end">请求完整到达</text>
+<line x1="569" y1="222" x2="526" y2="222" stroke="#1d4ed8" stroke-width="2"/>
+<text x="520" y="205" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#1d4ed8" text-anchor="end">磁盘满 · 确认</text>
+<text x="520" y="250" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="end">释放空间后成功</text>
+<line x1="448" y1="400" x2="308" y2="400" stroke="#b45309" stroke-width="2"/>
+<text x="300" y="387" font-family="Arial, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#92400e" text-anchor="end">线程 · 待证</text>
+<text x="300" y="432" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="end">排队现象 ≠ 因果复现</text>
+<rect x="632" y="275" width="140" height="92" rx="6" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.5"/>
+<text x="702" y="311" font-family="Arial, Microsoft YaHei, sans-serif" font-size="26" font-weight="600" fill="#1d4ed8" text-anchor="middle">上传失败</text>
+<text x="702" y="346" font-family="Arial, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#475569" text-anchor="middle">错误率升高</text>
+<line x1="28" y1="592" x2="772" y2="592" stroke="#e2e8f0" stroke-width="1"/>
+<text x="28" y="626" font-family="Arial, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#475569" text-anchor="start">确认：有复现证据｜排除：证据反驳｜待证：尚无充分结论</text>
+<text x="772" y="44" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18" fill="#475569" text-anchor="end">辅助·复盘</text>
+</svg>
+```
+
+- **适用：** 单个故障现象的原因调查，不代替事故时间线或因果依赖树。
+- **迁移提示：** 类别来自实际调查，证据状态采用文字；未确认的复盘可全部保持待证，不强行突出一个根因。
+- **不变式：** 算例确认存储容量问题需失败日志和恢复复现支持；仅“线程不足同时出现”不构成原因确认。
+
+| 候选原因 | 状态 | 本虚构算例的证据口径 |
+|---|---|---|
+| 网络中断 | 已排除 | 请求完整到达服务端 |
+| 线程不足 | 待验证 | 有排队现象，缺因果复现 |
+| 磁盘满 | 已确认 | 空间不足错误与释放空间后成功复现 |
 
 ## 12. Markmap：架构分解与权衡
 
@@ -7985,7 +10859,59 @@ Ref: migration_confirmations.(target_subscription_id, consumer_id, contract_id) 
 - 一级分支分别回答“看见什么、优化什么、谁负责以及如何度量”，避免把 FinOps 误写成云服务清单。
 - 优化动作同时受性能、可靠性和安全门禁约束；节省额必须相对真实基线验证，而不是只记录资源缩减数量。
 
-## 12. Fixture 维护约束
+### ADR 选项与证据
+
+**交付问题：** 架构决策如何把目标、约束、候选、权衡、证据和复审触发器组织成可审查且可更新的交付物？
+
+<div id="md-case-markmap-adr-options-evidence"></div>
+
+```markmap
+# ADR-042｜跨区数据一致性策略
+## 决策问题
+### 在 RPO=0 约束下控制写入延迟与故障恢复复杂度
+## 硬约束
+### 数据不得离开指定司法辖区
+### 已确认写入不得丢失
+### 峰值 2k writes/s
+## 选项 A｜同步双区复制（采纳）
+### 收益
+#### RPO=0，切换点明确
+### 代价
+#### 写延迟受跨区 RTT 约束
+### 证据
+#### E-17：7 天 RTT p95=32ms
+#### E-18：故障演练 RTO=18min
+### 护栏
+#### RTT p95 > 40ms 自动阻断扩流
+## 选项 B｜异步复制
+### 收益
+#### 写入延迟低
+### 否决原因
+#### 无法满足已确认写入 RPO=0
+### 可复用场景
+#### 可容忍 RPO≤5min 的分析副本
+## 选项 C｜单区高可用
+### 收益
+#### 运维简单、成本较低
+### 否决原因
+#### 不满足区域级故障恢复
+## 决策与责任
+### Owner：数据平台主管
+### 批准：业务、SRE、安全
+### 日期与版本：2026-08-24 / v3
+## 复审触发器
+### 跨区 RTT p95 连续 1h > 40ms
+### 峰值预测增长 20%
+### 法规或云区域拓扑变化
+## 验证计划
+### 每季度区域故障演练
+### 每次版本发布执行一致性不变量测试
+### 证据链接使用不可变 artifact ID
+```
+
+树只组织讨论和审查材料，不假装表达运行时调用；采纳与否决都保留依据，触发器使 ADR 能在事实变化时重新打开。
+
+## 13. Fixture 维护约束
 
 以下规则只服务于自动化测试，不属于 AI 生成输出：
 

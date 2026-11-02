@@ -370,6 +370,42 @@ describe('buildExportResult', () => {
     }))
   })
 
+  it('DOCX 将 Wiki 与原生 HTML 音视频降级为普通相对链接', async () => {
+    const input = await createMarkdown([
+      '# Report',
+      '![[tone.mp3|示例音频]]',
+      '<video src="demo.webm" controls></video>',
+    ].join('\n\n'))
+    await writeFile(path.join(tempDir!, 'tone.mp3'), 'audio')
+    await writeFile(path.join(tempDir!, 'demo.webm'), 'video')
+    const outputPath = path.join(tempDir!, 'report.docx')
+    const docxExporter = vi.fn(async () => ({
+      artifact: { type: 'docx', path: outputPath, bytes: 128 },
+      warnings: [], serviceVersion: '0.2.3', mode: 'fullFidelity',
+      renderStatus: 'success', failedBlocks: 0, chartsRendered: 0,
+    }))
+
+    const result = await buildExportResult(
+      [input],
+      { format: 'docx', out: outputPath },
+      { docxExporter } as any,
+    )
+
+    expect(docxExporter).toHaveBeenCalledWith(expect.objectContaining({
+      markdown: expect.stringContaining('[音频：示例音频](./tone.mp3)'),
+    }))
+    const sentMarkdown = (docxExporter.mock.calls[0] as unknown as [{ markdown: string }])[0].markdown
+    expect(sentMarkdown).toContain('[视频：demo.webm](./demo.webm)')
+    expect(sentMarkdown).not.toContain('![[tone.mp3')
+    expect(sentMarkdown).not.toContain('<video')
+    expect(result).toMatchObject({
+      ok: true,
+      warnings: expect.arrayContaining([
+        expect.objectContaining({ code: 'LOCAL_MEDIA_STATIC_FALLBACK' }),
+      ]),
+    })
+  })
+
   describe('多文件合并导出', () => {
     it('html:多文件合并成一份,含多段 merged-doc-part,第 2 段起有分页符', async () => {
       const [a, b] = await createMarkdownFiles({ 'a.md': '# A', 'b.md': '# B' })

@@ -2,6 +2,34 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPanel } from '../../src/components/SettingsPanel'
 
+const diagnosticStatus = {
+  state: 'ready' as const,
+  enabled: true,
+  configuredDirectory: null,
+  effectiveDirectory: '/Users/tester/Library/Logs/MD Viewer',
+  defaultDirectory: '/Users/tester/Library/Logs/MD Viewer',
+  usingCustomDirectory: false,
+  usingFallback: false,
+  maxTotalMiB: 10 as const,
+  retentionDays: 7 as const,
+  fileCount: 0,
+  totalBytes: 0,
+  oldestEventUnixMs: null,
+  effectiveCoverageDays: 0,
+  droppedEvents: 0,
+  invalidEvents: 0,
+  pathCorrelation: 'installation' as const,
+  capabilities: {
+    canChooseDirectory: true,
+    canRetryDirectory: false,
+    canResetDirectory: false,
+    canOpenDirectory: true,
+    canApplyRetention: true,
+    canExportBundle: true,
+    canClearLogs: false,
+  },
+}
+
 const baseApi = {
   getAppSettings: vi.fn(),
   updateAppSettings: vi.fn(),
@@ -13,6 +41,7 @@ const baseApi = {
   getCliShimStatus: vi.fn(),
   installCliShim: vi.fn(),
   uninstallCliShim: vi.fn(),
+  getDiagnosticLogStatus: vi.fn(),
 }
 
 describe('SettingsPanel DOCX service styles', () => {
@@ -53,6 +82,7 @@ describe('SettingsPanel DOCX service styles', () => {
         ok: true,
         nextStep: '重新打开终端后，md-viewer 命令将不再可用。',
       }),
+      getDiagnosticLogStatus: vi.fn().mockResolvedValue(diagnosticStatus),
       testDocxConnection: vi.fn().mockResolvedValue({
         ok: true,
         version: '0.1.0',
@@ -91,7 +121,7 @@ describe('SettingsPanel DOCX service styles', () => {
     fireEvent.click(screen.getByRole('tab', { name: '图表' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /模板库/ })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tab', { name: /格式参考/ })).toHaveAttribute('aria-selected', 'true')
     })
 
     expect(screen.getByRole('button', { name: /Vega-Lite/ })).toBeInTheDocument()
@@ -101,7 +131,8 @@ describe('SettingsPanel DOCX service styles', () => {
     expect(screen.getByRole('button', { name: /C4-PlantUML/ })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Vega-Lite/ }))
-    expect(screen.getByText('格式支持')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('导出支持详情'))
+    expect(screen.getByText('格式支持')).toBeVisible()
     expect(screen.getByText('应用预览')).toBeInTheDocument()
     expect(screen.getByText('HTML')).toBeInTheDocument()
     expect(screen.getByText('PDF')).toBeInTheDocument()
@@ -129,7 +160,7 @@ describe('SettingsPanel DOCX service styles', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '图表' }))
     expect(screen.getByRole('tabpanel', { name: '图表' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /模板库/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: /格式参考/ })).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(screen.getByRole('tab', { name: /渲染服务/ }))
     expect(screen.getAllByText('PlantUML').length).toBeGreaterThan(0)
 
@@ -137,6 +168,8 @@ describe('SettingsPanel DOCX service styles', () => {
     await waitFor(() => {
       expect(screen.getByRole('tabpanel', { name: '系统' })).toBeInTheDocument()
       expect(screen.getByText('右键菜单集成')).toBeInTheDocument()
+      expect(screen.getByText('诊断与日志')).toBeInTheDocument()
+      expect(screen.getByText('当前没有事件日志；诊断包仍会包含系统诊断快照。')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('tab', { name: '关于' }))

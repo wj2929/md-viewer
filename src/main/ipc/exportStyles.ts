@@ -6,10 +6,11 @@
  * 单独成模块后 CLI 可安全复用，避免 GUI/CLI 导出样式分叉。
  */
 
-import { join } from 'path'
+import { basename, join } from 'path'
 import { app } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import * as fs from 'fs-extra'
+import pdfKatexCss from '../../renderer/src/assets/katex-woff2.css?raw'
 
 export function sanitizeBundledExportCss(css: string): string {
   // 过滤掉应用程序的布局样式（这些样式会阻止导出 HTML 滚动）
@@ -128,6 +129,67 @@ export async function getExportStyles(): Promise<{ markdownCss: string; prismCss
   }
 
   return { markdownCss, prismCss }
+}
+
+/** PDF 只使用随包的 KaTeX/WOFF2，避免重启打印进程时重新从 CDN 取字体。 */
+export async function getPdfExportStyles(markdownCss: string, prismCss: string): Promise<{
+  markdownCss: string
+  prismCss: string
+  katexCss: string
+}> {
+  const assetPaths = [
+    join(app.getAppPath(), 'out/renderer/assets'),
+    join(app.getAppPath(), '../renderer/assets'),
+  ]
+  const candidates: { css: string; fonts: string }[] = []
+  for (const assets of assetPaths) {
+    const files = await fs.readdir(assets).catch(() => [] as string[])
+    for (const file of files.filter(name => /^katex[^/]*\.css$/.test(name)).sort()) {
+      candidates.push({ css: join(assets, file), fonts: assets })
+    }
+  }
+  if (is.dev) {
+    for (const root of [app.getAppPath(), join(app.getAppPath(), '../..')]) {
+      candidates.push({
+        css: join(root, 'src/renderer/src/assets/katex-woff2.css'),
+        fonts: join(root, 'node_modules/katex/dist/fonts'),
+      })
+    }
+  }
+  for (const candidate of candidates) {
+    try {
+      const css = await fs.readFile(candidate.css, 'utf8')
+      const urls = [...css.matchAll(/url\(\s*(['"]?)([^)'"\s]+\.woff2(?:\?no-inline)?)\1\s*\)/g)]
+      const fonts = new Map<string, string>()
+      for (const match of urls) {
+        const name = basename(match[2].split('?')[0])
+        if (!/^KaTeX_[\w-]+\.woff2$/.test(name)) throw new Error('Unexpected PDF font asset')
+        if (!fonts.has(name)) {
+          const bytes = await fs.readFile(join(candidate.fonts, name))
+          fonts.set(name, `data:font/woff2;base64,${bytes.toString('base64')}`)
+        }
+      }
+      if (fonts.size !== 20) throw new Error('Incomplete PDF font assets')
+      // Vite 的 katex-* CSS 同时包含应用布局；它只用于定位已打包的字体，不能整份注入。
+      // 规则复用生成器维护的纯 KaTeX CSS，源文件名映射到当前构建的哈希资产名。
+      for (const match of pdfKatexCss.matchAll(/url\(\s*(['"]?)([^)'"\s]+\.woff2(?:\?no-inline)?)\1\s*\)/g)) {
+        const sourceName = basename(match[2].split('?')[0])
+        const prefix = sourceName.replace(/\.woff2$/, '-')
+        const names = [...fonts.keys()].filter(name => name === sourceName || (name.startsWith(prefix) && name.endsWith('.woff2')))
+        if (names.length !== 1) throw new Error('PDF font mapping is incomplete')
+        fonts.set(sourceName, fonts.get(names[0])!)
+      }
+      const freeze = (value: string): string => value.replace(
+        /url\(\s*(['"]?)([^)'"\s]+)\1\s*\)/g,
+        (original, _quote: string, url: string) => {
+          const data = fonts.get(basename(url.split('?')[0]))
+          return data ? `url(${data})` : original
+        },
+      )
+      return { markdownCss: freeze(markdownCss), prismCss: freeze(prismCss), katexCss: freeze(pdfKatexCss) }
+    } catch { /* 只尝试固定的包内/开发态资产位置，不回退到网络或静默换字体。 */ }
+  }
+  throw new Error('PDF 包内公式字体读取失败')
 }
 
 // 内置的完整 Markdown 样式

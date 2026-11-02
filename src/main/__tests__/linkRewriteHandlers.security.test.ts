@@ -16,6 +16,7 @@ const planner = {
     result: await input.execute(),
     receipt: { operationReceiptId: 'receipt-a' },
   })),
+  executeBatch: vi.fn(async (_input: unknown) => ({ items: [] })),
   createRepairPlan: vi.fn(async () => ({ planId: 'plan-a', changes: [] })),
   apply: vi.fn(async () => ({ planId: 'plan-a', files: [] })),
   applyBatch: vi.fn(async () => ({ planIds: ['plan-a'], files: [] })),
@@ -44,6 +45,7 @@ function handler(channel: string): (...args: any[]) => any {
 describe('link rewrite IPC', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    ctx.windowManager.getWorkspace.mockReturnValue({ id: 'workspace-a', lifecycleEpoch: 4, primaryRoot: '/workspace' })
     registerLinkRewriteHandlers(ctx as any)
   })
 
@@ -106,6 +108,38 @@ describe('link rewrite IPC', () => {
         confirm: false,
       },
     )).rejects.toThrow('明确确认')
+  })
+
+  it('批量入口绑定sender/root，逐次重验路径，写入前再次校验权限', async () => {
+    vi.spyOn(senderSecurity, 'validateWorkspaceOperationPath').mockImplementation(async (_ctx, _event, _operation, target) => target)
+    const request = { operations: [{ impactId: 'impact-a', mapping: { oldRelativePath: 'a.md', newRelativePath: 'archive/a.md' } }], confirm: true }
+    await handler('link-rewrite:executeBatch')({ sender: { id: 9 } }, operation, request)
+    const input = planner.executeBatch.mock.calls[0][0] as any
+    expect(input).toMatchObject({ ownerId: '9:workspace-a:4', rootPath: '/workspace', operations: request.operations })
+    await input.validate(request.operations[0].mapping)
+    expect(senderSecurity.validateWorkspaceOperationPath).toHaveBeenCalledTimes(2)
+    const check = vi.fn()
+    vi.spyOn(sameRootMove, 'moveSameRootPath').mockImplementation(async move => {
+      await move.beforeMove?.()
+      return { destinationPath: move.destinationPath, isDirectory: false }
+    })
+    expect(await input.execute(request.operations[0].mapping, check)).toEqual({ newPath: '/workspace/archive/a.md', isDirectory: false })
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(senderSecurity.validateWorkspaceOperationPath).toHaveBeenCalledTimes(4)
+    ctx.windowManager.getWorkspace.mockReturnValue({ id: 'workspace-a', lifecycleEpoch: 5, primaryRoot: '/workspace' })
+    expect(() => input.assertAuthorized()).toThrow('工作区已失效')
+    await expect(input.execute(request.operations[0].mapping, check)).rejects.toThrow('工作区已失效')
+    expect(check).toHaveBeenCalledTimes(1)
+  })
+
+  it('批量入口拒绝未确认、越界mapping、空项及超量输入', async () => {
+    const invoke = (input: unknown) => handler('link-rewrite:executeBatch')({ sender: { id: 9 } }, operation, input)
+    await expect(invoke({ operations: [], confirm: false })).rejects.toThrow('明确确认')
+    await expect(invoke({ operations: [], confirm: true })).rejects.toThrow('无效或过多')
+    await expect(invoke({ operations: Array.from({ length: 257 }, () => ({})), confirm: true })).rejects.toThrow('无效或过多')
+    await expect(invoke({ operations: [null], confirm: true })).rejects.toThrow()
+    await expect(invoke({ operations: [{ impactId: 'impact-a', mapping: { oldRelativePath: '../a.md', newRelativePath: 'a.md' } }], confirm: true })).rejects.toThrow('相对路径无效')
+    expect(planner.executeBatch).not.toHaveBeenCalled()
   })
 
   it('repair plan 必须沿用同一 sender owner 和操作回执', async () => {

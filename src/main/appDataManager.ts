@@ -5,12 +5,19 @@
  */
 
 import Store from 'electron-store'
+import { isLargeDocumentSize, type LargeDocumentSize } from '../shared/largeDocumentApproval'
+import type { FileTreeSort } from '../shared/fileTreeSort'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { DEFAULT_DOCX_STYLE, type DocxStyle } from '../shared/docxStyles'
 import type { ReadAloudSettings } from '../shared/ttsProviders'
 import type { FolderSplitLayoutV1 } from '../shared/folderTabSession'
 import { sanitizeFolderSplitLayout } from './folderTabSessionLayout'
+import {
+  DEFAULT_DIAGNOSTIC_LOG_SETTINGS,
+  normalizeDiagnosticLogSettings,
+  type DiagnosticLogSettings,
+} from '../shared/diagnostics'
 import {
   isDocumentMarkColor,
   isMarkdownPath,
@@ -125,6 +132,7 @@ export interface PinnedTab {
  * 应用设置
  */
 export interface AppSettings {
+  fileTreeSort?: FileTreeSort
   imageDir: string       // 图片保存目录，默认 'assets'
   autoSave: boolean      // 自动保存，默认 true（失焦时保存）
   bookmarkPanelWidth: number     // 书签面板宽度
@@ -136,6 +144,7 @@ export interface AppSettings {
   maxFolderHistory?: number       // 文件夹历史上限（v1.5.2）
   showExportBranding?: boolean    // 导出文件显示署名（v1.5.3），默认 true
   autoRenderRemoteCharts?: boolean // PlantUML/C4/Kroki 预览自动连接服务，默认 true
+  folderPinyinSearchEnabled?: boolean // 目录历史拼音补充，默认 false
   searchBarHistory?: string[]     // 搜索栏历史
   inPageSearchHistory?: string[]  // 页内搜索历史
   docxExport?: {
@@ -150,6 +159,7 @@ export interface AppSettings {
     referenceDocxPath?: string
   }
   readAloud?: ReadAloudSettings  // v2.7.0：语音朗读设置(多 provider)
+  diagnosticLogs?: DiagnosticLogSettings
 }
 
 /**
@@ -163,6 +173,7 @@ interface AppDataStore {
   folderTabSessions: FolderTabSessionsByFolder // v2.8.0：按文件夹归档 tab 会话
   folderTreeStates: FolderTreeStatesByRoot
   readPositions: Record<string, ReadPosition>
+  largeDocumentApprovals: Array<LargeDocumentSize & { path: string }>
   settings: AppSettings
 }
 
@@ -206,6 +217,7 @@ class AppDataManager {
         folderTabSessions: {},       // v2.8.0：按文件夹归档 tab 会话
         folderTreeStates: {},
         readPositions: {},
+        largeDocumentApprovals: [],
         settings: {
           imageDir: 'assets',
           autoSave: true,
@@ -214,7 +226,9 @@ class AppDataManager {
           bookmarkBarCollapsed: true,
           sidebarWidth: 280,
           sidebarCollapsed: false,
-          autoRenderRemoteCharts: true
+          autoRenderRemoteCharts: true,
+          folderPinyinSearchEnabled: false,
+          diagnosticLogs: { ...DEFAULT_DIAGNOSTIC_LOG_SETTINGS }
         }
       }
     })
@@ -674,6 +688,27 @@ class AppDataManager {
     this.store.set('folderTreeStates', nextStates)
   }
 
+  private getLargeDocumentApprovals(): Array<LargeDocumentSize & { path: string }> {
+    const entries: unknown = this.store.get('largeDocumentApprovals', [])
+    if (!Array.isArray(entries)) return []
+    return entries.filter(entry => isLargeDocumentSize(entry) && 'path' in entry
+      && typeof entry.path === 'string' && path.isAbsolute(entry.path)).slice(-100)
+  }
+
+  getLargeDocumentApproval(filePath: string): LargeDocumentSize | null {
+    const entry = this.getLargeDocumentApprovals().find(item => item.path === path.resolve(filePath))
+    return entry ? { characters: entry.characters, lines: entry.lines } : null
+  }
+
+  setLargeDocumentApproval(filePath: string, size: LargeDocumentSize | null): void {
+    if (size !== null && !isLargeDocumentSize(size)) throw new Error('无效的大文档规模')
+    const canonicalPath = path.resolve(filePath)
+    const entries = this.getLargeDocumentApprovals().filter(entry => entry.path !== canonicalPath)
+      .map(entry => ({ path: entry.path, characters: entry.characters, lines: entry.lines }))
+    if (size) entries.push({ path: canonicalPath, characters: size.characters, lines: size.lines })
+    this.store.set('largeDocumentApprovals', entries.slice(-100))
+  }
+
   // ============== 阅读位置管理 ==============
 
   private normalizeReadPositionPath(filePath: string): string {
@@ -1073,6 +1108,17 @@ class AppDataManager {
   updateSettings(updates: Partial<AppSettings>): void {
     const settings = this.store.get('settings')
     this.store.set('settings', { ...settings, ...updates })
+  }
+
+  getDiagnosticLogSettings(): DiagnosticLogSettings {
+    return normalizeDiagnosticLogSettings(this.store.get('settings').diagnosticLogs)
+  }
+
+  setDiagnosticLogSettings(settings: DiagnosticLogSettings): DiagnosticLogSettings {
+    const normalized = normalizeDiagnosticLogSettings(settings)
+    const current = this.store.get('settings')
+    this.store.set('settings', { ...current, diagnosticLogs: normalized })
+    return normalized
   }
 
   // ============== 搜索历史管理（原子操作） ==============

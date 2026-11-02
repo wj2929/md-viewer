@@ -38,10 +38,64 @@ vi.mock('fs/promises', () => ({
 
 // 重新导入以应用 mock
 const { appDataManager } = await import('../appDataManager')
+const appDataStore = vi.mocked(Store).mock.results[0].value
+const defaultSettings = vi.mocked(Store).mock.calls[0][0]?.defaults?.settings
 
 describe('AppDataManager', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  describe('大文档批准存储', () => {
+    beforeEach(() => appDataStore.set('largeDocumentApprovals', []))
+
+    it('保存/读取/撤销仅影响目标文档，读取不返回路径', () => {
+      appDataManager.setLargeDocumentApproval('/self/a.md', { characters: 1_500_001, lines: 3 })
+      appDataManager.setLargeDocumentApproval('/self/b.md', { characters: 2_000_000, lines: 4 })
+      expect(appDataManager.getLargeDocumentApproval('/self/./a.md')).toEqual({ characters: 1_500_001, lines: 3 })
+      appDataManager.setLargeDocumentApproval('/self/a.md', null)
+      expect(appDataManager.getLargeDocumentApproval('/self/a.md')).toBeNull()
+      expect(appDataManager.getLargeDocumentApproval('/self/b.md')).toEqual({ characters: 2_000_000, lines: 4 })
+    })
+
+    it('保持100篇上限，更新移到末尾，不改变获准时规模', () => {
+      for (let i = 0; i < 100; i++) appDataManager.setLargeDocumentApproval(`/self/${i}.md`, { characters: 10 + i, lines: 2 })
+      appDataManager.setLargeDocumentApproval('/self/0.md', { characters: 10, lines: 2 })
+      appDataManager.setLargeDocumentApproval('/self/new.md', { characters: 1500001, lines: 3 })
+      expect(appDataStore.get('largeDocumentApprovals')).toHaveLength(100)
+      expect(appDataManager.getLargeDocumentApproval('/self/1.md')).toBeNull()
+      expect(appDataManager.getLargeDocumentApproval('/self/0.md')).toEqual({ characters: 10, lines: 2 })
+    })
+
+    it('不改变其他设置或500条最近记录', () => {
+      const previousSettings = appDataStore.get('settings')
+      const previousRecent = appDataStore.get('recentFiles')
+      const settings = { imageDir: 'self-assets', maxRecentFiles: 500 }
+      const recent = Array.from({ length: 500 }, (_, id) => ({ id: String(id) }))
+      appDataStore.set('settings', settings)
+      appDataStore.set('recentFiles', recent)
+      appDataStore.set.mockClear()
+      appDataManager.setLargeDocumentApproval('/self/a.md', { characters: 1500001, lines: 3 })
+      expect(appDataStore.set.mock.calls.map((call: unknown[]) => call[0])).toEqual(['largeDocumentApprovals'])
+      expect(appDataStore.get('settings')).toEqual(settings)
+      expect(appDataStore.get('recentFiles')).toEqual(recent)
+      appDataStore.set('settings', previousSettings)
+      appDataStore.set('recentFiles', previousRecent)
+    })
+
+    it('损坏记录不能放行，写入只保留路径和规模', () => {
+      appDataStore.set('largeDocumentApprovals', [null, { path: '/self/a.md', characters: 'huge', lines: -1 }])
+      expect(appDataManager.getLargeDocumentApproval('/self/a.md')).toBeNull()
+      appDataManager.setLargeDocumentApproval('/self/b.md', { characters: 1500001, lines: 3, content: 'private body' } as any)
+      expect(appDataStore.get('largeDocumentApprovals')).toEqual([{ path: '/self/b.md', characters: 1500001, lines: 3 }])
+      appDataStore.set('largeDocumentApprovals', { invalid: true })
+      expect(appDataManager.getLargeDocumentApproval('/self/b.md')).toBeNull()
+    })
+
+    it.each([{}, { characters: 0, lines: 3 }, { characters: 1.5, lines: 3 }, { characters: Infinity, lines: 3 }])('无效规模不能写入：%j', value => {
+      expect(() => appDataManager.setLargeDocumentApproval('/self/a.md', value as any)).toThrow('无效')
+      expect(appDataStore.get('largeDocumentApprovals')).toEqual([])
+    })
   })
 
   describe('最近文件管理', () => {
@@ -185,10 +239,42 @@ describe('AppDataManager', () => {
       expect(settings).toHaveProperty('bookmarkPanelCollapsed')
     })
 
+    it('目录拼音设置仅更新自身字段，旧配置不被读操作重写', () => {
+      const before = appDataManager.getSettings()
+      expect(before.folderPinyinSearchEnabled).toBeUndefined()
+      expect(defaultSettings).toHaveProperty('folderPinyinSearchEnabled', false)
+      expect(appDataStore.set).not.toHaveBeenCalled()
+      appDataManager.updateSettings({ folderPinyinSearchEnabled: true })
+      expect(appDataManager.getSettings()).toEqual({ ...before, folderPinyinSearchEnabled: true })
+      appDataManager.updateSettings({ folderPinyinSearchEnabled: false })
+      expect(appDataManager.getSettings().folderPinyinSearchEnabled).toBe(false)
+    })
+
     it('应该更新设置', () => {
       appDataManager.updateSettings({ imageDir: 'images' })
       // 不应该抛出错误
       expect(true).toBe(true)
+    })
+
+    it('应该提供并整体保存诊断日志设置', () => {
+      expect(appDataManager.getDiagnosticLogSettings()).toEqual({
+        enabled: true,
+        maxTotalMiB: 10,
+        retentionDays: 7,
+      })
+
+      expect(appDataManager.setDiagnosticLogSettings({
+        enabled: false,
+        directory: '/tmp/md-viewer-logs',
+        maxTotalMiB: 25,
+        retentionDays: 14,
+      })).toEqual({
+        enabled: false,
+        directory: '/tmp/md-viewer-logs',
+        maxTotalMiB: 25,
+        retentionDays: 14,
+      })
+      expect(appDataManager.getDiagnosticLogSettings().directory).toBe('/tmp/md-viewer-logs')
     })
   })
 

@@ -23,7 +23,7 @@ const FIXTURES: FixtureExpectation[] = [
   { path: 'e2e/fixtures/test-kroki.md', fences: { nomnoml: 6, pikchr: 5, svgbob: 5, bytefield: 4, tikz: 4 } },
   {
     path: 'e2e/fixtures/test-diagram-design.md',
-    fences: { d2: 15, graphviz: 13, mermaid: 16, structurizr: 9, dbml: 9, 'antv-g6': 5, drawio: 13, svg: 10, markmap: 3 },
+    fences: { d2: 16, graphviz: 21, mermaid: 17, structurizr: 9, dbml: 10, 'antv-g6': 5, drawio: 25, svg: 22, markmap: 4 },
   },
 ]
 
@@ -47,6 +47,22 @@ const REQUIRED_CASE_IDS = [
   'md-case-svg-capacity-budget-saturation-corridor',
   'md-case-svg-failure-propagation-blast-radius-overlay',
   'md-case-svg-state-data-migration-visibility-overlay',
+  'md-case-svg-task-queue-worker-capacity',
+  'md-case-drawio-upload-quarantine-processing',
+  'md-case-graphviz-plugin-required-optional-failure',
+  'md-case-graphviz-task-cancel-dependency-cleanup',
+  'md-case-graphviz-search-index-publication-gates',
+  'md-case-drawio-file-import-field-provenance',
+  'md-case-drawio-notification-preferences-delivery',
+  'md-case-drawio-rolling-upgrade-connection-drain',
+  'md-case-drawio-backup-restore-validation',
+  'md-case-drawio-artifact-approved-blocked-paths',
+  'md-case-svg-api-allow-deny-policy-traces',
+  'md-case-svg-file-service-residual-risk',
+  'md-case-svg-file-sharing-permission-matrix',
+  'md-case-svg-request-latency-stage-breakdown',
+  'md-case-svg-service-monthly-cost-bridge',
+  'md-case-svg-upload-incident-cause-evidence',
 ]
 
 function readFixture(relativePath: string): string {
@@ -71,6 +87,15 @@ function extractCaseMarkers(markdown: string): string[] {
 function extractBoundCaseMarkers(markdown: string): Array<{ id: string; language: string }> {
   return [...markdown.matchAll(/<div\s+id="(md-case-[^"]+)"\s*><\/div>[ \t]*\r?\n[ \t]*\r?\n```([a-z0-9-]+)\b/gi)]
     .map(match => ({ id: match[1], language: match[2].toLowerCase() }))
+}
+
+function extractBoundCodeFences(markdown: string, language: string): Array<{ id: string; source: string }> {
+  const escaped = language.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(
+    '<div\\s+id="md-case-([a-z0-9-]+)"\\s*><\\/div>\\s*^\\s*```' + escaped + '\\b[^\\n]*\\n([\\s\\S]*?)^\\s*```\\s*$',
+    'gim',
+  )
+  return [...markdown.matchAll(pattern)].map(match => ({ id: match[1], source: match[2].trim() }))
 }
 
 function extractBpmnReferences(markdown: string): string[] {
@@ -118,7 +143,7 @@ describe('RendererPlugin fixture coverage', () => {
     const seen = new Map<string, string>()
     const diagramReference = readFixture('e2e/fixtures/test-diagram-design.md')
 
-    expect(extractCaseMarkers(diagramReference), 'AI diagram reference case count').toHaveLength(93)
+    expect(extractCaseMarkers(diagramReference), 'AI diagram reference case count').toHaveLength(129)
 
     for (const path of paths) {
       const markdown = readFixture(path)
@@ -142,7 +167,7 @@ describe('RendererPlugin fixture coverage', () => {
   it('AI diagram reference keeps DrawIO examples as valid, explicitly laid out XML', () => {
     const blocks = extractCodeFences(readFixture('e2e/fixtures/test-diagram-design.md'), 'drawio')
 
-    expect(blocks).toHaveLength(13)
+    expect(blocks).toHaveLength(25)
     for (const block of blocks) {
       assertValidXml(block)
       expect(block).toContain('<mxGraphModel')
@@ -153,90 +178,170 @@ describe('RendererPlugin fixture coverage', () => {
   })
 
   it('AI diagram reference keeps every SVG example inside the supported static profile', () => {
-    const blocks = extractCodeFences(readFixture('e2e/fixtures/test-diagram-design.md'), 'svg')
+    const fixture = readFixture('e2e/fixtures/test-diagram-design.md')
+    const cases = extractBoundCodeFences(fixture, 'svg')
+    const rendered = new Map(cases.map(({ id, source }) => [id, renderRestrictedSvgToSvg(source, id)]))
 
-    expect(blocks).toHaveLength(10)
-    const rendered = blocks.map((block, index) => renderRestrictedSvgToSvg(block, `fixture-${index}`))
-    for (const result of rendered) {
-      expect(result.ok).toBe(true)
+    expect(cases).toHaveLength(22)
+    expect(new Set(cases.map(item => item.id)).size).toBe(cases.length)
+    for (const [id, result] of rendered) {
+      expect(result.ok, `${id} should render`).toBe(true)
       if (result.ok) {
         expect(result.svg).not.toContain('<style')
         expect(result.svg).not.toContain('class=')
       }
     }
 
-    const [
-      platform,
-      decision,
-      recovery,
-      eventStorming,
-      serviceBlueprint,
-      migrationWaves,
-      teamTopology,
-      capacityBudget,
-      failurePropagation,
-      migrationVisibility,
-    ] = rendered
-    if (
-      platform.ok && decision.ok && recovery.ok && eventStorming.ok && serviceBlueprint.ok
-      && migrationWaves.ok && teamTopology.ok && capacityBudget.ok
-      && failurePropagation.ok && migrationVisibility.ok
-    ) {
-      expect(platform.svg).toContain('mdv-svg-fixture-0-svg-arrow')
-      expect(platform.svg).toContain('<feDropShadow')
-
-      expect(decision.svg).toContain('mdv-svg-fixture-1-svg-adr-ok')
-      expect(decision.svg).toContain('<polygon')
-      expect(decision.svg).toContain('<tspan')
-
-      expect(recovery.svg).toContain('mdv-svg-fixture-2-svg-recovery-gate')
-      expect(recovery.svg).toContain('<polyline')
-      expect(recovery.svg).toContain('<ellipse')
-
-      expect(eventStorming.svg).toContain('mdv-svg-fixture-3-svg-es-arrow')
-      expect(eventStorming.svg).toContain('订单已接受')
-      expect(eventStorming.svg).toContain('支付最终失败')
-      expect(eventStorming.svg).toContain('预留已释放')
-      expect(eventStorming.svg).toContain('订单已取消')
-      expect(eventStorming.svg).toContain('<polygon')
-
-      expect(serviceBlueprint.svg).toContain('mdv-svg-fixture-4-svg-sb-handoff')
-      expect(serviceBlueprint.svg).toContain('用户可见线')
-      expect(serviceBlueprint.svg).toContain('<tspan')
-
-      expect(migrationWaves.svg).toContain('mdv-svg-fixture-5-svg-mw-arrow')
-      expect(migrationWaves.svg).toContain('W0 · 先隔离')
-      expect(migrationWaves.svg).toContain('transform="rotate(-90 62 548)"')
-
-      expect(teamTopology.svg).toContain('mdv-svg-fixture-6-svg-tt-arrow')
-      expect(teamTopology.svg).toContain('STREAM-ALIGNED TEAM')
-      expect(teamTopology.svg).toContain('Facilitating · 有退出日期')
-
-      expect(capacityBudget.svg).toContain('mdv-svg-fixture-7-svg-cap-warning')
-      expect(capacityBudget.svg).toContain('900 = 800 + 100')
-      expect(capacityBudget.svg).toContain('ρDB = 0.80')
-      expect(capacityBudget.svg).toContain('EffectiveBudget = validated capacity × 80%')
-      expect(capacityBudget.svg).toContain('100 / 110 / 120% 为本算例策略阈值')
-      expect(capacityBudget.svg).toContain('队列是有界缓冲，不是额外吞吐')
-
-      expect(failurePropagation.svg).toContain('mdv-svg-fixture-8-svg-blast-topology-clip')
-      expect(failurePropagation.svg).toContain('共同原因分叉')
-      expect(failurePropagation.svg).toContain('Affected AZ failure domain')
-      expect(failurePropagation.svg).toContain('观测映射 · 非传播边')
-      expect(failurePropagation.svg).toContain('Cache fallback')
-      expect(failurePropagation.svg).toContain('BLOCK')
-      expect(failurePropagation.svg).toContain('51 req/s / 500 req/s')
-      expect(failurePropagation.svg).toContain('纯重试 = 30 req/s')
-
-      expect(migrationVisibility.svg).toContain('mdv-svg-fixture-9-svg-mig-rollback')
-      expect(migrationVisibility.svg).toContain('旧 epoch 写入拒绝')
-      expect(migrationVisibility.svg).toContain('source_cursor_applied ≥ Hc')
-      expect(migrationVisibility.svg).toContain('source_shadow.target_cursor_applied ≥ Hr[tgt]')
-      expect(migrationVisibility.svg).toContain('C_final gate')
-      expect(migrationVisibility.svg).toContain('rollback exit approved')
-      expect(migrationVisibility.svg).toContain('Reverse CDC still active')
-      expect(migrationVisibility.svg).toContain('C_final → stop reverse CDC')
+    const expectations: Record<string, string[]> = {
+      'svg-editorial-platform-architecture': ['svg-arrow', '<feDropShadow'],
+      'svg-architecture-tradeoff-decision-canvas': ['svg-adr-ok', '<polygon', '<tspan'],
+      'svg-incident-recovery-multi-plane-storyboard': ['svg-recovery-gate', '<polyline', '<ellipse'],
+      'svg-event-storming-domain-flow': ['svg-es-arrow', '订单已接受', '支付最终失败', '预留已释放', '订单已取消', '<polygon'],
+      'svg-service-blueprint-export-journey': ['svg-sb-handoff', '用户可见线', '<tspan'],
+      'svg-migration-portfolio-wave-map': ['svg-mw-arrow', 'W0 · 先隔离', 'transform="rotate(-90 62 548)"'],
+      'svg-team-topology-interaction-map': ['svg-tt-arrow', 'STREAM-ALIGNED TEAM', 'Facilitating · 有退出日期'],
+      'svg-capacity-budget-saturation-corridor': ['svg-cap-warning', '900 = 800 + 100', 'ρDB = 0.80', 'EffectiveBudget = validated capacity × 80%', '100 / 110 / 120% 为本算例策略阈值', '队列是有界缓冲，不是额外吞吐'],
+      'svg-failure-propagation-blast-radius-overlay': ['svg-blast-topology-clip', '共同原因分叉', 'Affected AZ failure domain', '观测映射 · 非传播边', 'Cache fallback', 'BLOCK', '51 req/s / 500 req/s', '纯重试 = 30 req/s'],
+      'svg-state-data-migration-visibility-overlay': ['svg-mig-rollback', '旧 epoch 写入拒绝', 'source_cursor_applied ≥ Hc', 'source_shadow.target_cursor_applied ≥ Hr[tgt]', 'C_final gate', 'rollback exit approved', 'Reverse CDC still active', 'C_final → stop reverse CDC'],
     }
+    for (const [id, tokens] of Object.entries(expectations)) {
+      const result = rendered.get(id)
+      expect(result, `${id} must exist`).toBeDefined()
+      if (!result?.ok) continue
+      for (const token of tokens) expect(result.svg, `${id} should preserve ${token}`).toContain(token)
+    }
+  })
+
+  it('通用案例保留异常门禁、判定状态及明暗可读背景', () => {
+    const fixture = readFixture('e2e/fixtures/test-diagram-design.md')
+    const svg = new Map(extractBoundCodeFences(fixture, 'svg').map(item => [item.id, item.source]))
+    expect(svg.get('svg-task-queue-worker-capacity')).toContain('等待队列 4 / 4')
+    expect(svg.get('svg-task-queue-worker-capacity')).toContain('有效速率 6 任务/s')
+    expect(svg.get('svg-api-allow-deny-policy-traces')).toContain('首次分歧')
+    expect(svg.get('svg-api-allow-deny-policy-traces')).toContain('— 未执行')
+    expect(svg.get('svg-file-sharing-permission-matrix')).toContain('? 未定义')
+    expect(svg.get('svg-upload-incident-cause-evidence')).toContain('线程 · 待证')
+    for (const { id, source } of extractBoundCodeFences(fixture, 'graphviz').filter(item => REQUIRED_CASE_IDS.slice(-16).includes(`md-case-${item.id}`))) {
+      expect(source, id).toContain('bgcolor="#ffffff"')
+    }
+    const drawio = new Map(extractBoundCodeFences(fixture, 'drawio').map(item => [item.id, new DOMParser().parseFromString(item.source, 'application/xml')]))
+    const blocked = drawio.get('drawio-artifact-approved-blocked-paths')!
+    expect(blocked.querySelector('mxCell[source="bypass"]')?.getAttribute('target')).toBe('stop')
+    expect(blocked.querySelector('mxCell[source="stop"]')).toBeNull()
+    const upload = drawio.get('drawio-upload-quarantine-processing')!
+    expect(upload.querySelector('mxCell[target="artifact-reject"]')).not.toBeNull()
+    const restore = drawio.get('drawio-backup-restore-validation')!
+    expect(restore.querySelectorAll('mxCell[target="blocked"]')).toHaveLength(2)
+    expect(restore.querySelector('mxCell[source="blocked"]')).toBeNull()
+    const upgrade = drawio.get('drawio-rolling-upgrade-connection-drain')!
+    expect(Array.from(upgrade.querySelectorAll('mxCell[target="gate"]')).map(cell => cell.getAttribute('source')).sort()).toEqual(['empty', 'stable'])
+    expect(upgrade.querySelector('mxCell[source="gate"]')?.getAttribute('target')).toBe('stop')
+    expect(upgrade.querySelector('mxCell[source="empty"][target="stop"]')).toBeNull()
+    const provenance = drawio.get('drawio-file-import-field-provenance')!
+    expect(provenance.querySelector('mxCell[source="source-title"]')?.getAttribute('target')).toBe('fields')
+    expect(provenance.querySelector('mxCell[source="source-author"]')?.getAttribute('target')).toBe('author-field')
+    expect(provenance.querySelector('mxCell[source="missing"]')?.getAttribute('target')).toBe('unknown')
+    expect(provenance.querySelector('mxCell[source="unknown"]')?.getAttribute('target')).toBe('draft')
+    const index = extractBoundCodeFences(fixture, 'graphviz').find(item => item.id === 'graphviz-search-index-publication-gates')!.source
+    expect(index).toContain('gate -> discard')
+    expect(index).not.toContain('discard -> publish')
+    expect(index).toContain('保持可用 g11')
+  })
+
+  it('通用架构主图保留组件连接、状态归属和独立辅助视图', () => {
+    const fixture = readFixture('e2e/fixtures/test-diagram-design.md')
+    const sources = new Map(['graphviz', 'drawio', 'svg'].flatMap(language =>
+      extractBoundCodeFences(fixture, language).map(item => [item.id, item.source] as const),
+    ))
+    const mainIds = [
+      'graphviz-plugin-required-optional-failure', 'graphviz-task-cancel-dependency-cleanup',
+      'graphviz-search-index-publication-gates', 'drawio-upload-quarantine-processing',
+      'drawio-notification-preferences-delivery', 'drawio-rolling-upgrade-connection-drain',
+      'drawio-backup-restore-validation', 'drawio-artifact-approved-blocked-paths',
+      'svg-task-queue-worker-capacity', 'svg-file-service-residual-risk',
+    ]
+    for (const id of mainIds) expect(sources.get(id), id).toContain('架构主视图')
+    const auxiliary = {
+      'drawio-file-import-field-provenance': '数据来源',
+      'svg-api-allow-deny-policy-traces': '请求判定',
+      'svg-file-sharing-permission-matrix': '授权矩阵',
+      'svg-request-latency-stage-breakdown': '性能',
+      'svg-service-monthly-cost-bridge': '成本',
+      'svg-upload-incident-cause-evidence': '复盘',
+    }
+    for (const [id, role] of Object.entries(auxiliary)) expect(sources.get(id), id).toContain(`辅助·${role}`)
+
+    const connections = {
+      'drawio-upload-quarantine-processing': [['entry', 'quarantine'], ['entry', 'queue'], ['queue', 'worker'], ['worker', 'artifact'], ['worker', 'metadata'], ['metadata', 'download'], ['artifact', 'download']],
+      'drawio-notification-preferences-delivery': [['preferences', 'preference-filter'], ['preference-filter', 'dispatch'], ['dispatch', 'inapp'], ['dispatch', 'sms'], ['sms', 'ledger'], ['sms', 'retry'], ['retry', 'sms']],
+      'drawio-rolling-upgrade-connection-drain': [['load', 'old-1'], ['load', 'new-1'], ['policy', 'load'], ['stop', 'old-2']],
+      'drawio-backup-restore-validation': [['snapshot', 'restore'], ['restore', 'database'], ['database', 'check'], ['database', 'readonly'], ['controller', 'open'], ['open', 'database']],
+      'drawio-artifact-approved-blocked-paths': [['build', 'artifact'], ['artifact', 'gate'], ['gate', 'publisher'], ['publisher', 'agent'], ['agent', 'artifact'], ['agent', 'run'], ['agent', 'run-b'], ['publisher', 'audit']],
+    }
+    for (const [id, pairs] of Object.entries(connections)) {
+      const document = new DOMParser().parseFromString(sources.get(id)!, 'application/xml')
+      for (const [source, target] of pairs) {
+        expect(document.querySelector(`mxCell[source="${source}"][target="${target}"]`), `${id}: ${source} → ${target}`).not.toBeNull()
+      }
+      // mxCodec uses an Array as its object cache; inherited names decode as functions, not cells.
+      for (const cell of document.querySelectorAll('mxCell[id]')) expect(cell.getAttribute('id')! in [], `${id}: reserved codec ID`).toBe(false)
+    }
+    const upload = new DOMParser().parseFromString(sources.get('drawio-upload-quarantine-processing')!, 'application/xml')
+    expect(upload.querySelector('mxCell[source="quarantine"][target="download"]')).toBeNull()
+    const notifications = new DOMParser().parseFromString(sources.get('drawio-notification-preferences-delivery')!, 'application/xml')
+    expect(notifications.querySelector('mxCell[source="dispatch"][target="email"]')).toBeNull()
+
+    const graphConnections = {
+      'graphviz-plugin-required-optional-failure': [['manager', 'preview'], ['manager', 'search'], ['core', 'preview'], ['core', 'search'], ['dictionary', 'search'], ['pdf', 'pdfPlugin']],
+      'graphviz-task-cancel-dependency-cleanup': [['request', 'coordinator'], ['coordinator', 'running'], ['coordinator', 'queued'], ['resources', 'cleanup'], ['running', 'cleanup'], ['running', 'gate'], ['cleanup', 'gate'], ['gate', 'done']],
+      'graphviz-search-index-publication-gates': [['content', 'build'], ['watcher', 'build'], ['build', 'candidate'], ['candidate', 'gate'], ['publish', 'current'], ['publish', 'keep'], ['query', 'current'], ['query', 'keep']],
+    }
+    for (const [id, pairs] of Object.entries(graphConnections)) {
+      for (const [source, target] of pairs) expect(sources.get(id), `${id}: ${source} → ${target}`).toMatch(new RegExp(`\\b${source}\\s*->\\s*${target}\\b`))
+    }
+    const queue = new DOMParser().parseFromString(sources.get('svg-task-queue-worker-capacity')!, 'application/xml')
+    for (const id of ['buffer', 'dispatcher', 'state', 'dispatch-w1', 'dispatch-w2', 'result-w1', 'result-w2', 'capacity-feedback', 'rejected']) {
+      expect(queue.getElementById(`r6-queue-${id}`), id).not.toBeNull()
+    }
+    const risk = new DOMParser().parseFromString(sources.get('svg-file-service-residual-risk')!, 'application/xml')
+    for (const id of ['isolated', 'worker', 'storage', 'detection', 'response', 'monitor-worker', 'monitor-store', 'response-control']) {
+      expect(risk.getElementById(`r6-risk-${id}`), id).not.toBeNull()
+    }
+  })
+
+  it('时间区间与成本累计源表和 SVG 几何使用同一比例尺', () => {
+    const fixture = readFixture('e2e/fixtures/test-diagram-design.md')
+    const cases = new Map(extractBoundCodeFences(fixture, 'svg').map(item => [item.id, item.source]))
+    const latency = new DOMParser().parseFromString(cases.get('svg-request-latency-stage-breakdown')!, 'application/xml')
+    const intervals = [...fixture.matchAll(/^\| (?:授权|读取|等待|计算|输出) \| (\d+) \| (\d+) \| (\d+) \| (?:执行|等待) \|$/gm)]
+    expect(intervals).toHaveLength(5)
+    let end = 0
+    intervals.forEach((row, index) => {
+      const [start, finish, duration] = row.slice(1).map(Number)
+      expect(start).toBe(end)
+      expect(finish - start).toBe(duration)
+      const rect = latency.querySelector(`#r6-latency-stage-${index}`)!
+      expect(Number(rect.getAttribute('x'))).toBeCloseTo(60 + start * 1.7, 3)
+      expect(Number(rect.getAttribute('width'))).toBeCloseTo(duration * 1.7, 3)
+      end = finish
+    })
+    expect(end).toBe(400)
+    const cost = new DOMParser().parseFromString(cases.get('svg-service-monthly-cost-bridge')!, 'application/xml')
+    const rows = [...fixture.matchAll(/^\| (?:现状|计算扩容|冷数据分层|新增工作池|规格优化|目标) \| (总量|增量) \| ([+-]?\d+) \| (\d+) \|$/gm)]
+    expect(rows).toHaveLength(6)
+    let accumulated = 0
+    rows.forEach((row, index) => {
+      const value = Number(row[2]), before = accumulated
+      accumulated = row[1] === '总量' ? value : accumulated + value
+      expect(accumulated).toBe(Number(row[3]))
+      const rect = cost.querySelector(`#r6-cost-bar-${index}`)!
+      expect(Number(rect.getAttribute('height'))).toBeCloseTo(Math.abs(value) * 400 / 30000, 2)
+      expect(Number(rect.getAttribute('y'))).toBeCloseTo(560 - Math.max(row[1] === '总量' ? 0 : before, accumulated) * 400 / 30000, 2)
+      if (index < 5) {
+        expect(Number(cost.querySelector(`#r6-cost-carry-${index}`)!.getAttribute('y1'))).toBeCloseTo(560 - accumulated * 400 / 30000, 3)
+      }
+    })
+    expect(accumulated).toBe(26000)
   })
 
   for (const fixture of FIXTURES) {

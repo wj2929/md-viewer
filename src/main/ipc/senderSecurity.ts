@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import * as fs from 'fs/promises'
 import type { IPCContext } from './context'
-import { validateSecurePathInBase } from '../security'
+import { ProtectedPathError, validateSecurePathInBase } from '../security'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
 
 export function getSenderWindow(ctx: IPCContext, event: Electron.IpcMainInvokeEvent): Electron.BrowserWindow {
@@ -101,7 +101,8 @@ export async function validateSenderReadPath(
   // 绝大多数读取都在发起窗口根内，这条路径无额外开销
   try {
     return await validateSecurePathInBase(targetPath, getSenderFolderRoot(ctx, event))
-  } catch {
+  } catch (error) {
+    if (error instanceof ProtectedPathError) throw error
     // 落到放行集判定
   }
 
@@ -119,7 +120,8 @@ export async function validateSenderReadPath(
   for (const root of candidateRoots) {
     try {
       return await validateSecurePathInBase(targetPath, root)
-    } catch {
+    } catch (error) {
+      if (error instanceof ProtectedPathError) throw error
       // 尝试下一个根
     }
   }
