@@ -1,3 +1,4 @@
+import type { WorkspaceDirectoryEntry, WorkspaceResourceRequest, WorkspaceResourceResult, WorkspaceBrowserAction, WorkspaceBrowserInput, WorkspaceBrowserResult, WorkspaceBrowserSelection } from '../shared/directoryBrowser'
 import type { LargeDocumentSize } from '../shared/largeDocumentApproval'
 import type { FileTreeSortSnapshot, FileTreeMetadataResult } from '../shared/fileTreeSort'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
@@ -46,6 +47,16 @@ const api = {
     trace
       ? ipcRenderer.invoke('fs:readDir', path, trace)
       : ipcRenderer.invoke('fs:readDir', path),
+  readWorkspaceResource: (request: WorkspaceResourceRequest, asText?: boolean, previousHandle?: string) =>
+    ipcRenderer.invoke('browser:readResource', request, asText, previousHandle) as Promise<WorkspaceResourceResult>,
+  openWorkspaceResource: (handle: string) =>
+    ipcRenderer.invoke('browser:openResource', handle) as Promise<LocalAttachmentOpenResult>,
+  listWorkspaceDirectory: (operation: WorkspaceOperationContext, relativePath: string) =>
+    ipcRenderer.invoke('browser:listDirectory', operation, relativePath) as Promise<WorkspaceDirectoryEntry[]>,
+  showWorkspaceContextMenu: (operation: WorkspaceOperationContext, relativePath: string) =>
+    ipcRenderer.invoke('browser:showContextMenu', operation, relativePath) as Promise<WorkspaceBrowserSelection | null>,
+  performWorkspaceBrowserAction: (operation: WorkspaceOperationContext, id: string, action: WorkspaceBrowserAction, input?: WorkspaceBrowserInput) =>
+    ipcRenderer.invoke('browser:performAction', operation, id, action, input) as Promise<WorkspaceBrowserResult>,
   listChildDirs: (path: string) =>
     ipcRenderer.invoke('fs:listChildDirs', path) as Promise<Array<{ name: string; path: string }>>,
   readFile: (path: string, trace?: DiagnosticTraceContext) =>

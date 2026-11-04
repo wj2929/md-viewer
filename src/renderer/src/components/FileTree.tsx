@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react'
 import { FileTreeSortButton } from './FileTreeSortControls'
 import { useFileTreeSortStore } from '../stores/fileTreeSortStore'
 import { useFileTreeSortMetadata } from '../hooks/useFileTreeSortMetadata'
@@ -45,6 +45,7 @@ interface FileTreeProps {
   selectedPath?: string
   revealRequest?: FileTreeRevealRequest | null
   basePath: string
+  toolbarAction?: ReactNode
   onFileRenamed?: (oldPath: string, newName: string) => void
   // v1.3 阶段 5：多选支持
   selectedPaths?: Set<string>
@@ -426,7 +427,7 @@ function isReactImeComposingEvent(e: React.KeyboardEvent): boolean {
 }
 
 // 文件树组件
-export function FileTree({ files, onFileSelect, selectedPath, revealRequest, basePath, onFileRenamed, selectedPaths, onSelectionChange, onMoveSuccess, onMoveError }: FileTreeProps): JSX.Element {
+export function FileTree({ files, onFileSelect, selectedPath, revealRequest, basePath, toolbarAction, onFileRenamed, selectedPaths, onSelectionChange, onMoveSuccess, onMoveError }: FileTreeProps): JSX.Element {
   const [filterQuery, setFilterQuery] = useState('')
   const filterInputRef = useRef<HTMLInputElement>(null)
   const treeRef = useRef<HTMLDivElement>(null)
@@ -960,8 +961,9 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
 
   if (!treeStateLoaded || loadedBasePath !== basePath) {
     return (
-      <div className="file-tree-loading" role="status" aria-live="polite">
-        正在恢复文件夹状态...
+      <div className="file-tree-loading file-tree-status-row" role="status" aria-live="polite">
+        <span>正在恢复文件夹状态...</span>
+        {toolbarAction}
       </div>
     )
   }
@@ -969,7 +971,7 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
   if (files.length === 0) {
     return (
       <div className="file-tree-empty">
-        <p>没有找到 Markdown 或 Excalidraw 文件</p>
+        <p className="file-tree-status-row"><span>没有找到 Markdown 或 Excalidraw 文件</span>{toolbarAction}</p>
       </div>
     )
   }
@@ -1004,6 +1006,7 @@ export function FileTree({ files, onFileSelect, selectedPath, revealRequest, bas
           </button>
         )}
         <FileTreeSortButton />
+        {toolbarAction}
         {hasResettableFolderTreeState && (
           <button
             type="button"

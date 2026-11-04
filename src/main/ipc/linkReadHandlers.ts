@@ -2,11 +2,15 @@ import { ipcMain } from 'electron'
 import { LinkReadService } from '../linkReadService'
 import type { IPCContext } from './context'
 import type { LinkedReadRequest } from '../../shared/linkRead'
+import type { WorkspaceResourceRequest } from '../../shared/directoryBrowser'
 import type { WorkspaceOperationContext } from '../../shared/workspace'
 
 export function registerLinkReadHandlers(ctx: IPCContext): void {
   const service = new LinkReadService(ctx)
   ctx.linkReadService = service
+  ipcMain.handle('browser:readResource', (event, request: WorkspaceResourceRequest, asText?: boolean, previousHandle?: string) =>
+    service.readWorkspaceResource(event, request, asText, previousHandle))
+  ipcMain.handle('browser:openResource', (event, handle: string) => service.openWorkspaceResource(event, handle))
   ipcMain.handle('linkRead:prepareDocument', (event, request: LinkedReadRequest) => service.prepareDocument(event, request))
   ipcMain.handle('linkRead:prepareRefresh', (event, operation: WorkspaceOperationContext,
     documentId: string, leafId: string, requestId: string) =>

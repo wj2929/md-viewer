@@ -121,6 +121,41 @@ describe('初始阅读位置与滚动上报', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('布局开始时取消500ms内的旧回调，恢复后不能重放旧位置', () => {
+    const { onChange } = setup(undefined)
+    container.scrollTop = 300; fireEvent.scroll(container)
+    vi.advanceTimersByTime(100)
+    box.setAttribute('data-browser-layout-paused', '')
+    box.dispatchEvent(new Event('browser-layout-start', { bubbles: true }))
+    box.removeAttribute('data-browser-layout-paused')
+    vi.advanceTimersByTime(1000)
+    expect(onChange).not.toHaveBeenCalled()
+    container.scrollTop = 400; fireEvent.scroll(container); vi.advanceTimersByTime(500)
+    expect(onChange).toHaveBeenCalledWith({ scrollRatio: 0.4 })
+  })
+
+  it.each(['hidden', 'inert', 'data-browser-layout-paused'])('回调执行时重新检查 %s，隐藏或过渡位置不保存', attribute => {
+    const { onChange } = setup(undefined)
+    container.scrollTop = 300; fireEvent.scroll(container)
+    box.setAttribute(attribute, '')
+    vi.advanceTimersByTime(1000)
+    expect(onChange).not.toHaveBeenCalled()
+    box.removeAttribute(attribute)
+    container.scrollTop = 450; fireEvent.scroll(container); vi.advanceTimersByTime(500)
+    expect(onChange).toHaveBeenCalledWith({ scrollRatio: 0.45 })
+  })
+
+  it.each([true, false])('尺寸不可测量时不保存；可见面板正常保存（active=%s）', active => {
+    const { onChange } = setup(undefined, active)
+    container.scrollTop = 300; fireEvent.scroll(container)
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 0 })
+    vi.advanceTimersByTime(1000)
+    expect(onChange).not.toHaveBeenCalled()
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 100 })
+    fireEvent.scroll(container); vi.advanceTimersByTime(500)
+    expect(onChange).toHaveBeenCalledWith({ scrollRatio: 0.3 })
+  })
+
   it('卸载取消定时器及观察器，不写迟到记录', () => {
     const { unmount, onChange } = setup(0.6)
     unmount(); vi.advanceTimersByTime(1000)

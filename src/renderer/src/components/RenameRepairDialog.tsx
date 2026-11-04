@@ -15,6 +15,8 @@ interface RenameRepairDialogProps {
   impact: LinkImpactSummary
   onMoved: (newPath: string) => void | Promise<void>
   onClose: () => void
+  executeOperation?: () => ReturnType<typeof window.api.executeLinkRewriteOperation>
+  isDirectory?: boolean
 }
 
 type Stage = 'impact' | 'moving' | 'result' | 'diff' | 'repair-result'
@@ -27,6 +29,8 @@ export function RenameRepairDialog({
   impact,
   onMoved,
   onClose,
+  executeOperation,
+  isDirectory = false,
 }: RenameRepairDialogProps): JSX.Element {
   const [stage, setStage] = useState<Stage>('impact')
   const [newPath, setNewPath] = useState<string | null>(null)
@@ -44,12 +48,12 @@ export function RenameRepairDialog({
     setStage('moving')
     setError(null)
     try {
-      const execution = await window.api.executeLinkRewriteOperation(operation, {
+      const execution = await (executeOperation ? executeOperation() : window.api.executeLinkRewriteOperation(operation, {
         impactId: impact.impactId,
         mapping,
         reason: 'rename',
         confirm: true,
-      })
+      }))
       setNewPath(execution.newPath)
       await onMoved(execution.newPath)
       if (impact.exactChanges > 0) {
@@ -138,7 +142,7 @@ export function RenameRepairDialog({
             <span className="move-to-target">此确认只授权重命名，不修改 Markdown 链接。</span>
             <div className="move-to-actions">
               <button className="move-to-btn" onClick={onClose}>取消</button>
-              <button className="move-to-btn primary" onClick={() => void executeRename()}>重命名文件</button>
+              <button className="move-to-btn primary" onClick={() => void executeRename()}>重命名{isDirectory ? '文件夹' : '文件'}</button>
             </div>
           </div>
         </>}

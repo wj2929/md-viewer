@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { linkedReadErrorMessages, type LinkedAttachmentResult, type LinkedReadRequest } from '../../../shared/linkRead'
+import type { WorkspaceResourceRequest, WorkspaceResourceResult } from '../../../shared/directoryBrowser'
 import { MarkdownEditorPane, type MarkdownEditorPaneHandle } from './editor/MarkdownEditorPane'
 import { attachmentErrorMessages, attachmentNoticeMessages, formatAttachmentJson, formatAttachmentJsonLines } from '../utils/localAttachmentText'
 import type { Extension } from '@codemirror/state'
@@ -11,12 +12,20 @@ export interface LocalAttachmentDialogHandle {
   search: () => void
 }
 
-export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
-  readRequest: LinkedReadRequest
+type AttachmentViewProps = {
   isCurrent: () => boolean
   onClose: () => void
-}>(function LocalAttachmentDialog({ readRequest, isCurrent, onClose }, ref) {
-  const [result, setResult] = useState<LinkedAttachmentResult | null>(null)
+} & ({ readRequest: LinkedReadRequest; workspaceRequest?: never; initialResult?: never }
+  | { readRequest?: never; workspaceRequest: WorkspaceResourceRequest; initialResult: WorkspaceResourceResult })
+
+export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, AttachmentViewProps>(function LocalAttachmentDialog(props, ref) {
+  return <LocalAttachmentContent {...props} ref={ref} />
+})
+
+export const LocalAttachmentContent = forwardRef<LocalAttachmentDialogHandle, AttachmentViewProps>(function LocalAttachmentContent({ readRequest, workspaceRequest, initialResult, isCurrent, onClose }, ref) {
+  const inline = Boolean(workspaceRequest)
+  const request = workspaceRequest ?? readRequest!
+  const [result, setResult] = useState<WorkspaceResourceResult | null>(initialResult ?? null)
   const [formatted, setFormatted] = useState(true)
   const [sqlFormatted, setSqlFormatted] = useState(false)
   const [sqlFormatting, setSqlFormatting] = useState(false)
@@ -30,7 +39,13 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const aliveRef = useRef(true)
-  const resourceRef = useRef<string | undefined>(undefined)
+  const resourceRef = useRef<string | undefined>(initialResult?.resourceHandle)
+  const mediaRef = useRef<HTMLMediaElement | null>(null)
+  const [previewError, setPreviewError] = useState(false)
+  useEffect(() => {
+    const media = mediaRef.current
+    return () => { if (media) { media.pause(); media.removeAttribute('src'); media.load() } }
+  }, [result?.preview?.url])
   const release = (value: LinkedAttachmentResult) => {
     if (value.resourceHandle) void window.api.releaseLinkedReads([value.resourceHandle]).catch(() => {})
   }
@@ -39,25 +54,25 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
 
   useEffect(() => {
     aliveRef.current = true
-    closeRef.current?.focus()
+    if (!inline) closeRef.current?.focus()
     let current = true
-    window.api.readLinkedAttachment(readRequest).then(value => {
+    if (readRequest) window.api.readLinkedAttachment(readRequest).then(value => {
       if (current && isCurrent()) { resourceRef.current = value.resourceHandle; setResult(value) }
       else release(value)
     }).catch(() => { if (current && isCurrent()) setResult({ kind: 'error', code: 'unavailable' }) })
     const wheel = (event: WheelEvent) => {
       if (!dialogRef.current?.contains(event.target as Node)) event.preventDefault()
     }
-    document.addEventListener('wheel', wheel, { passive: false })
+    if (!inline) document.addEventListener('wheel', wheel, { passive: false })
     return () => {
       current = false
       aliveRef.current = false
       if (resourceRef.current) void window.api.releaseLinkedReads([resourceRef.current]).catch(() => {})
       resourceRef.current = undefined
-      void window.api.cancelLinkedRead(readRequest.operation, readRequest.leafId, readRequest.requestId).catch(() => {})
+      void window.api.cancelLinkedRead(request.operation, request.leafId, request.requestId).catch(() => {})
       document.removeEventListener('wheel', wheel)
     }
-  }, [readRequest, isCurrent])
+  }, [readRequest, request, inline, isCurrent])
 
   const json = result?.kind === 'text' && result.extension === '.json'
   const jsonLines = result?.kind === 'text' && (result.extension === '.jsonl' || result.extension === '.ndjson')
@@ -99,9 +114,9 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
   }, [language, highlightEnabled, highlightBudget, isCurrent])
   const name = result && result.kind !== 'error' ? result.name : '本地附件'
   useEffect(() => {
-    if (result?.kind === 'text' && isCurrent() &&
+    if (!inline && result?.kind === 'text' && isCurrent() &&
       (document.activeElement === closeRef.current || document.activeElement === document.body)) editorRef.current?.focus()
-  }, [result, isCurrent])
+  }, [result, isCurrent, inline])
 
   const action = async (kind: 'reveal' | 'open' | 'text') => {
     if (busy || !isCurrent() || !resourceRef.current) return
@@ -110,15 +125,17 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
     try {
       if (kind === 'text') {
         const previousHandle = resourceRef.current
-        const value = await window.api.readLinkedAttachment(readRequest, true, previousHandle)
+        const value = workspaceRequest ? await window.api.readWorkspaceResource(workspaceRequest, true, previousHandle)
+          : await window.api.readLinkedAttachment(readRequest!, true, previousHandle)
         void window.api.releaseLinkedReads([previousHandle]).catch(() => {})
         if (aliveRef.current && isCurrent()) { resourceRef.current = value.resourceHandle; setResult(value) }
         else release(value)
       } else if (kind === 'reveal') {
         const response = await window.api.revealLinkedResource(resourceRef.current)
         if (!response.success && aliveRef.current && isCurrent()) setActionError(linkedReadErrorMessages[response.code])
-      } else if (result?.systemOpenRef) {
-        const response = await window.api.openLocalAttachment(readRequest.source.filePath, result.systemOpenRef)
+      } else if (workspaceRequest || result?.systemOpenRef) {
+        const response = workspaceRequest ? await window.api.openWorkspaceResource(resourceRef.current)
+          : await window.api.openLocalAttachment(readRequest!.source.filePath, result!.systemOpenRef!)
         if (!response.success && !response.cancelled && aliveRef.current && isCurrent()) {
           setActionError(attachmentErrorMessages[response.code ?? 'unavailable'])
         }
@@ -128,8 +145,8 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
   }
 
   return (
-    <div className="local-attachment-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="local-attachment-dialog" role="dialog" aria-modal="true" aria-labelledby="local-attachment-title"
+    <div className={inline ? 'workspace-resource-preview' : 'local-attachment-backdrop'} onClick={event => { if (!inline && event.target === event.currentTarget) onClose() }}>
+      <div className={`local-attachment-dialog${inline ? ' workspace-resource-content' : ''}`} role={inline ? 'region' : 'dialog'} aria-modal={inline ? undefined : true} aria-labelledby="local-attachment-title"
         ref={dialogRef} onKeyDown={event => {
           if (event.defaultPrevented) { event.stopPropagation(); return }
           if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
@@ -141,7 +158,7 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
           if (event.key === 'Escape') {
             event.preventDefault(); event.stopPropagation()
             if (!editorRef.current?.closeSearch()) onClose()
-          } else if (event.key === 'Tab') {
+          } else if (!inline && event.key === 'Tab') {
             const nodes = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
               'button:not(:disabled), input, [tabindex="0"], [contenteditable="true"]',
             ) ?? []).filter(node => node.getClientRects().length > 0)
@@ -150,8 +167,8 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
           }
         }}>
-        <header><h2 id="local-attachment-title">{name}{result?.kind === 'text' && <span> · 只读</span>}</h2>
-          <button ref={closeRef} aria-label="关闭附件" onClick={onClose}>×</button></header>
+        <header><h2 id="local-attachment-title">{inline && '临时预览 · '}{name}{result?.kind === 'text' && <span> · 只读</span>}</h2>
+          <button ref={closeRef} aria-label={inline ? '关闭预览' : '关闭附件'} onClick={onClose}>×</button></header>
         {result && result.kind !== 'error' && <>
           <p className="local-attachment-path" title={result.relativePath}>{result.relativePath}</p>
           <p className="local-attachment-meta">类型：{result.extension || '无后缀'} · 大小：{result.size.toLocaleString()} 字节</p>
@@ -184,8 +201,13 @@ export const LocalAttachmentDialog = forwardRef<LocalAttachmentDialogHandle, {
               <div className="local-attachment-content"><MarkdownEditorPane ref={editorRef} content={content}
                 readOnly plainText syntaxExtension={highlightEnabled && highlightBudget ? syntaxExtension : undefined}
                 accessibleLabel="只读附件文本" onChange={() => {}} onSave={() => {}} /></div>
-            </> : <p role="status">{result.notice ? attachmentNoticeMessages[result.notice] : '本应用不内置查看此附件类型。'}</p>}
-            <footer>{result.canViewAsText && <button disabled={busy} onClick={() => void action('text')}>按文本查看</button>}
+            </> : result.preview && !previewError ? <div className="workspace-resource-media">
+              {result.preview.kind === 'image' ? <img src={result.preview.url} alt={result.name} onError={() => setPreviewError(true)} />
+                : result.preview.kind === 'audio' ? <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} src={result.preview.url} controls preload="metadata" onError={() => setPreviewError(true)} />
+                  : <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={result.preview.url} controls preload="metadata" onError={() => setPreviewError(true)} />}
+            </div> : <p role="status">{previewError ? '无法解码此文件，请使用合适的系统工具查看。' : inline && result.notice === 'unsupported' ? '此格式暂不支持应用内预览。' : result.notice ? attachmentNoticeMessages[result.notice] : '本应用不内置查看此附件类型。'}</p>}
+            {inline && !result.canOpenExternally && result.kind === 'file' && !result.preview && <p className="local-attachment-meta">请在文件管理器中选择合适的工具打开。</p>}
+            <footer>{inline && <button onClick={() => { void navigator.clipboard.writeText(result.relativePath).catch(() => setActionError('复制路径失败，请重试。')) }}>复制相对路径</button>}{result.canViewAsText && <button disabled={busy} onClick={() => void action('text')}>按文本查看</button>}
               <button disabled={busy} onClick={() => void action('reveal')}>{result.revealLabel}</button>
               {result.canOpenExternally && <button disabled={busy} onClick={() => void action('open')}>用系统应用打开</button>}
               <button onClick={onClose}>关闭</button></footer>

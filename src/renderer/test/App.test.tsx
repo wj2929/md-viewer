@@ -1,6 +1,6 @@
 // @ts-nocheck - 测试文件的类型检查暂时跳过
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, within, waitFor, fireEvent, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import App from '../src/App'
 import { useFileStore } from '../src/stores/fileStore'
@@ -29,6 +29,16 @@ const folderActivation = (path: string) => ({
 })
 
 const mockApi = {
+  showWorkspaceContextMenu: vi.fn(),
+  performWorkspaceBrowserAction: vi.fn().mockResolvedValue({}),
+  listWorkspaceDirectory: vi.fn().mockResolvedValue([]),
+  readWorkspaceResource: vi.fn(),
+  openWorkspaceResource: vi.fn().mockResolvedValue({ success: false, cancelled: true }),
+  getRecentFiles: vi.fn().mockResolvedValue([]),
+  activateRecentFile: vi.fn(),
+  activateBookmark: vi.fn(),
+  getFolderTabSession: vi.fn().mockResolvedValue({ tabs: [] }),
+  saveFolderTabSession: vi.fn().mockResolvedValue(undefined),
   openFolder: vi.fn(),
   readDir: vi.fn(),
   readFile: vi.fn(),
@@ -52,6 +62,7 @@ const mockApi = {
   applyLinkRepairPlan: vi.fn().mockResolvedValue({ planId: 'plan-test', files: [] }),
   discardLinkRepairPlan: vi.fn().mockResolvedValue(undefined),
   // v1.2 阶段 2：文件操作
+  duplicatePath: vi.fn().mockResolvedValue({ newPath: '/test/folder/A copy.md' }),
   copyFile: vi.fn().mockResolvedValue('/new/path'),
   copyDir: vi.fn().mockResolvedValue('/new/path'),
   moveFile: vi.fn().mockResolvedValue('/new/path'),
@@ -1469,6 +1480,315 @@ describe('App 集成测试', () => {
       expect(document.querySelector('.split-panel-content.with-quick-edit .quick-edit-drawer')).not.toBeInTheDocument()
     })
   })
+  describe('工作区完整目录与临时预览协调', () => {
+    const file = (name: string) => ({ name: `${name}.md`, path: `/test/folder/${name}.md`, isDirectory: false })
+    const resource = (name = 'data.json', handle = `handle-${name}`) => ({ kind: 'text', name, relativePath: name,
+      extension: '.json', size: 13, content: '{"value":123}', revealLabel: '在 Finder 中显示', canOpenExternally: true, resourceHandle: handle })
+    beforeEach(() => {
+      mockApi.showWorkspaceContextMenu.mockReset()
+      mockApi.performWorkspaceBrowserAction.mockReset().mockResolvedValue({})
+      useWorkspaceStore.setState({ workspaces: [{ id: 'test-workspace', name: '测试', primaryRoot: '/test/folder', lifecycleEpoch: 1 }], activeWorkspaceId: 'test-workspace', runtimes: {} })
+      const files = ['A', 'B', 'C'].map(file)
+      mockApi.readDir.mockResolvedValue(files)
+      useFileStore.setState({ folderPath: '/test/folder', files, isLoading: false, selectedPaths: new Set() })
+      useTabStore.setState({ tabs: [{ id: 'tab-A', file: file('A'), content: '# A' }], activeTabId: 'tab-A', splitState: { root: null, activeLeafId: '' } })
+      mockApi.readFile.mockReset().mockImplementation(async path => `# ${path.split('/').at(-1).replace('.md', '')}`)
+      mockApi.listWorkspaceDirectory.mockReset().mockResolvedValue(['A.md', 'B.md', 'C.md', 'data.json', 'image.png'].map(name => ({ name, relativePath: name, kind: 'file' })))
+      mockApi.readWorkspaceResource.mockReset().mockImplementation(async request => request.relativePath === 'image.png'
+        ? { ...resource('image.png'), kind: 'file', preview: { kind: 'image', url: 'local-image://asset/synthetic' } }
+        : resource())
+    })
+    const browser = () => within(screen.getByRole('complementary', { name: '工作区文件' }))
+    const select = (name: string) => fireEvent.click(browser().getByRole('button', { name, exact: true }))
+    async function open() {
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '浏览工作区文件' }))
+      await browser().findByRole('button', { name: 'data.json', exact: true })
+    }
+    async function showResource() {
+      await open(); select('data.json')
+      await screen.findByRole('textbox', { name: '只读附件文本' })
+    }
+    async function contextAction(action: string, relativePath = 'A.md', kind = 'file') {
+      const target = { id: `target-${relativePath}`, relativePath, name: relativePath.split('/').at(-1), path: `/test/folder/${relativePath}`, kind }
+      mockApi.showWorkspaceContextMenu.mockResolvedValueOnce({ action, target })
+      fireEvent.contextMenu(browser().getByRole('button', { name: target.name, exact: true }))
+      return target
+    }
+    it('右键复制绑定中栏目标，不更改左树选择或打开文档', async () => {
+      await open()
+      act(() => useFileStore.setState({ selectedPaths: new Set(['/test/folder/B.md']) }))
+      await contextAction('copy-path', 'data.json')
+      await waitFor(() => expect(mockApi.performWorkspaceBrowserAction).toHaveBeenCalledWith({ workspaceId: 'test-workspace', lifecycleEpoch: 1 }, 'target-data.json', 'copy-path'))
+      expect(useFileStore.getState().selectedPaths).toEqual(new Set(['/test/folder/B.md']))
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+      expect(mockApi.readWorkspaceResource).not.toHaveBeenCalled()
+    })
+    it.each(['dirty', 'pendingInput', 'composing', 'saving'])('草稿 %s 状态阻止重命名和废纸篓，但不修改草稿', async flag => {
+      await open()
+      act(() => {
+        useEditSessionStore.getState().openSession({ canonicalPath: '/test/folder/A.md', displayPath: '/test/folder/A.md', fileName: 'A.md', content: '# A', mtimeMs: 1, size: 3, revisionToken: '1' })
+        useEditSessionStore.setState(state => ({ sessions: { ...state.sessions, '/test/folder/A.md': { ...state.sessions['/test/folder/A.md'], [flag]: true } } }))
+      })
+      await contextAction('trash')
+      expect(await screen.findByRole('alert')).toHaveTextContent('草稿')
+      expect(mockApi.performWorkspaceBrowserAction).not.toHaveBeenCalled()
+      await contextAction('rename')
+      expect(await screen.findByRole('alert')).toHaveTextContent('草稿')
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(useEditSessionStore.getState().sessions['/test/folder/A.md'][flag]).toBe(true)
+    })
+    it('新建默认 Markdown，允许取消，成功后普通资源不进标签', async () => {
+      await open()
+      const root = { id: 'root-target', relativePath: '', name: 'folder', path: '/test/folder', kind: 'directory' }
+      mockApi.showWorkspaceContextMenu.mockResolvedValueOnce({ action: 'create-file', target: root })
+      fireEvent.contextMenu(browser().getByRole('tree'))
+      expect(await screen.findByRole('textbox', { name: '名称' })).toHaveValue('未命名.md')
+      fireEvent.keyDown(screen.getByRole('textbox', { name: '名称' }), { key: 'Escape' })
+      expect(mockApi.performWorkspaceBrowserAction).not.toHaveBeenCalled()
+      mockApi.showWorkspaceContextMenu.mockResolvedValueOnce({ action: 'create-file', target: root })
+      fireEvent.contextMenu(browser().getByRole('tree'))
+      fireEvent.change(await screen.findByRole('textbox', { name: '名称' }), { target: { value: 'new.json' } })
+      mockApi.performWorkspaceBrowserAction.mockImplementation(async (_operation, _id, action) => action === 'create-file'
+        ? { entry: { name: 'new.json', relativePath: 'new.json', kind: 'file' } } : {})
+      fireEvent.click(screen.getByRole('button', { name: '继续' }))
+      await screen.findByRole('textbox', { name: '只读附件文本' })
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+      expect(mockApi.addRecentFile).not.toHaveBeenCalled()
+    })
+    it('目录重命名同步后代标签并保留分屏ID、无关标签和未自动修复链接', async () => {
+      mockApi.listWorkspaceDirectory.mockResolvedValue([{ name: 'docs', relativePath: 'docs', kind: 'directory' }, { name: 'data.json', relativePath: 'data.json', kind: 'file' }])
+      const child = { id: 'child-tab', file: { name: 'child.md', path: '/test/folder/docs/child.md', isDirectory: false }, content: '# Child', isPinned: true }
+      const sibling = { id: 'sibling-tab', file: { name: 'sibling.md', path: '/test/folder/docs-other/sibling.md', isDirectory: false }, content: '# Sibling' }
+      useTabStore.setState(state => ({ tabs: [...state.tabs, child, sibling], splitState: { root: { type: 'split', id: 'split', direction: 'horizontal', ratio: 0.5,
+        first: { type: 'leaf', id: 'first', tabId: 'tab-A' }, second: { type: 'leaf', id: 'second', tabId: child.id } }, activeLeafId: 'first' } }))
+      useWorkspaceStore.getState().upsertWorkspace({ id: 'background', name: 'background', primaryRoot: '/test/folder', lifecycleEpoch: 1 })
+      useWorkspaceStore.getState().saveRuntime('background', { ...useWorkspaceStore.getState().getRuntime('background'), folderPath: '/test/folder',
+        tabs: [{ ...child, id: 'background-tab' }], activeTabId: 'background-tab',
+        documentViews: { 'single:background-tab': { mode: 'edit', compareRatio: 0.5, target: null } },
+        quickEditPlacements: { single: { filePath: child.file.path, tabId: 'background-tab', mode: 'document' } } })
+      await open()
+      await contextAction('rename', 'docs', 'directory')
+      fireEvent.change(await screen.findByRole('textbox', { name: '名称' }), { target: { value: 'renamed' } })
+      fireEvent.click(screen.getByRole('button', { name: '继续' }))
+      await screen.findByRole('button', { name: '重命名文件夹' })
+      expect(mockApi.executeLinkRewriteOperation).not.toHaveBeenCalled()
+      mockApi.performWorkspaceBrowserAction.mockImplementation(async (_operation, _id, action) => action === 'rename'
+        ? { renamed: { newPath: '/test/folder/renamed', receipt: { operationReceiptId: 'receipt' } } } : {})
+      const before = useTabStore.getState().splitState
+      fireEvent.click(screen.getByRole('button', { name: '重命名文件夹' }))
+      await screen.findByRole('heading', { name: /重命名结果/ })
+      expect(useTabStore.getState().tabs.find(tab => tab.id === child.id)).toMatchObject({ file: { path: '/test/folder/renamed/child.md' }, isPinned: true })
+      expect(useTabStore.getState().tabs.find(tab => tab.id === sibling.id)?.file.path).toBe(sibling.file.path)
+      expect(useTabStore.getState().splitState).toEqual(before)
+      const runtime = useWorkspaceStore.getState().getRuntime('background')
+      expect(runtime.tabs[0].file.path).toBe('/test/folder/renamed/child.md')
+      expect(runtime.documentViews['single:background-tab'].mode).toBe('preview')
+      expect(runtime.quickEditPlacements).toEqual({})
+      expect(runtime.files).toEqual(useFileStore.getState().files)
+      expect(mockApi.applyLinkRepairPlan).not.toHaveBeenCalled()
+    })
+    it('删除确认取消保留资源；成功仅关闭目标资源，保留原文档', async () => {
+      await showResource()
+      mockApi.performWorkspaceBrowserAction.mockResolvedValueOnce({ deleted: false })
+      await contextAction('trash', 'data.json')
+      await waitFor(() => expect(mockApi.performWorkspaceBrowserAction).toHaveBeenCalled())
+      expect(screen.getByRole('textbox', { name: '只读附件文本' })).toBeVisible()
+      mockApi.performWorkspaceBrowserAction.mockResolvedValueOnce({ deleted: true })
+      await contextAction('trash', 'data.json')
+      await waitFor(() => expect(screen.queryByRole('textbox', { name: '只读附件文本' })).toBeNull())
+      expect(useTabStore.getState().tabs.map(tab => tab.id)).toEqual(['tab-A'])
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalledWith(['handle-data.json'])
+    })
+
+    it('当前窗口打开目录必须先归档父目录会话再激活', async () => {
+      mockApi.listWorkspaceDirectory.mockResolvedValue([{ name: 'docs', relativePath: 'docs', kind: 'directory' }, { name: 'data.json', relativePath: 'data.json', kind: 'file' }])
+      await open()
+      mockApi.performWorkspaceBrowserAction.mockResolvedValueOnce({ activation: folderActivation('/test/folder/docs') })
+      await contextAction('open-folder', 'docs', 'directory')
+      await waitFor(() => expect(useFileStore.getState().folderPath).toBe('/test/folder/docs'))
+      expect(mockApi.saveFolderTabSession).toHaveBeenCalledWith(expect.objectContaining({ tabs: [{ filePath: '/test/folder/A.md', isPinned: undefined }] }), { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
+      expect(mockApi.saveFolderTabSession.mock.invocationCallOrder[0]).toBeLessThan(mockApi.performWorkspaceBrowserAction.mock.invocationCallOrder[0])
+    })
+
+    it('切换工作区后迟到的目录激活回执不能覆盖当前窗口内容', async () => {
+      mockApi.listWorkspaceDirectory.mockResolvedValue([{ name: 'docs', relativePath: 'docs', kind: 'directory' }, { name: 'data.json', relativePath: 'data.json', kind: 'file' }])
+      await open()
+      let finish!: (value: unknown) => void
+      mockApi.performWorkspaceBrowserAction.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      await contextAction('open-folder', 'docs', 'directory')
+      await waitFor(() => expect(mockApi.performWorkspaceBrowserAction).toHaveBeenCalled())
+      act(() => {
+        useWorkspaceStore.getState().upsertWorkspace({ id: 'other', name: 'other', primaryRoot: '/other', lifecycleEpoch: 1 })
+        useWorkspaceStore.getState().setActiveWorkspaceId('other')
+        useFileStore.setState({ folderPath: '/other', files: [] })
+      })
+      await act(async () => finish({ activation: { ...folderActivation('/test/folder/docs'), workspace: { id: 'test-workspace', primaryRoot: '/test/folder/docs', lifecycleEpoch: 2 } } }))
+      expect(useFileStore.getState().folderPath).toBe('/other')
+      expect(useWorkspaceStore.getState().activeWorkspaceId).toBe('other')
+      expect(useWorkspaceStore.getState().workspaces.find(item => item.id === 'test-workspace')?.primaryRoot).toBe('/test/folder/docs')
+    })
+
+    it('归档失败时取消目录切换，不调用激活入口', async () => {
+      mockApi.listWorkspaceDirectory.mockResolvedValue([{ name: 'docs', relativePath: 'docs', kind: 'directory' }, { name: 'data.json', relativePath: 'data.json', kind: 'file' }])
+      await open()
+      mockApi.saveFolderTabSession.mockRejectedValueOnce(new Error('fixture archive failure'))
+      await contextAction('open-folder', 'docs', 'directory')
+      expect(await screen.findByRole('alert')).toHaveTextContent('未切换目录')
+      expect(mockApi.performWorkspaceBrowserAction).not.toHaveBeenCalled()
+      expect(useFileStore.getState().folderPath).toBe('/test/folder')
+    })
+
+    it.each([['renamed.md', 1], ['renamed.txt', 0]])('文件改名为 %s 后正确保持文档或非文档边界', async (name, tabCount) => {
+      await open()
+      act(() => useEditSessionStore.getState().openSession({ canonicalPath: '/test/folder/A.md', displayPath: '/test/folder/A.md', fileName: 'A.md', content: '# A', mtimeMs: 1, size: 3, revisionToken: '1' }))
+      await contextAction('rename')
+      fireEvent.change(await screen.findByRole('textbox', { name: '名称' }), { target: { value: name } })
+      fireEvent.click(screen.getByRole('button', { name: '继续' }))
+      await screen.findByRole('button', { name: '重命名文件', exact: true })
+      mockApi.performWorkspaceBrowserAction.mockImplementation(async (_operation, _id, action) => action === 'rename'
+        ? { renamed: { newPath: `/test/folder/${name}`, receipt: { operationReceiptId: 'receipt' } } } : {})
+      fireEvent.click(screen.getByRole('button', { name: '重命名文件', exact: true }))
+      await screen.findByRole('heading', { name: /重命名结果/ })
+      expect(useTabStore.getState().tabs).toHaveLength(tabCount)
+      expect(useEditSessionStore.getState().sessions['/test/folder/A.md']).toBeUndefined()
+      if (tabCount) expect(useTabStore.getState().tabs[0]).toMatchObject({ id: 'tab-A', file: { path: `/test/folder/${name}` } })
+    })
+
+    it('资源不进tab/recent，中栏与预览关闭互不绑定，原正文保持挂载', async () => {
+      await showResource()
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+      expect(mockApi.addRecentFile).not.toHaveBeenCalled()
+      expect(document.querySelector('.document-workbench')).toHaveAttribute('hidden')
+      expect(document.querySelector('.document-workbench')).toHaveAttribute('inert')
+      fireEvent.click(browser().getByRole('button', { name: '关闭工作区文件' }))
+      expect(screen.getByRole('textbox', { name: '只读附件文本' })).toBeVisible()
+      fireEvent.click(screen.getByRole('button', { name: '关闭预览' }))
+      await screen.findByRole('heading', { name: 'A', exact: true })
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      expect(document.querySelector('.document-workbench')).not.toHaveAttribute('hidden')
+    })
+    it('Markdown读取失败或取消草稿确认都保留当前有效资源', async () => {
+      await showResource()
+      mockApi.readFile.mockRejectedValueOnce(new Error('synthetic read failure'))
+      select('B.md')
+      await screen.findByText(/synthetic read failure/)
+      expect(screen.getByRole('textbox', { name: '只读附件文本' })).toBeVisible()
+      act(() => {
+        useEditSessionStore.getState().openSession({ canonicalPath: '/test/folder/A.md', displayPath: '/test/folder/A.md', fileName: 'A.md', content: '# A', mtimeMs: 1, size: 3, revisionToken: '1' })
+        useEditSessionStore.getState().updateDraft('/test/folder/A.md', '# unsaved')
+      })
+      select('B.md')
+      expect(window.confirm).toHaveBeenCalled()
+      expect(screen.getByRole('textbox', { name: '只读附件文本' })).toBeVisible()
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+    })
+    it('Markdown→图片→JSON连续点击，迟到Markdown不能创建或激活标签', async () => {
+      await open()
+      let finish!: (value: string) => void
+      mockApi.readFile.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      select('B.md')
+      await waitFor(() => expect(mockApi.readFile).toHaveBeenCalled())
+      select('image.png'); await screen.findByRole('img')
+      select('data.json'); await screen.findByRole('textbox', { name: '只读附件文本' })
+      await act(async () => finish('# B late'))
+      expect(useTabStore.getState().tabs.map(tab => tab.file.name)).toEqual(['A.md'])
+      expect(screen.getByRole('textbox', { name: '只读附件文本' })).toBeVisible()
+    })
+    it('旧资源读取迟到只释放handle；关闭预览使在途资源失效', async () => {
+      await showResource()
+      let finish!: (value: unknown) => void
+      mockApi.readWorkspaceResource.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      select('image.png')
+      await act(async () => mockApi.onShortcutCloseTab.mock.calls.at(-1)[0]())
+      await screen.findByRole('heading', { name: 'A', exact: true })
+      await act(async () => finish(resource('late.json', 'late-resource')))
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalledWith(['late-resource'])
+      expect(screen.queryByRole('textbox', { name: '只读附件文本' })).toBeNull()
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+    })
+    it('新Markdown选择不会被pending丢弃，旧结果不能覆盖最后选择', async () => {
+      await open()
+      let finish!: (value: string) => void
+      mockApi.readFile.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      select('B.md'); await waitFor(() => expect(mockApi.readFile).toHaveBeenCalled())
+      select('C.md'); await screen.findByRole('heading', { name: 'C', exact: true })
+      await act(async () => finish('# B late'))
+      expect(useTabStore.getState().tabs.some(tab => tab.file.name === 'B.md')).toBe(false)
+      expect(useTabStore.getState().tabs.find(tab => tab.id === useTabStore.getState().activeTabId)?.file.name).toBe('C.md')
+    })
+    it.each(['onShortcutNextTab', 'onShortcutPrevTab', 'onShortcutSwitchTab', 'onOpenSpecificFile'])('主进程文档导航 %s 成功后退出资源', async event => {
+      await showResource()
+      const callback = mockApi[event].mock.calls.at(-1)[0]
+      await act(async () => { if (event === 'onShortcutSwitchTab') callback(0); else if (event === 'onOpenSpecificFile') await callback('/test/folder/A.md'); else callback() })
+      await waitFor(() => expect(screen.queryByRole('textbox', { name: '只读附件文本' })).toBeNull())
+      expect(useTabStore.getState().activeTabId).toBe('tab-A')
+    })
+    it('主进程查找/关闭命令作用于资源，导出和保存不能穿透到后台文档', async () => {
+      await showResource()
+      act(() => mockApi.onShortcutFocusSearch.mock.calls.at(-1)[0]())
+      expect(document.querySelector('.workspace-resource-preview .cm-search')).not.toBeNull()
+      await act(async () => { await mockApi.onShortcutExportHTML.mock.calls.at(-1)[0](); await mockApi.onMarkdownExportDOCX.mock.calls.at(-1)[0]() })
+      fireEvent.keyDown(screen.getByRole('textbox', { name: '只读附件文本' }), { key: 's', metaKey: true })
+      expect(mockApi.exportHTML).not.toHaveBeenCalled(); expect(mockApi.saveEditableMarkdown).not.toHaveBeenCalled()
+      act(() => mockApi.onShortcutCloseTab.mock.calls.at(-1)[0]())
+      expect(useTabStore.getState().tabs).toHaveLength(1)
+      await screen.findByRole('heading', { name: 'A', exact: true })
+    })
+    it('资源期间后台内容刷新不退出预览；焦点在中栏的刷新只读取目录', async () => {
+      await showResource()
+      const changed = mockApi.onFileChanged.mock.calls.at(-1)[0]
+      await act(async () => { await changed({ workspaceId: 'test-workspace', lifecycleEpoch: 1, path: '/test/folder/A.md' }) })
+      expect(screen.getByRole('textbox', { name: '只读附件文本' })).toBeVisible()
+      mockApi.readDir.mockClear(); mockApi.readFile.mockClear(); mockApi.listWorkspaceDirectory.mockClear()
+      fireEvent.focus(browser().getByRole('textbox', { name: '过滤已加载项' }))
+      await act(async () => mockApi.onShortcutRefresh.mock.calls.at(-1)[0]())
+      expect(mockApi.listWorkspaceDirectory).toHaveBeenCalled()
+      expect(mockApi.readDir).not.toHaveBeenCalled(); expect(mockApi.readFile).not.toHaveBeenCalled()
+    })
+    it('Windows目录条目使用原生分隔符，复用已有文档标签而不重复打开', async () => {
+      const previous = mockApi.platform
+      mockApi.platform = 'win32'
+      try {
+        const root = 'C:\\test'
+        const files = ['A', 'B'].map(name => ({ name: `${name}.md`, path: `${root}\\${name}.md`, isDirectory: false }))
+        useWorkspaceStore.setState({ workspaces: [{ id: 'test-workspace', name: '测试', primaryRoot: root, lifecycleEpoch: 1 }], activeWorkspaceId: 'test-workspace', runtimes: {} })
+        useFileStore.setState({ folderPath: root, files, isLoading: false, selectedPaths: new Set() })
+        useTabStore.setState({ tabs: [{ id: 'tab-A', file: files[0], content: '# A' }], activeTabId: 'tab-A', splitState: { root: null, activeLeafId: '' } })
+        mockApi.readDir.mockResolvedValue(files)
+        await open(); select('A.md')
+        await waitFor(() => expect(mockApi.readFile.mock.calls.map(call => call[0])).toContain('C:\\test\\A.md'))
+        expect(useTabStore.getState().tabs).toHaveLength(1)
+        expect(useTabStore.getState().activeTabId).toBe('tab-A')
+      } finally { mockApi.platform = previous }
+    })
+    it('中栏不借原多选触发剪切或副本，原左树同类操作仍可用', async () => {
+      await showResource()
+      const target = '/test/folder/A.md'
+      act(() => useFileStore.setState({ selectedPaths: new Set([target]) }))
+      fireEvent.focus(browser().getByRole('textbox', { name: '过滤已加载项' }))
+      await act(async () => {
+        mockApi.onClipboardCut.mock.calls.at(-1)[0]([target])
+        await mockApi.onFileDuplicateRequest.mock.calls.at(-1)[0](target)
+      })
+      expect(mockApi.syncClipboardState).not.toHaveBeenCalled()
+      expect(mockApi.duplicatePath).not.toHaveBeenCalled()
+      fireEvent.pointerDown(document.querySelector('.sidebar .file-tree')!)
+      await act(async () => mockApi.onClipboardCut.mock.calls.at(-1)[0]([target]))
+      expect(mockApi.syncClipboardState).toHaveBeenCalledWith([target], true, { workspaceId: 'test-workspace', lifecycleEpoch: 1 })
+    })
+    it('切工作区后旧资源结果不会显示或留下handle', async () => {
+      await open()
+      let finish!: (value: unknown) => void
+      mockApi.readWorkspaceResource.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      select('data.json')
+      act(() => useWorkspaceStore.setState({ activeWorkspaceId: 'other', workspaces: [{ id: 'other', primaryRoot: '/other', lifecycleEpoch: 2 }] }))
+      await act(async () => finish(resource('late.json', 'old-workspace-resource')))
+      expect(mockApi.releaseLinkedReads).toHaveBeenCalledWith(['old-workspace-resource'])
+      expect(screen.queryByRole('textbox', { name: '只读附件文本' })).toBeNull()
+    })
+  })
+
   describe('本地附件与本次来源导航', () => {
     const documents = {
       A: '# A\n\n[到B](./B.md)\n\n[到C](./C.md)\n\n[JSON](./data.json)',

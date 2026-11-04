@@ -13,7 +13,7 @@ import { RecentFilesDropdown } from './RecentFilesDropdown'
 import { WatchStatus } from './WatchStatus'
 import { FileInfo } from './FileTree'
 import './NavigationBar.css'
-import { RefObject } from 'react'
+import { RefObject, type ReactNode } from 'react'
 import type { ExternalDocumentOpenOptions, OpenDocumentCommand } from '../utils/v24WorkflowContracts'
 
 interface NavigationBarProps {
@@ -38,6 +38,7 @@ interface NavigationBarProps {
   isLoading: boolean
   sidebarCollapsed: boolean
   onToggleSidebar: () => void
+  fileBrowserAction?: ReactNode
   bookmarkPanelCollapsed: boolean
   onToggleBookmarkPanel: () => void
   lastExportedFilePath?: string
@@ -66,6 +67,7 @@ export function NavigationBar({
   isLoading,
   sidebarCollapsed,
   onToggleSidebar,
+  fileBrowserAction,
   bookmarkPanelCollapsed,
   onToggleBookmarkPanel,
   lastExportedFilePath,
@@ -96,6 +98,7 @@ export function NavigationBar({
         </svg>
       </button>
 
+      {fileBrowserAction}
       {/* 当前文件夹路径 + 快捷操作 */}
       {folderPath && (
         <div className="nav-folder-section">

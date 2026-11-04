@@ -12,6 +12,8 @@ import { registerWorkspaceIndexHandlers } from './workspaceIndexHandlers'
 import { registerLinkRewriteHandlers } from './linkRewriteHandlers'
 import { registerDiagnosticsHandlers } from './diagnosticsHandlers'
 import { registerExampleHandlers } from './exampleHandlers'
+import { registerDirectoryBrowserHandlers } from './directoryBrowserHandlers'
+import { registerDirectoryBrowserActions } from './directoryBrowserActions'
 
 export type { IPCContext, AppState } from './context'
 export { getFileWatcherState } from './fileHandlers'
@@ -22,6 +24,8 @@ export { getFileWatcherState } from './fileHandlers'
 export function registerAllHandlers(ctx: IPCContext): void {
   registerWindowHandlers(ctx)
   registerFileHandlers(ctx)
+  registerDirectoryBrowserHandlers(ctx)
+  registerDirectoryBrowserActions(ctx)
   registerExportHandlers(ctx)
   registerMenuHandlers(ctx)
   registerDataHandlers(ctx)

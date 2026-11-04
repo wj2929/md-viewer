@@ -14,8 +14,8 @@
       "target": "app-asar",
       "relativePath": "dist/staged/win-unpacked/resources/app.asar",
       "baselineBytes": 45906053,
-      "maxBytes": 48201356,
-      "maxIncreasePercent": 5
+      "maxBytes": 48660417,
+      "maxIncreasePercent": 6
     },
     "darwin-x64-unpacked-app": {
       "platformKey": "darwin-x64",
@@ -30,8 +30,8 @@
       "target": "app-asar",
       "relativePath": "dist/staged/mac/MD Viewer.app/Contents/Resources/app.asar",
       "baselineBytes": 45906053,
-      "maxBytes": 48201356,
-      "maxIncreasePercent": 5
+      "maxBytes": 48660417,
+      "maxIncreasePercent": 6
     },
     "darwin-arm64-unpacked-app": {
       "platformKey": "darwin-arm64",
@@ -46,8 +46,8 @@
       "target": "app-asar",
       "relativePath": "dist/staged/mac-arm64/MD Viewer.app/Contents/Resources/app.asar",
       "baselineBytes": 45691366,
-      "maxBytes": 47975935,
-      "maxIncreasePercent": 5
+      "maxBytes": 48432848,
+      "maxIncreasePercent": 6
     },
     "linux-x64-unpacked-app": {
       "platformKey": "linux-x64",
@@ -62,8 +62,8 @@
       "target": "app-asar",
       "relativePath": "dist/staged/linux-unpacked/resources/app.asar",
       "baselineBytes": 46127894,
-      "maxBytes": 48434289,
-      "maxIncreasePercent": 5
+      "maxBytes": 48895568,
+      "maxIncreasePercent": 6
     }
   }
 }

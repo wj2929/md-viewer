@@ -8,6 +8,41 @@ import type { IPCContext } from './context'
 import { broadcastDocumentMarksChanged } from './fileHandlers'
 import { getSenderWorkspaceForOperation, validateWorkspaceOperationPath } from './senderSecurity'
 
+export async function executeWorkspaceLinkMove(
+  ctx: IPCContext,
+  event: Electron.IpcMainInvokeEvent,
+  operation: WorkspaceOperationContext,
+  input: { impactId: string; mapping: LinkMoveMapping; reason: 'move' | 'rename'; confirm: boolean },
+  beforeMove?: () => Promise<void>,
+): Promise<{ newPath: string; receipt: import('../linking/types').LinkOperationReceipt }> {
+  const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
+  const root = workspace.primaryRoot
+  if (!root || !ctx.linkRewritePlanner || !ctx.workspaceIndexService) throw new Error('当前工作区未就绪')
+  validateId(input?.impactId)
+  if (input.confirm !== true) throw new Error('必须明确确认文件操作')
+  if (input.reason !== 'move' && input.reason !== 'rename') throw new Error('文件操作原因无效')
+  const mapping = validateLinkMoveMapping(input.mapping)
+  const sourcePath = await validateWorkspaceOperationPath(ctx, event, operation, path.resolve(root, mapping.oldRelativePath))
+  const destinationPath = await validateWorkspaceOperationPath(ctx, event, operation, path.resolve(root, mapping.newRelativePath))
+  if (isSameOrChildPath(destinationPath, sourcePath)) throw new Error('无法移动目录到自身或子目录')
+  const executed = await ctx.linkRewritePlanner.executeOperation({
+    ownerId: ownerId(event.sender.id, workspace.id, operation.lifecycleEpoch), rootPath: root,
+    impactId: input.impactId, actualMapping: mapping,
+    execute: () => moveSameRootPath({ sourcePath, destinationPath, beforeMove: async () => {
+      if (getSenderWorkspaceForOperation(ctx, event, operation).primaryRoot !== root) throw new Error('当前工作区已变化')
+      await validateWorkspaceOperationPath(ctx, event, operation, sourcePath)
+      await validateWorkspaceOperationPath(ctx, event, operation, destinationPath)
+      await beforeMove?.()
+      if (getSenderWorkspaceForOperation(ctx, event, operation).primaryRoot !== root) throw new Error('当前工作区已变化')
+    } }),
+  })
+  if (ctx.appDataManager?.relocateDocumentMarks(root, sourcePath, destinationPath, executed.result.isDirectory)) {
+    await broadcastDocumentMarksChanged(ctx, event.sender.id).catch(error => console.warn('[LinkRewrite] Failed to broadcast document marks:', error))
+  }
+  await ctx.workspaceIndexService.refreshMovedRelativePaths(root, [mapping]).catch(error => console.warn('[LinkRewrite] Failed to refresh moved index paths:', error))
+  return { newPath: executed.result.destinationPath, receipt: executed.receipt }
+}
+
 export function registerLinkRewriteHandlers(ctx: IPCContext): void {
   if (!ctx.linkRewritePlanner || !ctx.workspaceIndexService) return
 
@@ -32,49 +67,7 @@ export function registerLinkRewriteHandlers(ctx: IPCContext): void {
     operation: WorkspaceOperationContext,
     input: { impactId: string; mapping: LinkMoveMapping; reason: 'move' | 'rename'; confirm: boolean },
   ) => {
-    const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
-    if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
-    validateId(input?.impactId)
-    if (input.confirm !== true) throw new Error('必须明确确认文件操作')
-    if (input.reason !== 'move' && input.reason !== 'rename') throw new Error('文件操作原因无效')
-    const mapping = validateLinkMoveMapping(input.mapping)
-    const sourcePath = await validateWorkspaceOperationPath(
-      ctx,
-      event,
-      operation,
-      path.resolve(workspace.primaryRoot, mapping.oldRelativePath),
-    )
-    const destinationPath = await validateWorkspaceOperationPath(
-      ctx,
-      event,
-      operation,
-      path.resolve(workspace.primaryRoot, mapping.newRelativePath),
-    )
-    if (isSameOrChildPath(destinationPath, sourcePath)) {
-      throw new Error('无法移动目录到自身或子目录')
-    }
-    const executed = await ctx.linkRewritePlanner!.executeOperation({
-      ownerId: ownerId(event.sender.id, workspace.id, operation.lifecycleEpoch),
-      rootPath: workspace.primaryRoot,
-      impactId: input.impactId,
-      actualMapping: mapping,
-      execute: () => moveSameRootPath({ sourcePath, destinationPath }),
-    })
-    const changed = ctx.appDataManager?.relocateDocumentMarks(
-      workspace.primaryRoot,
-      sourcePath,
-      destinationPath,
-      executed.result.isDirectory,
-    )
-    if (changed) {
-      await broadcastDocumentMarksChanged(ctx, event.sender.id).catch(error => {
-        console.warn('[LinkRewrite] Failed to broadcast document marks:', error)
-      })
-    }
-    await ctx.workspaceIndexService!.refreshMovedRelativePaths(workspace.primaryRoot, [mapping]).catch(error => {
-      console.warn('[LinkRewrite] Failed to refresh moved index paths:', error)
-    })
-    return { newPath: executed.result.destinationPath, receipt: executed.receipt }
+    return executeWorkspaceLinkMove(ctx, event, operation, input)
   })
 
   ipcMain.handle('link-rewrite:executeBatch', async (

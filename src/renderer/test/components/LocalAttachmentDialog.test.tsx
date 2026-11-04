@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LocalAttachmentDialog } from '../../src/components/LocalAttachmentDialog'
+import { LocalAttachmentDialog, LocalAttachmentContent } from '../../src/components/LocalAttachmentDialog'
 
 const text = { kind: 'text', name: 'sample.json', relativePath: 'sample.json', extension: '.json', size: 13,
   content: '{"value":-0}', revealLabel: '在 Finder 中显示', canOpenExternally: true,
@@ -12,12 +12,76 @@ const isCurrent = () => true
 beforeEach(() => {
   Object.defineProperty(window, 'api', { configurable: true, writable: true, value: { platform: 'darwin' } })
   window.api.readLinkedAttachment = vi.fn().mockResolvedValue(text)
+  window.api.readWorkspaceResource = vi.fn().mockResolvedValue(text)
+  window.api.openWorkspaceResource = vi.fn().mockResolvedValue({ success: false, cancelled: true })
   window.api.openLocalAttachment = vi.fn().mockResolvedValue({ success: false, cancelled: true })
   window.api.revealLinkedResource = vi.fn().mockResolvedValue({ success: true })
   window.api.releaseLinkedReads = vi.fn().mockResolvedValue(undefined)
   window.api.cancelLinkedRead = vi.fn().mockResolvedValue(undefined)
 })
 afterEach(() => vi.clearAllMocks())
+
+const workspaceRequest = { operation: readRequest.operation, relativePath: 'sample.json', leafId: 'browser', requestId: 'resource-request' }
+
+describe('工作台中的临时资源内容', () => {
+  it('复用只读高亮与格式化，但不重新读取、不抢焦点、不锁住目录的滚轮', async () => {
+    const origin = document.createElement('button'); document.body.append(origin); origin.focus()
+    try {
+      const { unmount } = render(<LocalAttachmentContent workspaceRequest={workspaceRequest} initialResult={text} isCurrent={isCurrent} onClose={vi.fn()} />)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.getByRole('region', { name: /临时预览/ })).not.toHaveAttribute('aria-modal')
+      expect(await screen.findByRole('textbox', { name: '只读附件文本' })).toHaveAttribute('aria-readonly', 'true')
+      expect(document.activeElement).toBe(origin)
+      expect(window.api.readWorkspaceResource).not.toHaveBeenCalled()
+      expect(window.api.readLinkedAttachment).not.toHaveBeenCalled()
+      const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true })
+      origin.dispatchEvent(wheel)
+      expect(wheel.defaultPrevented).toBe(false)
+      unmount()
+      expect(window.api.releaseLinkedReads).toHaveBeenCalledWith(['attachment-handle'])
+      expect(window.api.cancelLinkedRead).toHaveBeenCalledWith(readRequest.operation, 'browser', 'resource-request')
+    } finally { origin.remove() }
+  })
+  it('系统打开和定位仅发送受控handle；HTML源码不会插入实际元素', async () => {
+    const source = { ...text, name: 'test.html', extension: '.html', content: '<script>window.synthetic = true</script>', canOpenExternally: false }
+    render(<LocalAttachmentContent workspaceRequest={workspaceRequest} initialResult={source} isCurrent={isCurrent} onClose={vi.fn()} />)
+    expect(await screen.findByRole('textbox', { name: '只读附件文本' })).toHaveTextContent('<script>')
+    expect(document.querySelector('.workspace-resource-preview script')).toBeNull()
+    expect(screen.queryByRole('button', { name: '用系统应用打开' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '在 Finder 中显示' }))
+    await waitFor(() => expect(window.api.revealLinkedResource).toHaveBeenCalledWith('attachment-handle'))
+  })
+  it('显式文本查看绑定当前handle；系统打开不伪造Markdown来源', async () => {
+    const unknown = { ...text, kind: 'file' as const, extension: '', canViewAsText: true }
+    render(<LocalAttachmentContent workspaceRequest={workspaceRequest} initialResult={unknown} isCurrent={isCurrent} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '按文本查看' }))
+    await waitFor(() => expect(window.api.readWorkspaceResource).toHaveBeenCalledWith(workspaceRequest, true, 'attachment-handle'))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '按文本查看' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '用系统应用打开' }))
+    await waitFor(() => expect(window.api.openWorkspaceResource).toHaveBeenCalledWith('attachment-handle'))
+    expect(window.api.openLocalAttachment).not.toHaveBeenCalled()
+  })
+  it('音视频不自动播放，卸载时暂停并清空source，不撤销共享token', () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    try {
+      const media = { ...text, kind: 'file' as const, preview: { kind: 'video' as const, url: 'local-media://asset/synthetic' } }
+      const { container, unmount } = render(<LocalAttachmentContent workspaceRequest={workspaceRequest} initialResult={media} isCurrent={isCurrent} onClose={vi.fn()} />)
+      const video = container.querySelector('video')!
+      expect(video.autoplay).toBe(false)
+      expect(video.controls).toBe(true)
+      unmount()
+      expect(pause).toHaveBeenCalledOnce(); expect(load).toHaveBeenCalledOnce()
+      expect(video.hasAttribute('src')).toBe(false)
+    } finally { pause.mockRestore(); load.mockRestore() }
+  })
+  it('图片解码失败明确提示，不冒充已成功预览', () => {
+    const image = { ...text, kind: 'file' as const, preview: { kind: 'image' as const, url: 'local-image://asset/synthetic' } }
+    render(<LocalAttachmentContent workspaceRequest={workspaceRequest} initialResult={image} isCurrent={isCurrent} onClose={vi.fn()} />)
+    fireEvent.error(screen.getByRole('img'))
+    expect(screen.getByText('无法解码此文件，请使用合适的系统工具查看。')).toBeVisible()
+  })
+})
 
 describe('本地附件弹窗', () => {
   it('结构化附件默认语法高亮，可独立关闭且保留JSON原文和只读状态', async () => {

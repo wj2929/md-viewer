@@ -49,6 +49,16 @@
     --attachment-property: #ffa657; --attachment-type: #ff9bba; --attachment-comment: #9da7b3;
   }
 }
+.workspace-resource-preview { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace-resource-preview .workspace-resource-content {
+  width: 100%; max-height: none; min-height: 0; border: 0; border-radius: 0;
+  box-shadow: none; padding: 16px; overflow: auto;
+}
+.workspace-resource-content .local-attachment-content { flex: 1; height: auto; min-height: 120px; }
+.workspace-resource-media { display: flex; flex: 1; min-height: 120px; min-width: 0; align-items: center; justify-content: center; overflow: hidden; }
+.workspace-resource-media img, .workspace-resource-media video { max-width: 100%; max-height: 100%; object-fit: contain; }
+.workspace-resource-media audio { width: min(100%, 540px); }
+
 .local-attachment-content .attachment-token-keyword { color: var(--attachment-keyword); }
 .local-attachment-content .attachment-token-string { color: var(--attachment-string); }
 .local-attachment-content .attachment-token-number { color: var(--attachment-number); }

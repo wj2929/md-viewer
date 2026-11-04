@@ -1,8 +1,12 @@
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
+import { lstat, realpath, stat } from 'node:fs/promises'
+import { BrowserWindow, dialog, shell } from 'electron'
 import type { BigIntStats } from 'node:fs'
-import { shell } from 'electron'
+import { isWorkspaceRelativePath, type WorkspaceResourceRequest, type WorkspaceResourceResult } from '../shared/directoryBrowser'
+import { MAX_LOCAL_MEDIA_SIZE, localMediaMimeType, type LocalAttachmentOpenResult } from '../shared/localMedia'
+import { getLocalImageCapabilities } from './localImageProtocol'
+import { getLocalMediaCapabilities, getLocalMediaCapabilityUrl, LOCAL_MEDIA_CAPABILITY_TTL_MS, MAX_LOCAL_MEDIA_CAPABILITIES_PER_SESSION } from './localMediaProtocol'
 import type { IPCContext } from './ipc/context'
 import type { MainWorkspaceSession } from './windowManager'
 import type { WorkspaceOperationContext } from '../shared/workspace'
@@ -34,7 +38,7 @@ interface ReadScope {
 }
 
 interface DocumentGrant { id: string; scope: ReadScope; canonicalPath: string }
-interface ResourceHandle extends DocumentGrant { info: BigIntStats; candidatePath: string }
+interface ResourceHandle extends DocumentGrant { info: BigIntStats; candidatePath: string; workspaceRelativePath?: string }
 interface ReadRequest {
   id: string
   key: string
@@ -87,6 +91,7 @@ export class LinkReadService {
   private batches = new Map<string, PreparedBatch>()
   private requests = new Map<string, ReadRequest>()
   private incarnations = new WeakMap<MainWorkspaceSession, string>()
+  private workspaceOpenFlights = new Set<number>()
 
   constructor(private ctx: IPCContext) {
     ctx.windowManager.onLinkReadLifecycle((windowId, workspaceId, revoke) => {
@@ -428,12 +433,123 @@ export class LinkReadService {
     }
   }
 
+  private async workspaceTarget(event: Electron.IpcMainInvokeEvent, scope: ReadScope, relativePath: string) {
+    this.assertScope(event, scope, true)
+    if (!isWorkspaceRelativePath(relativePath) || !relativePath || !scope.primaryRoot) throw new Error('invalid-reference')
+    validateClickedFilePath(relativePath)
+    const root = await realpath(scope.primaryRoot)
+    let candidatePath = root
+    for (const part of relativePath.split('/')) {
+      candidatePath = path.join(candidatePath, part)
+      if ((await lstat(candidatePath)).isSymbolicLink()) throw new Error('unavailable')
+    }
+    const canonicalPath = await validateSecurePathInBase(candidatePath, root)
+    const info = await stat(canonicalPath, { bigint: true })
+    if (!info.isFile() || info.ino === 0n) throw new Error('unavailable')
+    this.assertScope(event, scope, true)
+    return { root, candidatePath, canonicalPath, info }
+  }
+
+  private async validateWorkspaceResource(event: Electron.IpcMainInvokeEvent, handle: ResourceHandle): Promise<void> {
+    if (this.resources.get(handle.id) !== handle || handle.workspaceRelativePath === undefined) throw new Error('stale')
+    const target = await this.workspaceTarget(event, handle.scope, handle.workspaceRelativePath)
+    if (target.canonicalPath !== handle.canonicalPath || !sameTextFile(target.info, handle.info)) throw new Error('stale')
+    if (this.resources.get(handle.id) !== handle) throw new Error('stale')
+  }
+
+  async readWorkspaceResource(event: Electron.IpcMainInvokeEvent, input: WorkspaceResourceRequest, asText = false,
+    previousHandle?: string): Promise<WorkspaceResourceResult> {
+    let request: ReadRequest | undefined
+    try {
+      const previous = previousHandle ? this.resources.get(previousHandle) : undefined
+      if (asText && (!previous || previous.scope.senderId !== event.sender.id
+        || previous.scope.workspaceId !== input.operation.workspaceId || previous.workspaceRelativePath !== input.relativePath)) throw new Error('stale')
+      if (previous) await this.validateWorkspaceResource(event, previous)
+      request = this.begin(event, input.operation, input.leafId, input.requestId, previousHandle)
+      const target = await this.workspaceTarget(event, request.scope, input.relativePath)
+      const extension = path.extname(target.canonicalPath).toLowerCase()
+      const requestedExtension = path.extname(input.relativePath).toLowerCase()
+      const automatic = LOCAL_ATTACHMENT_TEXT_EXTENSIONS.has(extension) && LOCAL_ATTACHMENT_TEXT_EXTENSIONS.has(requestedExtension)
+      const canViewAsText = !automatic && canViewUnknownAttachmentAsText(extension) && canViewUnknownAttachmentAsText(requestedExtension)
+      if (asText && !canViewAsText) throw new Error('invalid-reference')
+      const validate = async () => {
+        this.assertRequest(request!)
+        const current = await this.workspaceTarget(event, request!.scope, input.relativePath)
+        if (current.canonicalPath !== target.canonicalPath || !sameTextFile(current.info, target.info)) throw new Error('stale')
+        this.assertRequest(request!)
+      }
+      const snapshot = automatic || asText ? await readLocalTextSnapshot(target.canonicalPath, target.info, validate) : undefined
+      await validate()
+      if (previous && this.resources.get(previous.id) !== previous) throw new Error('stale')
+      const handle: ResourceHandle = { id: newId(), scope: request.scope, canonicalPath: target.canonicalPath,
+        candidatePath: target.candidatePath, info: target.info, workspaceRelativePath: input.relativePath }
+      this.resources.set(handle.id, handle)
+      request.resourceHandle = handle.id
+      if (previous) this.resources.delete(previous.id)
+      const metadata = { name: path.basename(target.canonicalPath), relativePath: input.relativePath, extension,
+        size: Number(target.info.size), revealLabel: getFileManagerLabels().showInFolder,
+        canOpenExternally: canOpenAttachment(extension) && canOpenAttachment(requestedExtension),
+        canViewAsText: !asText && canViewAsText, resourceHandle: handle.id }
+      if (snapshot && 'content' in snapshot) return { ...metadata, kind: 'text', content: snapshot.content }
+      let preview: WorkspaceResourceResult['preview']
+      if (!snapshot && ['.avif', '.bmp', '.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(extension)
+        && extension === requestedExtension && target.info.size <= 10n * 1024n * 1024n) {
+        const capabilities = getLocalImageCapabilities(event.sender.session)
+        while (capabilities.size >= 500) capabilities.delete(capabilities.keys().next().value!)
+        const token = newId()
+        capabilities.set(token, { canonicalPath: target.canonicalPath, expiresAt: Date.now() + 5 * 60 * 1000,
+          workspace: { canonicalRoot: target.root, workspaceId: request.scope.workspaceId, lifecycleEpoch: request.scope.epoch, info: target.info,
+            validate: () => this.validateWorkspaceResource(event, handle) } })
+        preview = { kind: 'image', url: `local-image://asset/${token}` }
+      } else if (!snapshot && target.info.size > 0n && target.info.size <= BigInt(MAX_LOCAL_MEDIA_SIZE)) {
+        const kind = localMediaMimeType(target.canonicalPath, 'audio') ? 'audio' : 'video'
+        const mimeType = localMediaMimeType(target.canonicalPath, kind)
+        if (mimeType && extension === requestedExtension) {
+          const capabilities = getLocalMediaCapabilities(event.sender.session)
+          if (capabilities.size >= MAX_LOCAL_MEDIA_CAPABILITIES_PER_SESSION) throw new Error('unavailable')
+          const token = newId()
+          capabilities.set(token, { canonicalPath: target.canonicalPath, canonicalRoot: target.root,
+            workspaceId: request.scope.workspaceId, lifecycleEpoch: request.scope.epoch, kind, mimeType,
+            expiresAt: Date.now() + LOCAL_MEDIA_CAPABILITY_TTL_MS })
+          preview = { kind, url: await getLocalMediaCapabilityUrl(event.sender.session, token) }
+          await validate()
+        }
+      }
+      return { ...metadata, kind: 'file', notice: snapshot && 'notice' in snapshot ? snapshot.notice : 'unsupported', preview }
+    } catch (error) {
+      if (request) this.cancelRequest(request)
+      return { kind: 'error', code: codeOf(error) === 'stale' ? 'stale' : codeOf(error) === 'invalid-reference' ? 'invalid-reference' : 'unavailable' }
+    }
+  }
+
+  async openWorkspaceResource(event: Electron.IpcMainInvokeEvent, id: string): Promise<LocalAttachmentOpenResult> {
+    if (this.workspaceOpenFlights.has(event.sender.id)) return { success: false, code: 'busy' }
+    this.workspaceOpenFlights.add(event.sender.id)
+    try {
+      const handle = this.resources.get(id)
+      if (!handle || !canOpenAttachment(path.extname(handle.canonicalPath).toLowerCase())
+        || !canOpenAttachment(path.extname(handle.workspaceRelativePath ?? '').toLowerCase())) throw new Error('unavailable')
+      await this.validateWorkspaceResource(event, handle)
+      const parent = BrowserWindow.fromWebContents(event.sender)
+      if (!parent || parent.isDestroyed()) throw new Error('stale')
+      const answer = await dialog.showMessageBox(parent, { type: 'question', buttons: ['取消', '打开'], defaultId: 0, cancelId: 0,
+        noLink: true, message: '使用系统默认应用打开此文件？', detail: `${path.basename(handle.canonicalPath)}\n将交给外部应用处理，请仅打开可信文件。` })
+      if (answer.response !== 1) return { success: false, cancelled: true }
+      await this.validateWorkspaceResource(event, handle)
+      if (parent.isDestroyed()) throw new Error('stale')
+      const error = await shell.openPath(handle.canonicalPath)
+      return error ? { success: false, code: 'unavailable' } : { success: true }
+    } catch (error) { return { success: false, code: codeOf(error) === 'stale' ? 'stale' : 'unavailable' } }
+    finally { this.workspaceOpenFlights.delete(event.sender.id) }
+  }
+
   async revealResource(event: Electron.IpcMainInvokeEvent, id: string): Promise<LinkedReadActionResult> {
     try {
       const resource = this.resources.get(id)
       const document = this.documents.get(id)
       const entry = resource ?? document
       if (!entry) throw new Error('stale')
+      if (resource?.workspaceRelativePath !== undefined) await this.validateWorkspaceResource(event, resource)
       const scope = this.scope(event, { workspaceId: entry.scope.workspaceId, lifecycleEpoch: entry.scope.epoch })
       this.assertScope(event, entry.scope)
       validateNotProtected(entry.canonicalPath)

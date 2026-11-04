@@ -28,6 +28,8 @@ interface UseIPCOptions {
   handleExportDOCX: (docStyle?: string) => Promise<void>
   handleFocusSearch: () => void
   handleAttachmentShortcut?: (action: 'close' | 'search') => boolean
+  handleBrowserCommand?: (action: 'refresh' | 'write' | 'export' | 'print') => boolean
+  beginDocumentNavigation?: () => { isCurrent: () => boolean; commit: () => void }
   handleNextTab: () => void
   handlePrevTab: () => void
   handleSwitchTab: (tabIndex: number) => void
@@ -36,7 +38,7 @@ interface UseIPCOptions {
     lineNumber?: number,
     keyword?: string,
     diagnosticSource?: DiagnosticSource,
-  ) => Promise<void>
+  ) => Promise<unknown>
   loadBookmarks: () => Promise<void>
   previewRef: React.RefObject<HTMLDivElement | null>
   onMoveToRequest: (sources: string[]) => void
@@ -61,6 +63,10 @@ export function useIPC(options: UseIPCOptions): void {
   const { toggleAlwaysOnTop } = useWindowStore()
   const { increaseFontSize, decreaseFontSize, resetFontSize } = useUIStore()
 
+  const browserCommandRef = useRef(options.handleBrowserCommand)
+  browserCommandRef.current = options.handleBrowserCommand
+  const documentNavigationRef = useRef(options.beginDocumentNavigation)
+  documentNavigationRef.current = options.beginDocumentNavigation
   const tabsRef = useRef<Tab[]>([])
   tabsRef.current = tabs
 
@@ -105,6 +111,7 @@ export function useIPC(options: UseIPCOptions): void {
 
     const unsubscribeExport = window.api.onFileExportRequest(
       async (data: { path: string; type: 'html' | 'pdf' }) => {
+        if (browserCommandRef.current?.('export')) return
         try {
           const content = buildPreviewContentForFile(data.path, await window.api.readFile(data.path))
           const fileName = data.path.split(/[/\\]/).pop() || 'export'
@@ -147,6 +154,7 @@ export function useIPC(options: UseIPCOptions): void {
     })
 
     const unsubscribeDuplicate = window.api.onFileDuplicateRequest(async (filePath: string) => {
+      if (browserCommandRef.current?.('write')) return
       try {
         const operation = getActiveWorkspaceOperationContext()
         if (!operation) return
@@ -166,6 +174,7 @@ export function useIPC(options: UseIPCOptions): void {
     })
 
     const unsubscribeCopy = window.api.onClipboardCopy((paths: string[]) => {
+      if (browserCommandRef.current?.('write')) return
       const currentSelectedPaths = selectedPathsRef.current
       const pathsToCopy = currentSelectedPaths.size > 0 ? Array.from(currentSelectedPaths) : paths
       copy(pathsToCopy)
@@ -174,6 +183,7 @@ export function useIPC(options: UseIPCOptions): void {
     })
 
     const unsubscribeCut = window.api.onClipboardCut((paths: string[]) => {
+      if (browserCommandRef.current?.('write')) return
       const currentSelectedPaths = selectedPathsRef.current
       const pathsToCut = currentSelectedPaths.size > 0 ? Array.from(currentSelectedPaths) : paths
       cut(pathsToCut)
@@ -182,6 +192,7 @@ export function useIPC(options: UseIPCOptions): void {
     })
 
     const unsubscribePaste = window.api.onClipboardPaste(async (targetDir: string) => {
+      if (browserCommandRef.current?.('write')) return
       try {
         const result = await paste(targetDir)
         if (result.success.length === 0) {
@@ -210,6 +221,7 @@ export function useIPC(options: UseIPCOptions): void {
 
     // 跨根移动：右键「移动到…」→ 打开目标选择弹窗（在多选集内则整批）
     const unsubscribeMoveTo = window.api.onFileMoveToRequest((file: { path: string; isDirectory: boolean }) => {
+      if (browserCommandRef.current?.('write')) return
       const currentSelectedPaths = selectedPathsRef.current
       const sources = currentSelectedPaths.has(file.path)
         ? Array.from(currentSelectedPaths)
@@ -437,14 +449,14 @@ export function useIPC(options: UseIPCOptions): void {
     if (!window.api.onShortcutOpenFolder) return
 
     const unsubscribeOpenFolder = window.api.onShortcutOpenFolder(handleOpenFolder)
-    const unsubscribeRefresh = window.api.onShortcutRefresh(handleRefreshFiles)
+    const unsubscribeRefresh = window.api.onShortcutRefresh(async () => { if (!browserCommandRef.current?.('refresh')) await handleRefreshFiles() })
     const unsubscribeCloseTab = window.api.onShortcutCloseTab(() => {
       if (handleAttachmentShortcut?.('close')) return
       const currentActiveTabId = useTabStore.getState().activeTabId
       if (currentActiveTabId) handleTabClose(currentActiveTabId)
     })
-    const unsubscribeExportHTML = window.api.onShortcutExportHTML(handleExportHTML)
-    const unsubscribeExportPDF = window.api.onShortcutExportPDF(handleExportPDF)
+    const unsubscribeExportHTML = window.api.onShortcutExportHTML(async () => { if (!browserCommandRef.current?.('export')) await handleExportHTML() })
+    const unsubscribeExportPDF = window.api.onShortcutExportPDF(async () => { if (!browserCommandRef.current?.('export')) await handleExportPDF() })
     const unsubscribeFocusSearch = window.api.onShortcutFocusSearch(() => {
       if (!handleAttachmentShortcut?.('search')) handleFocusSearch()
     })
@@ -480,6 +492,8 @@ export function useIPC(options: UseIPCOptions): void {
     const unsubscribe = window.api.onTabOpenInSplit((data: { tabId: string; direction: 'horizontal' | 'vertical' } | string) => {
       const tabId = typeof data === 'string' ? data : data.tabId
       const direction = typeof data === 'string' ? 'horizontal' : data.direction
+      if (!tabsRef.current.some(tab => tab.id === tabId)) return
+      const navigation = documentNavigationRef.current?.()
 
       setSplitState(prev => {
         if (!prev.root) {
@@ -504,6 +518,7 @@ export function useIPC(options: UseIPCOptions): void {
         const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
         return { root: newRoot, activeLeafId: newLeafId }
       }, { source: 'ipc-tab-split' })
+      navigation?.commit()
     })
 
     return unsubscribe
@@ -515,6 +530,7 @@ export function useIPC(options: UseIPCOptions): void {
 
     const unsubscribe = window.api.onFileOpenInSplit(async (data: { filePath: string; direction: 'horizontal' | 'vertical' }) => {
       const { filePath, direction } = data
+      const navigation = documentNavigationRef.current?.()
       let tab = tabsRef.current.find(t => t.file.path === filePath)
       if (!tab) {
         const diagnosticOperation = startFileDiagnostic('tab')
@@ -527,6 +543,7 @@ export function useIPC(options: UseIPCOptions): void {
             return
           }
           const isPinned = await window.api.isTabPinned(filePath, operation)
+          if (navigation && !navigation.isCurrent()) { recordFileTerminal(diagnosticOperation, 'superseded'); return }
           const newTab: Tab = {
             id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             file: { name: fileName, path: filePath, isDirectory: false },
@@ -553,6 +570,7 @@ export function useIPC(options: UseIPCOptions): void {
         }
       }
 
+      if (navigation && !navigation.isCurrent()) return
       const tabId = tab.id
       setSplitState(prev => {
         if (!prev.root) {
@@ -581,6 +599,7 @@ export function useIPC(options: UseIPCOptions): void {
         const { root: newRoot, newLeafId } = splitLeaf(prev.root, targetLeafId, direction, tabId)
         return { root: newRoot, activeLeafId: newLeafId }
       }, { source: 'ipc-file-split' })
+      navigation?.commit()
     })
 
     return unsubscribe
@@ -619,6 +638,7 @@ export function useIPC(options: UseIPCOptions): void {
     if (!window.api.onShortcutPrint) return
 
     const unsubscribe = window.api.onShortcutPrint(async () => {
+      if (browserCommandRef.current?.('print')) return
       const currentTabs = useTabStore.getState().tabs
       const currentActiveTabId = useTabStore.getState().activeTabId
       const activeTab = currentTabs.find(t => t.id === currentActiveTabId)
@@ -648,9 +668,9 @@ export function useIPC(options: UseIPCOptions): void {
   useEffect(() => {
     if (!window.api.onMarkdownExportHTML) return
 
-    const unsubscribeExportHTML = window.api.onMarkdownExportHTML(() => { handleExportHTML() })
-    const unsubscribeExportPDF = window.api.onMarkdownExportPDF(() => { handleExportPDF() })
-    const unsubscribeExportDOCX = window.api.onMarkdownExportDOCX((docStyle?: string) => { handleExportDOCX(docStyle) })
+    const unsubscribeExportHTML = window.api.onMarkdownExportHTML(() => { if (!browserCommandRef.current?.('export')) void handleExportHTML() })
+    const unsubscribeExportPDF = window.api.onMarkdownExportPDF(() => { if (!browserCommandRef.current?.('export')) void handleExportPDF() })
+    const unsubscribeExportDOCX = window.api.onMarkdownExportDOCX((docStyle?: string) => { if (!browserCommandRef.current?.('export')) void handleExportDOCX(docStyle) })
 
     const unsubscribeCopySource = window.api.onMarkdownCopySource(() => {
       void (async () => {

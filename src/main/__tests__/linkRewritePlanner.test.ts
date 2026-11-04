@@ -154,6 +154,21 @@ describe('LinkRewritePlanner', () => {
       expect.objectContaining({ sourceRelativePath: 'archive/docs/design.md', resolvedTargetRelativePath: 'archive/docs/guide.md' }),
     ]))
     expect(impact.exactChanges).toBe(2)
+    const execution = await planner.executeOperation({
+      ownerId: 'window:1', rootPath: root, impactId: impact.impactId, actualMapping: mapping,
+      execute: () => rename(join(root, 'docs'), join(root, 'archive', 'docs')),
+    })
+    await service.refreshMovedRelativePaths(root, [mapping])
+    const plan = await planner.createRepairPlan({ ownerId: 'window:1', rootPath: root, mapping, reason: 'rename', operationReceiptId: execution.receipt.operationReceiptId })
+    expect(plan.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceRelativePath: 'index.md', after: './archive/docs/design.md?mode=full#安全边界' }),
+    ]))
+    expect(plan.changes).toHaveLength(1)
+    await planner.apply({ ownerId: 'window:1', rootPath: root, planId: plan.planId, operationReceiptId: plan.operationReceiptId,
+      selectedChangeIds: plan.changes.map(change => change.changeId), confirm: true })
+    expect(await readFile(join(root, 'index.md'), 'utf8')).toContain('./archive/docs/design.md?mode=full#安全边界')
+    expect(await readFile(join(root, 'archive', 'docs', 'design.md'), 'utf8')).toContain('./guide.md')
+    await service.detach(root, 'test')
   })
 
   it('apply 前 revision 改变时逐文件报冲突且不覆盖', async () => {

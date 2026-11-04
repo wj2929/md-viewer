@@ -284,7 +284,7 @@ export class LinkRewritePlanner {
       receipt.mapping.newRelativePath !== mapping.newRelativePath
     )) throw new Error('文件操作回执与修复映射不一致')
     const impacts = await this.collectImpacts(rootPath, mapping)
-    const built = await this.buildChanges(rootPath, impacts, mapping, input.reason)
+    const built = await this.buildChanges(rootPath, impacts, input.reason)
     this.invalidatePlansForMapping(input.ownerId, rootPath, mapping)
 
     const now = Date.now()
@@ -317,7 +317,7 @@ export class LinkRewritePlanner {
     const rootPath = await realpath(input.rootPath)
     if (previous.rootPath !== rootPath) throw new Error('工作区已失效')
     const impacts = await this.collectImpacts(rootPath, previous.mapping)
-    const changes = await this.buildChanges(rootPath, impacts, previous.mapping, previous.reason)
+    const changes = await this.buildChanges(rootPath, impacts, previous.reason)
     const now = Date.now()
     const next: StoredPlan = {
       ...previous,
@@ -442,7 +442,6 @@ export class LinkRewritePlanner {
   private async buildChanges(
     rootPath: string,
     impacts: readonly LinkImpactItem[],
-    mapping: LinkMoveMapping,
     reason: 'move' | 'rename',
   ): Promise<{ changes: LinkRewriteChange[]; warnings: string[] }> {
     const changes: LinkRewriteChange[] = []
@@ -462,7 +461,7 @@ export class LinkRewritePlanner {
           warnings.push(`${impact.sourceRelativePath}:${impact.lineStart} 源范围已失效`)
           continue
         }
-        const rewritten = rewriteTarget(impact, mapping)
+        const rewritten = rewriteTarget(impact)
         if (!rewritten || rewritten === before) continue
         const changeKey = `${impact.sourceRelativePath}:${impact.destinationRange.startOffset}:${impact.destinationRange.endOffset}`
         if (seenChanges.has(changeKey)) continue
@@ -731,12 +730,11 @@ function reverseRemapPath(relativePath: string, mapping: LinkMoveMapping): strin
   return relativePath
 }
 
-function rewriteTarget(impact: LinkImpactItem, mapping: LinkMoveMapping): string | null {
+function rewriteTarget(impact: LinkImpactItem): string | null {
   const target = splitMarkdownTarget(impact.rawTarget)
   if (!target.decodedPath) return null
-  const targetPath = impact.relation === 'inbound'
-    ? mapping.newRelativePath
-    : impact.resolvedTargetRelativePath
+  // collectDocumentImpacts already remaps each descendant, not just the moved directory.
+  const targetPath = impact.resolvedTargetRelativePath
   if (impact.syntax === 'wiki') {
     const preserveExtension = path.posix.extname(target.decodedPath) !== ''
     const wikiPath = preserveExtension

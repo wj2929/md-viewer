@@ -112,6 +112,21 @@ describe('FileTree', () => {
   })
 
   describe('基础渲染', () => {
+    it.each(['loaded', 'empty', 'restoring'])('附加浏览入口与已有工具行或状态提示共用空间：%s', (state) => {
+      if (state === 'restoring') window.api.getFolderTreeState.mockReturnValue(new Promise(() => {}))
+      const onBrowse = vi.fn()
+      render(<FileTree
+        files={state === 'empty' ? [] : [createMockFile('test.md', '/base/path/test.md')]}
+        onFileSelect={mockOnFileSelect}
+        basePath={basePath}
+        toolbarAction={<button onClick={onBrowse}>浏览工作区文件</button>}
+      />)
+      const action = screen.getByRole('button', { name: '浏览工作区文件' })
+      expect(action.closest(state === 'loaded' ? '.file-tree-filter-bar' : '.file-tree-status-row')).not.toBeNull()
+      fireEvent.click(action)
+      expect(onBrowse).toHaveBeenCalledTimes(1)
+    })
+
     it('应该显示空状态提示', () => {
       render(<FileTree files={[]} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 

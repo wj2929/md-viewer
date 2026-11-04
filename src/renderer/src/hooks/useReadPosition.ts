@@ -29,8 +29,13 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
     let timer: ReturnType<typeof setTimeout> | undefined
     let resize: ResizeObserver | undefined
     const restoring = () => hasInitialPosition && !restore.interacted
+    const measurable = () => !disposed && root.isConnected && container.clientHeight > 0
+      && !root.closest('[hidden], [inert], [data-browser-layout-paused]')
+    const cancelForLayout = (event: Event) => {
+      if (event.target instanceof Node && (event.target as HTMLElement).contains(root)) report.cancel()
+    }
     const report = debounce(() => {
-      if (restoreRef.current !== restore || restoring()) return
+      if (!measurable() || restoreRef.current !== restore || restoring()) return
       const maxScroll = Math.max(1, container.scrollHeight - container.clientHeight)
       const containerTop = container.getBoundingClientRect().top
       const activeHeading = Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
@@ -40,7 +45,7 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
       onChange?.({ scrollRatio: Math.max(0, Math.min(1, container.scrollTop / maxScroll)),
         ...(activeHeading?.id ? { headingId: activeHeading.id } : {}) })
     }, 500)
-    const scroll = () => { if (!restoring()) report() }
+    const scroll = () => { if (!restoring() && measurable()) report() }
     const interact = () => {
       restore.interacted = true
       if (timer !== undefined) clearTimeout(timer)
@@ -52,7 +57,7 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
           (isActive && (event.target === document.body || event.target === document.documentElement))) interact()
     }
     const apply = () => {
-      if (disposed || restoreRef.current !== restore || !restoring()) return
+      if (!measurable() || restoreRef.current !== restore || !restoring()) return
       restore.applied = true
       report.cancel()
       const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight)
@@ -62,6 +67,7 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
     interactionRoot.addEventListener('wheel', interact, { passive: true })
     interactionRoot.addEventListener('pointerdown', interact, { passive: true })
     document.addEventListener('keydown', keydown)
+    document.addEventListener('browser-layout-start', cancelForLayout)
     container.addEventListener('scroll', scroll, { passive: true })
     if (restoring()) {
       if (!restore.applied) timer = setTimeout(apply, 300)
@@ -80,6 +86,7 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
       interactionRoot.removeEventListener('wheel', interact)
       interactionRoot.removeEventListener('pointerdown', interact)
       document.removeEventListener('keydown', keydown)
+      document.removeEventListener('browser-layout-start', cancelForLayout)
     }
   }, [rootRef, filePath, initialScrollRatio, isActive, renderVersion, onChange])
 }

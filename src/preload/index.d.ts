@@ -1,3 +1,4 @@
+import type { WorkspaceDirectoryEntry, WorkspaceResourceRequest, WorkspaceResourceResult, WorkspaceBrowserAction, WorkspaceBrowserInput, WorkspaceBrowserResult, WorkspaceBrowserSelection } from '../shared/directoryBrowser'
 import type { LargeDocumentSize } from '../shared/largeDocumentApproval'
 import type { FileTreeSort, FileTreeSortSnapshot, FileTreeMetadataResult } from '../shared/fileTreeSort'
 import { ElectronAPI } from '@electron-toolkit/preload'
@@ -72,6 +73,11 @@ declare global {
       // 文件系统操作
       openFolder: () => Promise<FolderActivation | null>
       readDir: (path: string, trace?: DiagnosticTraceContext) => Promise<FileInfo[]>
+      readWorkspaceResource: (request: WorkspaceResourceRequest, asText?: boolean, previousHandle?: string) => Promise<WorkspaceResourceResult>
+      openWorkspaceResource: (handle: string) => Promise<LocalAttachmentOpenResult>
+      listWorkspaceDirectory: (operation: WorkspaceOperationContext, relativePath: string) => Promise<WorkspaceDirectoryEntry[]>
+      showWorkspaceContextMenu: (operation: WorkspaceOperationContext, relativePath: string) => Promise<WorkspaceBrowserSelection | null>
+      performWorkspaceBrowserAction: (operation: WorkspaceOperationContext, id: string, action: WorkspaceBrowserAction, input?: WorkspaceBrowserInput) => Promise<WorkspaceBrowserResult>
       listChildDirs: (path: string) => Promise<Array<{ name: string; path: string }>>
       readFile: (path: string, trace?: DiagnosticTraceContext) => Promise<string>
       readLocalAssetBase64: (payload: {

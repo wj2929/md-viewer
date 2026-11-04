@@ -15,6 +15,7 @@ interface FolderActivationTiming {
 interface FolderActivationOptions {
   notifyRenderer?: boolean
   diagnosticSource?: DiagnosticSource
+  beforeActivate?: () => void | Promise<void>
 }
 
 export type { FolderActivation } from '../shared/workspace'
@@ -37,12 +38,14 @@ export async function activateFolderForWorkspace(
     throw new Error('安全错误：目标不是目录')
   }
   validateNotProtected(resolvedPath)
+  await options.beforeActivate?.()
 
   const historyItem = await ctx.folderHistoryManager.addFolder(resolvedPath)
   if (!historyItem) {
     throw new Error('安全错误：无法记录已验证的目录')
   }
 
+  await options.beforeActivate?.()
   const previousWorkspace = ctx.windowManager.getWorkspace(window.id, workspaceId)
   const previousRoot = previousWorkspace?.primaryRoot ?? null
   const previousEpoch = previousWorkspace?.lifecycleEpoch
@@ -161,12 +164,14 @@ export async function activateFolderForWindow(
       throw new Error('安全错误：目标不是目录')
     }
     validateNotProtected(resolvedPath)
+    await options.beforeActivate?.()
 
     const historyItem = await ctx.folderHistoryManager.addFolder(resolvedPath)
     if (!historyItem) {
       throw new Error('安全错误：无法记录已验证的目录')
     }
 
+    await options.beforeActivate?.()
     const workspace = ctx.windowManager.getActiveWorkspace(window.id)
     if (!workspace) {
       throw new Error('工作区初始化失败')
@@ -238,10 +243,10 @@ export async function activateHistoryFolderForWindow(
  * folderPath 必须来自主进程可信来源（原生对话框、resolveHistoryFolder 等），
  * 不接受 renderer 直接提供的任意路径。返回新窗口 id。
  */
-export function openFolderInNewWindow(ctx: IPCContext, folderPath: string): number {
+export function openFolderInNewWindow(ctx: IPCContext, folderPath: string, beforeActivate?: () => void | Promise<void>): number {
   const win = ctx.windowManager.createWindow()
   ctx.windowManager.addPendingAction(win.id, () => {
-    activateFolderForWindow(ctx, win, folderPath, { notifyRenderer: true }).catch((error) => {
+    activateFolderForWindow(ctx, win, folderPath, { notifyRenderer: true, beforeActivate }).catch((error) => {
       console.error('[openFolderInNewWindow] Failed to activate folder:', error)
     })
   })
