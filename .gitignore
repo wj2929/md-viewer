@@ -74,6 +74,14 @@ docs/*-context-handoff.md
 docs/*-implementation-progress.md
 docs/markdown-edit-mode-design.md
 
+# Local development evidence and investigations
+# Keep public guides and reusable engineering docs tracked.
+docs/*-validation.md
+docs/*-investigation.md
+docs/*-feasibility-*.md
+docs/watcher-complex-directory-tests.md
+docs/electron-45-upgrade-assessment.md
+
 # Internal reports (AI-generated)
 TEST-REPORT-*.md
 V1.4.6-*.md
