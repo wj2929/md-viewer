@@ -934,7 +934,7 @@
 }
 
 .chart-examples-panel {
-  width: min(100%, 820px);
+  width: 100%;
   min-width: 0;
 }
 
@@ -1131,7 +1131,7 @@
 
 .chart-service-panel {
   display: flex;
-  width: min(100%, 820px);
+  width: 100%;
   flex-direction: column;
   gap: 14px;
 }
