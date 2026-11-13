@@ -13,6 +13,7 @@ export interface FolderActivation {
   workspace: WorkspaceDescriptor
   diagnosticOperationId?: string
   diagnosticSource?: DiagnosticSource
+  initialFileRelativePath?: string
 }
 
 export interface WorkspaceOperationContext {

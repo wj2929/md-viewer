@@ -2541,6 +2541,7 @@ body {
   cursor: pointer;
   transition: all 0.15s;
   -webkit-app-region: no-drag;
+  color: var(--text-primary);
 }
 
 .theme-toggle-btn:hover {
@@ -2549,6 +2550,7 @@ body {
 
 .theme-toggle-btn.active {
   background-color: var(--accent-color);
+  color: white;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 

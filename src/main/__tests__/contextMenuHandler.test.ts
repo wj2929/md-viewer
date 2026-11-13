@@ -373,7 +373,7 @@ describe('contextMenuHandler', () => {
   })
 
   describe('菜单项功能：复制路径', () => {
-    it('应该复制绝对路径到剪贴板', () => {
+    it('应该复制绝对路径到剪贴板', async () => {
       const file = {
         name: 'test.md',
         path: '/Users/test/documents/test.md',
@@ -385,7 +385,7 @@ describe('contextMenuHandler', () => {
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
       const copyPathItem = template.find((item: any) => item.label?.includes('复制路径'))
 
-      copyPathItem.click()
+      await copyPathItem.click()
 
       expect(clipboard.writeText).toHaveBeenCalledWith(file.path)
     })
@@ -407,7 +407,7 @@ describe('contextMenuHandler', () => {
   })
 
   describe('菜单项功能：复制相对路径', () => {
-    it('应该复制相对路径到剪贴板', () => {
+    it('应该复制相对路径到剪贴板', async () => {
       const file = {
         name: 'test.md',
         path: '/Users/test/documents/subfolder/test.md',
@@ -420,7 +420,7 @@ describe('contextMenuHandler', () => {
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0]
       const copyRelativePathItem = template.find((item: any) => item.label?.includes('复制相对路径'))
 
-      copyRelativePathItem.click()
+      await copyRelativePathItem.click()
 
       expect(clipboard.writeText).toHaveBeenCalledWith('subfolder/test.md')
     })

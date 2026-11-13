@@ -40,6 +40,21 @@ async function pasteInFinder(destinationDir: string, destination: string, move =
 }
 
 test.describe('文件树右键菜单复制和剪切', () => {
+  test.beforeEach(async ({ electronApp }, info) => {
+    const native = info.title.includes('Finder')
+    test.skip(native && process.env.MD_VIEWER_E2E_NATIVE_CLIPBOARD !== '1', '真实剪贴板和 Finder 操作需单独授权')
+    if (native) return
+    info.annotations.push({ type: 'clipboard', description: 'IPC substitute: system writes fail; application copy/cut must still work' })
+    await electronApp.evaluate(({ ipcMain }) => {
+      for (const channel of ['clipboard:write-system', 'clipboard:read-system', 'clipboard:has-system-files']) {
+        ipcMain.removeHandler(channel)
+      }
+      ipcMain.handle('clipboard:write-system', async () => false)
+      ipcMain.handle('clipboard:read-system', async () => [])
+      ipcMain.handle('clipboard:has-system-files', async () => false)
+    })
+  })
+
   test('复制菜单动作应复制文件且保留源文件', async ({ page, electronApp, testDir }) => {
     await openFolderViaIPC(electronApp, testDir)
 

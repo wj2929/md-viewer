@@ -6,7 +6,7 @@ import { test, expect, openFolderViaIPC } from './fixtures/electron'
 const OUT_DIR = join(process.cwd(), 'test-results', 'diagnostics-settings')
 
 test.describe('诊断日志真实 Electron smoke', () => {
-  test('设置页展示真实状态并生成可关联且脱敏的 JSONL', async ({ page, electronApp, testDir }) => {
+  test('设置页展示真实状态并生成可关联且脱敏的 JSONL', async ({ page, electronApp, testDir }, testInfo) => {
     mkdirSync(OUT_DIR, { recursive: true })
     const consoleErrors: string[] = []
     const pageErrors: string[] = []
@@ -95,18 +95,34 @@ test.describe('诊断日志真实 Electron smoke', () => {
     await section.scrollIntoViewIfNeeded()
     await section.screenshot({ path: join(OUT_DIR, 'system-dark.png') })
 
+    await expect.poll(() => page.evaluate(async () => {
+      const bootstrap = await window.api.getWorkspaceBootstrap()
+      const workspace = bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)
+      if (!workspace) throw new Error('测试工作区未激活')
+      return window.api.getWatchStatus(workspace.id, workspace.lifecycleEpoch)
+    })).toMatchObject({ state: 'healthy' })
+    const bundlePath = join(testDir, 'diagnostics.zip')
+    await electronApp.evaluate(({ dialog }, outputPath) => {
+      ;(dialog as any).showSaveDialog = async () => ({ canceled: false, filePath: outputPath })
+    }, bundlePath)
+    await section.getByRole('button', { name: '导出诊断包' }).click()
+    await expect(section.getByText('诊断包已导出。')).toBeVisible()
+    expect(existsSync(bundlePath)).toBe(true)
+    const zip = new AdmZip(readFileSync(bundlePath))
+
     const resolvedStatus = await page.evaluate(() => window.api.getDiagnosticLogStatus())
     expect(resolvedStatus.effectiveDirectory).toContain('diagnostic-logs')
     await expect.poll(() => resolvedStatus.effectiveDirectory
       ? readdirSync(resolvedStatus.effectiveDirectory).filter(name => name.endsWith('.jsonl')).length
       : 0).toBeGreaterThan(0)
 
-    await page.waitForTimeout(350)
+    // 诊断包读取已完成 writer.flush，取完整日志而非依赖定时刷盘。
     const logText = readdirSync(resolvedStatus.effectiveDirectory!)
       .filter(name => name.endsWith('.jsonl'))
       .sort()
       .map(name => readFileSync(join(resolvedStatus.effectiveDirectory!, name), 'utf8'))
       .join('\n')
+    await testInfo.attach('diagnostic-events', { body: logText, contentType: 'application/x-ndjson' })
     const events = logText.split('\n').filter(Boolean).map(line => JSON.parse(line))
     const queryWindows = events.filter(event => event.event === 'index.query.window')
     expect(queryWindows.reduce(
@@ -134,14 +150,6 @@ test.describe('诊断日志真实 Electron smoke', () => {
     expect(logText).not.toContain('test1.md')
     expect(logText).not.toContain('Hello World')
 
-    const bundlePath = join(testDir, 'diagnostics.zip')
-    await electronApp.evaluate(({ dialog }, outputPath) => {
-      ;(dialog as any).showSaveDialog = async () => ({ canceled: false, filePath: outputPath })
-    }, bundlePath)
-    await section.getByRole('button', { name: '导出诊断包' }).click()
-    await expect(section.getByText('诊断包已导出。')).toBeVisible()
-    expect(existsSync(bundlePath)).toBe(true)
-    const zip = new AdmZip(readFileSync(bundlePath))
     expect(zip.getEntries().map(entry => entry.entryName).sort()).toEqual([
       'README.txt',
       'diagnostics.json',

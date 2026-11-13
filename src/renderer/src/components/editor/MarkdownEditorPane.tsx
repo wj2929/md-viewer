@@ -11,6 +11,7 @@ import {
   type MarkdownInsertionTemplate,
 } from './markdownFormatCommands'
 import { createMarkdownEditorExtensions } from './markdownEditorExtensions'
+import { attachmentSearch } from './attachmentSearchPanel'
 import './MarkdownEditorPane.css'
 
 interface ScrollToLineOptions {
@@ -198,7 +199,7 @@ export const MarkdownEditorPane = forwardRef<MarkdownEditorPaneHandle, MarkdownE
         editableCompartment.of(EditorView.editable.of(!readOnly && !plainText)),
         readOnlyCompartment.of(EditorState.readOnly.of(readOnly || plainText)),
         syntaxCompartmentRef.current.of(plainText ? syntaxExtension ?? [] : []),
-        ...(plainText ? [EditorView.lineWrapping, EditorView.contentAttributes.of({
+        ...(plainText ? [attachmentSearch, EditorView.lineWrapping, EditorView.contentAttributes.of({
           tabindex: '0', 'aria-label': accessibleLabel, 'aria-readonly': 'true', role: 'textbox',
         })] : []),
       ], plainText),

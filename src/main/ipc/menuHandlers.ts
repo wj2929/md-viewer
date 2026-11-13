@@ -1,4 +1,5 @@
-import { BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, clipboard, shell } from 'electron'
+import { writeTextToSystemClipboard } from '../clipboardManager'
+import { BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, shell } from 'electron'
 import * as path from 'path'
 import { IPCContext } from './context'
 import { validateSecurePathInBase } from '../security'
@@ -211,9 +212,9 @@ ipcMain.handle('context-menu:recent-file', async (event, recentId: string) => {
     {
       label: '📋 复制路径',
       enabled: Boolean(canonicalFilePath),
-      click: () => {
+      click: async () => {
         try {
-          clipboard.writeText(canonicalFilePath!)
+          if (!await writeTextToSystemClipboard(canonicalFilePath!)) throw new Error('无法写入系统剪贴板')
         } catch (error) {
           reportError('复制路径失败', error)
         }
@@ -222,9 +223,9 @@ ipcMain.handle('context-menu:recent-file', async (event, recentId: string) => {
     {
       label: '📎 复制相对路径',
       enabled: Boolean(relativePath),
-      click: () => {
+      click: async () => {
         try {
-          clipboard.writeText(relativePath!)
+          if (!await writeTextToSystemClipboard(relativePath!)) throw new Error('无法写入系统剪贴板')
         } catch (error) {
           reportError('复制相对路径失败', error)
         }
@@ -311,9 +312,9 @@ ipcMain.handle('context-menu:recent-folder', async (event, historyId: string) =>
     {
       label: '📋 复制路径',
       enabled: Boolean(resolvedPath),
-      click: () => {
+      click: async () => {
         try {
-          clipboard.writeText(resolvedPath!)
+          if (!await writeTextToSystemClipboard(resolvedPath!)) throw new Error('无法写入系统剪贴板')
         } catch (error) {
           reportError('复制路径失败', error)
         }
@@ -617,8 +618,8 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     menuTemplate.push({ type: 'separator' })
     menuTemplate.push({
       label: '🔗 复制链接',
-      click: () => {
-        clipboard.writeText(`${filePath}#${headingId}`)
+      click: async () => {
+        await writeTextToSystemClipboard(`${filePath}#${headingId}`)
       }
     })
   }
@@ -644,8 +645,8 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
   menuTemplate.push({
     label: '📋 复制路径',
     accelerator: 'CmdOrCtrl+Alt+C',
-    click: () => {
-      clipboard.writeText(filePath)
+    click: async () => {
+      await writeTextToSystemClipboard(filePath)
     }
   })
 
@@ -653,9 +654,9 @@ ipcMain.handle('preview:show-context-menu', async (event, params: {
     label: '📎 复制相对路径',
     accelerator: 'Shift+Alt+C',
     enabled: !!basePath,
-    click: () => {
+    click: async () => {
       if (basePath) {
-        clipboard.writeText(path.relative(basePath, filePath))
+        await writeTextToSystemClipboard(path.relative(basePath, filePath))
       }
     }
   })

@@ -144,6 +144,27 @@ describe('useExport immediate feedback', () => {
     expect(mocks.buildExportHtmlContent).toHaveBeenCalled()
   })
 
+  it('DOCX 不克隆异步渲染中的旧正文，使用完整当前 Markdown 回退', async () => {
+    const panel = document.createElement('div')
+    panel.className = 'split-leaf-panel active'
+    const body = document.createElement('div')
+    body.className = 'markdown-body'
+    body.dataset.renderPending = 'true'
+    body.textContent = 'STALE_PREVIEW_CONTENT'
+    panel.append(body)
+    document.body.append(panel)
+    const { result } = renderExportHook()
+    await act(async () => {
+      void result.current.handleExportDOCX('preview')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => { await flushExportFeedbackPaint() })
+    expect(mocks.buildExportHtmlContent).toHaveBeenCalledWith('# Report', { markdownFilePath: '/docs/report.md' })
+    expect(window.api.exportDOCX).toHaveBeenCalled()
+    expect(JSON.stringify((window.api.exportDOCX as any).mock.calls)).not.toContain('STALE_PREVIEW_CONTENT')
+  })
+
   it('上一次远程 DOCX 成功面板未关闭时，仍应允许启动新的导出', async () => {
     useExportTaskStore.getState().setDone('/tmp/old-report.docx', 0, [])
     const { result } = renderExportHook()

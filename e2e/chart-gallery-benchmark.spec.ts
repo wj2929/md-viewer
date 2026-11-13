@@ -1,4 +1,4 @@
-import { writeFileSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import AdmZip from 'adm-zip'
 import { test, expect, openFolderViaIPC } from './fixtures/electron'
@@ -13,7 +13,7 @@ const WARNING_LIMITS = {
   maxLongTaskMs: 200,
   totalLongTaskMs: 500,
   maxEventLoopLagMs: 250,
-  privateMemoryDeltaMb: 150,
+  workingSetDeltaMb: 150,
   domNodes: 50_000,
 }
 
@@ -65,8 +65,11 @@ test.describe('图表案例单 renderer 文件性能基准', () => {
       .map(name => {
         const pageName = name.split('/').at(-1)?.replace(/\.md$/, '') || ''
         const rendererType = pageName.replace(/-\d{2}$/, '')
+        const heading = readFileSync(join(packageRoot, name), 'utf8').match(/^# (.+)$/m)?.[1].trim()
+        if (!heading) throw new Error(`Benchmark fixture is missing a heading: ${name}`)
         return {
           rendererType,
+          heading,
           pageName,
           filePath: join(packageRoot, name),
         }
@@ -80,17 +83,19 @@ test.describe('图表案例单 renderer 文件性能基准', () => {
       const longTasks: number[] = []
       const eventLoopLags: number[] = []
       const memoryDeltas: number[] = []
+      const memorySamples: Array<{ run: number; beforeMiB: number; afterMiB: number }> = []
       let domNodes = 0
       let svgCount = 0
       let canvasCount = 0
       let errorCount = 0
+      const errorMessages = new Set<string>()
 
       for (let run = -1; run < RUNS; run += 1) {
         await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), join(packageRoot, 'README.md'))
         await expect(page.locator('.markdown-body h1')).toHaveText('MD Viewer 图表示例')
         const memoryBefore = await electronApp.evaluate(({ app, BrowserWindow }) => {
           const pid = BrowserWindow.getAllWindows()[0]?.webContents.getOSProcessId()
-          return app.getAppMetrics().find(metric => metric.pid === pid)?.memory.privateBytes ?? 0
+          return app.getAppMetrics().find(metric => metric.pid === pid)?.memory.workingSetSize ?? 0
         })
         await page.evaluate(() => {
           const runtime = window as typeof window & {
@@ -118,7 +123,7 @@ test.describe('图表案例单 renderer 文件性能基准', () => {
         const startedAt = Date.now()
         await expect(async () => {
           await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), candidate.filePath)
-          await expect(page.locator('.markdown-body h1')).toContainText(`${candidate.rendererType} 专项案例`, { timeout: 3000 })
+          await expect(page.locator('.markdown-body h1')).toHaveText(candidate.heading, { timeout: 3000 })
         }).toPass({ timeout: 30_000 })
         await page.evaluate(() => new Promise<void>(resolve => {
           const root = document.querySelector('.markdown-body')
@@ -149,13 +154,16 @@ test.describe('图表案例单 renderer 文件性能基准', () => {
             svgCount: document.querySelectorAll('.markdown-body svg').length,
             canvasCount: document.querySelectorAll('.markdown-body canvas').length,
             errorCount: document.querySelectorAll('.markdown-body [class$="-error"], .markdown-body .remote-chart-failure').length,
+            errorMessages: Array.from(document.querySelectorAll('.markdown-body [class$="-error"], .markdown-body .remote-chart-failure'))
+              .map(element => element.textContent?.trim() ?? ''),
           }
         })
         const memoryAfter = await electronApp.evaluate(({ app, BrowserWindow }) => {
           const pid = BrowserWindow.getAllWindows()[0]?.webContents.getOSProcessId()
-          return app.getAppMetrics().find(metric => metric.pid === pid)?.memory.privateBytes ?? 0
+          return app.getAppMetrics().find(metric => metric.pid === pid)?.memory.workingSetSize ?? 0
         })
 
+        memorySamples.push({ run, beforeMiB: memoryBefore / 1024, afterMiB: memoryAfter / 1024 })
         if (run >= 0) {
           readyTimes.push(readyMs)
           longTasks.push(...metrics.longTasks)
@@ -165,6 +173,7 @@ test.describe('图表案例单 renderer 文件性能基准', () => {
           svgCount = Math.max(svgCount, metrics.svgCount)
           canvasCount = Math.max(canvasCount, metrics.canvasCount)
           errorCount = Math.max(errorCount, metrics.errorCount)
+          metrics.errorMessages.forEach(message => errorMessages.add(message))
         }
       }
 
@@ -173,8 +182,8 @@ test.describe('图表案例单 renderer 文件性能基准', () => {
       const maxLongTaskMs = Math.max(0, ...longTasks)
       const totalLongTaskMs = longTasks.reduce((sum, duration) => sum + duration, 0) / RUNS
       const maxEventLoopLagMs = Math.max(0, ...eventLoopLags)
-      const privateMemoryDeltaMb = Math.max(0, ...memoryDeltas)
-      const measured = { medianReadyMs, p95ReadyMs, maxLongTaskMs, totalLongTaskMs, maxEventLoopLagMs, privateMemoryDeltaMb, domNodes }
+      const workingSetDeltaMb = Math.max(0, ...memoryDeltas)
+      const measured = { medianReadyMs, p95ReadyMs, maxLongTaskMs, totalLongTaskMs, maxEventLoopLagMs, workingSetDeltaMb, domNodes }
       const warnings = Object.entries(WARNING_LIMITS)
         .filter(([key, limit]) => measured[key as keyof typeof measured] > limit)
         .map(([key]) => key)
@@ -187,11 +196,13 @@ test.describe('图表案例单 renderer 文件性能基准', () => {
         maxLongTaskMs,
         totalLongTaskMs,
         maxEventLoopLagMs,
-        privateMemoryDeltaMb,
+        workingSetDeltaMb,
+        memorySamples,
         domNodes,
         svgCount,
         canvasCount,
         errorCount,
+        errorMessages: [...errorMessages],
         warnings,
       })
       writeFileSync(outputPath, `${JSON.stringify({ limits: WARNING_LIMITS, results }, null, 2)}\n`)

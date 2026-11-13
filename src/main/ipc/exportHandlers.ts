@@ -12,7 +12,7 @@ import { exportViaRemote, testConnection, RemoteImage, DocxExportError, resolveR
 import { DOCX_STYLE_LABELS, normalizeDocxStyle } from '../../shared/docxStyles'
 import { validateSenderReadPath } from './senderSecurity'
 import { writeHtmlExport, writePdfExport } from '../cli/sharedExportWriters'
-import { getExportStyles } from './exportStyles'
+import { getExportStyles, getHtmlExportStyles } from './exportStyles'
 import { runExportPreflight } from '../exportPreflight'
 import {
   materializeLocalMediaForDocxMarkdown,
@@ -394,7 +394,7 @@ ipcMain.handle('export:html', async (event, htmlContent: string, fileName: strin
 
     const settings = appDataManager.getSettings()
     const showBranding = settings.showExportBranding !== false
-    const { markdownCss, prismCss } = await getExportStyles()
+    const { markdownCss, prismCss, katexCss } = await getHtmlExportStyles()
     const media = markdownFilePath
       ? await materializeLocalMediaForExport({
           html: htmlContent,
@@ -432,6 +432,7 @@ ipcMain.handle('export:html', async (event, htmlContent: string, fileName: strin
       title: fileName,
       markdownCss,
       prismCss,
+      katexCss,
       showBranding,
     })
     return { filePath: result.filePath, warnings: media.warnings, linkedMedia: media.linkedMedia }

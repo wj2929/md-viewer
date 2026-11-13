@@ -2,429 +2,217 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as os from 'os'
 import * as fs from 'fs'
 import { execFileSync } from 'child_process'
-import { clipboard } from 'electron'
+import { clipboard, ClipboardItem } from 'electron'
 
-// Mock 模块
 vi.mock('electron', () => ({
   clipboard: {
-    readBuffer: vi.fn(),
-    readText: vi.fn(),
-    writeBuffer: vi.fn(),
-    writeText: vi.fn(),
-    clear: vi.fn()
-  }
+    read: vi.fn(), readText: vi.fn(), write: vi.fn(), writeText: vi.fn(), clear: vi.fn(),
+  },
+  ClipboardItem: class {
+    readonly types: string[]
+    constructor(private data: Record<string, string | Blob>) { this.types = Object.keys(data) }
+    async getType(type: string) {
+      const value = this.data[type]
+      if (value === undefined) throw new Error('Missing format')
+      return typeof value === 'string' ? new Blob([value]) : value
+    }
+  },
+}))
+vi.mock('os', () => ({ platform: vi.fn() }))
+vi.mock('fs', () => ({ existsSync: vi.fn() }))
+vi.mock('child_process', () => ({ execFileSync: vi.fn() }))
+vi.mock('../security', () => ({
+  isProtectedPath: vi.fn((path: string) => path.startsWith('/System') || path.startsWith('/usr')),
 }))
 
-vi.mock('os', () => ({
-  platform: vi.fn()
-}))
+import * as manager from '../clipboardManager'
 
-vi.mock('fs', () => ({
-  existsSync: vi.fn()
-}))
+const format = (name: string) => `electron application/osclipboard;format="${name}"`
+function contents(type: string, value: string | Buffer) {
+  const blob = typeof value === 'string' ? value : new Blob([new Uint8Array(value)])
+  vi.mocked(clipboard.read).mockResolvedValue([new ClipboardItem({ [type]: blob })])
+}
+async function written(type: string): Promise<string> {
+  const item = vi.mocked(clipboard.write).mock.calls.at(-1)![0][0]
+  const blob = await item.getType(type)
+  if (!('text' in blob)) throw new Error('Unexpected bookmark')
+  return blob.text()
+}
 
-// mock child_process：execFileSync 默认为普通 stub（不抛错），
-// 具体用例按需覆盖行为。此前"无法运行 PowerShell"用例依赖 macOS/Linux 上
-// powershell.exe 不存在而抛错，Windows CI 上真实存在会成功导致断言失败。
-vi.mock('child_process', () => {
-  const execFileSync = vi.fn()
-  return { execFileSync, default: { execFileSync } }
+beforeEach(() => {
+  vi.resetAllMocks()
+  vi.mocked(os.platform).mockReturnValue('darwin')
+  vi.mocked(fs.existsSync).mockReturnValue(true)
+  vi.mocked(clipboard.read).mockResolvedValue([])
+  vi.mocked(clipboard.readText).mockResolvedValue('')
+  vi.mocked(clipboard.write).mockResolvedValue(undefined)
+  vi.mocked(clipboard.writeText).mockResolvedValue(undefined)
 })
 
-vi.mock('../security', () => ({
-  isProtectedPath: vi.fn((path: string) => {
-    // 模拟受保护路径
-    return path.startsWith('/System') || path.startsWith('/usr')
-  })
-}))
-
-
-// 动态导入被测模块
-let clipboardManager: typeof import('../clipboardManager')
-
-describe('clipboardManager', () => {
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    // 每次测试前重新导入模块
-    clipboardManager = await import('../clipboardManager')
+describe('readFilesFromSystemClipboard', () => {
+  it('macOS 保留原生文件列表读取', async () => {
+    contents(format('NSFilenamesPboardType'), '<plist><array><string>/Users/test/one.md</string><string>/Users/test/two.txt</string></array></plist>')
+    expect(await manager.readFilesFromSystemClipboard()).toEqual([
+      { path: '/Users/test/one.md', exists: true, isAllowed: true, reason: undefined },
+      { path: '/Users/test/two.txt', exists: true, isAllowed: true, reason: undefined },
+    ])
   })
 
-  describe('readFilesFromSystemClipboard', () => {
-    describe('macOS', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('darwin')
-      })
-
-      it('应该从 NSFilenamesPboardType 读取文件路径', () => {
-        const plistContent = `<?xml version="1.0"?>
-<plist>
-<array>
-  <string>/Users/test/file1.txt</string>
-  <string>/Users/test/file2.md</string>
-</array>
-</plist>`
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(plistContent))
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toHaveLength(2)
-        expect(result[0]).toEqual({
-          path: '/Users/test/file1.txt',
-          exists: true,
-          isAllowed: true,
-          reason: undefined
-        })
-        expect(result[1]).toEqual({
-          path: '/Users/test/file2.md',
-          exists: true,
-          isAllowed: true,
-          reason: undefined
-        })
-      })
-
-      it('应该从 file:// URL 格式读取', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(''))
-        vi.mocked(clipboard.readText).mockReturnValue('file:///Users/test/file.md')
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toHaveLength(1)
-        expect(result[0].path).toBe('/Users/test/file.md')
-      })
-
-      it('应该过滤受保护路径', () => {
-        const plistContent = `<plist><array><string>/System/Library/file.txt</string></array></plist>`
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(plistContent))
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result[0].isAllowed).toBe(false)
-        expect(result[0].reason).toBe('受保护的系统路径')
-      })
-
-      it('应该标记不存在的文件', () => {
-        const plistContent = `<plist><array><string>/Users/test/nonexistent.txt</string></array></plist>`
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(plistContent))
-        vi.mocked(fs.existsSync).mockReturnValue(false)
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result[0].exists).toBe(false)
-        expect(result[0].isAllowed).toBe(false)
-        expect(result[0].reason).toBe('文件不存在')
-      })
-
-      it('应该处理空剪贴板', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(''))
-        vi.mocked(clipboard.readText).mockReturnValue('')
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toEqual([])
-      })
-    })
-
-    describe('Windows', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('win32')
-      })
-
-      it('应该从 FileNameW 读取文件路径', () => {
-        // UTF-16LE 编码的路径
-        const path = 'C:\\Users\\test\\file.txt'
-        const buffer = Buffer.from(path + '\0', 'utf16le')
-        vi.mocked(clipboard.readBuffer).mockReturnValue(buffer)
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toHaveLength(1)
-        expect(result[0].path).toBe(path)
-      })
-
-      it('应该处理空 FileNameW buffer', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(''))
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toEqual([])
-      })
-    })
-
-    describe('Linux', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('linux')
-      })
-
-      it('应该从 text/uri-list 读取文件路径', () => {
-        vi.mocked(clipboard.readText).mockReturnValue('file:///home/user/file.txt')
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toHaveLength(1)
-        expect(result[0].path).toBe('/home/user/file.txt')
-      })
-
-      it('应该处理多个文件路径', () => {
-        vi.mocked(clipboard.readText).mockReturnValue(
-          'file:///home/user/file1.txt\nfile:///home/user/file2.txt'
-        )
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toHaveLength(2)
-      })
-
-      it('应该处理非文件内容', () => {
-        vi.mocked(clipboard.readText).mockReturnValue('普通文本内容')
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toEqual([])
-      })
-    })
-
-    describe('错误处理', () => {
-      it('应该处理读取异常', () => {
-        vi.mocked(os.platform).mockReturnValue('darwin')
-        vi.mocked(clipboard.readBuffer).mockImplementation(() => {
-          throw new Error('读取失败')
-        })
-
-        const result = clipboardManager.readFilesFromSystemClipboard()
-
-        expect(result).toEqual([])
-      })
-    })
+  it('原生 XML 路径中的特殊字符正确还原', async () => {
+    contents(format('NSFilenamesPboardType'), '<string>/Users/test/A&amp;B&lt;测试&gt;.md</string>')
+    expect((await manager.readFilesFromSystemClipboard())[0].path).toBe('/Users/test/A&B<测试>.md')
   })
 
-  describe('writeFilesToSystemClipboard', () => {
-    describe('macOS', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('darwin')
-      })
-
-      it('应该写入有效文件路径', () => {
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.writeFilesToSystemClipboard(
-          ['/Users/test/file.txt'],
-          false
-        )
-
-        expect(result).toBe(true)
-        expect(clipboard.writeBuffer).toHaveBeenCalled()
-      })
-
-      it('应该写入多个文件路径', () => {
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.writeFilesToSystemClipboard(
-          ['/Users/test/file1.txt', '/Users/test/file2.txt'],
-          false
-        )
-
-        expect(result).toBe(true)
-      })
-
-      it('应该过滤不存在的文件', () => {
-        vi.mocked(fs.existsSync).mockImplementation((path) => {
-          return path === '/Users/test/exists.txt'
-        })
-
-        clipboardManager.writeFilesToSystemClipboard(
-          ['/Users/test/exists.txt', '/Users/test/nonexistent.txt'],
-          false
-        )
-
-        // 检查写入的内容只包含存在的文件
-        const writeBufferCall = vi.mocked(clipboard.writeBuffer).mock.calls[0]
-        const plistContent = writeBufferCall[1].toString()
-        expect(plistContent).toContain('/Users/test/exists.txt')
-        expect(plistContent).not.toContain('nonexistent.txt')
-      })
-
-      it('应该转义和还原 XML 特殊字符路径', () => {
-        const filePath = '/Users/test/A&B<测试>.md'
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        clipboardManager.writeFilesToSystemClipboard([filePath], false)
-        const plistContent = vi.mocked(clipboard.writeBuffer).mock.calls[0][1].toString()
-        expect(plistContent).toContain('/Users/test/A&amp;B&lt;测试&gt;.md')
-
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(plistContent))
-        const result = clipboardManager.readFilesFromSystemClipboard()
-        expect(result[0].path).toBe(filePath)
-      })
-      it('应该在所有文件都不存在时返回 false', () => {
-        vi.mocked(fs.existsSync).mockReturnValue(false)
-
-        const result = clipboardManager.writeFilesToSystemClipboard(
-          ['/nonexistent.txt'],
-          false
-        )
-
-        expect(result).toBe(false)
-      })
-    })
-
-    describe('Windows', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('win32')
-      })
-
-      it('当前环境无法运行 PowerShell 时返回 false', () => {
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-        // 显式让 powershell 调用抛错，跨平台确定（Windows CI 上 powershell.exe 真实存在会成功）
-        vi.mocked(execFileSync).mockImplementationOnce(() => {
-          throw new Error('spawnSync powershell.exe ENOENT')
-        })
-
-        expect(clipboardManager.writeFilesToSystemClipboard(['C:\\Users\\test\\file.txt'], false)).toBe(false)
-        expect(clipboard.writeText).not.toHaveBeenCalled()
-      })
-    })
-
-    describe('Linux', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('linux')
-      })
-
-      it('应该写入 file:// URI 格式', () => {
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-
-        const result = clipboardManager.writeFilesToSystemClipboard(
-          ['/home/user/file.txt'],
-          false
-        )
-
-        expect(result).toBe(true)
-        expect(clipboard.writeBuffer).toHaveBeenCalled()
-        const writeCall = vi.mocked(clipboard.writeBuffer).mock.calls[0][1].toString()
-        expect(writeCall).toContain('file://')
-      })
-    })
-
-    describe('错误处理', () => {
-      it('应该处理写入异常', () => {
-        vi.mocked(os.platform).mockReturnValue('darwin')
-        vi.mocked(fs.existsSync).mockReturnValue(true)
-        vi.mocked(clipboard.writeBuffer).mockImplementation(() => {
-          throw new Error('写入失败')
-        })
-
-        const result = clipboardManager.writeFilesToSystemClipboard(
-          ['/Users/test/file.txt'],
-          false
-        )
-
-        expect(result).toBe(false)
-      })
-    })
+  it('优先读取 URI 列表，忽略注释、远程主机和非文件 URL', async () => {
+    contents('text/uri-list', '# comment\r\nfile:///Users/test/A%20B.md\r\nhttps://example.test/a\nfile://remote/share/a\nfile://localhost/Users/test/local.md')
+    expect((await manager.readFilesFromSystemClipboard()).map(file => file.path))
+      .toEqual(['/Users/test/A B.md', '/Users/test/local.md'])
+    expect(clipboard.readText).not.toHaveBeenCalled()
   })
 
-  describe('hasFilesInSystemClipboard', () => {
-    describe('macOS', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('darwin')
-      })
-
-      it('应该检测 NSFilenamesPboardType 内容', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from('some content'))
-
-        const result = clipboardManager.hasFilesInSystemClipboard()
-
-        expect(result).toBe(true)
-      })
-
-      it('应该检测 file:// 文本', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(''))
-        vi.mocked(clipboard.readText).mockReturnValue('file:///path/to/file')
-
-        const result = clipboardManager.hasFilesInSystemClipboard()
-
-        expect(result).toBe(true)
-      })
-
-      it('应该返回 false 当没有文件', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(''))
-        vi.mocked(clipboard.readText).mockReturnValue('普通文本')
-
-        const result = clipboardManager.hasFilesInSystemClipboard()
-
-        expect(result).toBe(false)
-      })
-    })
-
-    describe('Windows', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('win32')
-      })
-
-      it('应该检测 FileNameW buffer', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from('C:\\file.txt', 'utf16le'))
-
-        const result = clipboardManager.hasFilesInSystemClipboard()
-
-        expect(result).toBe(true)
-      })
-
-      it('应该返回 false 当 buffer 为空', () => {
-        vi.mocked(clipboard.readBuffer).mockReturnValue(Buffer.from(''))
-
-        const result = clipboardManager.hasFilesInSystemClipboard()
-
-        expect(result).toBe(false)
-      })
-    })
-
-    describe('Linux', () => {
-      beforeEach(() => {
-        vi.mocked(os.platform).mockReturnValue('linux')
-      })
-
-      it('应该检测 file:// 文本', () => {
-        vi.mocked(clipboard.readText).mockReturnValue('file:///home/user/file.txt')
-
-        const result = clipboardManager.hasFilesInSystemClipboard()
-
-        expect(result).toBe(true)
-      })
-    })
-
-    describe('错误处理', () => {
-      it('应该在异常时返回 false', () => {
-        vi.mocked(os.platform).mockReturnValue('darwin')
-        vi.mocked(clipboard.readBuffer).mockImplementation(() => {
-          throw new Error('读取失败')
-        })
-
-        const result = clipboardManager.hasFilesInSystemClipboard()
-
-        expect(result).toBe(false)
-      })
-    })
+  it('保留 file URL 文本回退', async () => {
+    vi.mocked(clipboard.readText).mockResolvedValue('file:///Users/test/file.md')
+    expect((await manager.readFilesFromSystemClipboard())[0].path).toBe('/Users/test/file.md')
   })
 
-  describe('clearSystemClipboard', () => {
-    it('应该清空剪贴板', () => {
-      clipboardManager.clearSystemClipboard()
+  it('受保护路径不可粘贴，不存在文件带明确原因', async () => {
+    contents('text/uri-list', 'file:///System/Library/file.txt\nfile:///Users/test/missing.md')
+    vi.mocked(fs.existsSync).mockImplementation(path => path !== '/Users/test/missing.md')
+    expect(await manager.readFilesFromSystemClipboard()).toEqual([
+      { path: '/System/Library/file.txt', exists: true, isAllowed: false, reason: '受保护的系统路径' },
+      { path: '/Users/test/missing.md', exists: false, isAllowed: false, reason: '文件不存在' },
+    ])
+  })
 
-      expect(clipboard.clear).toHaveBeenCalled()
-    })
+  it('Windows 读取 UTF-16LE 原生多文件列表', async () => {
+    vi.mocked(os.platform).mockReturnValue('win32')
+    contents(format('FileNameW'), Buffer.from('C:\\Users\\test\\one.md\0D:\\two.txt\0\0', 'utf16le'))
+    expect((await manager.readFilesFromSystemClipboard()).map(file => file.path))
+      .toEqual(['C:\\Users\\test\\one.md', 'D:\\two.txt'])
+  })
 
-    it('应该处理清空异常', () => {
-      vi.mocked(clipboard.clear).mockImplementation(() => {
-        throw new Error('清空失败')
-      })
+  it('Windows URI 按 Windows 路径解码', async () => {
+    vi.mocked(os.platform).mockReturnValue('win32')
+    contents('text/uri-list', 'file:///C:/Users/test/A%20B.md')
+    expect((await manager.readFilesFromSystemClipboard())[0].path).toBe('C:\\Users\\test\\A B.md')
+  })
 
-      // 不应该抛出异常
-      expect(() => clipboardManager.clearSystemClipboard()).not.toThrow()
-    })
+  it('Linux GNOME copy/cut 格式忽略动作头', async () => {
+    vi.mocked(os.platform).mockReturnValue('linux')
+    contents(format('x-special/gnome-copied-files'), 'cut\nfile:///home/user/a.md\nfile:///home/user/b.md\n')
+    expect((await manager.readFilesFromSystemClipboard()).map(file => file.path))
+      .toEqual(['/home/user/a.md', '/home/user/b.md'])
+  })
+
+  it.each(['darwin', 'win32', 'linux'] as const)('%s 空内容或普通文本返回空列表', async platform => {
+    vi.mocked(os.platform).mockReturnValue(platform)
+    expect(await manager.readFilesFromSystemClipboard()).toEqual([])
+    vi.mocked(clipboard.readText).mockResolvedValue('普通文本')
+    expect(await manager.readFilesFromSystemClipboard()).toEqual([])
+  })
+
+  it('异步读取拒绝后安全返回空列表', async () => {
+    vi.mocked(clipboard.read).mockRejectedValueOnce(new Error('read failed'))
+    expect(await manager.readFilesFromSystemClipboard()).toEqual([])
+  })
+})
+
+describe('writeFilesToSystemClipboard', () => {
+  it('macOS 通过 URI 列表写多个文件，保留特殊字符', async () => {
+    expect(await manager.writeFilesToSystemClipboard(['/Users/test/A&B<测试>.md', '/Users/test/two.txt'])).toBe(true)
+    expect(await written('text/uri-list')).toBe('file:///Users/test/A&B%3C%E6%B5%8B%E8%AF%95%3E.md\r\nfile:///Users/test/two.txt')
+  })
+
+  it('只写入存在的文件，空列表不触碰系统剪贴板', async () => {
+    vi.mocked(fs.existsSync).mockImplementation(path => path === '/exists.md')
+    expect(await manager.writeFilesToSystemClipboard(['/exists.md', '/missing.md'])).toBe(true)
+    expect(await written('text/uri-list')).toBe('file:///exists.md')
+    vi.mocked(clipboard.write).mockClear()
+    expect(await manager.writeFilesToSystemClipboard(['/missing.md'])).toBe(false)
+    expect(await manager.writeFilesToSystemClipboard([])).toBe(false)
+    expect(clipboard.write).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('Linux 保留 GNOME 文件动作 cut=%s', async cut => {
+    vi.mocked(os.platform).mockReturnValue('linux')
+    expect(await manager.writeFilesToSystemClipboard(['/home/user/file.md'], cut)).toBe(true)
+    expect(await written('text/uri-list')).toBe('file:///home/user/file.md')
+    expect(await written(format('x-special/gnome-copied-files')))
+      .toBe(`${cut ? 'cut' : 'copy'}\nfile:///home/user/file.md\n`)
+  })
+
+  it.each([false, true])('Windows 保留 PowerShell 原生文件引用，路径不插入脚本 cut=%s', async cut => {
+    vi.mocked(os.platform).mockReturnValue('win32')
+    const paths = ['C:\\Users\\test\\quote\' file.md']
+    expect(await manager.writeFilesToSystemClipboard(paths, cut)).toBe(true)
+    const [command, args, options] = vi.mocked(execFileSync).mock.calls[0]
+    expect(command).toBe('powershell.exe')
+    expect(args).toContain('-Sta')
+    expect(args!.at(-1)).toContain(`[byte[]]@(${cut ? 2 : 1}, 0, 0, 0)`)
+    expect(args!.at(-1)).not.toContain(paths[0])
+    expect(options).toMatchObject({ env: { MD_VIEWER_CLIPBOARD_PATHS: JSON.stringify(paths) } })
+    expect(clipboard.write).not.toHaveBeenCalled()
+  })
+
+  it('Windows PowerShell 失败不伪装成功', async () => {
+    vi.mocked(os.platform).mockReturnValue('win32')
+    vi.mocked(execFileSync).mockImplementationOnce(() => { throw new Error('ENOENT') })
+    expect(await manager.writeFilesToSystemClipboard(['C:\\file.md'])).toBe(false)
+    expect(clipboard.writeText).not.toHaveBeenCalled()
+  })
+
+  it('异步写入拒绝返回失败，后续写仍可完成', async () => {
+    vi.mocked(clipboard.write).mockRejectedValueOnce(new Error('write failed'))
+    expect(await manager.writeFilesToSystemClipboard(['/one.md'])).toBe(false)
+    expect(await manager.writeFilesToSystemClipboard(['/two.md'])).toBe(true)
+  })
+
+  it('文件/文本/清空按调用顺序完成，未完成文件写不会盖掉较新文本', async () => {
+    let finish!: () => void
+    vi.mocked(clipboard.write).mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve }))
+    const files = manager.writeFilesToSystemClipboard(['/old.md'])
+    const text = manager.writeTextToSystemClipboard('/new.md')
+    const clear = manager.clearSystemClipboard()
+    await vi.waitFor(() => expect(clipboard.write).toHaveBeenCalledTimes(1))
+    expect(clipboard.writeText).not.toHaveBeenCalled()
+    expect(clipboard.clear).not.toHaveBeenCalled()
+    finish()
+    expect(await files).toBe(true)
+    expect(await text).toBe(true)
+    await clear
+    expect(clipboard.writeText).toHaveBeenCalledWith('/new.md')
+    expect(vi.mocked(clipboard.writeText).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(clipboard.clear).mock.invocationCallOrder[0])
+  })
+
+  it('保存输入快照，连续 copy/cut 不读取后续篡改的数组', async () => {
+    const paths = ['/one.md']
+    const first = manager.writeFilesToSystemClipboard(paths)
+    paths[0] = '/mutated.md'
+    const second = manager.writeFilesToSystemClipboard(['/two.md'], true)
+    expect(await first).toBe(true)
+    expect(await second).toBe(true)
+    const item = vi.mocked(clipboard.write).mock.calls[0][0][0]
+    expect(await (await item.getType('text/uri-list')).text()).toBe('file:///one.md')
+    expect(await written('text/uri-list')).toBe('file:///two.md')
+  })
+
+  it('文本拒绝与清空异常均被处理，不阻断后续队列', async () => {
+    vi.mocked(clipboard.writeText).mockRejectedValueOnce(new Error('write failed'))
+    expect(await manager.writeTextToSystemClipboard('text')).toBe(false)
+    vi.mocked(clipboard.clear).mockImplementationOnce(() => { throw new Error('clear failed') })
+    await expect(manager.clearSystemClipboard()).resolves.toBeUndefined()
+    expect(await manager.writeTextToSystemClipboard('recovered')).toBe(true)
+  })
+})
+
+describe('hasFilesInSystemClipboard', () => {
+  it.each(['darwin', 'win32', 'linux'] as const)('%s 按可解析文件判断，不把任意原生数据当文件', async platform => {
+    vi.mocked(os.platform).mockReturnValue(platform)
+    expect(await manager.hasFilesInSystemClipboard()).toBe(false)
+    vi.mocked(clipboard.readText).mockResolvedValue(platform === 'win32' ? 'file:///C:/file.md' : 'file:///path/file.md')
+    expect(await manager.hasFilesInSystemClipboard()).toBe(true)
+    vi.mocked(clipboard.read).mockRejectedValueOnce(new Error('read failed'))
+    expect(await manager.hasFilesInSystemClipboard()).toBe(false)
   })
 })

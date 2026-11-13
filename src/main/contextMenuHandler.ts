@@ -1,3 +1,4 @@
+import { writeTextToSystemClipboard } from './clipboardManager'
 /**
  * 右键菜单处理器
  * @module contextMenuHandler
@@ -5,7 +6,7 @@
  * v1.3 阶段 3：使用剪贴板状态动态控制粘贴菜单
  */
 
-import { Menu, shell, clipboard, BrowserWindow, dialog } from 'electron'
+import { Menu, shell, BrowserWindow, dialog } from 'electron'
 import * as path from 'path'
 import { validateSecurePathInBase } from './security'
 import { getClipboardState, syncClipboardState } from './clipboardState'
@@ -171,19 +172,19 @@ export function showContextMenu(
     {
       label: i18n.copyPath,
       accelerator: 'CmdOrCtrl+Alt+C',
-      click: () => {
-        clipboard.writeText(file.path)
+      click: async () => {
+        await writeTextToSystemClipboard(file.path)
       }
     },
     // 复制相对路径
     {
       label: i18n.copyRelativePath,
       accelerator: 'Shift+Alt+C',
-      click: () => {
+      click: async () => {
         // 归一化为 / 分隔：相对路径用于 Markdown 引用等可移植场景，
         // Windows 上 path.relative 返回 \ 分隔，统一转成 /。
         const relativePath = path.relative(basePath, file.path).split(path.sep).join('/')
-        clipboard.writeText(relativePath)
+        await writeTextToSystemClipboard(relativePath)
       }
     },
     { type: 'separator' },

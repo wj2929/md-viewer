@@ -43,6 +43,8 @@ test.describe('设置面板与多标签栏视觉 smoke', () => {
       await page.evaluate(async path => {
         await window.api.testOpenMarkdownFile?.(path)
       }, filePath)
+      await expect(page.locator('.tab .tab-name', { hasText: `visual-tab-${String(i).padStart(2, '0')}.md` })).toBeVisible()
+      await expect(page.locator('.markdown-body h1')).toHaveText(`Visual Tab ${i}`)
     }
 
     await expect.poll(async () => page.locator('.tab').count()).toBeGreaterThanOrEqual(14)

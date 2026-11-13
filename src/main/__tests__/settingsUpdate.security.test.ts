@@ -39,6 +39,14 @@ describe('settings:update 安全边界', () => {
     }
   })
 
+  it('独立校验工作区文件排序，不覆盖目录树排序', () => {
+    expect(sanitizeSettingsUpdates({ browserSort: { by: 'size', direction: 'desc' } }))
+      .toEqual({ browserSort: { by: 'size', direction: 'desc' } })
+    for (const browserSort of [null, {}, { by: 'unknown', direction: 'asc' }, { by: 'name' }, { by: 'size', direction: 'desc', root: '/' }]) {
+      expect(() => sanitizeSettingsUpdates({ browserSort })).toThrow('无效的工作区文件排序')
+    }
+  })
+
   it('拒绝非对象 payload', () => {
     expect(() => sanitizeSettingsUpdates(null)).toThrow('无效的应用设置')
     expect(() => sanitizeSettingsUpdates([])).toThrow('无效的应用设置')

@@ -1,10 +1,11 @@
+import { writeTextToSystemClipboard } from './clipboardManager'
 /**
  * Tab 右键菜单处理器
  * @module tabMenuHandler
  * @description v1.3 新增 - 处理标签页右键菜单
  */
 
-import { BrowserWindow, Menu, shell, clipboard } from 'electron'
+import { BrowserWindow, Menu, shell } from 'electron'
 import * as path from 'path'
 import { getFileManagerLabels } from './platformMenuLabels'
 
@@ -102,17 +103,19 @@ export function showTabContextMenu(window: BrowserWindow, ctx: TabMenuContext): 
     },
     {
       label: '复制文件路径',
-      click: () => {
-        clipboard.writeText(filePath)
-        console.log('[TAB_MENU] Copied absolute path:', filePath)
+      click: async () => {
+        if (await writeTextToSystemClipboard(filePath)) {
+          console.log('[TAB_MENU] Copied absolute path:', filePath)
+        }
       }
     },
     {
       label: '复制相对路径',
-      click: () => {
+      click: async () => {
         const relativePath = path.relative(basePath, filePath)
-        clipboard.writeText(relativePath)
-        console.log('[TAB_MENU] Copied relative path:', relativePath)
+        if (await writeTextToSystemClipboard(relativePath)) {
+          console.log('[TAB_MENU] Copied relative path:', relativePath)
+        }
       }
     }
   ])

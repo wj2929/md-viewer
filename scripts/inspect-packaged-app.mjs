@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { listPackage } from '@electron/asar'
 import AdmZip from 'adm-zip'
+import { inspectArchiveInputs } from './inspect-archive-inputs.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const stagedDistRoot = path.join(projectRoot, 'dist', 'staged')
@@ -167,17 +168,7 @@ async function main() {
   const actualChartEntries = inspectChartExamplesArchive(chartExamplesZip, chartExamplesSource, chartExamplesSidecar)
 
   const asarEntries = (await listPackage(asarPath)).map(entry => entry.split(path.sep).join('/'))
-  const runtimeClosure = await readJson(path.join(projectRoot, '.package-app', '.runtime-closure.json'))
-  for (const packageEntry of runtimeClosure.packages ?? []) {
-    const packageName = packageEntry.path.slice(packageEntry.path.lastIndexOf('node_modules/') + 'node_modules/'.length)
-    const manifestCandidates = [
-      `/${packageEntry.path}/package.json`,
-      `/node_modules/${packageName}/package.json`,
-    ]
-    if (!manifestCandidates.some(candidate => asarEntries.includes(candidate))) {
-      throw new Error(`app.asar 缺少 runtime closure 包 ${packageEntry.path}`)
-    }
-  }
+  const archiveInputs = await inspectArchiveInputs(projectRoot, path.join(projectRoot, '.package-app'), asarPath)
   for (const required of ['/package.json', '/out/main/index.js', '/out/main/watcherProcess.js', '/out/preload/index.js', '/out/renderer/index.html']) {
     if (!asarEntries.includes(required)) throw new Error(`app.asar 缺少 ${required}`)
   }
@@ -206,7 +197,7 @@ async function main() {
   const stderrFd = fsSync.openSync(stderrPath, 'w')
   let cliRun
   try {
-    cliRun = spawnSync(executablePath, ['capabilities', '--json'], {
+    cliRun = spawnSync(executablePath, [`--user-data-dir=${path.join(cliOutputDir, 'profile')}`, 'capabilities', '--json'], {
       timeout: 30_000,
       stdio: [stdinFd, stdoutFd, stderrFd],
       env: process.platform === 'linux'
@@ -237,6 +228,7 @@ async function main() {
     appBytes: await directorySize(appPath),
     asarBytes: (await fs.stat(asarPath)).size,
     asarEntries: asarEntries.length,
+    archiveInputs,
     locales: packagedLocales,
     katexFonts: fontCounts,
     chartExamplesBytes: chartExamplesZip.byteLength,

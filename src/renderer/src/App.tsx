@@ -23,6 +23,7 @@ import {
   type RendererFileDiagnosticOperation,
 } from './utils/diagnostics'
 import { ensureTabContentLoaded, invalidateTabContentLoad } from './utils/ensureTabContentLoaded'
+import { prepareWorkspaceWatch } from './utils/prepareWorkspaceWatch'
 import { buildPreviewContentForFile, isMarkdownFile } from './utils/previewableFiles'
 import { useToast } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
@@ -444,7 +445,7 @@ function App(): React.JSX.Element {
     linkedReadGenerationRef.current++
     recordPaneHydration(workspaceId)
     const runtime = getRuntime(workspaceId)
-    const workspace = workspaces.find((item) => item.id === workspaceId)
+    const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === workspaceId)
     setFolderPath(runtime.folderPath ?? fallbackRoot ?? workspace?.primaryRoot ?? null)
     setFiles(runtime.files)
     setSelectedPaths(new Set(runtime.selectedPaths))
@@ -457,7 +458,7 @@ function App(): React.JSX.Element {
     setHighlightKeyword(runtime.highlightKeyword)
     replaceDocumentViews(runtime.documentViews)
     replaceQuickEditPlacements(runtime.quickEditPlacements)
-  }, [getRuntime, replaceDocumentViews, replaceQuickEditPlacements, setActiveTabId, setFiles, setFolderPath, setHighlightKeyword, setScrollToLine, setScrollToRatio, setSelectedPaths, setSplitState, setTabs, workspaces])
+  }, [getRuntime, replaceDocumentViews, replaceQuickEditPlacements, setActiveTabId, setFiles, setFolderPath, setHighlightKeyword, setScrollToLine, setScrollToRatio, setSelectedPaths, setSplitState, setTabs])
 
   const createWorkspace = useCallback(async () => {
     if (activeWorkspaceId) saveRuntime(activeWorkspaceId, captureWorkspaceRuntime())
@@ -473,18 +474,36 @@ function App(): React.JSX.Element {
     workspaceBootstrapLoadedRef.current = true
     void window.api.getWorkspaceBootstrap().then(async (bootstrap) => {
       if (cancelled) return
-      const descriptors = bootstrap.workspaces.map((workspace) => ({
-        id: workspace.id,
-        primaryRoot: workspace.primaryRoot,
-        lifecycleEpoch: workspace.lifecycleEpoch,
-        name: bootstrap.restoredRuntime?.workspaces.find((item) => item.id === workspace.id)?.name
-          || workspace.primaryRoot?.split(/[/\\]/).pop()
-          || '未命名工作区',
-      }))
-      setWorkspaces(descriptors, bootstrap.activeWorkspaceId)
+      const current = useWorkspaceStore.getState()
+      const newerWorkspaceIds = new Set<string>()
+      const descriptors = bootstrap.workspaces.map((workspace) => {
+        const live = current.workspaces.find(item => item.id === workspace.id)
+        if (live && live.lifecycleEpoch > workspace.lifecycleEpoch) {
+          newerWorkspaceIds.add(live.id)
+          return live
+        }
+        return {
+          id: workspace.id,
+          primaryRoot: workspace.primaryRoot,
+          lifecycleEpoch: workspace.lifecycleEpoch,
+          name: bootstrap.restoredRuntime?.workspaces.find((item) => item.id === workspace.id)?.name
+            || workspace.primaryRoot?.split(/[/\\]/).pop()
+            || '未命名工作区',
+        }
+      })
+      for (const live of current.workspaces) {
+        if (!descriptors.some(item => item.id === live.id)) {
+          descriptors.push(live)
+          newerWorkspaceIds.add(live.id)
+        }
+      }
+      const activeId = current.activeWorkspaceId && newerWorkspaceIds.has(current.activeWorkspaceId)
+        ? current.activeWorkspaceId : bootstrap.activeWorkspaceId
+      setWorkspaces(descriptors, activeId)
       workspaceBootstrapLoadedRef.current = true
       if (bootstrap.restoredRuntime) {
         for (const restored of bootstrap.restoredRuntime.workspaces) {
+          if (newerWorkspaceIds.has(restored.id)) continue
           const workspace = descriptors.find((item) => item.id === restored.id)
           if (!workspace?.primaryRoot) continue
           const root = workspace.primaryRoot
@@ -514,10 +533,10 @@ function App(): React.JSX.Element {
             quickEditPlacements: {},
           })
         }
-        const active = descriptors.find((workspace) => workspace.id === bootstrap.activeWorkspaceId)
-        if (active) hydrateWorkspaceRuntime(active.id, active.primaryRoot)
+        const active = descriptors.find((workspace) => workspace.id === activeId)
+        if (active && !newerWorkspaceIds.has(active.id)) hydrateWorkspaceRuntime(active.id, active.primaryRoot)
       } else {
-        const active = descriptors.find((workspace) => workspace.id === bootstrap.activeWorkspaceId)
+        const active = descriptors.find((workspace) => workspace.id === activeId)
         if (active?.primaryRoot) setFolderPath(active.primaryRoot)
       }
       setWorkspaceBootstrapReady(true)
@@ -1303,46 +1322,12 @@ function App(): React.JSX.Element {
     return () => mediaQuery.removeEventListener('change', handleMediaChange)
   }, [])
 
-  // 监听恢复文件夹事件
-  useEffect(() => {
-    const cleanup = window.api.onRestoreFolder(async (activation) => {
-      beginFolderDiagnostic(activation)
-      useWorkspaceStore.getState().upsertWorkspace({
-        ...activation.workspace,
-        name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
-      })
-      setFolderPath(activation.path)
-      try {
-        const pinnedTabs = await window.api.getPinnedTabsForFolder(activation.path)
-        if (pinnedTabs.length > 0) {
-          // 懒加载：固定标签建壳，激活时才读盘
-          const newTabs: Tab[] = pinnedTabs.map((pinned) => ({
-            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            file: { name: pinned.path.split(/[/\\]/).pop() || '', path: pinned.path, isDirectory: false },
-            content: null,
-            isPinned: true
-          }))
-          if (newTabs.length > 0) {
-            setTabs(prev => [...prev, ...newTabs])
-            // 新窗口可能同时收到 open-specific-file；目录恢复不能在异步完成后
-            // 抢走已明确打开文件的焦点。普通恢复时 activeTabId 为空，仍激活首个固定标签。
-            if (!useTabStore.getState().activeTabId) {
-              setActiveTabId(newTabs[0].id, { source: 'restore-pinned' })
-            }
-          }
-        }
-      } catch (err) {
-        console.error('[App] Failed to restore pinned tabs on folder restore:', err)
-      }
-    })
-    return cleanup
-  }, [beginFolderDiagnostic])
-
   // v1.3.6：恢复固定标签
-  const restorePinnedTabs = useCallback(async (targetFolderPath: string) => {
+  const restorePinnedTabs = useCallback(async (targetFolderPath: string, isCurrent: () => boolean, activateFirst = true) => {
     try {
+      if (!isCurrent()) return
       const pinnedTabs = await window.api.getPinnedTabsForFolder(targetFolderPath)
-      if (pinnedTabs.length === 0) return
+      if (!isCurrent() || pinnedTabs.length === 0) return
       // 懒加载：固定标签建壳，激活时才读盘
       const newTabs: Tab[] = pinnedTabs.map((pinned) => ({
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1353,6 +1338,7 @@ function App(): React.JSX.Element {
       if (newTabs.length > 0) {
         let firstAddedTabId: string | null = null
         setTabs(prev => {
+          if (!isCurrent()) return prev
           const existingPaths = new Set(prev.map(tab => tab.file.path))
           const tabsToAdd = newTabs.filter(tab => {
             if (existingPaths.has(tab.file.path)) return false
@@ -1362,9 +1348,10 @@ function App(): React.JSX.Element {
           firstAddedTabId = tabsToAdd[0]?.id ?? null
           return [...prev, ...tabsToAdd]
         })
-        if (firstAddedTabId) setActiveTabId(firstAddedTabId, { source: 'restore-pinned' })
+        if (isCurrent() && firstAddedTabId && activateFirst) setActiveTabId(firstAddedTabId, { source: 'restore-pinned' })
       }
     } catch (error) {
+      if (!isCurrent()) return
       console.error('[App] Failed to restore pinned tabs:', error)
     }
   }, [])
@@ -1410,17 +1397,20 @@ function App(): React.JSX.Element {
 
   // v2.8.0：切回文件夹时，用归档的 tab 会话重建壳 tab（content=null，懒加载）。
   // 无归档则回退到固定标签恢复。active 采用归档的当前文档；isPinned 以 pinned store 为权威校正。
-  const restoreFolderTabSession = useCallback(async (targetFolderPath: string) => {
+  const restoreFolderTabSession = useCallback(async (targetFolderPath: string, isCurrent: () => boolean) => {
     try {
+      if (!isCurrent()) return
       const session = await window.api.getFolderTabSession(targetFolderPath)
+      if (!isCurrent()) return
       if (session.tabs.length === 0) {
         splitLeafPositionsRef.current = {}
         pendingSplitLeafViewStatesRef.current = {}
         setSplitState({ root: null, activeLeafId: '' }, { source: 'restore-folder-session' })
-        await restorePinnedTabs(targetFolderPath)
+        await restorePinnedTabs(targetFolderPath, isCurrent)
         return
       }
       const pinnedTabs = await window.api.getPinnedTabsForFolder(targetFolderPath)
+      if (!isCurrent()) return
       const pinnedPaths = new Set(pinnedTabs.map(tab => tab.path))
       const shellTabs: Tab[] = session.tabs.map(entry => ({
         id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1432,6 +1422,7 @@ function App(): React.JSX.Element {
       let activeId: string | null = null
       let finalTabs: Tab[] = []
       setTabs(prev => {
+        if (!isCurrent()) return prev
         const existingPaths = new Set(prev.map(tab => tab.file.path))
         const merged = [...prev]
         for (const shell of shellTabs) {
@@ -1445,6 +1436,7 @@ function App(): React.JSX.Element {
         finalTabs = merged
         return merged
       })
+      if (!isCurrent()) return
       const restoredSplit = restoreFolderSplitLayout(session.splitLayout, finalTabs, targetFolderPath)
       if (restoredSplit) {
         splitLeafPositionsRef.current = Object.fromEntries(
@@ -1470,10 +1462,11 @@ function App(): React.JSX.Element {
         pendingSplitLeafViewStatesRef.current = {}
         setSplitState({ root: null, activeLeafId: '' }, { source: 'restore-folder-session' })
       }
-      if (activeId) setActiveTabId(activeId, { source: 'restore-folder-session' })
+      if (isCurrent() && activeId) setActiveTabId(activeId, { source: 'restore-folder-session' })
     } catch (error) {
+      if (!isCurrent()) return
       console.error('[App] Failed to restore folder tab session:', error)
-      await restorePinnedTabs(targetFolderPath)
+      await restorePinnedTabs(targetFolderPath, isCurrent)
     }
   }, [restorePinnedTabs])
 
@@ -1511,27 +1504,32 @@ function App(): React.JSX.Element {
     }
   }, [setActiveTabId, setTabs, toast])
 
-  const applyFolderActivation = useCallback(async (activation: FolderActivation): Promise<void> => {
+  const applyFolderActivation = useCallback(async (activation: FolderActivation, intent = browserNavigationRef.current): Promise<void> => {
+    if (browserNavigationRef.current !== intent) return
     beginFolderDiagnostic(activation)
     upsertWorkspace({
       ...activation.workspace,
       name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
     })
+    const lifecycle = getActiveWorkspaceLifecycleKey()
+    if (!lifecycle || lifecycle.workspaceId !== activation.workspace.id) return
+    const isCurrent = () => browserNavigationRef.current === intent && isActiveWorkspaceLifecycleKey(lifecycle)
     setFolderPath(activation.path)
     keepPinnedTabsForFolderSwitch()
     setActiveTabId(null, { source: 'folder-switch' })
-    await restoreFolderTabSession(activation.path)
+    await restoreFolderTabSession(activation.path, isCurrent)
   }, [beginFolderDiagnostic, keepPinnedTabsForFolderSwitch, restoreFolderTabSession, upsertWorkspace])
 
   // 打开文件夹
   const openFolder = useCallback(async (): Promise<FolderActivation | null> => {
-    beginBrowserNavigation()
+    const intent = beginBrowserNavigation()
     if (!confirmLeaveDirtyActiveTab()) return null
     await archiveCurrentFolderTabs()
+    if (browserNavigationRef.current !== intent) return null
     try {
       const activation = await window.api.openFolder()
-      if (!activation) return null
-      await applyFolderActivation(activation)
+      if (!activation || browserNavigationRef.current !== intent) return null
+      await applyFolderActivation(activation, intent)
       return activation
     } catch (error) {
       console.error('Failed to open folder:', error)
@@ -1545,11 +1543,12 @@ function App(): React.JSX.Element {
 
   // 从历史选择文件夹
   const handleSelectHistoryFolder = useCallback(async (historyId: string) => {
-    beginBrowserNavigation()
+    const intent = beginBrowserNavigation()
     if (!confirmLeaveDirtyActiveTab()) return
     await archiveCurrentFolderTabs()
+    if (browserNavigationRef.current !== intent) return
     const activation = await window.api.activateHistoryFolder(historyId)
-    await applyFolderActivation(activation)
+    await applyFolderActivation(activation, intent)
   }, [applyFolderActivation, archiveCurrentFolderTabs, beginBrowserNavigation, confirmLeaveDirtyActiveTab])
 
   // 从主进程持有的最近文件记录激活；renderer 不再推导或授权根目录。
@@ -1560,7 +1559,7 @@ function App(): React.JSX.Element {
     if (browserNavigationRef.current !== intent) return
     try {
       const activation = await window.api.activateRecentFile(recentId)
-      await applyFolderActivation(activation)
+      await applyFolderActivation(activation, intent)
       if (browserNavigationRef.current !== intent) return
 
       // 刚点击的最近文件始终覆盖归档 active：确保它有 tab 并激活 + 预热内容
@@ -1612,6 +1611,8 @@ function App(): React.JSX.Element {
         ? pendingFolderDiagnosticRef.current
         : null
       try {
+        await prepareWorkspaceWatch(lifecycle)
+        if (!isActiveWorkspaceLifecycleKey(lifecycle)) return
         const fileList = folderDiagnostic
           ? await window.api.readDir(folderPath, {
               operationId: folderDiagnostic.operationId,
@@ -1652,7 +1653,7 @@ function App(): React.JSX.Element {
       }
     }
     loadFiles()
-  }, [folderPath, folderDiagnosticSequence])
+  }, [folderPath, folderDiagnosticSequence, workspaceBootstrapReady])
 
   // 手动刷新文件树
   const handleRefreshFiles = useCallback(async () => {
@@ -1853,12 +1854,14 @@ function App(): React.JSX.Element {
     lineNumber?: number,
     keyword?: string,
     diagnosticSource: DiagnosticSource = 'user',
+    navigationIntent?: number,
   ) => {
     if (file.isDirectory) return 'failed' as const
+    if (navigationIntent !== undefined && navigationIntent !== browserNavigationRef.current) return 'superseded' as const
     const pending = pendingFileSelectRef.current
     if (pending?.path === file.path && pending.lineNumber === lineNumber && pending.keyword === keyword
       && pending.intent === browserNavigationRef.current) return 'superseded' as const
-    const intent = beginBrowserNavigation()
+    const intent = navigationIntent ?? beginBrowserNavigation()
     invalidateLinkRequest()
     if (!confirmLeaveDirtyActiveTab(file.path)) return 'cancelled' as const
     const lifecycle = getActiveWorkspaceLifecycleKey()
@@ -1948,6 +1951,31 @@ function App(): React.JSX.Element {
       if (pendingFileSelectRef.current?.intent === intent) pendingFileSelectRef.current = null
     }
   }, [activeWorkspaceId, beginBrowserNavigation, commitDocumentNavigation, confirmLeaveDirtyActiveTab, invalidateLinkRequest, resetLinkRoot, refreshExistingTabContent, resolveReadPositionRatio, toast, workspaces])
+
+  // 目录激活与初始文件属于同一个导航意图；异步恢复不能重新领取序号。
+  useEffect(() => window.api.onRestoreFolder(async (activation) => {
+    const state = useWorkspaceStore.getState()
+    const existing = state.workspaces.find(item => item.id === activation.workspace.id)
+    if ((state.activeWorkspaceId && state.activeWorkspaceId !== activation.workspace.id)
+      || (existing && existing.lifecycleEpoch > activation.workspace.lifecycleEpoch)) return
+    const intent = beginBrowserNavigation()
+    beginFolderDiagnostic(activation)
+    upsertWorkspace({
+      ...activation.workspace,
+      name: activation.workspace.primaryRoot?.split(/[/\\]/).pop() || '未命名工作区',
+    })
+    const lifecycle = getActiveWorkspaceLifecycleKey()
+    if (!lifecycle) return
+    const isCurrent = () => browserNavigationRef.current === intent && isActiveWorkspaceLifecycleKey(lifecycle)
+    setFolderPath(activation.path)
+    await restorePinnedTabs(activation.path, isCurrent, !useTabStore.getState().activeTabId)
+    if (!isCurrent() || !activation.initialFileRelativePath) return
+    const relativePath = activation.initialFileRelativePath
+    const separator = window.api.platform === 'win32' ? '\\' : '/'
+    const filePath = `${activation.path.replace(/[/\\]+$/, '')}${separator}${relativePath.split('/').join(separator)}`
+    await handleFileSelect({ name: relativePath.split('/').pop() || '', path: filePath, isDirectory: false },
+      undefined, undefined, 'open-specific-file', intent)
+  }), [beginBrowserNavigation, beginFolderDiagnostic, handleFileSelect, restorePinnedTabs, upsertWorkspace])
 
   const handleBrowserSelect = useCallback(async (entry: WorkspaceDirectoryEntry) => {
     if (entry.kind !== 'file') return
@@ -2252,7 +2280,7 @@ function App(): React.JSX.Element {
         if (!isPathInsideFolder(filePath, activation.path)) {
           throw new Error('搜索结果不属于目标工作区')
         }
-        await applyFolderActivation(activation)
+        await applyFolderActivation(activation, intent)
         if (browserNavigationRef.current !== intent) return
         await handleFileSelect(
           { name: getFileNameFromPath(filePath), path: filePath, isDirectory: false },
@@ -2945,8 +2973,8 @@ function App(): React.JSX.Element {
     return bestScore > 0.6 ? bestMatch : null
   }
 
-  // 文件监听 - 自动刷新功能
-  useEffect(() => {
+  // 文件监听接收端先于首屏读取的 passive effects 安装，再注册主进程订阅。
+  useLayoutEffect(() => {
     const hasWorkspaceBootstrap = Object.hasOwn(window.api, 'getWorkspaceBootstrap')
     // 未提供 workspace bootstrap 的旧 renderer/test bridge 保持原有监听语义。
     if (
@@ -2958,16 +2986,6 @@ function App(): React.JSX.Element {
     const workspaceId = activeWorkspaceId
     const lifecycleEpoch = activeWorkspaceEpoch
     const hasWorkspaceContext = Boolean(workspaceId && Number.isInteger(lifecycleEpoch))
-
-    if (hasWorkspaceContext) {
-      window.api.watchFolder(folderPath, workspaceId ?? undefined, lifecycleEpoch).catch(error => {
-        console.error('Failed to watch folder:', error)
-      })
-    } else {
-      window.api.watchFolder(folderPath).catch(error => {
-        console.error('Failed to watch folder:', error)
-      })
-    }
 
     const isCurrentSubscription = (): boolean => {
       if (!hasWorkspaceContext) return useFileStore.getState().folderPath === folderPath
@@ -3288,6 +3306,12 @@ function App(): React.JSX.Element {
         finally { await window.api.acknowledgeWatchReconcile(request.requestId, result) }
       }).catch(() => { queueFailed = true })
     })
+
+    if (hasWorkspaceContext) {
+      void prepareWorkspaceWatch({ workspaceId: workspaceId!, lifecycleEpoch: lifecycleEpoch!, primaryRoot: folderPath })
+    } else {
+      window.api.watchFolder(folderPath).catch(error => { console.error('Failed to watch folder:', error) })
+    }
 
     return () => {
       if (watchRefreshRef.current === refreshDocuments) watchRefreshRef.current = null

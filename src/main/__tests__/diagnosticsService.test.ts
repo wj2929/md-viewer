@@ -2,7 +2,8 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import AdmZip from 'adm-zip'
-import { mkdtemp, readFile, rm } from 'fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
+import { randomBytes } from 'node:crypto'
 import { tmpdir } from 'os'
 import path from 'path'
 import type { PersistedDiagnosticEvent } from '../../shared/diagnostics'
@@ -53,6 +54,31 @@ afterEach(async () => {
 })
 
 describe('DiagnosticsService', () => {
+  it('相邻TTS本地主密钥及密文文件不进入诊断包', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'mdv-diagnostics-local-key-'))
+    const folder = path.join(tempDir, 'tts-local')
+    await mkdir(folder, { mode: 0o700 })
+    const master = randomBytes(32)
+    const cipher = 'CANARY_TTS_CIPHERTEXT_DO_NOT_EXPORT'
+    await writeFile(path.join(folder, 'master.key'), master, { mode: 0o600 })
+    await writeFile(path.join(folder, 'keys.json'), JSON.stringify({ cipher }), { mode: 0o600 })
+    const input = fixture() as DiagnosticsBundleInput & Record<string, unknown>
+    input.masterKey = master.toString('base64')
+    input.localKeyStore = { cipher }
+    const output = path.join(tempDir, 'diagnostics.zip')
+    await createDiagnosticsBundle(output, input)
+    const zip = new AdmZip(await readFile(output))
+    expect(zip.getEntries().map(entry => entry.entryName).sort()).toEqual([
+      'README.txt', 'diagnostics.json', 'performance-events.jsonl',
+    ])
+    for (const entry of zip.getEntries()) {
+      const content = entry.getData()
+      expect(content.includes(master)).toBe(false)
+      expect(content.toString()).not.toContain(master.toString('base64'))
+      expect(content.toString()).not.toContain(cipher)
+    }
+  })
+
   it('仅输出字段白名单并对路径使用 bundle-local token', () => {
     const input = fixture() as DiagnosticsBundleInput & Record<string, unknown>
     input.markdownBody = SECRET_BODY

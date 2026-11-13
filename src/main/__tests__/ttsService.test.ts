@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  getProviderKey: vi.fn(() => 'secret'),
+  getProviderKey: vi.fn<() => Promise<string | undefined>>(),
 }))
 
 vi.mock('../tts/keyStore', () => ({
@@ -30,7 +30,8 @@ function mp3(bytes = 16): Buffer {
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn())
-  mocks.getProviderKey.mockReturnValue('secret')
+  vi.clearAllMocks()
+  mocks.getProviderKey.mockReset().mockResolvedValue('secret')
 })
 
 afterEach(() => {
@@ -110,5 +111,52 @@ describe('OpenAI-compatible TTS response', () => {
 
     vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 503 }))
     await expect(synthesize(request)).rejects.toMatchObject({ kind: 'network' })
+  })
+})
+
+describe('异步密钥等待', () => {
+  it.each(['openai', 'azure'] as const)('%s 等待系统解密时可以立即取消，迟到结果不发请求', async type => {
+    let finish!: (value: string | undefined) => void
+    mocks.getProviderKey.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const controller = new AbortController()
+    const validate = vi.fn()
+    const pending = synthesize({ ...request, type, region: 'eastasia' }, controller.signal, validate)
+    const rejected = expect(pending).rejects.toThrow('aborted')
+    controller.abort()
+    await rejected
+    expect(fetch).not.toHaveBeenCalled()
+    finish('late-secret')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(validate).not.toHaveBeenCalled()
+  })
+
+  it('已取消请求不读取密钥，取消优先于缺 key 错误', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    mocks.getProviderKey.mockResolvedValueOnce(undefined)
+    await expect(synthesize(request, controller.signal)).rejects.toThrow('aborted')
+    expect(mocks.getProviderKey).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['openai', 'azure'] as const)('%s 解密完成后、fetch 前复核配置', async type => {
+    let finish!: (value: string) => void
+    mocks.getProviderKey.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const validate = vi.fn(() => { throw new Error('provider changed') })
+    const pending = synthesize({ ...request, type, region: 'eastasia' }, undefined, validate)
+    const rejected = expect(pending).rejects.toThrow('provider changed')
+    expect(validate).not.toHaveBeenCalled()
+    finish('temporary-key')
+    await rejected
+    expect(validate).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('解密拒绝不会触发 fetch 或未处理的 Promise', async () => {
+    mocks.getProviderKey.mockRejectedValueOnce(new Error('decrypt failed'))
+    await expect(synthesize(request)).rejects.toThrow('decrypt failed')
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

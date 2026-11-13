@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { performance } from 'node:perf_hooks'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   WorkspaceIndexService,
@@ -65,6 +66,28 @@ describe('WorkspaceIndexService', () => {
     await warm.attach(root, 'warm')
     await warm.waitUntilIdle(root)
     expect(warm.getStatus(root)).toMatchObject({ state: 'ready', indexedDocuments: 2 })
+  })
+
+  it('合并同一时间片的索引进度，但最终完整数量与就绪状态立即发布', async () => {
+    tempDir = await mkdtemp(join(process.cwd(), '.tmp', 'mdv-index-progress-'))
+    const root = join(tempDir, 'workspace')
+    await mkdir(root)
+    await Promise.all(Array.from({ length: 64 }, (_, index) => writeFile(join(root, `${index}.md`), `# Fixture ${index}\n`)))
+    const service = new WorkspaceIndexService(new WorkspaceIndexStore(join(tempDir, 'storage')), new FakeWatcher() as unknown as WorkspaceWatchService)
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
+    const statuses: Array<{ state: string; indexedDocuments: number }> = []
+    try {
+      await service.attach(root, 'consumer')
+      service.subscribeStatus(root, 'test', status => statuses.push({ ...status }))
+      await service.waitUntilIdle(root)
+      expect(statuses.length).toBeLessThanOrEqual(3)
+      expect(statuses.at(-1)).toMatchObject({ state: 'ready', indexedDocuments: 64, pendingDocuments: 0, errors: 0 })
+      expect(service.getStatus(root)).toMatchObject({ state: 'ready', indexedDocuments: 64 })
+    } finally {
+      clock.mockRestore()
+      service.unsubscribeStatus(root, 'test')
+      await service.detach(root, 'consumer')
+    }
   })
 
   it('最近文件集合在排序截断前过滤，不泄露其他文件且保留普通查询', async () => {

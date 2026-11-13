@@ -57,7 +57,7 @@ describe('shared export writers', () => {
     await expect(readFile(outputPath, 'utf8')).resolves.toContain('<p>Hello</p>')
   })
 
-  it('seals PDF fonts, preserves cancellation and delegates without changing HTML CDN behavior', async () => {
+  it('seals PDF fonts, preserves cancellation and keeps HTML styles offline', async () => {
     const controller = new AbortController()
     const options = { content: '<p>正文</p>', title: 'A&B', markdownCss: '', prismCss: '', showBranding: false, signal: controller.signal }
     await writePdfExport('/fixture/report.pdf', options)
@@ -67,7 +67,11 @@ describe('shared export writers', () => {
     expect(pdf).toContain("script-src 'none'")
     expect(pdf).not.toContain('registry.npmmirror.com')
     expect(pdf).not.toContain('cdn.jsdelivr.net')
-    expect(buildExportHtmlDocument(options)).toContain('https://registry.npmmirror.com/katex/')
+    const html = buildExportHtmlDocument({ ...options, katexCss: '@font-face{src:url(data:font/woff2;base64,AAAA)}' })
+    expect(html).toContain('data:font/woff2;base64,AAAA')
+    expect(html).not.toContain('registry.npmmirror.com')
+    expect(html).not.toContain('cdn.jsdelivr.net')
+    expect(html).not.toContain('onerror=')
   })
 
   it('builds the shared PDF document shell with chart sizing and branding rules', () => {

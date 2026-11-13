@@ -2,7 +2,7 @@
  * 设置 · 朗读 Tab
  * @module components/ReadAloudSettingsTab
  * @description 多 TTS provider 管理:默认服务 + 语速 + 失败退回开关 + provider 列表(增删改/测试连接)。
- * 单一状态源 = readAloudStore。付费 key 走主进程 safeStorage(tts:setKey),不落 AppSettings。
+ * 单一状态源 = readAloudStore。付费 key 由主进程本地加密保存(tts:setKey),不落 AppSettings。
  * provider 卡片照 DOCX 服务块范式:baseUrl/region/apiKey(password)/测试连接。
  */
 
@@ -74,26 +74,44 @@ const PaidProviderCard: React.FC<{ config: TtsProviderConfig }> = ({ config }) =
   const [baseUrl, setBaseUrl] = useState(config.baseUrl ?? '')
   const [region, setRegion] = useState(config.region ?? '')
   const [voice, setVoice] = useState(config.voice ?? '')
-  const [apiKey, setApiKey] = useState('') // 只在本次输入时持有,保存后清空(真实 key 在钥匙串)
+  const [apiKey, setApiKey] = useState('') // 仅持有本次输入，保存后清空；本地密文由主进程管理
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
   const [testMsg, setTestMsg] = useState('')
 
   // 先保存当前目标，再将 key 绑定到该目标
   const saveKey = useCallback(async (): Promise<boolean> => {
     if (!apiKey) return true
-    const configSaved = await updateProvider(config.id, {
-      baseUrl: baseUrl.trim() || undefined,
-      region: region.trim() || undefined,
-      voice: voice.trim() || undefined,
-    })
-    if (!configSaved) return false
-
-    const res = await window.api.ttsSetKey(config.id, apiKey)
-    if (!res.ok) return false
-
-    const keyStateSaved = await updateProvider(config.id, { hasApiKey: res.hasKey })
-    if (keyStateSaved) setApiKey('')
-    return keyStateSaved
+    try {
+      const configSaved = await updateProvider(config.id, {
+        baseUrl: baseUrl.trim() || undefined,
+        region: region.trim() || undefined,
+        voice: voice.trim() || undefined,
+      })
+      if (!configSaved) {
+        setTestStatus('error')
+        setTestMsg('朗读配置保存失败，API Key 尚未保存')
+        return false
+      }
+      const res = await window.api.ttsSetKey(config.id, apiKey)
+      if (!res.ok) {
+        setTestStatus('error')
+        setTestMsg(res.message || 'API Key 本地加密保存失败，请重试')
+        return false
+      }
+      const keyStateSaved = await updateProvider(config.id, { hasApiKey: res.hasKey })
+      if (!keyStateSaved) {
+        setTestStatus('error')
+        setTestMsg('朗读配置保存失败，请重试')
+        return false
+      }
+      setApiKey('')
+      setTestStatus('idle')
+      return true
+    } catch {
+      setTestStatus('error')
+      setTestMsg('API Key 本地加密保存失败，请重试')
+      return false
+    }
   }, [apiKey, baseUrl, region, voice, config.id, updateProvider])
 
   const handleTest = useCallback(async () => {
@@ -398,7 +416,10 @@ const ReadAloudSettingsTab: React.FC = () => {
       <section className="settings-section">
         <h3>语音服务</h3>
         <p className="setting-section-hint">
-          系统声（离线）与 Edge 免费为内置服务，不可删除。付费服务的 API Key 经系统钥匙串加密存储，不明文保存。
+          系统声（离线）与 Edge 免费为内置服务，不可删除。付费 API Key 在本机加密保存，不使用系统钥匙串，无需系统密码。从旧存储切换后，原付费 Key 需重新输入一次。
+        </p>
+        <p className="setting-section-hint">
+          主密钥与密文均保存在本机用户数据目录，同时拿到两者即可解密，请勿分享该目录。备份与恢复需保留配套文件；主密钥丢失或错配时，请恢复正确备份，重新输入不能恢复旧密文。
         </p>
 
         {paidProviders.map((p) => (

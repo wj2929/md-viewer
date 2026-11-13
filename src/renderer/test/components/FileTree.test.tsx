@@ -867,7 +867,7 @@ describe('FileTree', () => {
 
       render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
-      expect(screen.getByText('📂')).toBeInTheDocument()
+      expect(document.querySelector('.file-icon svg[data-icon="folder-open"]')).toHaveAttribute('aria-hidden', 'true')
     })
 
     it('折叠的文件夹应该显示关闭图标', async () => {
@@ -882,7 +882,7 @@ describe('FileTree', () => {
       // 点击折叠
       await userEvent.click(screen.getByText('docs'))
 
-      expect(screen.getByText('📁')).toBeInTheDocument()
+      expect(document.querySelector('.file-icon svg[data-icon="folder"]')).toHaveAttribute('aria-hidden', 'true')
     })
 
     it('文件应该显示文件图标', () => {
@@ -890,7 +890,7 @@ describe('FileTree', () => {
 
       render(<FileTree files={files} onFileSelect={mockOnFileSelect} basePath={basePath} />)
 
-      expect(screen.getByText('📄')).toBeInTheDocument()
+      expect(document.querySelector('.file-icon svg[data-icon="document"]')).toHaveAttribute('aria-hidden', 'true')
     })
   })
 

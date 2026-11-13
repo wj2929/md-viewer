@@ -557,11 +557,6 @@ export function useIPC(options: UseIPCOptions): void {
           if (currentFolderPath) {
             window.api.addRecentFile({ path: filePath, name: fileName, folderPath: currentFolderPath }).catch(() => {})
           }
-          void window.api.watchFile(
-            filePath,
-            operation.workspaceId,
-            operation.lifecycleEpoch,
-          ).catch(() => {})
         } catch (error) {
           recordFileTerminal(diagnosticOperation, 'error')
           console.error('Failed to read file for split:', error)
@@ -571,6 +566,10 @@ export function useIPC(options: UseIPCOptions): void {
       }
 
       if (navigation && !navigation.isCurrent()) return
+      const operation = getActiveWorkspaceOperationContext()
+      if (!operation) return
+      // Existing tabs can outlive their previous root's watcher subscription.
+      void window.api.watchFile(filePath, operation.workspaceId, operation.lifecycleEpoch).catch(() => {})
       const tabId = tab.id
       setSplitState(prev => {
         if (!prev.root) {

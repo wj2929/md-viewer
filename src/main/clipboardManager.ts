@@ -1,19 +1,16 @@
 /**
  * 跨应用剪贴板管理器
  * @module clipboardManager
- * @description v1.3 阶段 6 - 系统剪贴板双向同步 + 主进程安全过滤
+ * @description 系统剪贴板文件引用与主进程安全过滤。
  */
 
 import { execFileSync } from 'child_process'
-import { clipboard } from 'electron'
+import { clipboard, ClipboardItem } from 'electron'
 import * as os from 'os'
 import * as fs from 'fs'
-import { pathToFileURL } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 import { isProtectedPath } from './security'
 
-/**
- * 剪贴板文件信息
- */
 export interface ClipboardFile {
   path: string
   exists: boolean
@@ -21,106 +18,72 @@ export interface ClipboardFile {
   reason?: string
 }
 
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+let clipboardWrites: Promise<unknown> = Promise.resolve()
+
+function enqueueWrite<T>(write: () => T | Promise<T>): Promise<T> {
+  const result = clipboardWrites.then(write)
+  clipboardWrites = result.catch(() => undefined)
+  return result
 }
 
-function unescapeXml(value: string): string {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
+function osFormat(name: string): string {
+  return `electron application/osclipboard;format="${name}"`
 }
 
-/**
- * 从系统剪贴板读取文件路径
- * ⚠️ 安全关键：必须过滤后再返回
- * @returns 过滤后的安全文件路径列表
- */
-export function readFilesFromSystemClipboard(): ClipboardFile[] {
+function parseFileUrls(text: string, windows: boolean): string[] {
+  return text.split(/\r?\n/).flatMap(line => {
+    try {
+      const url = new URL(line.trim())
+      if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) return []
+      return [fileURLToPath(url, { windows })]
+    } catch {
+      return []
+    }
+  })
+}
+
+/** 读取本身不授予跨根复制权限，实际粘贴仍按窗口来源授权校验。 */
+export async function readFilesFromSystemClipboard(): Promise<ClipboardFile[]> {
   const platform = os.platform()
   let rawPaths: string[] = []
-
   try {
-    if (platform === 'darwin') {
-      // macOS: 尝试读取 NSFilenamesPboardType
-      const buffer = clipboard.readBuffer('NSFilenamesPboardType')
-      if (buffer && buffer.length > 0) {
-        // NSFilenamesPboardType 是 plist 格式，简化解析
-        const plistStr = buffer.toString('utf8')
-        const matches = plistStr.match(/<string>([^<]+)<\/string>/g)
-        if (matches) {
-          rawPaths = matches.map(m => unescapeXml(m.replace(/<\/?string>/g, '')))
-        }
-      }
-
-      // 备选：读取 public.file-url 格式
-      if (rawPaths.length === 0) {
-        const text = clipboard.readText()
-        if (text.startsWith('file://')) {
-          rawPaths = text.split('\n')
-            .filter(line => line.startsWith('file://'))
-            .map(line => decodeURIComponent(line.replace('file://', '')))
-        }
-      }
-    } else if (platform === 'win32') {
-      // Windows: 尝试读取 FileNameW
-      const buffer = clipboard.readBuffer('FileNameW')
-      if (buffer && buffer.length > 0) {
-        // UTF-16LE 编码，以双 null 结尾
-        const text = buffer.toString('utf16le')
-        rawPaths = text.split('\0').filter(p => p.length > 0)
-      }
-    } else {
-      // Linux: 优先读取 GNOME 的 x-special/gnome-copied-files 格式
-      try {
-        const gnomeBuffer = clipboard.readBuffer('x-special/gnome-copied-files')
-        if (gnomeBuffer && gnomeBuffer.length > 0) {
-          // 格式: "copy\nfile:///path1\nfile:///path2" 或 "cut\nfile:///path1"
-          const lines = gnomeBuffer.toString('utf8').split('\n')
-          // 第一行是 'copy' 或 'cut'，跳过
-          rawPaths = lines.slice(1)
-            .filter(line => line.startsWith('file://'))
-            .map(line => {
-              try {
-                return decodeURIComponent(new URL(line.trim()).pathname)
-              } catch {
-                return decodeURIComponent(line.trim().replace('file://', ''))
-              }
-            })
-        }
-      } catch {
-        // GNOME 格式不可用，降级到 text/uri-list
-      }
-
-      // 降级：读取纯文本中的 file:// URI
-      if (rawPaths.length === 0) {
-        const text = clipboard.readText()
-        if (text.includes('file://')) {
-          rawPaths = text.split('\n')
-            .filter(line => line.startsWith('file://'))
-            .map(line => decodeURIComponent(line.replace('file://', '')))
-        }
-      }
+    const items = await clipboard.read()
+    const payload = async (format: string): Promise<Buffer | undefined> => {
+      const item = items.find(candidate => candidate.types.includes(format))
+      if (!item) return undefined
+      const blob = await item.getType(format)
+      if (!('arrayBuffer' in blob)) return undefined
+      return Buffer.from(await blob.arrayBuffer())
     }
+    const urls = await payload('text/uri-list')
+    if (urls) rawPaths = parseFileUrls(urls.toString('utf8'), platform === 'win32')
+    if (!rawPaths.length && platform === 'darwin') {
+      const buffer = await payload(osFormat('NSFilenamesPboardType'))
+      const matches = buffer?.toString('utf8').match(/<string>([^<]+)<\/string>/g)
+      if (matches) {
+        rawPaths = matches.map(match => match.replace(/<\/?string>/g, '')
+          .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'))
+      }
+    } else if (!rawPaths.length && platform === 'win32') {
+      const buffer = await payload(osFormat('FileNameW'))
+      if (buffer) rawPaths = buffer.toString('utf16le').split('\0').filter(Boolean)
+    } else if (!rawPaths.length) {
+      const buffer = await payload(osFormat('x-special/gnome-copied-files'))
+      if (buffer) rawPaths = parseFileUrls(buffer.toString('utf8'), false)
+    }
+    if (!rawPaths.length) rawPaths = parseFileUrls(await clipboard.readText(), platform === 'win32')
   } catch (error) {
     console.error('[ClipboardManager] Failed to read system clipboard:', error)
     return []
   }
-
-  // 安全过滤
   return rawPaths.map(path => {
     const exists = fs.existsSync(path)
     const isProtected = isProtectedPath(path)
-
     return {
       path,
       exists,
       isAllowed: exists && !isProtected,
-      reason: !exists ? '文件不存在' : isProtected ? '受保护的系统路径' : undefined
+      reason: !exists ? '文件不存在' : isProtected ? '受保护的系统路径' : undefined,
     }
   })
 }
@@ -137,11 +100,10 @@ $effect = [byte[]]@(${isCut ? 2 : 1}, 0, 0, 0)
 $data.SetData('Preferred DropEffect', $effect)
 [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
 `
-
   try {
     execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Sta', '-Command', script], {
       env: { ...process.env, MD_VIEWER_CLIPBOARD_PATHS: JSON.stringify(paths) },
-      stdio: 'ignore'
+      stdio: 'ignore',
     })
     return true
   } catch (error) {
@@ -150,81 +112,50 @@ $data.SetData('Preferred DropEffect', $effect)
   }
 }
 
-/**
- * 将文件路径写入系统剪贴板
- * @param paths - 文件路径列表
- * @param isCut - 是否为剪切操作
- */
-export function writeFilesToSystemClipboard(paths: string[], isCut: boolean = false): boolean {
-  const platform = os.platform()
-
-  try {
-    const validPaths = paths.filter(p => fs.existsSync(p))
-    if (validPaths.length === 0) {
-      console.warn('[ClipboardManager] No valid paths to write')
+export function writeFilesToSystemClipboard(paths: string[], isCut = false): Promise<boolean> {
+  const requestedPaths = [...paths]
+  return enqueueWrite(async () => {
+    try {
+      const validPaths = requestedPaths.filter(path => fs.existsSync(path))
+      if (!validPaths.length) return false
+      if (os.platform() === 'win32') return writeWindowsFilesToSystemClipboard(validPaths, isCut)
+      const urls = validPaths.map(path => pathToFileURL(path).href).join('\r\n')
+      const data: Record<string, string> = { 'text/uri-list': urls }
+      if (os.platform() === 'linux') {
+        data[osFormat('x-special/gnome-copied-files')] = `${isCut ? 'cut' : 'copy'}\n${urls}\n`
+      }
+      await clipboard.write([new ClipboardItem(data)])
+      return true
+    } catch (error) {
+      console.error('[ClipboardManager] Failed to write to system clipboard:', error)
       return false
     }
+  })
+}
 
-    if (platform === 'darwin') {
-      const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<array>
-${validPaths.map(p => `  <string>${escapeXml(p)}</string>`).join('\n')}
-</array>
-</plist>`
-      clipboard.writeBuffer('NSFilenamesPboardType', Buffer.from(plistContent, 'utf8'))
+/** 文本与文件写入共用顺序，旧文件写入不能覆盖较新的路径复制。 */
+export function writeTextToSystemClipboard(text: string): Promise<boolean> {
+  return enqueueWrite(async () => {
+    try {
+      await clipboard.writeText(text)
       return true
+    } catch (error) {
+      console.error('[ClipboardManager] Failed to write text:', error)
+      return false
     }
-
-    if (platform === 'win32') {
-      return writeWindowsFilesToSystemClipboard(validPaths, isCut)
-    }
-
-    const operation = isCut ? 'cut' : 'copy'
-    const fileUrls = validPaths.map(p => pathToFileURL(p).href).join('\r\n')
-    clipboard.writeBuffer('x-special/gnome-copied-files', Buffer.from(`${operation}\n${fileUrls}\n`, 'utf8'))
-    return true
-  } catch (error) {
-    console.error('[ClipboardManager] Failed to write to system clipboard:', error)
-    return false
-  }
+  })
 }
 
-/**
- * 检查系统剪贴板是否包含文件
- * @returns 是否包含文件路径
- */
-export function hasFilesInSystemClipboard(): boolean {
-  const platform = os.platform()
-
-  try {
-    if (platform === 'darwin') {
-      const buffer = clipboard.readBuffer('NSFilenamesPboardType')
-      if (buffer && buffer.length > 0) return true
-
-      const text = clipboard.readText()
-      return text.startsWith('file://')
-    } else if (platform === 'win32') {
-      const buffer = clipboard.readBuffer('FileNameW')
-      return buffer && buffer.length > 0
-    } else {
-      const text = clipboard.readText()
-      return text.includes('file://')
-    }
-  } catch {
-    return false
-  }
+export async function hasFilesInSystemClipboard(): Promise<boolean> {
+  return (await readFilesFromSystemClipboard()).length > 0
 }
 
-/**
- * 清空系统剪贴板
- */
-export function clearSystemClipboard(): void {
-  try {
-    clipboard.clear()
-    console.log('[ClipboardManager] System clipboard cleared')
-  } catch (error) {
-    console.error('[ClipboardManager] Failed to clear system clipboard:', error)
-  }
+export function clearSystemClipboard(): Promise<void> {
+  return enqueueWrite(() => {
+    try {
+      clipboard.clear()
+    } catch (error) {
+      console.error('[ClipboardManager] Failed to clear system clipboard:', error)
+    }
+  })
 }

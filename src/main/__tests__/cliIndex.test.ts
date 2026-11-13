@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../cli'
+import * as exportCommand from '../cli/exportCommand'
+import { RendererAssetError } from '../rendererAssets'
 import packageJson from '../../../package.json'
+
+afterEach(() => vi.restoreAllMocks())
 
 function createIo() {
   const stdout: string[] = []
@@ -16,6 +20,32 @@ function createIo() {
 }
 
 describe('runCli', () => {
+  it('returns failure JSON and exit 5 for unavailable renderer assets', async () => {
+    vi.spyOn(exportCommand, 'buildExportResult').mockRejectedValueOnce(new RendererAssetError('PUBLIC_ASSET_FAILURE'))
+    const { io, stdout, stderr } = createIo()
+
+    expect(await runCli(['export', '--json'], io)).toBe(5)
+    expect(stderr).toEqual([])
+    expect(stdout).toHaveLength(1)
+    expect(JSON.parse(stdout[0])).toMatchObject({
+      ok: false,
+      command: 'export',
+      code: 'RENDER_ASSET_UNAVAILABLE',
+      artifacts: [],
+    })
+    expect(stdout[0]).not.toContain('PUBLIC_ASSET_FAILURE')
+  })
+
+  it('does not swallow unrelated command exceptions', async () => {
+    const error = new Error('PUBLIC_ORDINARY_FAILURE')
+    vi.spyOn(exportCommand, 'buildExportResult').mockRejectedValueOnce(error)
+    const { io, stdout, stderr } = createIo()
+
+    await expect(runCli(['export', '--json'], io)).rejects.toBe(error)
+    expect(stdout).toEqual([])
+    expect(stderr).toEqual([])
+  })
+
   it('supports top-level help and version switches', async () => {
     const helpIo = createIo()
     expect(await runCli(['--help'], helpIo.io)).toBe(0)

@@ -468,8 +468,6 @@ export class WatchProcessHost {
     }
     for (const watch of this.watches.values()) {
       if (watch.startupRecoveryPending && now - watch.startedAt >= WATCH_LIMITS.slowStartupMs) {
-        watch.startupRecoveryPending = false
-        this.diagnostic('terminal', watch)
         void this.stop('resource')
       } else if (!watch.failed && !watch.crawlComplete && now - watch.startedAt >= WATCH_LIMITS.startupMs) {
         watch.startupRecoveryPending = watch.startup?.acceptedMs !== undefined &&
@@ -503,10 +501,14 @@ export class WatchProcessHost {
     }
     this.closing.clear()
     for (const watch of this.watches.values()) {
+      const revokedContinuation = watch.failed && watch.startupRecoveryPending
       watch.startupRecoveryPending = false
       this.cancelBarriers(watch)
       watch.crawlComplete = false
-      this.markGap(watch)
+      watch.gapVersion++
+      if (!watch.failed) this.diagnostic('start', watch, 'reconcile')
+      else if (revokedContinuation) this.diagnostic('terminal', watch)
+      this.changed(watch)
     }
   }
 

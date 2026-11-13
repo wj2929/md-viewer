@@ -100,9 +100,9 @@ describe('最近项右键菜单', () => {
 
     template[0].click()
     expect(shell.showItemInFolder).toHaveBeenCalledWith(filePath)
-    template[1].click()
+    await template[1].click()
     expect(clipboard.writeText).toHaveBeenCalledWith(filePath)
-    template[2].click()
+    await template[2].click()
     expect(clipboard.writeText).toHaveBeenCalledWith('docs/说明 #1.md')
     template[4].submenu[0].click()
     expect(sender.send).toHaveBeenCalledWith('file:open-in-split', {
@@ -128,7 +128,7 @@ describe('最近项右键菜单', () => {
     expect(template.some(item => item.label?.includes('相对路径'))).toBe(false)
     template[0].click()
     expect(shell.showItemInFolder).toHaveBeenCalledWith(root)
-    template[1].click()
+    await template[1].click()
     expect(clipboard.writeText).toHaveBeenCalledWith(root)
   })
 

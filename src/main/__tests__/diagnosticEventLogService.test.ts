@@ -96,7 +96,7 @@ describe('diagnostic event schema', () => {
 })
 
 describe('DiagnosticEventLogService', () => {
-  it('预览状态必须为固定值，关联操作只作日志用途', async () => {
+  it.each(['source-ready', 'dom-committed', 'awaiting-visibility'])('预览状态%s必须为固定值，关联操作只作日志用途', async previewState => {
     const { service, defaultDirectory } = await createService()
     const operationId = 'file_waiting_12345678'
     const now = Date.now()
@@ -105,7 +105,7 @@ describe('DiagnosticEventLogService', () => {
     vi.spyOn(Date, 'now').mockReturnValue(now + 11 * 60 * 1000)
     const input = { schemaVersion: DIAGNOSTIC_EVENT_SCHEMA_VERSION, event: 'file.preview.state',
       observedUnixMs: Date.now(), monotonicMs: 2, processInstanceId: 'renderer_self_1234', processSeq: 2,
-      metadata: { previewState: 'source-ready', previewInstanceId: 'preview_self_1234', relatedOperationId: operationId } }
+      metadata: { previewState, previewInstanceId: 'preview_self_1234', relatedOperationId: operationId } }
     expect(sanitizeRendererDiagnosticEvent(input)).toEqual(input)
     for (const key of ['previewState', 'relatedOperationId']) {
       expect(sanitizeDiagnosticMetadata({ [key]: '/Users/private/document.md' })).toBeNull()
@@ -118,7 +118,7 @@ describe('DiagnosticEventLogService', () => {
     await service.flush()
     const text = (await readAllLogBytes(defaultDirectory)).toString('utf8')
     expect(text).toContain('file.preview.state')
-    expect(text).toContain('source-ready')
+    expect(text).toContain(previewState)
     expect((await service.getStatus()).invalidEvents).toBe(0)
   })
 

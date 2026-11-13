@@ -128,6 +128,7 @@ const mockApi = {
   clearFolderTreeState: vi.fn().mockResolvedValue(undefined),
   // v1.3.4：打开特定文件
   onOpenSpecificFile: vi.fn(() => vi.fn()),
+  onFileOpenInSplit: vi.fn(() => vi.fn()),
   // v1.3.4：右键菜单安装
   checkContextMenuStatus: vi.fn().mockResolvedValue({ installed: false, platform: 'darwin' }),
   installContextMenu: vi.fn().mockResolvedValue({ success: true }),
@@ -542,6 +543,186 @@ describe('App 集成测试', () => {
 
       // 应该仍然显示欢迎页面
       expect(screen.getByText('欢迎使用 MD Viewer')).toBeInTheDocument()
+    })
+  })
+
+  describe('异步目录恢复的导航边界', () => {
+
+    it('首次目录读取等待逻辑监听注册，接收端先于注册请求安装', async () => {
+      let finish!: () => void
+      mockApi.watchFolder.mockImplementation(() => new Promise(resolve => { finish = () => resolve({ success: true }) }))
+      mockApi.readDir.mockResolvedValue([])
+      useWorkspaceStore.setState({ activeWorkspaceId: 'test-workspace', workspaces: [{ id: 'test-workspace', name: 'Startup', primaryRoot: '/test/folder', lifecycleEpoch: 1 }] })
+      useFileStore.setState({ folderPath: '/test/folder' })
+      try {
+        render(<App />)
+        await waitFor(() => expect(mockApi.watchFolder).toHaveBeenCalled())
+        expect(mockApi.onWatchReconcile).toHaveBeenCalledTimes(1)
+        expect(mockApi.onWatchReconcile.mock.invocationCallOrder[0]).toBeLessThan(mockApi.watchFolder.mock.invocationCallOrder[0])
+        expect(mockApi.readDir).not.toHaveBeenCalled()
+        await act(async () => { finish() })
+        await waitFor(() => expect(mockApi.readDir).toHaveBeenCalledWith('/test/folder'))
+      } finally { mockApi.watchFolder.mockResolvedValue(undefined) }
+    })
+
+    it('注册同根已有索引监听时立即到达的补查也有接收端并准确应答', async () => {
+      mockApi.readDir.mockResolvedValue([])
+      useWorkspaceStore.setState({ activeWorkspaceId: 'test-workspace', workspaces: [{ id: 'test-workspace', name: 'Startup', primaryRoot: '/test/folder', lifecycleEpoch: 1 }] })
+      useFileStore.setState({ folderPath: '/test/folder' })
+      let receiverReady = false
+      mockApi.watchFolder.mockImplementation(async () => {
+        const receive = mockApi.onWatchReconcile.mock.calls.at(-1)?.[0]
+        receiverReady = typeof receive === 'function'
+        receive?.({ workspaceId: 'test-workspace', lifecycleEpoch: 1, requestId: 'early-reconcile', phase: 'refresh' })
+        return { success: true }
+      })
+      try {
+        render(<App />)
+        await waitFor(() => expect(mockApi.acknowledgeWatchReconcile).toHaveBeenCalledWith('early-reconcile', 'ok'))
+        expect(receiverReady).toBe(true)
+      } finally { mockApi.watchFolder.mockResolvedValue(undefined) }
+    })
+
+    it('启动快照迟到时保留已激活的新根和初始文件', async () => {
+      let finishBootstrap!: (value: unknown) => void
+      mockApi.getWorkspaceBootstrap = vi.fn(() => new Promise(resolve => { finishBootstrap = resolve }))
+      mockApi.onWorkspaceFolderActivated = vi.fn(() => vi.fn())
+      mockApi.readDir.mockResolvedValue([{ name: 'initial.md', path: '/test/folder/initial.md', isDirectory: false }])
+      mockApi.readFile.mockResolvedValue('# Initial')
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([])
+      try {
+        render(<App />)
+        const activation = folderActivation('/test/folder')
+        activation.workspace.lifecycleEpoch = 2
+        await act(async () => {
+          mockApi.onWorkspaceFolderActivated.mock.calls.at(-1)[0]({ workspaceId: activation.workspace.id, path: activation.path, lifecycleEpoch: 2 })
+          await mockApi.onRestoreFolder.mock.calls.at(-1)[0]({ ...activation, initialFileRelativePath: 'initial.md' })
+        })
+        const activeId = useTabStore.getState().activeTabId
+        await act(async () => finishBootstrap({ workspaces: [{ id: activation.workspace.id, primaryRoot: null, lifecycleEpoch: 1 }], activeWorkspaceId: activation.workspace.id }))
+        expect(useWorkspaceStore.getState().workspaces[0]).toMatchObject({ primaryRoot: '/test/folder', lifecycleEpoch: 2 })
+        expect(useFileStore.getState().folderPath).toBe('/test/folder')
+        expect(useTabStore.getState().activeTabId).toBe(activeId)
+        await waitFor(() => expect(mockApi.readDir.mock.calls.some(([path]) => path === '/test/folder')).toBe(true))
+      } finally {
+        delete mockApi.getWorkspaceBootstrap
+        delete mockApi.onWorkspaceFolderActivated
+      }
+    })
+
+    it('目录恢复事件直接交付根内初始文件，不依赖延迟裸路径事件', async () => {
+      mockApi.readDir.mockResolvedValue([])
+      mockApi.readFile.mockResolvedValue('# Initial')
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([])
+      render(<App />)
+      await act(async () => {
+        await mockApi.onRestoreFolder.mock.calls.at(-1)[0]({
+          ...folderActivation('/test/folder'), initialFileRelativePath: 'nested/initial.md',
+        })
+      })
+      expect(useTabStore.getState().tabs.find(tab => tab.id === useTabStore.getState().activeTabId)?.file.path).toBe('/test/folder/nested/initial.md')
+    })
+
+    it.each([false, true])('跨根分屏existing=%s时以当前epoch登记文件监听', async existing => {
+      mockApi.readDir.mockResolvedValue([])
+      mockApi.readFile.mockResolvedValue('# Document')
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([])
+      render(<App />)
+      const restore = (path: string, initialFileRelativePath: string, lifecycleEpoch: number) =>
+        mockApi.onRestoreFolder.mock.calls.at(-1)[0]({
+          ...folderActivation(path), initialFileRelativePath,
+          workspace: { id: 'test-workspace', primaryRoot: path, lifecycleEpoch },
+        })
+      if (existing) await act(async () => { await restore('/test/other', 'cross.md', 1) })
+      await act(async () => { await restore('/test/folder', 'a.md', 2) })
+      const reads = mockApi.readFile.mock.calls.length
+      const previousTab = useTabStore.getState().tabs.find(tab => tab.file.path === '/test/other/cross.md')
+      mockApi.watchFile.mockClear()
+      await act(async () => {
+        await mockApi.onFileOpenInSplit.mock.calls.at(-1)[0]({ filePath: '/test/other/cross.md', direction: 'horizontal' })
+      })
+      expect(mockApi.watchFile).toHaveBeenCalledExactlyOnceWith('/test/other/cross.md', 'test-workspace', 2)
+      if (existing) {
+        expect(useTabStore.getState().tabs.find(tab => tab.file.path === '/test/other/cross.md')?.id).toBe(previousTab.id)
+        expect(mockApi.readFile).toHaveBeenCalledTimes(reads)
+      }
+    })
+
+    it('初始文件等待固定标签期间选择B，旧初始文件不重新领取导航意图', async () => {
+      mockApi.readDir.mockResolvedValue([])
+      mockApi.readFile.mockResolvedValue('# Newer')
+      let release!: (value: unknown[]) => void
+      mockApi.getPinnedTabsForFolder.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+      render(<App />)
+      act(() => { void mockApi.onRestoreFolder.mock.calls.at(-1)[0]({
+        ...folderActivation('/test/folder'), initialFileRelativePath: 'initial.md',
+      }) })
+      await waitFor(() => expect(mockApi.getPinnedTabsForFolder).toHaveBeenCalled())
+      await act(async () => { await mockApi.onOpenSpecificFile.mock.calls.at(-1)[0]('/test/folder/newer.md') })
+      const before = useTabStore.getState()
+      await act(async () => release([]))
+      expect(useTabStore.getState().tabs).toEqual(before.tabs)
+      expect(useTabStore.getState().activeTabId).toBe(before.activeTabId)
+      expect(mockApi.readFile).not.toHaveBeenCalledWith('/test/folder/initial.md', expect.anything())
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([])
+    })
+
+    it.each(['session', 'pinned', 'fallback'])('迟到的%s恢复不能覆盖之后明确选择的文档', async stage => {
+      const activation = folderActivation('/test/folder')
+      useWorkspaceStore.getState().upsertWorkspace({ ...activation.workspace, name: 'folder' })
+      useWorkspaceStore.getState().setActiveWorkspaceId(activation.workspace.id)
+      mockApi.openFolder.mockResolvedValue(activation)
+      mockApi.readDir.mockResolvedValue([])
+      mockApi.readFile.mockResolvedValue('# Newer')
+      let release!: (value: unknown) => void
+      let reject!: (error: Error) => void
+      const pending = new Promise((resolve, fail) => { release = resolve; reject = fail })
+      mockApi.getFolderTabSession.mockResolvedValue({ tabs: [] })
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([])
+      if (stage === 'pinned') mockApi.getPinnedTabsForFolder.mockReturnValueOnce(pending)
+      else mockApi.getFolderTabSession.mockReturnValueOnce(pending)
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: '打开文件夹' }))
+      await waitFor(() => expect(stage === 'pinned' ? mockApi.getPinnedTabsForFolder : mockApi.getFolderTabSession).toHaveBeenCalled())
+      await act(async () => {
+        await mockApi.onOpenSpecificFile.mock.calls.at(-1)[0]('/test/folder/newer.md')
+      })
+      await waitFor(() => expect(useTabStore.getState().tabs.some(tab => tab.file.name === 'newer.md')).toBe(true))
+      const before = useTabStore.getState()
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([{ path: '/test/folder/old.md' }])
+      await act(async () => {
+        if (stage === 'fallback') reject(new Error('fixture delayed failure'))
+        else release(stage === 'session' ? { tabs: [{ path: '/test/folder/old.md' }], activePath: '/test/folder/old.md' } : [{ path: '/test/folder/old.md' }])
+      })
+      expect(useTabStore.getState().tabs).toEqual(before.tabs)
+      expect(useTabStore.getState().activeTabId).toBe(before.activeTabId)
+      expect(useTabStore.getState().splitState).toEqual(before.splitState)
+      mockApi.getFolderTabSession.mockResolvedValue({ tabs: [] })
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([])
+    })
+
+    it.each(['workspace', 'epoch', 'unmount'])('%s改变后不提交旧恢复事件的固定标签', async change => {
+      const activation = folderActivation('/test/folder')
+      useWorkspaceStore.getState().upsertWorkspace({ ...activation.workspace, name: 'folder' })
+      useWorkspaceStore.getState().setActiveWorkspaceId(activation.workspace.id)
+      let release!: (tabs: unknown[]) => void
+      mockApi.getPinnedTabsForFolder.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+      const { unmount } = render(<App />)
+      act(() => { void mockApi.onRestoreFolder.mock.calls.at(-1)[0](activation) })
+      await waitFor(() => expect(mockApi.getPinnedTabsForFolder).toHaveBeenCalled())
+      if (change === 'unmount') unmount()
+      else act(() => {
+        const workspace = change === 'workspace'
+          ? { id: 'other', name: 'other', primaryRoot: '/other', lifecycleEpoch: 1 }
+          : { ...activation.workspace, name: 'folder', lifecycleEpoch: 2 }
+        useWorkspaceStore.getState().upsertWorkspace(workspace)
+        useWorkspaceStore.getState().setActiveWorkspaceId(workspace.id)
+      })
+      const before = useTabStore.getState()
+      await act(async () => release([{ path: '/test/folder/old.md' }]))
+      expect(useTabStore.getState().tabs).toEqual(before.tabs)
+      expect(useTabStore.getState().activeTabId).toBe(before.activeTabId)
+      mockApi.getPinnedTabsForFolder.mockResolvedValue([])
     })
   })
 

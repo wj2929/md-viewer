@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react'
+import { UiIcon } from './UiIcon'
 import { FileTreeSortButton } from './FileTreeSortControls'
 import { useFileTreeSortStore } from '../stores/fileTreeSortStore'
 import { useFileTreeSortMetadata } from '../hooks/useFileTreeSortMetadata'
@@ -234,11 +235,7 @@ function FileTreeItem({ item, depth, onFileSelect, selectedPath, basePath, onFil
 
         {/* 文件/文件夹图标 */}
         <span className="file-icon">
-          {item.isDirectory ? (
-            isExpanded ? '📂' : '📁'
-          ) : (
-            '📄'
-          )}
+          <UiIcon name={item.isDirectory ? (isExpanded ? 'folder-open' : 'folder') : 'document'} />
         </span>
 
         {/* 文件名 */}

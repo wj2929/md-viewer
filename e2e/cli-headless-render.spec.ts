@@ -656,18 +656,24 @@ async function runElectronCli(args: string[]): Promise<{
   stderr: string
 }> {
   const appEntry = join(__dirname, '../out/main/index.js')
-  if (!existsSync(appEntry)) {
+  const packagedExecutable = process.env.MD_VIEWER_E2E_EXECUTABLE_PATH
+  if (!(packagedExecutable ? existsSync(packagedExecutable) : existsSync(appEntry))) {
     throw new Error(`Electron E2E 构建产物不存在：${appEntry}。请先运行 npm run build。`)
   }
 
   const stdout: string[] = []
   const stderr: string[] = []
 
-  const childProcess = spawn(String(electronPath), [appEntry, ...args], {
+  const profile = mkdtempSync(join(tmpdir(), 'md-viewer-cli-e2e-profile-'))
+  const childProcess = spawn(packagedExecutable || String(electronPath), [
+    `--user-data-dir=${profile}`, ...(packagedExecutable ? [] : [appEntry]), ...args,
+  ], {
     env: {
       ...process.env,
       NODE_ENV: 'test',
       MD_VIEWER_SKIP_RESTORE: '1',
+      MD_VIEWER_DOCX_AUTOSTART: '0',
+      MD_VIEWER_DOCX_SERVICE_URL: '',
     },
   })
 
@@ -677,6 +683,7 @@ async function runElectronCli(args: string[]): Promise<{
   const exitCode = await new Promise<number | null>((resolve) => {
     childProcess.once('exit', code => resolve(code))
   })
+  rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
 
   return {
     exitCode,

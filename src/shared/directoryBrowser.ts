@@ -40,8 +40,12 @@ export function isWorkspaceRelativePath(value: unknown): value is string {
     && (value === '' || value.split('/').every(part => part !== '' && part !== '.' && part !== '..'))
 }
 
+export type WorkspaceDirectoryMetadata = 'modified' | 'size'
+
 export interface WorkspaceDirectoryEntry {
   name: string
   relativePath: string
   kind: 'directory' | 'file' | 'link' | 'other'
+  mtimeMs?: number | null
+  size?: number | null
 }

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
+import { prepareRendererAssets } from './prepare-renderer-assets.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const stageRoot = path.join(projectRoot, '.package-app')
@@ -165,6 +166,7 @@ async function main() {
     await copyPackage(lockPath, lock.packages[lockPath], runtimeConfig)
   }
 
+  const rendererAssets = await prepareRendererAssets(projectRoot, stageRoot)
   const stageLock = {
     name: stageManifest.name,
     version: stageManifest.version,
@@ -189,6 +191,7 @@ async function main() {
     stage: path.relative(projectRoot, stageRoot),
     directDependencies: runtimeConfig.runtimeDependencies.length,
     closurePackages: closure.length,
+    rendererAssets,
   }, null, 2))
 }
 

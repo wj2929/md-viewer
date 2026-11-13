@@ -151,7 +151,7 @@ describe('TabBar 组件测试', () => {
         />
       )
 
-      expect(screen.getByText('📄')).toBeInTheDocument()
+      expect(document.querySelector('.tab-icon svg[data-icon="document"]')).toHaveAttribute('aria-hidden', 'true')
     })
 
     it('标签应该显示文件完整路径作为 title', () => {

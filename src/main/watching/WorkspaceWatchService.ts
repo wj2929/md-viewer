@@ -70,6 +70,7 @@ export class WorkspaceWatchService {
   private recoveryGraceUntil = 0
   private suspended = false
   private coverageEpoch = 0
+  private readonly alignmentWaiters = new Set<() => void>()
 
   constructor(private readonly host = new WatchProcessHost()) {}
 
@@ -114,6 +115,7 @@ export class WorkspaceWatchService {
       state.subscribers.delete(key)
       this.updateFileWatch(file, state)
     }
+    this.notifyAlignmentWaiters()
   }
 
   attachIndexConsumer(root: string, consumerId: string, consumer: (delta: WorkspaceRootDelta) => void): void {
@@ -173,6 +175,33 @@ export class WorkspaceWatchService {
     for (const key of keys) {
       if (key.startsWith(`${webContentsId}:`) && (!workspaceId || key === `${webContentsId}:${workspaceId}`)) this.detachUi(key, epoch)
     }
+  }
+
+  async waitForRootAlignment(rootPath: string, assertCurrent: () => void, timeoutMs = RECONCILE_DEADLINE_MS): Promise<void> {
+    const root = path.resolve(rootPath)
+    const state = this.roots.get(root)
+    if (!state) throw new Error('监听目录已变化')
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: unknown): void => {
+        clearTimeout(timer)
+        this.alignmentWaiters.delete(check)
+        if (error) reject(error)
+        else resolve()
+      }
+      const check = (): void => {
+        try {
+          assertCurrent()
+          if (this.stopping || this.roots.get(root) !== state) throw new Error('监听目录已变化')
+          const watch = state.watch
+          if (watch.failed || (!this.suspended && watch.crawlComplete &&
+            watch.gapVersion === watch.reconciledGapVersion && !state.reconciling)) finish()
+        } catch (error) { finish(error) }
+      }
+      const timer = setTimeout(() => finish(new Error('监听对齐超时，请重新预览文件操作')), Math.max(0, timeoutMs))
+      timer.unref?.()
+      this.alignmentWaiters.add(check)
+      check()
+    })
   }
 
   getIndexCoverage(root: string): { token: string; complete: boolean } {
@@ -248,6 +277,7 @@ export class WorkspaceWatchService {
 
   async shutdown(): Promise<void> {
     this.stopping = true
+    this.notifyAlignmentWaiters()
     if (this.recoveryTimer) clearInterval(this.recoveryTimer)
     this.recoveryTimer = undefined
     this.recoveries.clear()
@@ -310,6 +340,15 @@ export class WorkspaceWatchService {
       if (state.subscribers.size === 0) this.openedFiles.delete(file)
       if (watch) { this.endRecovery(watch); this.host.remove(watch) }
     } else if (!state.watch) {
+      // Keep the logical subscription while its root starts; the root's initial
+      // refresh/barrier/drain aligns changes before coverage becomes healthy.
+      if ([...state.subscribers.keys()].every(key => {
+        if (this.hasRootSubscription(key, file)) return true
+        const root = this.rootByUiSubscriber.get(key)
+        const watch = root && this.roots.get(root)?.watch
+        return Boolean(root && watch && !watch.crawlComplete && !watch.failed &&
+          isPathInside(root, file) && !hasIgnoredPathSegment(file, root))
+      })) return
       // A failed shared backend must not be replayed indirectly through every loaded tab.
       if ([...state.subscribers.keys()].some(key => {
         const root = this.rootByUiSubscriber.get(key)
@@ -535,12 +574,17 @@ export class WorkspaceWatchService {
   private deliver(subscription: WorkspaceWatchSubscription, channel: WorkspaceWatchChannel, patch: Omit<WorkspaceWatchEvent, keyof WorkspaceWatchContext>): void {
     subscription.deliver(channel, { workspaceId: subscription.workspaceId, lifecycleEpoch: subscription.lifecycleEpoch, ...patch })
   }
+  private notifyAlignmentWaiters(): void {
+    for (const check of [...this.alignmentWaiters]) check()
+  }
+
   private notifyHealth(): void {
     this.statusVersion++
     const subscriptions = new Map<string, WorkspaceWatchSubscription>()
     for (const root of this.roots.values()) for (const [key, sub] of root.uiSubscribers) subscriptions.set(key, sub)
     for (const file of this.openedFiles.values()) for (const [key, sub] of file.subscribers) subscriptions.set(key, sub)
     for (const [key, sub] of subscriptions) sub.onHealth?.(this.getHealth(key))
+    this.notifyAlignmentWaiters()
   }
   private closeRootIfUnused(root: string): void {
     const state = this.roots.get(root)
@@ -549,6 +593,7 @@ export class WorkspaceWatchService {
     this.roots.delete(root)
     this.endRecovery(state.watch)
     this.host.remove(state.watch)
+    this.notifyAlignmentWaiters()
   }
 }
 

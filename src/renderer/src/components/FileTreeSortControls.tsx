@@ -4,9 +4,25 @@ import { DEFAULT_FILE_TREE_SORT, FILE_TREE_SORT_OPTIONS, defaultFileTreeSortDire
 import { useFileTreeSortStore } from '../stores/fileTreeSortStore'
 
 export function FileTreeSortControls({ compact = false }: { compact?: boolean }): JSX.Element {
-  const { value, ready, saving, error, connect, reload, save } = useFileTreeSortStore()
+  const state = useFileTreeSortStore()
+  useEffect(state.connect, [state.connect])
+  return <FileSortControls state={state} compact={compact} />
+}
+
+interface SortControlState {
+  value: FileTreeSort
+  ready: boolean
+  saving: boolean
+  error: string | null
+  reload: () => Promise<void>
+  save: (value: FileTreeSort) => Promise<boolean>
+}
+
+export function FileSortControls({ state, compact = false, browser = false }: {
+  state: SortControlState; compact?: boolean; browser?: boolean
+}): JSX.Element {
+  const { value, ready, saving, error, reload, save } = state
   const id = useId()
-  useEffect(connect, [connect])
   const defaultSort = value.by === 'name' && value.direction === 'asc'
   const restoreFocus = useRef<HTMLElement | null>(null)
   useEffect(() => {
@@ -24,8 +40,10 @@ export function FileTreeSortControls({ compact = false }: { compact?: boolean })
     : value.by === 'natural' ? ['1.md', '2.md', '10.md']
       : value.by === 'type' ? ['图.excalidraw', '说明.md', '笔记.mdown']
         : value.by === 'modified' ? ['较早修改', '较晚修改'] : ['1 KB', '10 KB']
+  const resetButton = <button type="button" className="file-tree-sort-reset" aria-label="恢复默认排序" disabled={!ready || saving || defaultSort} onClick={() => void save({ ...DEFAULT_FILE_TREE_SORT })}>{compact ? '恢复默认' : '恢复默认排序'}</button>
   return <div className="file-tree-sort-controls">
-    <p className="file-tree-sort-hint">{compact ? '适用于所有目录和窗口 · 自动保存' : '全局排序 · 适用于所有目录和窗口 · 自动保存'}</p>
+    {browser && <div className="browser-sort-heading"><strong>排序</strong>{resetButton}</div>}
+    <p className="file-tree-sort-hint">{browser ? '仅工作区文件 · 跨目录和窗口自动保存' : compact ? '适用于所有目录和窗口 · 自动保存' : '全局排序 · 适用于所有目录和窗口 · 自动保存'}</p>
     {compact ? <fieldset aria-label="排序依据" disabled={!ready || saving}>
       {FILE_TREE_SORT_OPTIONS.map(option => <label key={option.by}>
         <input type="radio" name={`${id}-by`} checked={value.by === option.by} onChange={() => by(option.by)} />
@@ -44,14 +62,16 @@ export function FileTreeSortControls({ compact = false }: { compact?: boolean })
     <div className="file-tree-sort-notes">
       <p className="file-tree-sort-hint">文件夹优先，每层分别排序</p>
       {value.by === 'type' && <p className="file-tree-sort-hint">文件夹同属目录类型，按名称排序</p>}
-      {needsFileTreeMetadata(value.by) && <p className="file-tree-sort-hint">{value.by === 'modified'
-        ? '文件夹按内部文档最近修改时间' : '文件夹按内部文档总大小'}</p>}
-      {!compact && needsFileTreeMetadata(value.by) && <p className="file-tree-sort-hint">包含折叠子目录，仅统计目录树收录的文档，不包含 CSV、PDF、媒体等文件；首次汇总时同步盘可能稍慢。</p>}
+      {needsFileTreeMetadata(value.by) && <p className="file-tree-sort-hint">{browser
+        ? value.by === 'modified' ? '文件夹按自身修改时间，不汇总内部文件' : '仅文件按大小排序，文件夹按名称排列'
+        : value.by === 'modified' ? '文件夹按内部文档最近修改时间' : '文件夹按内部文档总大小'}</p>}
+      {browser && needsFileTreeMetadata(value.by) && <p className="file-tree-sort-hint">属性不可读的项排在同组末尾，不递归扫描</p>}
+      {!browser && !compact && needsFileTreeMetadata(value.by) && <p className="file-tree-sort-hint">包含折叠子目录，仅统计目录树收录的文档，不包含 CSV、PDF、媒体等文件；首次汇总时同步盘可能稍慢。</p>}
     </div>
     {!compact && <p className="file-tree-sort-preview">预览：{(value.direction === 'desc' ? [...preview].reverse() : preview).join(' → ')}</p>}
     {saving && <p role="status">正在保存排序设置…</p>}
     {error && <p role="alert">{error} <button type="button" disabled={saving} onClick={() => void reload()}>重新读取设置</button></p>}
-    <button type="button" className="file-tree-sort-reset" aria-label="恢复默认排序" disabled={!ready || saving || defaultSort} onClick={() => void save({ ...DEFAULT_FILE_TREE_SORT })}>{compact ? '恢复默认' : '恢复默认排序'}</button>
+    {!browser && resetButton}
   </div>
 }
 

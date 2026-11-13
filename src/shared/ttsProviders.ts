@@ -45,7 +45,7 @@ export interface TtsVoiceProfile {
   voice: string
 }
 
-/** 运行时用户配置(存 AppSettings;apiKey 不落这里,走 safeStorage) */
+/** 运行时用户配置(存 AppSettings;apiKey 不落这里,由主进程本地加密保存) */
 export interface TtsProviderConfig {
   /** opaque id;内建 'system'/'edge';自定义 'custom-tts-<uuid>' */
   id: string
@@ -64,7 +64,7 @@ export interface TtsProviderConfig {
   profiles?: TtsVoiceProfile[]
   activeProfileId?: string
   enabled: boolean
-  /** 是否已设置 apiKey(真实 key 在 safeStorage) */
+  /** 是否存在可用的 apiKey(真实 key 由主进程本地密钥存储管理) */
   hasApiKey?: boolean
 }
 

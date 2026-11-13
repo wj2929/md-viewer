@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { UiIcon } from './UiIcon'
 import { FileInfo } from './FileTree'
 import type { RendererFileDiagnosticOperation } from '../utils/diagnostics'
 
@@ -206,9 +207,9 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
           >
             {/* v1.3.6：固定标签显示图钉图标 */}
             {tab.isPinned ? (
-              <span className="tab-pin-icon" title="已固定">📌</span>
+              <span className="tab-pin-icon" title="已固定"><UiIcon name="pin" /></span>
             ) : (
-              <span className="tab-icon">📄</span>
+              <span className="tab-icon"><UiIcon name="document" /></span>
             )}
             <span className="tab-name" title={tab.linkedReadOnly
               ? `${tab.file.path}\n外部只读 · 临时：仅当前窗口会话有效；重启或跨窗口转移不携带，请从来源链接重新打开。`
@@ -283,7 +284,7 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
                     <span className="tab-more-check" aria-hidden="true">{tab.id === activeTabId ? '✓' : ''}</span>
                     <span className="tab-more-name">{tab.file.name}</span>
                     {tab.isPinned ? (
-                      <span className="tab-more-pin" title="已固定" aria-label="已固定">📌</span>
+                      <span className="tab-more-pin" title="已固定" aria-label="已固定"><UiIcon name="pin" /></span>
                     ) : (
                       <button
                         type="button"
@@ -316,7 +317,7 @@ export function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onTabPin, on
           aria-label="显示书签栏"
           aria-expanded="false"
         >
-          <span className="tab-bar-bookmark-icon">⭐</span>
+          <span className="tab-bar-bookmark-icon"><UiIcon name="star" /></span>
           {/* 只有书签数量 > 0 时才显示 Badge */}
           {bookmarkCount && bookmarkCount > 0 && (
             <span className="tab-bar-bookmark-badge">{bookmarkCount}</span>

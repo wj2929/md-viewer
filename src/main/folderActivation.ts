@@ -3,7 +3,8 @@ import * as fs from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { performance } from 'perf_hooks'
 import type { IPCContext } from './ipc/context'
-import { validateNotProtected } from './security'
+import { validateNotProtected, validateSecurePathInBase } from './security'
+import { relative } from 'path'
 import { type FolderActivation } from '../shared/workspace'
 import type { DiagnosticSource } from '../shared/diagnostics'
 
@@ -15,6 +16,7 @@ interface FolderActivationTiming {
 interface FolderActivationOptions {
   notifyRenderer?: boolean
   diagnosticSource?: DiagnosticSource
+  initialFilePath?: string
   beforeActivate?: () => void | Promise<void>
 }
 
@@ -107,6 +109,7 @@ export async function activateFolderForWindow(
     priority: 'critical',
   })
 
+  let initialFilePath: string | undefined
   const complete = (activation: FolderActivation): FolderActivation => {
     const durationMs = performance.now() - started
     ctx.diagnosticEventLogService?.bindRegisteredOperationPath(
@@ -133,10 +136,18 @@ export async function activateFolderForWindow(
       metadata: { source, durationMs },
       priority: 'critical',
     })
-    return { ...activation, diagnosticOperationId: operationId, diagnosticSource: source }
+    return {
+      ...activation,
+      diagnosticOperationId: operationId,
+      diagnosticSource: source,
+      ...(initialFilePath ? { initialFileRelativePath: relative(activation.path, initialFilePath).split('\\').join('/') } : {}),
+    }
   }
 
   try {
+    if (options.initialFilePath) {
+      initialFilePath = await validateSecurePathInBase(options.initialFilePath, folderPath)
+    }
     const activeWorkspaceId = ctx.windowManager.getActiveWorkspaceId(window.id)
     if (activeWorkspaceId) {
       const activation = await activateFolderForWorkspace(

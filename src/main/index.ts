@@ -15,7 +15,10 @@ if (startupArgv.some(arg => arg.startsWith('--md-viewer-pdf-helper='))) {
     runCliOnStartup(startupArgv, {
       exit: code => {
         process.stderr.write('', () => {
-          process.stdout.write('', () => setImmediate(() => app.exit(code)))
+          process.stdout.write('', () => setImmediate(() => {
+            if (code === 0) app.quit()
+            else void app.whenReady().then(() => app.exit(code))
+          }))
         })
       },
     })

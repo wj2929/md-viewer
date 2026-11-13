@@ -14,6 +14,7 @@ import {
   type LocalMediaCapability,
 } from './localMediaProtocol'
 import { createContentSecurityPolicy } from './securityPolicy'
+import { registerRendererAssets } from './rendererAssets'
 
 /**
  * 窗口管理器 (v1.6.0)
@@ -130,6 +131,7 @@ export class WindowManager {
     const winId = win.id
     const webContentsId = win.webContents.id
     const windowSession = win.webContents.session
+    registerRendererAssets(windowSession)
     registerLocalImageProtocol(windowSession)
     registerLocalMediaProtocol(windowSession, (capability: LocalMediaCapability) => {
       const workspace = this.getWorkspace(winId, capability.workspaceId)

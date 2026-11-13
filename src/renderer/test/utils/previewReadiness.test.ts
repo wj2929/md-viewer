@@ -15,7 +15,7 @@ describe('preview readiness evidence', () => {
     expect(inspectPreviewReadiness([start, read, state(value)], 1).ready).toBe(true)
   })
 
-  it.each(['loading-approval', 'render-requested', 'preview-core-ready', 'unmounted'] as const)('%s 不能冒充完成', value => {
+  it.each(['loading-approval', 'render-requested', 'dom-committed', 'awaiting-visibility', 'preview-core-ready', 'unmounted'] as const)('%s 不能冒充完成', value => {
     expect(inspectPreviewReadiness([start, read, state(value)], 1).ready).toBe(false)
   })
 

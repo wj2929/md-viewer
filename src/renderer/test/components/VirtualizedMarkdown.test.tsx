@@ -444,11 +444,11 @@ describe('VirtualizedMarkdown', () => {
         expect(screen.queryByText('内容过长，已截断显示')).not.toBeInTheDocument()
       })
 
-      it('应渲染恰好 1,500,000 个字符的内容', () => {
+      it('应渲染恰好 1,500,000 个字符的内容', async () => {
         const content = `# 边界\n\n${'x'.repeat(1_500_000 - 6)}`
         render(<VirtualizedMarkdown content={content} />)
 
-        expect(screen.getByText('边界')).toBeInTheDocument()
+        expect(await screen.findByText('边界')).toBeInTheDocument()
         expect(screen.queryByText('文件过大，无法渲染')).not.toBeInTheDocument()
       })
 
@@ -464,6 +464,36 @@ describe('VirtualizedMarkdown', () => {
         expect(screen.getByRole('button', { name: '完整渲染' })).toBeInTheDocument()
         expect(screen.queryByText('内容过长，已截断显示')).not.toBeInTheDocument()
       })
+    })
+
+    it('大文档异步准备不把加载占位当正文，也不卸载正在输入的旧正文', async () => {
+      const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'scheduler')
+      const pending: Array<() => void> = []
+      Object.defineProperty(globalThis, 'scheduler', { configurable: true, value: { yield: () => new Promise<void>(resolve => pending.push(resolve)) } })
+      const step = async () => { await act(async () => { pending.shift()?.() }) }
+      const props = { filePath: '/notes/large.md', previewEditingEnabled: true, renderDebounceMs: 0, onPreviewBlockEdit: vi.fn() }
+      const first = '# First\n\n' + 'x'.repeat(100_000)
+      const view = render(<VirtualizedMarkdown {...props} content={first} />)
+      try {
+        expect(screen.getByRole('status')).toHaveTextContent('正在渲染文档')
+        expect(view.container.querySelector('.markdown-body')).toBeNull()
+        await step(); await step(); await step()
+        const paragraph = view.container.querySelector('p.markdown-preview-editable-block')!
+        paragraph.focus()
+        paragraph.textContent = '正在组词的草稿'
+        fireEvent.compositionStart(paragraph)
+        view.rerender(<VirtualizedMarkdown {...props} content={'# Second\n\n' + 'y'.repeat(100_000)} />)
+        await waitFor(() => expect(pending.length).toBeGreaterThan(0))
+        expect(paragraph.isConnected).toBe(true)
+        await step(); await step(); await step()
+        expect(view.container.querySelector('p.markdown-preview-editable-block')).toBe(paragraph)
+        expect(paragraph).toHaveTextContent('正在组词的草稿')
+        expect(view.container.querySelector('.markdown-body')).toHaveAttribute('data-render-pending', 'true')
+      } finally {
+        view.unmount()
+        if (descriptor) Object.defineProperty(globalThis, 'scheduler', descriptor)
+        else delete (globalThis as any).scheduler
+      }
     })
 
     it('编辑回调身份变化保留实际正文节点，并使用最新回调；能力移除仍更新只读标注', async () => {
@@ -1744,6 +1774,97 @@ fn main() {}
       expect(firstInstance?.isConnected).toBe(false)
       expect(screen.getByRole('heading', { name: 'File 2' })).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'File 1' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('DOM提交与绘制帧诊断分离', () => {
+    const operation = (id: string) => ({
+      context: { operationId: `file_${id}_12345678`, source: 'restore' as const, rendererStartedUnixMs: Date.now() },
+      startedMonotonicMs: performance.now(), startedUnixMs: Date.now(),
+    })
+    const states = () => vi.mocked(window.api.recordDiagnosticRendererEvent).mock.calls
+      .map(([event]) => event).filter(event => event.event === 'file.preview.state')
+
+    it('DOM提交不等帧，core仍需两帧且ready仍需5秒，卸载后取消旧ready', async () => {
+      const originalRaf = window.requestAnimationFrame
+      const originalCancel = window.cancelAnimationFrame
+      vi.useFakeTimers()
+      const frames = new Map<number, FrameRequestCallback>()
+      let sequence = 0
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++sequence, callback); return sequence })
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+      const frame = async () => act(async () => {
+        const batch = [...frames.entries()]
+        for (const [id, callback] of batch) { frames.delete(id); callback(performance.now()) }
+      })
+      let view: ReturnType<typeof render> | undefined
+      try {
+        view = render(<VirtualizedMarkdown content="# DOM evidence" filePath="/self/raf.md" renderDebounceMs={0} diagnosticOperation={operation('raf')} />)
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+        expect(screen.getByRole('heading', { name: 'DOM evidence' })).toBeInTheDocument()
+        expect(states().some(event => event.metadata.previewState === 'dom-committed')).toBe(true)
+        expect(states().some(event => event.metadata.previewState === 'preview-core-ready')).toBe(false)
+        expect(vi.mocked(window.api.recordDiagnosticRendererEvent).mock.calls.some(([event]) => event.event === 'file.open.terminal')).toBe(false)
+        await frame()
+        expect(states().some(event => event.metadata.previewState === 'preview-core-ready')).toBe(false)
+        await frame()
+        expect(states().some(event => event.metadata.previewState === 'preview-core-ready')).toBe(true)
+        await act(async () => { await vi.advanceTimersByTimeAsync(4999) })
+        expect(states().some(event => event.metadata.previewState === 'preview-ready')).toBe(false)
+        await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+        expect(states().some(event => event.metadata.previewState === 'preview-ready')).toBe(true)
+        const events = vi.mocked(window.api.recordDiagnosticRendererEvent).mock.calls.map(([event]) => event)
+        expect(events.every(event => sanitizeRendererDiagnosticEvent(event, event.observedUnixMs) !== null)).toBe(true)
+        view.rerender(<VirtualizedMarkdown content="# Replacement" filePath="/self/raf.md" renderDebounceMs={0} diagnosticOperation={operation('replacement')} />)
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+        view.unmount(); view = undefined
+        await frame(); await frame()
+        await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+        expect(states().some(event => event.metadata.relatedOperationId === 'file_replacement_12345678' && event.metadata.previewState === 'preview-ready')).toBe(false)
+      } finally {
+        view?.unmount()
+        vi.clearAllTimers(); vi.unstubAllGlobals(); vi.useRealTimers()
+        window.requestAnimationFrame = originalRaf
+        window.cancelAnimationFrame = originalCancel
+      }
+    })
+
+    it('仅诊断身份变化不重建正文，下一次真实提交使用最新身份', async () => {
+      const first = operation('first'), next = operation('next')
+      const props = { content: '# Stable\n\nEditable body', filePath: '/self/stable.md', renderDebounceMs: 0, previewEditingEnabled: true, onPreviewBlockEdit: vi.fn() }
+      const { container, rerender } = render(<VirtualizedMarkdown {...props} diagnosticOperation={first} />)
+      const body = container.querySelector('p')!
+      body.focus()
+      const replace = vi.spyOn(body.parentElement!, 'replaceChildren')
+      vi.mocked(window.api.recordDiagnosticRendererEvent).mockClear()
+      rerender(<VirtualizedMarkdown {...props} diagnosticOperation={next} />)
+      expect(container.querySelector('p')).toBe(body)
+      expect(document.activeElement).toBe(body)
+      expect(replace).not.toHaveBeenCalled()
+      expect(states().some(event => event.metadata.previewState === 'dom-committed')).toBe(false)
+      body.blur()
+      rerender(<VirtualizedMarkdown {...props} content={'# Stable\n\nUpdated body'} diagnosticOperation={next} />)
+      await waitFor(() => expect(screen.getByText('Updated body')).toBeInTheDocument())
+      expect(states().filter(event => event.metadata.previewState === 'dom-committed').map(event => event.metadata.relatedOperationId)).toEqual(['file_next_12345678'])
+    })
+
+    it.each(['focus', 'composition'])('%s阻止正文提交时不误报新DOM，解除后才报', async mode => {
+      const first = operation('editing'), next = operation('edited')
+      const props = { content: '# Editing\n\nOld paragraph', filePath: '/self/edit.md', renderDebounceMs: 0, previewEditingEnabled: true, onPreviewBlockEdit: vi.fn() }
+      const { container, rerender } = render(<VirtualizedMarkdown {...props} diagnosticOperation={first} />)
+      const body = container.querySelector('p')!
+      if (mode === 'focus') body.focus()
+      else { body.focus(); fireEvent.compositionStart(body) }
+      vi.mocked(window.api.recordDiagnosticRendererEvent).mockClear()
+      rerender(<VirtualizedMarkdown {...props} content={'# Editing\n\nNew paragraph'} diagnosticOperation={next} />)
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+      expect(container.querySelector('p')).toBe(body)
+      expect(body.textContent).toBe('Old paragraph')
+      expect(states().some(event => event.metadata.previewState === 'dom-committed')).toBe(false)
+      if (mode === 'composition') fireEvent.compositionEnd(body)
+      body.blur(); fireEvent.blur(body)
+      await waitFor(() => expect(screen.getByText('New paragraph')).toBeInTheDocument())
+      expect(states().some(event => event.metadata.previewState === 'dom-committed' && event.metadata.relatedOperationId === 'file_edited_12345678')).toBe(true)
     })
   })
 

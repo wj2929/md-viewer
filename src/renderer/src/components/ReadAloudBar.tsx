@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react'
+import { UiIcon } from './UiIcon'
 import { useSpeech, type ActiveProvider } from '../hooks/useSpeech'
 import { useReadAloudStore } from '../stores/readAloudStore'
 import { DEFAULT_EDGE_VOICE, EDGE_ZH_VOICES } from '../../../shared/ttsProviders'
@@ -234,14 +235,14 @@ const ReadAloudBar: React.FC<ReadAloudBarProps> = ({ containerRef, filePath, con
 
   return (
     <div className="read-aloud">
-      {/* 🔊 触发按钮 */}
+      {/* 朗读入口 */}
       <button
         className={`read-aloud-toggle ${isActive ? 'active' : ''}`}
         onClick={handleToggleExpand}
         aria-label="朗读"
         aria-expanded={expanded}
       >
-        🔊
+        <UiIcon name="volume" />
       </button>
 
       {/* 展开的播放条 */}

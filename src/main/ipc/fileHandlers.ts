@@ -472,12 +472,11 @@ export function registerFileHandlers(ctx: IPCContext): void {
       const folderPath = path.dirname(resolvedPath)
       const win = BrowserWindow.fromWebContents(event.sender)
       if (win && !win.isDestroyed()) {
-        await activateFolderForWindow(ctx, win, folderPath, { notifyRenderer: true })
-        setTimeout(() => {
-          if (!win.isDestroyed()) {
-            win.webContents.send('open-specific-file', resolvedPath)
-          }
-        }, 500)
+        await activateFolderForWindow(ctx, win, folderPath, {
+          notifyRenderer: true,
+          initialFilePath: resolvedPath,
+          diagnosticSource: 'open-specific-file',
+        })
       }
       return true
     })

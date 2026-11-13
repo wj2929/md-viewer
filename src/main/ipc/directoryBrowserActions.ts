@@ -1,4 +1,5 @@
-import { BrowserWindow, clipboard, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
+import { writeTextToSystemClipboard } from '../clipboardManager'
+import { BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, open, realpath } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
@@ -116,7 +117,8 @@ export function registerDirectoryBrowserActions(ctx: IPCContext): void {
       if (action === 'validate') { if (input?.name !== undefined) validateName(input.name); return {} }
       if (action === 'open' || action === 'refresh' || action === 'system-open') return {}
       if (action === 'copy-path' || action === 'copy-relative-path') {
-        clipboard.writeText(action === 'copy-path' ? entry.path : entry.relativePath || '.')
+        const copied = await writeTextToSystemClipboard(action === 'copy-path' ? entry.path : entry.relativePath || '.')
+        if (!copied) throw new Error('无法写入系统剪贴板')
         return {}
       }
       if (action === 'reveal') { shell.showItemInFolder(entry.path); return {} }

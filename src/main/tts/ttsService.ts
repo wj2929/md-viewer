@@ -10,7 +10,7 @@
  *  4. synthesize() 的 switch 加 case
  *  5. 渲染进程 engine 侧无需改(edge/付费同走 AudioStreamEngine)
  *
- * 安全:渲染进程只传 opaque providerId + 非敏感配置;apiKey 由主进程从 keyStore(safeStorage)自取,不经渲染进程。
+ * 安全:渲染进程只传 opaque providerId + 非敏感配置;apiKey 由主进程从本地 keyStore 自取,不经渲染进程。
  */
 
 import type { TtsProviderType } from '../../shared/ttsProviders'
@@ -49,21 +49,41 @@ export class TtsSynthesisError extends Error {
 
 export async function synthesize(
   req: SynthesizeRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  validateRequest?: () => void,
 ): Promise<SynthesizeResult> {
   switch (req.type) {
     case 'edge':
       return synthesizeViaEdge(req, signal)
     case 'openai':
-      return synthesizeViaOpenAI(req, signal)
+      return synthesizeViaOpenAI(req, signal, validateRequest)
     case 'azure':
-      return synthesizeViaAzure(req, signal)
+      return synthesizeViaAzure(req, signal, validateRequest)
     case 'system':
       // 系统声由渲染进程 speechSynthesis 直接处理,不该走到主进程
       throw new TtsSynthesisError('unsupported', '系统声在渲染进程处理,不经主进程合成')
     default:
       throw new TtsSynthesisError('unsupported', `未知 TTS 类型: ${req.type}`)
   }
+}
+
+function readProviderKey(req: SynthesizeRequest, signal?: AbortSignal): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      signal?.removeEventListener('abort', abort)
+      reject(new Error('aborted'))
+    }
+    if (signal?.aborted) { abort(); return }
+    signal?.addEventListener('abort', abort, { once: true })
+    void getProviderKey(req.providerId, providerTarget(req)).then(key => {
+      signal?.removeEventListener('abort', abort)
+      if (signal?.aborted) { abort(); return }
+      resolve(key)
+    }, error => {
+      signal?.removeEventListener('abort', abort)
+      reject(signal?.aborted ? new Error('aborted') : error)
+    })
+  })
 }
 
 /** 无可朗读字符(纯标点/引号/空白)→ 视为可跳过,不发合成请求 */
@@ -98,9 +118,12 @@ async function synthesizeViaEdge(
 /** OpenAI TTS(/v1/audio/speech,带 key POST,收 mp3)。第 4 步接线 UI 后可用。 */
 async function synthesizeViaOpenAI(
   req: SynthesizeRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  validateRequest?: () => void,
 ): Promise<SynthesizeResult> {
-  const apiKey = getProviderKey(req.providerId, providerTarget(req))
+  const apiKey = await readProviderKey(req, signal)
+  if (signal?.aborted) throw new Error('aborted')
+  validateRequest?.()
   if (!apiKey) throw new TtsSynthesisError('config', '未配置 OpenAI API Key')
   const base = (req.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')
   let res: Response
@@ -144,9 +167,12 @@ async function synthesizeViaOpenAI(
 /** Azure TTS(cognitiveservices,带 region + key)。第 4 步接线 UI 后可用。 */
 async function synthesizeViaAzure(
   req: SynthesizeRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  validateRequest?: () => void,
 ): Promise<SynthesizeResult> {
-  const apiKey = getProviderKey(req.providerId, providerTarget(req))
+  const apiKey = await readProviderKey(req, signal)
+  if (signal?.aborted) throw new Error('aborted')
+  validateRequest?.()
   if (!apiKey) throw new TtsSynthesisError('config', '未配置 Azure API Key')
   if (!req.region) throw new TtsSynthesisError('config', '未配置 Azure region')
   const voice = req.voice || 'zh-CN-XiaoxiaoNeural'

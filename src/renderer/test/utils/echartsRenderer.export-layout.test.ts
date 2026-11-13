@@ -1,7 +1,34 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { processEChartsInHtml, renderEChartsToSvg } from '../../src/utils/echartsRenderer'
+import { processEChartsInHtml, renderEChartsToSvg, serializeEChartsExportHtml } from '../../src/utils/echartsRenderer'
 
 describe('renderEChartsToSvg export layout', () => {
+  it('serializes a responsive copy without changing the live chart or capture geometry', () => {
+    const root = document.createElement('div')
+    root.innerHTML = '<div class="echarts-container" style="height:408px;position:relative"><div style="width:1248px;height:376px;overflow:hidden"><svg width="1248" height="376" style="position:absolute;left:0;top:0"><text x="1200" y="360">6月</text></svg></div></div>'
+    const original = root.innerHTML
+    const copy = document.createElement('div')
+    copy.innerHTML = serializeEChartsExportHtml(root)
+    const container = copy.querySelector<HTMLElement>('.echarts-container')!
+    const svg = container.querySelector<SVGSVGElement>(':scope > svg')!
+    expect(root.innerHTML).toBe(original)
+    expect(svg.getAttribute('viewBox')).toBe('0 0 1248 376')
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet')
+    expect(svg.style.position).toBe('static')
+    expect(svg.style.left).toBe('')
+    expect(container.style.height).toBe('auto')
+    expect(container.children).toHaveLength(1)
+    expect(svg.textContent).toBe('6月')
+  })
+
+  it('preserves existing chart coordinates and leaves unrelated SVGs unchanged', () => {
+    const root = document.createElement('div')
+    root.innerHTML = '<div class="echarts-container"><svg width="1248" height="376" viewBox="10 20 1248 376"></svg></div><div class="graphviz-container"><svg width="100" height="50" style="position:absolute"></svg></div>'
+    const copy = document.createElement('div')
+    copy.innerHTML = serializeEChartsExportHtml(root)
+    expect(copy.querySelector('.echarts-container svg')?.getAttribute('viewBox')).toBe('10 20 1248 376')
+    expect(copy.querySelector('.graphviz-container')?.outerHTML).toBe(root.querySelector('.graphviz-container')?.outerHTML)
+  })
+
   beforeAll(() => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
       configurable: true,

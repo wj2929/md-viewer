@@ -104,6 +104,7 @@ body[data-platform="darwin"] .titlebar-drag-region {
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.15s;
+  color: var(--text-secondary);
 }
 
 .nav-refresh-btn:hover {

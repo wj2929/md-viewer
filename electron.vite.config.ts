@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { transform } from 'esbuild'
+import { rendererAssetBuildPlugins } from './scripts/rendererAssetBuildPlugin'
+
+const rendererAssets = rendererAssetBuildPlugins(__dirname)
 
 export default defineConfig({
   main: {
@@ -85,7 +88,8 @@ export default defineConfig({
         }
       }
     },
-    plugins: [react()],
+    plugins: [rendererAssets.renderer, react()],
+    worker: { plugins: rendererAssets.workers },
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src/renderer/src')

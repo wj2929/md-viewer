@@ -30,6 +30,7 @@ const MARKDOWN_GLOB = '**/*.{md,markdown,mdown,mkd,mkdn}'
 const INDEX_IGNORED_PATHS = ['**/node_modules/**', '**/.*/**', '**/vendor/**', '**/target/**', '**/build/**', '**/dist/**']
 const MAX_FILE_SIZE = 5 * 1024 * 1024
 const MAX_SEARCH_RESULTS = 100
+const INDEX_PROGRESS_INTERVAL_MS = 50
 const INDEX_QUERY_SLOW_MS = 100
 const INDEX_QUERY_WINDOW_MS = 10_000
 const INDEX_QUERY_WINDOW_MAX_OPERATIONS = 100
@@ -379,14 +380,24 @@ export class WorkspaceIndexService {
     if (listeners?.size === 0) this.statusListeners.delete(canonicalRoot)
   }
 
-  async waitUntilIdle(rootPath: string): Promise<void> {
+  async waitUntilIdle(rootPath: string, alignment?: { assertCurrent: () => void }): Promise<void> {
     const runtime = this.getRuntime(rootPath)
     if (!runtime) return
+    const deadline = Date.now() + 30_000
     do {
+      if (alignment && Date.now() >= deadline) throw new Error('索引对齐超时，请重新预览文件操作')
+      if (alignment) await this.watcher.waitForRootAlignment(runtime.rootPath, alignment.assertCurrent, deadline - Date.now())
+      const coverage = alignment ? this.watcher.getIndexCoverage(runtime.rootPath) : undefined
       await Promise.resolve()
       const queue = runtime.queue
       await queue
-      if (queue === runtime.queue && !runtime.flushScheduled && runtime.pendingChanges.size === 0) return
+      alignment?.assertCurrent()
+      if (queue !== runtime.queue || runtime.flushScheduled || runtime.pendingChanges.size > 0) continue
+      if (coverage) {
+        const current = this.watcher.getIndexCoverage(runtime.rootPath)
+        if (current.token !== coverage.token || current.complete !== coverage.complete) continue
+      }
+      return
     } while (true)
   }
 
@@ -797,6 +808,7 @@ export class WorkspaceIndexService {
     runtime.status.totalDocuments = paths.length
     const seen = new Set<string>()
     let errors = 0
+    let lastProgressPublishedAt = performance.now()
     for (const filePath of paths) {
       try {
         const document = await this.indexFile(runtime, filePath, work)
@@ -810,7 +822,11 @@ export class WorkspaceIndexService {
       }
       runtime.status.indexedDocuments = seen.size
       runtime.status.pendingDocuments = Math.max(0, paths.length - seen.size - errors)
-      this.publishStatus(runtime)
+      const now = performance.now()
+      if (now - lastProgressPublishedAt >= INDEX_PROGRESS_INTERVAL_MS) {
+        this.publishStatus(runtime)
+        lastProgressPublishedAt = now
+      }
     }
     for (const relativePath of runtime.documents.keys()) {
       if (!seen.has(relativePath)) runtime.documents.delete(relativePath)

@@ -11,6 +11,7 @@ import { escapeHtml } from './sharedExportWriters'
 import { validateSecurePathInBase } from '../security'
 import { scanMarkdownLinkDestinations } from '../../shared/markdown/sourceLinks'
 import type { CliArtifact } from './types'
+import { registerRendererAssets, watchRendererAssetFailures, RendererAssetError } from '../rendererAssets'
 
 const MAX_CAPTURE_DIMENSION_PX = 12000
 
@@ -125,6 +126,7 @@ export const renderMarkdownHeadless: HeadlessMarkdownRenderer = async (input) =>
     renderInput = await enrichLocalChartResources(input)
     return await renderMarkdownWithServerRenderPage(renderInput)
   } catch (error) {
+    if (error instanceof RendererAssetError) throw error
     const fallback = renderMarkdownFallback(renderInput)
     fallback.warnings.push({
       code: 'FALLBACK_USED',
@@ -145,20 +147,22 @@ async function renderMarkdownWithServerRenderPage(input: ServerRenderInput): Pro
     scaleFactor: 1,
   })
   const timeoutMs = input.timeoutMs ?? 30000
+  const assetFailures = watchRendererAssetFailures(renderWindow.webContents.session)
 
   try {
     try {
-      await renderWindow.loadFile(wrapperPath)
+      await assetFailures.race(renderWindow.loadFile(wrapperPath))
     } finally {
       rm(wrapperPath, { force: true }).catch(() => undefined)
     }
 
-    const result = await waitForRenderResult(renderWindow, timeoutMs)
+    const result = await assetFailures.race(waitForRenderResult(renderWindow, timeoutMs))
     if (!result) {
       return buildTimeoutResult(input, timeoutMs)
     }
     return result
   } finally {
+    assetFailures.dispose()
     if (!renderWindow.isDestroyed()) {
       renderWindow.destroy()
     }
@@ -174,15 +178,16 @@ export const captureMarkdownScreenshot: MarkdownScreenshotCapture = async (optio
   const renderInput = await enrichLocalChartResources(options.renderInput)
   const { renderWindow, wrapperPath } = await createServerRenderWindow(renderInput, viewport)
   const timeoutMs = renderInput.timeoutMs ?? 30000
+  const assetFailures = watchRendererAssetFailures(renderWindow.webContents.session)
 
   try {
     try {
-      await renderWindow.loadFile(wrapperPath)
+      await assetFailures.race(renderWindow.loadFile(wrapperPath))
     } finally {
       rm(wrapperPath, { force: true }).catch(() => undefined)
     }
 
-    const renderResult = await waitForRenderResult(renderWindow, timeoutMs)
+    const renderResult = await assetFailures.race(waitForRenderResult(renderWindow, timeoutMs))
     if (!renderResult) {
       throw new Error(`headless 渲染超过 ${timeoutMs}ms 未完成`)
     }
@@ -276,6 +281,7 @@ export const captureMarkdownScreenshot: MarkdownScreenshotCapture = async (optio
       throw new Error(`截图结果为空：${selector}`)
     }
 
+    await assetFailures.race(Promise.resolve())
     await writeFile(options.outputPath, pngBuffer)
     const artifactStat = await stat(options.outputPath)
     return {
@@ -292,6 +298,7 @@ export const captureMarkdownScreenshot: MarkdownScreenshotCapture = async (optio
       },
     }
   } finally {
+    assetFailures.dispose()
     if (!renderWindow.isDestroyed()) {
       renderWindow.destroy()
     }
@@ -360,10 +367,15 @@ async function createServerRenderWindow(
       sandbox: false,
     },
   })
-  renderWindow.webContents.setZoomFactor(viewport.scaleFactor)
-
-  const wrapperPath = await createServerRenderWrapper(input)
-  return { renderWindow, wrapperPath }
+  try {
+    registerRendererAssets(renderWindow.webContents.session)
+    renderWindow.webContents.setZoomFactor(viewport.scaleFactor)
+    const wrapperPath = await createServerRenderWrapper(input)
+    return { renderWindow, wrapperPath }
+  } catch (error) {
+    if (!renderWindow.isDestroyed()) renderWindow.destroy()
+    throw error
+  }
 }
 
 async function createServerRenderWrapper(input: ServerRenderInput): Promise<string> {

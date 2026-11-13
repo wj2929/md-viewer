@@ -22,6 +22,7 @@ import { createBrowserResourceHost } from '../render-core/browserResourceHost'
 import { builtinRendererDefinitions } from '../renderers/builtin'
 import { createRendererRegistry } from '../renderers/registry'
 import { normalizeFailedChartBlocks } from './normalizeFailedCharts'
+import { serializeEChartsExportHtml } from '../utils/echartsRenderer'
 import { collectFencedRenderSourceLocators, countSourceChartBlocks } from '../renderers/sourceIdentity'
 import type { BrowserPageRenderResult, ServerRenderInput } from './contracts'
 import '../assets/main.css'
@@ -397,7 +398,7 @@ export function ServerRenderApp(): React.JSX.Element {
           schemaVersion: '1.0',
           ok: finished && failedBlocks === 0,
           status: finished ? (failedBlocks > 0 ? 'partial' : 'success') : 'timeout',
-          html: rootRef.current?.innerHTML || html,
+          html: root instanceof HTMLElement ? serializeEChartsExportHtml(root) : html,
           images: Array.from(rootRef.current?.querySelectorAll('.mermaid-wrapper, .katex, .excalidraw-wrapper, .drawio-wrapper, .echarts-wrapper, .markmap-wrapper, .graphviz-wrapper, .infographic-wrapper, .plantuml-wrapper, .vega-lite-wrapper, .d2-wrapper, .bpmn-wrapper, .wavedrom-wrapper, .c4plantuml-wrapper, .structurizr-wrapper, .plotly-wrapper, .dbml-wrapper, .antv-g6-wrapper, .svg-wrapper, .kroki-wrapper') || [])
             .filter(element => isRendererEnabled(input, renderElementType(element)))
             .filter(isSuccessfulRenderElement)

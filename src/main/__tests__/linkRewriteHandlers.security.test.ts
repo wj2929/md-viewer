@@ -70,6 +70,26 @@ describe('link rewrite IPC', () => {
     }))
   })
 
+  it('预览等待启动补查对齐，等待中切换 epoch 后不得签发旧 impact', async () => {
+    let finish!: () => void
+    index.waitUntilIdle.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const pending = handler('link-rewrite:getImpact')(
+      { sender: { id: 9 } }, operation,
+      { oldRelativePath: 'docs/a.md', newRelativePath: 'archive/a.md' },
+    )
+    await vi.waitFor(() => expect(index.waitUntilIdle).toHaveBeenCalledWith('/workspace', {
+      assertCurrent: expect.any(Function),
+    }))
+    expect(planner.createImpact).not.toHaveBeenCalled()
+    const alignment = (index.waitUntilIdle.mock.calls[0] as unknown as [string, { assertCurrent: () => void }])[1]
+    ctx.windowManager.getWorkspace.mockReturnValue({ id: 'workspace-a', lifecycleEpoch: 5, primaryRoot: '/workspace' })
+    expect(alignment.assertCurrent).toThrow('工作区已失效')
+    const rejected = expect(pending).rejects.toThrow('工作区已失效')
+    finish()
+    await rejected
+    expect(planner.createImpact).not.toHaveBeenCalled()
+  })
+
   it('executeOperation 在主进程绑定 owner/root/mapping 并要求明确确认', async () => {
     vi.spyOn(senderSecurity, 'validateWorkspaceOperationPath').mockImplementation(async (_ctx, _event, _operation, targetPath) => targetPath)
     vi.spyOn(sameRootMove, 'moveSameRootPath').mockResolvedValue({

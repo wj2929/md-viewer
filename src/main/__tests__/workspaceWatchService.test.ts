@@ -34,6 +34,106 @@ function events(child: any, create: any, values: Array<{ kind: string; path: str
 }
 
 describe('WorkspaceWatchService', () => {
+  it('预览对齐等待必须覆盖 crawl、refresh、barrier 和 drain，不能只等索引暂时 idle', async () => {
+    let finish!: () => void
+    service.attachRoot('/ws/root', { ...subscription(), reconcile: phase => phase === 'refresh'
+      ? new Promise<void>(resolve => { finish = resolve }) : Promise.resolve() })
+    const { child, create } = await childAndWatch()
+    const assertCurrent = vi.fn()
+    const aligned = vi.fn()
+    const waiting = service.waitForRootAlignment('/ws/root', assertCurrent).then(aligned)
+    child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(aligned).not.toHaveBeenCalled()
+    finish()
+    await vi.advanceTimersByTimeAsync(0)
+    await waiting
+    expect(aligned).toHaveBeenCalledTimes(1)
+    expect(assertCurrent).toHaveBeenCalled()
+    expect(service.getIndexCoverage('/ws/root').complete).toBe(true)
+  })
+
+  it('对齐等待在切根时取消、无启动响应时有界失败', async () => {
+    service.attachRoot('/ws/root', subscription())
+    await childAndWatch()
+    const cancelled = service.waitForRootAlignment('/ws/root', () => {})
+    const rejected = expect(cancelled).rejects.toThrow('监听目录已变化')
+    service.detachUi('1:a')
+    await rejected
+    service.attachRoot('/ws/other', { ...subscription(), primaryRoot: '/ws/other' })
+    await childAndWatch()
+    const timedOut = expect(service.waitForRootAlignment('/ws/other', () => {}, 100)).rejects.toThrow('监听对齐超时')
+    await vi.advanceTimersByTimeAsync(100)
+    await timedOut
+  })
+
+  it('根启动期只保留文件逻辑订阅，变更经补查屏障对齐且不创建短命监听', async () => {
+    let finish!: () => void
+    const reconcile = vi.fn().mockImplementation((phase: string) => phase === 'refresh'
+      ? new Promise<void>(resolve => { finish = resolve }) : Promise.resolve())
+    const sub = { ...subscription(), reconcile }
+    const consume = vi.fn()
+    service.attachRoot('/ws/root', sub)
+    service.attachIndexConsumer('/ws/root', 'index', consume)
+    service.setIndexReconciler(vi.fn().mockResolvedValue(undefined))
+    const { child, create } = await childAndWatch()
+    service.watchOpenedFile('/ws/root/a.md', sub)
+    expect(service.hasRootSubscription(sub.key, '/ws/root/a.md')).toBe(false)
+    expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
+    expect(child.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create' && m.kind === 'file')).toHaveLength(0)
+    const postMessage = child.postMessage.getMockImplementation()
+    child.postMessage.mockImplementation((command: any) => {
+      if (command.type === 'barrier') queueMicrotask(() => child.emit('message', { ...command, sequence: 1 }))
+      else postMessage(command)
+    })
+    events(child, create, [{ kind: 'change', path: 'a.md', observedAt: 1 }])
+    expect(consume).toHaveBeenCalledWith({ kind: 'changed', path: '/ws/root/a.md' })
+    child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(service.getHealth(sub.key).state).toBe('recovering')
+    expect(reconcile).toHaveBeenCalledWith('refresh')
+    finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(reconcile).toHaveBeenCalledWith('drain')
+    expect(service.getIndexCoverage('/ws/root').complete).toBe(true)
+    expect(child.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create' && m.kind === 'file')).toHaveLength(0)
+  })
+
+  it('根完成 crawl 后才为新发现的 excluded 文件创建必要补充监听', async () => {
+    service.attachRoot('/ws/root', subscription())
+    const { child, create } = await childAndWatch()
+    service.watchOpenedFile('/ws/root/bin/manual.md', subscription())
+    expect(service.getOpenedFileCount('1:a')).toBe(0)
+    child.emit('message', { ...create, type: 'crawl-complete', excluded: ['bin'], directories: 1, entries: 1 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(service.getOpenedFileCount('1:a')).toBe(1)
+    expect(child.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create' && m.kind === 'file')).toHaveLength(1)
+  })
+
+  it('已有补充监听不能在新根仍启动时被提前撤销', async () => {
+    service.watchOpenedFile('/ws/root/a.md', subscription())
+    const { child } = await childAndWatch()
+    service.attachRoot('/ws/root', subscription())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(service.getOpenedFileCount('1:a')).toBe(1)
+    const rootCreate = child.postMessage.mock.calls.find(([m]: any[]) => m.type === 'create' && m.kind === 'root')[0]
+    child.emit('message', { ...rootCreate, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(service.getOpenedFileCount('1:a')).toBe(0)
+  })
+
+  it('待交接文件关闭后迟到 crawl 不复活订阅，其他未覆盖订阅仍需精确监听', async () => {
+    service.attachRoot('/ws/root', subscription())
+    const { child, create } = await childAndWatch()
+    service.watchOpenedFile('/ws/root/a.md', subscription())
+    await service.unwatchOpenedFile('1:a', '/ws/root/a.md', 1)
+    child.emit('message', { ...create, type: 'crawl-complete', excluded: ['bin'], directories: 1, entries: 1 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(service.getOpenedFileCount('1:a')).toBe(0)
+    service.watchOpenedFile('/ws/root/a.md', subscription('2:b'))
+    expect(service.getOpenedFileCount('2:b')).toBe(1)
+  })
+
   it('reports only the requesting subscriber root and opened-file selections', async () => {
     service.attachRoot('/ws/root', subscription())
     await childAndWatch()

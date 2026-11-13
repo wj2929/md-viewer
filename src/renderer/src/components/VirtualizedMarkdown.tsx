@@ -5,7 +5,8 @@ import Mark from 'mark.js'
 import { useReadPosition } from '../hooks/useReadPosition'
 
 // v1.4.6: 使用统一的渲染器配置
-import { createMarkdownRenderer, prepareMarkdownRender, sanitizeHtml, setupDOMPurifyHooks } from '../utils/markdownRenderer'
+import { createMarkdownRenderer, setupDOMPurifyHooks } from '../utils/markdownRenderer'
+import { useMarkdownRender } from '../hooks/useMarkdownRender'
 import {
   decodeLocalImageMarker,
   decodeLocalMediaMarker,
@@ -717,6 +718,8 @@ export function VirtualizedMarkdown(props: VirtualizedMarkdownProps): JSX.Elemen
 function MarkdownPreview({ content, isActive = true, className = '', filePath, tabId, leafId = null, renderDebounceMs = 300, scrollToLine, scrollToRatio, initialScrollRatio, onScrollToLineComplete, onScrollToRatioComplete, highlightKeyword, onHighlightKeywordComplete, onImageClick, previewEditingEnabled = false, onPreviewBlockEdit, onSourceEditRequest, onReadPositionChange, onMarkdownLinkClick, onAttachmentLinkClick, linkPositionRequest, remoteChartPolicy, diagnosticOperation, diagnosticPanelKind = 'main', diagnosticPreviewId }: VirtualizedMarkdownProps & { diagnosticPreviewId: string }): JSX.Element {
   const markdownRootRef = useRef<HTMLDivElement>(null)
   const localDocumentId = useId()
+  const [contentReadyVersion, setContentReadyVersion] = useState(0)
+  const onContentReady = useCallback(() => setContentReadyVersion(version => version + 1), [])
   const documentKey = useMemo(
     () => remoteChartDocumentKey(filePath, tabId) ?? `preview:${localDocumentId}`,
     [filePath, localDocumentId, tabId],
@@ -888,7 +891,7 @@ function MarkdownPreview({ content, isActive = true, className = '', filePath, t
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [scrollToLine, content, highlightKeyword, onScrollToLineComplete, resolvePreviewContainer])
+  }, [scrollToLine, content, highlightKeyword, onScrollToLineComplete, resolvePreviewContainer, contentReadyVersion])
 
   useEffect(() => {
     if (typeof scrollToRatio !== 'number' || !content) return
@@ -907,7 +910,7 @@ function MarkdownPreview({ content, isActive = true, className = '', filePath, t
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [scrollToRatio, content, onScrollToRatioComplete, resolvePreviewContainer])
+  }, [scrollToRatio, content, onScrollToRatioComplete, resolvePreviewContainer, contentReadyVersion])
 
   // v1.5.1: 高亮清理 ref
   const highlightCleanupRef = useRef<(() => void) | null>(null)
@@ -945,7 +948,7 @@ function MarkdownPreview({ content, isActive = true, className = '', filePath, t
       highlightCleanupRef.current?.()
       highlightCleanupRef.current = null
     }
-  }, [highlightKeyword, onHighlightKeywordComplete, resolvePreviewContainer])
+  }, [highlightKeyword, onHighlightKeywordComplete, resolvePreviewContainer, contentReadyVersion])
 
   // 直接渲染
   return (
@@ -978,6 +981,7 @@ function MarkdownPreview({ content, isActive = true, className = '', filePath, t
         onPreviewBlockEdit={onPreviewBlockEdit}
         onSourceEditRequest={onSourceEditRequest}
         rootRef={markdownRootRef}
+        onContentReady={onContentReady}
         onReadPositionChange={onReadPositionChange}
         initialScrollRatio={scrollToLine !== undefined || scrollToRatio !== undefined || linkPositionRequest ? undefined : initialScrollRatio}
         onMarkdownLinkClick={onMarkdownLinkClick}
@@ -1013,6 +1017,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onPreviewBlockEdit,
   onSourceEditRequest,
   rootRef,
+  onContentReady,
   onReadPositionChange,
   initialScrollRatio,
   onMarkdownLinkClick,
@@ -1038,6 +1043,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   onPreviewBlockEdit?: (edit: PreviewBlockEdit) => void
   onSourceEditRequest?: (target: SourceEditRequest) => void
   rootRef?: React.RefObject<HTMLDivElement | null>
+  onContentReady: () => void
   initialScrollRatio?: number
   onReadPositionChange?: (position: { scrollRatio: number; headingId?: string }) => void
   onMarkdownLinkClick?: (href: string, currentFilePath: string, context?: PreviewLinkContext) => void | Promise<void>
@@ -1064,6 +1070,13 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
     contentObservedRef.current = { value: content, at: performance.now() }
   }
 
+  const rendered = useMarkdownRender(md, debouncedContent)
+  const renderPending = rendered?.source !== debouncedContent
+
+  useEffect(() => {
+    if (!renderPending && debouncedContent.length >= 100_000) onContentReady()
+  }, [renderPending, rendered, debouncedContent, onContentReady])
+
   // v1.4.3: 防抖更新内容，快速编辑草稿预览可传入更短延迟
   useEffect(() => {
     const debouncedUpdate = debounce(() => {
@@ -1079,8 +1092,8 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
   }, [content, renderDebounceMs])
 
   useEffect(() => {
-    if (content === debouncedContent) setRenderVersion(version => version + 1)
-  }, [content, debouncedContent])
+    if (content === debouncedContent && !renderPending) setRenderVersion(version => version + 1)
+  }, [content, debouncedContent, renderPending])
 
   useEffect(() => {
     if (!filePath || !window.api?.onExportChartsZipFromPreview || !window.api?.exportChartsZip) return
@@ -1124,7 +1137,7 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
     onChange: onReadPositionChange })
 
   // v1.4.0: 页面内搜索
-  const search = useInPageSearch(containerRef, debouncedContent.length, debouncedContent)
+  const search = useInPageSearch(containerRef, debouncedContent.length, rendered?.source ?? '')
 
   // v1.4.0: 监听 IPC 事件（从右键菜单触发页面内搜索）
   useEffect(() => {
@@ -1171,25 +1184,13 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
     search.setVisible(false)
   }, [search.clear, search.setVisible])
 
-  const html = useMemo(() => {
-    const renderAndSanitize = (source: string): string => {
-      const renderStarted = performance.now()
-      const rendered = prepareMarkdownRender(md, source)
-      renderDiagnosticsRef.current.markdownRenderMs = performance.now() - renderStarted
-      const sanitizeStarted = performance.now()
-      const sanitized = sanitizeHtml(rendered.html, rendered.proofs)
-      renderDiagnosticsRef.current.sanitizeMs = performance.now() - sanitizeStarted
-      return sanitized
-    }
+  if (rendered) {
+    renderDiagnosticsRef.current.markdownRenderMs = rendered.markdownRenderMs
+    renderDiagnosticsRef.current.sanitizeMs = rendered.sanitizeMs
+  }
+  const html = rendered?.html
 
-    if (!debouncedContent || debouncedContent.trim().length === 0) {
-      renderDiagnosticsRef.current.markdownRenderMs = 0
-      renderDiagnosticsRef.current.sanitizeMs = 0
-      return '<p class="placeholder">文件内容为空</p>'
-    }
-
-    return renderAndSanitize(debouncedContent)
-  }, [md, debouncedContent])
+  if (html === undefined) return <div className="markdown-render-pending" role="status">正在渲染文档…</div>
 
   // 注意：Mermaid 渲染、标题 ID、锚点点击逻辑已移到 MarkdownContent 组件中
 
@@ -1221,7 +1222,8 @@ const NonVirtualizedMarkdown = memo(function NonVirtualizedMarkdown({
         filePath={filePath}
         tabId={tabId}
         leafId={leafId}
-        sourceContent={debouncedContent}
+        sourceContent={rendered!.source}
+        renderPending={renderPending}
         renderVersion={renderVersion}
         onContextMenu={onContextMenu}
         onKeyDown={onPreviewKeyDown}
@@ -1259,6 +1261,13 @@ function schedulePreviewDiagnostics(input: {
   let postTimer = 0
   let coreRecorded = false
   let postRecorded = false
+  const observeVisibility = () => {
+    if (!coreRecorded && document.visibilityState === 'hidden' && root.isConnected && input.isCurrent()) {
+      recordPreviewState(input.previewInstanceId, 'awaiting-visibility', operation?.context, input.panelKind)
+    }
+  }
+  document.addEventListener('visibilitychange', observeVisibility)
+  observeVisibility()
 
   firstFrame = requestAnimationFrame(firstTimestamp => {
     secondFrame = requestAnimationFrame(secondTimestamp => {
@@ -1318,6 +1327,7 @@ function schedulePreviewDiagnostics(input: {
   })
 
   return () => {
+    document.removeEventListener('visibilitychange', observeVisibility)
     if (firstFrame) cancelAnimationFrame(firstFrame)
     if (secondFrame) cancelAnimationFrame(secondFrame)
     if (postTimer) window.clearTimeout(postTimer)
@@ -1376,6 +1386,7 @@ const MarkdownContent = memo(
     tabId?: string
     leafId: string
     sourceContent: string
+    renderPending: boolean
     renderVersion: number
     onContextMenu?: (e: React.MouseEvent) => void
     onKeyDown?: (e: React.KeyboardEvent) => void
@@ -1391,7 +1402,7 @@ const MarkdownContent = memo(
     diagnosticPanelKind: 'main' | 'split' | 'editor'
     diagnosticPreviewId: string
     renderDiagnosticsRef: React.RefObject<MarkdownRenderDiagnostics>
-  }>(function MarkdownContent({ html, className, filePath, tabId, leafId, sourceContent, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit, onSourceEditRequest, onMarkdownLinkClick, onAttachmentLinkClick, linkPositionRequest, remoteChartPolicy = 'prompt', diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId, renderDiagnosticsRef }, ref) {
+  }>(function MarkdownContent({ html, className, filePath, tabId, leafId, sourceContent, renderPending, renderVersion, onContextMenu, onKeyDown, onImageClick, previewEditingEnabled, onPreviewBlockEdit, onSourceEditRequest, onMarkdownLinkClick, onAttachmentLinkClick, linkPositionRequest, remoteChartPolicy = 'prompt', diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId, renderDiagnosticsRef }, ref) {
     const internalRef = useRef<HTMLDivElement>(null)
     const combinedRef = (ref as React.RefObject<HTMLDivElement>) || internalRef
     const revision = useMemo(() => previewRevision(sourceContent), [sourceContent])
@@ -1415,10 +1426,14 @@ const MarkdownContent = memo(
 
     const hasPreviewBlockEdit = Boolean(onPreviewBlockEdit)
     const hasSourceEditRequest = Boolean(onSourceEditRequest)
+    const diagnosticContextRef = useRef({ diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId })
+    useEffect(() => {
+      diagnosticContextRef.current = { diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId }
+    }, [diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId])
 
     // 标注只依赖编辑能力是否存在；回调身份变化不能重建正文并丢失滚动。
     useEffect(() => {
-      if (combinedRef.current) {
+      if (combinedRef.current && !renderPending) {
         const domStarted = performance.now()
         const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
         const activeEditableBlock = activeElement?.closest('.markdown-preview-editable-block') as HTMLElement | null
@@ -1434,6 +1449,7 @@ const MarkdownContent = memo(
 
         if (previewEditingEnabled && (hasBlockingActiveBlock || composingBlock)) {
           skippedFocusedRenderRef.current = true
+          combinedRef.current.dataset.renderPending = 'true'
           return
         }
 
@@ -1587,6 +1603,7 @@ const MarkdownContent = memo(
         while (contentRoot.firstChild) fragment.appendChild(contentRoot.firstChild)
         cleanupLocalMedia(combinedRef.current)
         combinedRef.current.replaceChildren(fragment)
+        delete combinedRef.current.dataset.renderPending
         committedPreviewRef.current = { filePath, tabId, leafId, revision, sourceContent }
         committedBlocksRef.current = new Map(Array.from(combinedRef.current.querySelectorAll<HTMLElement>('[id]'))
           .filter(element => element.id.startsWith(BLOCK_ANCHOR_PREFIX))
@@ -1598,12 +1615,14 @@ const MarkdownContent = memo(
           sourceMappingMs,
           editableAnnotationMs: performance.now() - editableStarted,
         }
+        const diagnostic = diagnosticContextRef.current
+        recordPreviewState(diagnostic.diagnosticPreviewId, 'dom-committed', diagnostic.diagnosticOperation?.context, diagnostic.diagnosticPanelKind)
       }
-    }, [deferredRenderVersion, filePath, tabId, leafId, revision, html, hasPreviewBlockEdit, hasSourceEditRequest, previewEditingEnabled, sourceContent])
+    }, [deferredRenderVersion, filePath, tabId, leafId, revision, html, hasPreviewBlockEdit, hasSourceEditRequest, previewEditingEnabled, sourceContent, renderPending])
 
     useEffect(() => {
       const root = combinedRef.current
-      if (!root) return
+      if (!root || renderPending || root.dataset.renderPending) return
       return schedulePreviewDiagnostics({
         root,
         operation: diagnosticOperation,
@@ -1614,7 +1633,7 @@ const MarkdownContent = memo(
         render: renderDiagnosticsRef.current,
         dom: domDiagnosticsRef.current,
       })
-    }, [combinedRef, diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId, deferredRenderVersion, filePath, html, renderDiagnosticsRef, sourceContent])
+    }, [combinedRef, diagnosticOperation, diagnosticPanelKind, diagnosticPreviewId, deferredRenderVersion, filePath, html, renderDiagnosticsRef, sourceContent, renderPending])
 
     useEffect(() => {
       const root = combinedRef.current
@@ -2268,6 +2287,7 @@ const MarkdownContent = memo(
       <div
         ref={combinedRef}
         className={`markdown-body ${className}`}
+        data-render-pending={renderPending ? 'true' : undefined}
         onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
         tabIndex={onContextMenu ? 0 : undefined}
@@ -2281,6 +2301,7 @@ const MarkdownContent = memo(
     prevProps.className === nextProps.className &&
     prevProps.filePath === nextProps.filePath &&
     prevProps.sourceContent === nextProps.sourceContent &&
+    prevProps.renderPending === nextProps.renderPending &&
     prevProps.previewEditingEnabled === nextProps.previewEditingEnabled &&
     prevProps.onImageClick === nextProps.onImageClick &&
     prevProps.onPreviewBlockEdit === nextProps.onPreviewBlockEdit &&

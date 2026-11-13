@@ -1,4 +1,4 @@
-import type { WorkspaceDirectoryEntry, WorkspaceResourceRequest, WorkspaceResourceResult, WorkspaceBrowserAction, WorkspaceBrowserInput, WorkspaceBrowserResult, WorkspaceBrowserSelection } from '../shared/directoryBrowser'
+import type { WorkspaceDirectoryMetadata, WorkspaceDirectoryEntry, WorkspaceResourceRequest, WorkspaceResourceResult, WorkspaceBrowserAction, WorkspaceBrowserInput, WorkspaceBrowserResult, WorkspaceBrowserSelection } from '../shared/directoryBrowser'
 import type { LargeDocumentSize } from '../shared/largeDocumentApproval'
 import type { FileTreeSort, FileTreeSortSnapshot, FileTreeMetadataResult } from '../shared/fileTreeSort'
 import { ElectronAPI } from '@electron-toolkit/preload'
@@ -66,6 +66,8 @@ declare global {
       // 平台信息
       platform: 'darwin' | 'win32' | 'linux'
 
+      getBrowserSort: () => Promise<FileTreeSortSnapshot>
+      onBrowserSortChanged: (callback: (snapshot: FileTreeSortSnapshot) => void) => () => void
       getFileTreeSort: () => Promise<FileTreeSortSnapshot>
       onFileTreeSortChanged: (callback: (snapshot: FileTreeSortSnapshot) => void) => () => void
       getFileTreeMetadata: (paths: string[], operation: WorkspaceOperationContext) => Promise<FileTreeMetadataResult[]>
@@ -75,7 +77,7 @@ declare global {
       readDir: (path: string, trace?: DiagnosticTraceContext) => Promise<FileInfo[]>
       readWorkspaceResource: (request: WorkspaceResourceRequest, asText?: boolean, previousHandle?: string) => Promise<WorkspaceResourceResult>
       openWorkspaceResource: (handle: string) => Promise<LocalAttachmentOpenResult>
-      listWorkspaceDirectory: (operation: WorkspaceOperationContext, relativePath: string) => Promise<WorkspaceDirectoryEntry[]>
+      listWorkspaceDirectory: (operation: WorkspaceOperationContext, relativePath: string, metadata?: WorkspaceDirectoryMetadata) => Promise<WorkspaceDirectoryEntry[]>
       showWorkspaceContextMenu: (operation: WorkspaceOperationContext, relativePath: string) => Promise<WorkspaceBrowserSelection | null>
       performWorkspaceBrowserAction: (operation: WorkspaceOperationContext, id: string, action: WorkspaceBrowserAction, input?: WorkspaceBrowserInput) => Promise<WorkspaceBrowserResult>
       listChildDirs: (path: string) => Promise<Array<{ name: string; path: string }>>
@@ -389,8 +391,8 @@ declare global {
       openLastDocxExport: () => Promise<{ ok: boolean; error?: string }>
 
       // v1.3.6：应用设置
-      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; autoRenderRemoteCharts?: boolean; folderPinyinSearchEnabled?: boolean; fileTreeSort?: FileTreeSort; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
-      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; autoRenderRemoteCharts: boolean; folderPinyinSearchEnabled: boolean; fileTreeSort: FileTreeSort; docxExport: DocxExportSettings }>) => Promise<void>
+      getAppSettings: () => Promise<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth?: number; sidebarCollapsed?: boolean; maxRecentFiles?: number; maxFolderHistory?: number; showExportBranding?: boolean; autoRenderRemoteCharts?: boolean; folderPinyinSearchEnabled?: boolean; fileTreeSort?: FileTreeSort; browserSort?: FileTreeSort; docxExport?: DocxExportSettings; readAloud?: ReadAloudSettings }>
+      updateAppSettings: (updates: Partial<{ imageDir: string; autoSave: boolean; bookmarkPanelWidth: number; bookmarkPanelCollapsed: boolean; bookmarkBarCollapsed: boolean; sidebarWidth: number; sidebarCollapsed: boolean; maxRecentFiles: number; maxFolderHistory: number; showExportBranding: boolean; autoRenderRemoteCharts: boolean; folderPinyinSearchEnabled: boolean; fileTreeSort: FileTreeSort; browserSort: FileTreeSort; docxExport: DocxExportSettings }>) => Promise<void>
       getReadAloudSettings: () => Promise<ReadAloudSettings>
       updateReadAloudSettings: (settings: ReadAloudSettings) => Promise<ReadAloudSettings>
 

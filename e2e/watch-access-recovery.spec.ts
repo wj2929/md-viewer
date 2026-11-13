@@ -130,3 +130,134 @@ for (const mode of ['file-after-30s', 'scan-after-120s'] as const) {
     await page.screenshot({ path: testInfo.outputPath('access-after.png'), animations: 'disabled' })
   })
 }
+
+
+test('首次恢复读取跨过120秒：先绑定订阅，原读取成功后自动恢复，无补发读取', async ({ electronApp, page, testDir }, testInfo) => {
+  test.setTimeout(160000)
+  const profile = await electronApp.evaluate(({ app }) => app.getPath('userData'))
+  expect(basename(profile)).toMatch(/^md-viewer-e2e-user-data-/)
+  const target = join(testDir, 'test1.md')
+  await electronApp.evaluate(({ app, ipcMain, utilityProcess, BrowserWindow }, target) => {
+    if (!app.getPath('userData').split('/').at(-1)?.startsWith('md-viewer-e2e-user-data-')) throw new Error('Independent fixture profile required')
+    const fs = process.getBuiltinModule('node:module')!.createRequire(app.getAppPath() + '/package.json')('fs-extra')
+    const readFile = fs.readFile
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const probe = { children: [] as any[], manualRetries: 0, io: [] as any[], watchCompletions: 0, heldResults: 0, heldReady: 0, released: false }
+    ;(globalThis as any).__accessRecoveryProbe = probe
+    ;(globalThis as any).__releaseOriginalStartupRead = () => {
+      probe.released = true
+      fs.readFile = readFile
+      release()
+    }
+    fs.readFile = function (file: unknown, ...args: any[]) {
+      const result = readFile.call(this, file, ...args)
+      if (file !== target || args.some(value => typeof value === 'function')) return result
+      return Promise.resolve(result).then(async content => {
+        probe.heldResults++
+        await gate
+        return content
+      })
+    }
+    const watch = (ipcMain as any)._invokeHandlers.get('fs:watchFolder')
+    ipcMain.removeHandler('fs:watchFolder')
+    ipcMain.handle('fs:watchFolder', async (...args) => {
+      const result = await watch(...args)
+      probe.watchCompletions++
+      return result
+    })
+    const read = (ipcMain as any)._invokeHandlers.get('fs:readFile')
+    ipcMain.removeHandler('fs:readFile')
+    ipcMain.handle('fs:readFile', async (...args) => {
+      const row = { watchCompletionsAtStart: probe.watchCompletions, start: performance.now(), end: 0 }
+      probe.io.push(row)
+      try { return await read(...args) }
+      finally { row.end = performance.now() }
+    })
+    const retry = (ipcMain as any)._invokeHandlers.get('watch:retry')
+    ipcMain.removeHandler('watch:retry')
+    ipcMain.handle('watch:retry', (...args) => { probe.manualRetries++; return retry(...args) })
+    const fork = utilityProcess.fork.bind(utilityProcess)
+    utilityProcess.fork = (...args) => {
+      const child = fork(...args)
+      if (!args[0].endsWith('watcherProcess.js')) return child
+      const entry = { roots: [] as any[], exited: false }
+      probe.children.push(entry)
+      const first = probe.children.length === 1
+      child.once('exit', () => { entry.exited = true })
+      const post = child.postMessage.bind(child)
+      child.postMessage = (message, ports) => {
+        if (message.type === 'create' && message.kind === 'root') entry.roots.push({ id: message.watchId, generation: message.watchGeneration, at: performance.now() })
+        return post(message, ports)
+      }
+      const emit = child.emit.bind(child)
+      child.emit = (event, ...values) => {
+        const message = values[0]
+        if (first && event === 'message' && message?.type === 'crawl-complete' && entry.roots.some(root => root.id === message.watchId)) {
+          probe.heldReady++
+          return true
+        }
+        return emit(event, ...values)
+      }
+      return child
+    }
+    // Authorize only this self-created fixture through the normal test opener.
+    // Hold its initial navigation notification, then hydrate a synthetic shell on reload.
+    const win = BrowserWindow.getAllWindows()[0]
+    const send = win.webContents.send.bind(win.webContents)
+    win.webContents.send = (channel, ...args) => {
+      if (channel === 'restore-folder' || channel === 'workspace:folder-activated') return
+      return send(channel, ...args)
+    }
+    ;(globalThis as any).__restoreStartupNavigation = () => { win.webContents.send = send }
+    const bootstrap = (ipcMain as any)._invokeHandlers.get('workspace:getBootstrap')
+    ipcMain.removeHandler('workspace:getBootstrap')
+    ipcMain.handle('workspace:getBootstrap', async (...args) => {
+      const result = await bootstrap(...args)
+      const workspace = result.workspaces.find((item: any) => item.id === result.activeWorkspaceId)
+      if (!workspace?.primaryRoot || target !== workspace.primaryRoot + '/test1.md') throw new Error('Synthetic bootstrap root mismatch')
+      return { ...result, restoredRuntime: { workspaces: [{ id: workspace.id, name: 'Startup fixture', primaryRoot: workspace.primaryRoot,
+        tabs: [{ id: 'startup-fixture-tab', relativePath: 'test1.md', isPinned: false }], activeTabId: 'startup-fixture-tab', splitState: { root: null, activeLeafId: '' } }] } }
+    })
+  }, target)
+  try {
+    await page.evaluate(path => window.api.testOpenMarkdownFile!(path), target)
+    await electronApp.evaluate(() => (globalThis as any).__restoreStartupNavigation())
+    await page.reload()
+    await page.waitForSelector('.app')
+    const probe = () => electronApp.evaluate(() => (globalThis as any).__accessRecoveryProbe)
+    const health = () => page.evaluate(async () => {
+      const bootstrap = await window.api.getWorkspaceBootstrap()
+      const workspace = bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)!
+      return window.api.getWatchStatus(workspace.id, workspace.lifecycleEpoch)
+    })
+    await expect.poll(async () => (await probe()).io.length).toBe(1)
+    await expect.poll(async () => (await probe()).heldResults).toBeGreaterThanOrEqual(1)
+    const initial = await probe()
+    expect(initial.io[0].watchCompletionsAtStart).toBeGreaterThan(0)
+    expect(initial.io[0].end).toBe(0)
+    await page.screenshot({ path: testInfo.outputPath('startup-original-read-held.png') })
+    await expect.poll(async () => (await health()).state, { timeout: 35000 }).toBe('degraded')
+    await expect.poll(async () => (await probe()).children[0].exited, { timeout: 95000 }).toBe(true)
+    const stopped = await probe()
+    expect(stopped.heldReady).toBeGreaterThan(0)
+    expect(stopped.io).toHaveLength(1)
+    expect(stopped.io[0].end).toBe(0)
+    expect(stopped.manualRetries).toBe(0)
+    await electronApp.evaluate(() => (globalThis as any).__releaseOriginalStartupRead())
+    await expect(page.locator('.markdown-body h1')).toHaveText('Test 1')
+    await expect.poll(async () => (await health()).state, { timeout: 15000 }).toBe('healthy')
+    const recovered = await probe()
+    expect(recovered.manualRetries).toBe(0)
+    expect(recovered.children.flatMap((child: any) => child.roots).map((root: any) => root.generation)).toEqual([1, 2])
+    expect(recovered.io[0].end).toBeGreaterThan(recovered.io[0].start)
+    writeFileSync(target, '# Restored original read live update')
+    writeFileSync(join(testDir, 'startup-added.md'), '# Startup discovery')
+    await expect(page.locator('.markdown-body h1')).toHaveText('Restored original read live update')
+    await expect(page.locator('.file-tree-row.file', { hasText: 'startup-added.md' })).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('startup-original-read-recovered.png') })
+    await testInfo.attach('startup-original-read-observation', { body: JSON.stringify({ stopped, recovered, health: await health() }, null, 2), contentType: 'application/json' })
+  } finally {
+    await electronApp.evaluate(() => (globalThis as any).__releaseOriginalStartupRead?.()).catch(() => {})
+  }
+})

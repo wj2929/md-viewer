@@ -132,7 +132,7 @@ interface BuildExportResultOptions {
   docxExporter?: (options: ConvertSourceDocxOptions) => Promise<ConvertSourceDocxResult>
   // 注入点：默认读取与 GUI 一致的导出样式（markdown.css + prism-theme.css）。
   // 单测在非 electron 环境可传 mock，避免加载依赖 electron app 的 getExportStyles。
-  styleProvider?: () => Promise<{ markdownCss: string; prismCss: string }>
+  styleProvider?: () => Promise<{ markdownCss: string; prismCss: string; katexCss?: string }>
   // 注入点：把 HTML 里的本地图片 <img> 内嵌成 data:base64。默认走主进程实现。
   imageEmbedder?: (html: string, markdownFilePath: string) => Promise<string>
 }
@@ -274,11 +274,11 @@ export async function buildExportResult(
     networkPolicy: 'blocked',
     timeoutMs: getHeadlessRenderTimeoutMs(flags),
   })
-  const loadStyles = options.styleProvider ?? (async () => {
-    const { getExportStyles } = await import('../ipc/exportStyles')
-    return getExportStyles()
+  const loadStyles: NonNullable<BuildExportResultOptions['styleProvider']> = options.styleProvider ?? (async () => {
+    const { getExportStyles, getHtmlExportStyles } = await import('../ipc/exportStyles')
+    return format === 'html' ? getHtmlExportStyles() : getExportStyles()
   })
-  const { markdownCss, prismCss } = await loadStyles()
+  const { markdownCss, prismCss, katexCss } = await loadStyles()
 
   // 内嵌本地图片：与 GUI 导出一致，把 <img src="相对路径"> 换成 data:base64，
   // 否则导出的 HTML/PDF 换机打开图片会裂。失败的图保持原样，不阻断导出。
@@ -306,6 +306,7 @@ export async function buildExportResult(
     title: path.basename(validation.normalizedPath),
     markdownCss,
     prismCss,
+    katexCss,
     showBranding: true,
   }
   const artifact = format === 'pdf'
@@ -477,17 +478,18 @@ async function buildMergedExportResult(
     .join('\n')
 
   // 4. 样式 + 写出
-  const loadStyles = options.styleProvider ?? (async () => {
-    const { getExportStyles } = await import('../ipc/exportStyles')
-    return getExportStyles()
+  const loadStyles: NonNullable<BuildExportResultOptions['styleProvider']> = options.styleProvider ?? (async () => {
+    const { getExportStyles, getHtmlExportStyles } = await import('../ipc/exportStyles')
+    return format === 'html' ? getHtmlExportStyles() : getExportStyles()
   })
-  const { markdownCss, prismCss } = await loadStyles()
+  const { markdownCss, prismCss, katexCss } = await loadStyles()
   const title = typeof flags.title === 'string' ? flags.title : path.basename(normalizedPaths[0])
   const writerOptions = {
     content: mergedContent,
     title,
     markdownCss,
     prismCss,
+    katexCss,
     showBranding: true,
   }
   const artifact = format === 'pdf'

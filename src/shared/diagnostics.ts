@@ -123,10 +123,10 @@ export type RendererDiagnosticEventName =
   | 'file.open.terminal'
   | 'workspace.pane.change'
 
-export type PreviewDiagnosticState = 'loading-approval' | 'awaiting-choice' | 'source-ready' | 'render-requested' | 'preview-core-ready' | 'preview-ready' | 'unmounted'
+export type PreviewDiagnosticState = 'loading-approval' | 'awaiting-choice' | 'source-ready' | 'render-requested' | 'dom-committed' | 'awaiting-visibility' | 'preview-core-ready' | 'preview-ready' | 'unmounted'
 
 export const PREVIEW_DIAGNOSTIC_STATES: readonly PreviewDiagnosticState[] = [
-  'loading-approval', 'awaiting-choice', 'source-ready', 'render-requested', 'preview-core-ready', 'preview-ready', 'unmounted',
+  'loading-approval', 'awaiting-choice', 'source-ready', 'render-requested', 'dom-committed', 'awaiting-visibility', 'preview-core-ready', 'preview-ready', 'unmounted',
 ]
 
 export const PANE_DIAGNOSTIC_SOURCES = [

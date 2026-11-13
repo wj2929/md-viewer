@@ -298,19 +298,8 @@ function openPathInWindow(targetPath: string, type: 'md-file' | 'directory', tar
   activateFolderForWindow(ipcContext, win, folderPath, {
     notifyRenderer: true,
     diagnosticSource: type === 'md-file' ? 'open-specific-file' : 'user',
+    initialFilePath: type === 'md-file' ? targetPath : undefined,
   })
-    .then((activation) => {
-      if (type === 'md-file') {
-        const filePath = activation.path === folderPath
-          ? targetPath
-          : path.join(activation.path, path.basename(targetPath))
-        setTimeout(() => {
-          if (!win.isDestroyed()) {
-            win.webContents.send('open-specific-file', filePath)
-          }
-        }, 500)
-      }
-    })
     .catch((error) => {
       console.error('[openPathInWindow] Failed to activate folder:', error)
     })

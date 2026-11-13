@@ -179,22 +179,22 @@ describe('tabMenuHandler', () => {
         expect(shell.showItemInFolder).toHaveBeenCalledWith('/Users/test/docs/README.md')
       })
 
-      it('点击"复制文件路径"应该复制绝对路径到剪贴板', () => {
+      it('点击"复制文件路径"应该复制绝对路径到剪贴板', async () => {
         showTabContextMenu(mockWindow, baseContext)
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制文件路径')
-        item?.click?.({} as any, mockWindow, {} as any)
+        await item?.click?.({} as any, mockWindow, {} as any)
 
         expect(clipboard.writeText).toHaveBeenCalledWith('/Users/test/docs/README.md')
       })
 
-      it('点击"复制相对路径"应该复制相对路径到剪贴板', () => {
+      it('点击"复制相对路径"应该复制相对路径到剪贴板', async () => {
         showTabContextMenu(mockWindow, baseContext)
 
         const template = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0]
         const item = template.find((item: any) => item.label === '复制相对路径')
-        item?.click?.({} as any, mockWindow, {} as any)
+        await item?.click?.({} as any, mockWindow, {} as any)
 
         expect(clipboard.writeText).toHaveBeenCalledWith('README.md')
       })

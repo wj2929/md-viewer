@@ -248,7 +248,7 @@ test('真实宽窄布局与明暗主题：中栏按剩余空间降级抽屉、�
     await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width)
     if (width === 800) {
       await expect(browser).toHaveClass(/browser-drawer/)
-      expect(await browser.locator('header strong').evaluate(node => node.getBoundingClientRect().height < parseFloat(getComputedStyle(node).fontSize) * 1.8)).toBe(true)
+      expect(await browser.locator('header > strong').evaluate(node => node.getBoundingClientRect().height < parseFloat(getComputedStyle(node).fontSize) * 1.8)).toBe(true)
     } else await expect(browser).not.toHaveClass(/browser-drawer/)
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme }, theme)

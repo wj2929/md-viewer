@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getPdfExportStyles } from '../ipc/exportStyles'
+import { getHtmlExportStyles, getPdfExportStyles } from '../ipc/exportStyles'
 
 let directory: string
 vi.mock('electron', () => ({ app: { getAppPath: () => directory } }))
@@ -25,6 +25,14 @@ beforeEach(async () => {
 afterEach(async () => { await rm(directory, { recursive: true, force: true }) })
 
 describe('sealed PDF font assets', () => {
+  it('reuses the bundled font sealing for standalone HTML styles', async () => {
+    const result = await getHtmlExportStyles()
+    expect(result.katexCss.match(/data:font\/woff2;base64,/g)).toHaveLength(20)
+    expect(result.katexCss).not.toContain('./KaTeX_')
+    expect(result.markdownCss).toContain('.markdown-body')
+    expect(result.katexCss).not.toContain('overflow:hidden')
+  })
+
   it('inlines exactly the bundled font files, including URLs in combined Markdown CSS', async () => {
     const result = await getPdfExportStyles('@font-face{src:url(./KaTeX_Test-1.woff2)}', 'pre{color:red}')
     expect(result.katexCss.match(/data:font\/woff2;base64,/g)).toHaveLength(20)

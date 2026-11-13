@@ -472,6 +472,43 @@ describe('FloatingNav 组件测试', () => {
     expect(window.api.subscribeWorkspaceIndexStatus).toHaveBeenCalledTimes(1)
   })
 
+  for (const next of [
+    { id: 'workspace-a', primaryRoot: '/workspace', lifecycleEpoch: 4 },
+    { id: 'workspace-b', primaryRoot: '/workspace', lifecycleEpoch: 3 },
+    { id: 'workspace-a', primaryRoot: '/other', lifecycleEpoch: 3 },
+  ]) {
+    it(`相同相对路径随工作区身份更新订阅并忽略旧回执：${next.id}/${next.primaryRoot}/${next.lifecycleEpoch}`, async () => {
+      useWorkspaceStore.setState({
+        workspaces: [{ id: 'workspace-a', primaryRoot: '/workspace', lifecycleEpoch: 3, name: 'workspace' }],
+        activeWorkspaceId: 'workspace-a', runtimes: {},
+      })
+      let resolveOld!: (value: { items: []; coverage: 'complete' }) => void
+      const unsubscribe = vi.fn()
+      vi.mocked(window.api.subscribeWorkspaceIndexStatus).mockReturnValue(unsubscribe)
+      vi.mocked(window.api.getWorkspaceBacklinks)
+        .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+        .mockResolvedValue({ items: [{
+          sourceRelativePath: 'source.md', sourceDisplayName: 'source.md', lineStart: 1,
+          rawTarget: './target.md', context: '参见目标。', placement: 'prose',
+          sourceRange: { startOffset: 0, endOffset: 10, startLine: 1, startColumn: 1, endLine: 1, endColumn: 11 },
+        }], coverage: 'complete' })
+      const props = { containerRef, markdown: '# Test', onBacklinkSelect: vi.fn() }
+      const view = render(<FloatingNav {...props} filePath="/workspace/target.md" />)
+      await waitFor(() => expect(window.api.getWorkspaceBacklinks).toHaveBeenCalledTimes(1))
+
+      act(() => useWorkspaceStore.setState({ workspaces: [{ ...next, name: 'workspace' }], activeWorkspaceId: next.id }))
+      if (next.primaryRoot !== '/workspace') view.rerender(<FloatingNav {...props} filePath={`${next.primaryRoot}/target.md`} />)
+      await waitFor(() => expect(window.api.getWorkspaceBacklinks).toHaveBeenCalledTimes(2))
+      expect(window.api.getWorkspaceBacklinks).toHaveBeenLastCalledWith({
+        workspaceId: next.id, lifecycleEpoch: next.lifecycleEpoch, primaryRoot: next.primaryRoot,
+      }, 'target.md')
+      expect(unsubscribe).toHaveBeenCalledTimes(1)
+      expect(screen.getByLabelText('链接到这里，1 个文档')).toBeInTheDocument()
+      await act(async () => resolveOld({ items: [], coverage: 'complete' }))
+      expect(screen.getByLabelText('链接到这里，1 个文档')).toBeInTheDocument()
+    })
+  }
+
   it('应该有正确的 ARIA 属性', async () => {
     // 确保 mock 返回有目录的数据
     const { useTableOfContents } = await import('../../src/hooks/useTableOfContents')

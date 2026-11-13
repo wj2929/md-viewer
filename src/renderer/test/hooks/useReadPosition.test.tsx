@@ -121,6 +121,20 @@ describe('初始阅读位置与滚动上报', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('同一文档父组件更新回调不能取消已排队保存，使用最新回调', () => {
+    const first = vi.fn(), latest = vi.fn()
+    const rootRef = { current: root }
+    const { rerender } = renderHook(({ onChange }) => useReadPosition({
+      rootRef, filePath: '/fixture/a.md', isActive: true, renderVersion: 1, onChange,
+    }), { initialProps: { onChange: first } })
+    container.scrollTop = 300; fireEvent.scroll(container)
+    vi.advanceTimersByTime(200)
+    rerender({ onChange: latest })
+    vi.advanceTimersByTime(300)
+    expect(first).not.toHaveBeenCalled()
+    expect(latest).toHaveBeenCalledWith({ scrollRatio: 0.3 })
+  })
+
   it('布局开始时取消500ms内的旧回调，恢复后不能重放旧位置', () => {
     const { onChange } = setup(undefined)
     container.scrollTop = 300; fireEvent.scroll(container)

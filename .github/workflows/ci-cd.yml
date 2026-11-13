@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [20.x]
+        node-version: ['24.22.2']
 
     steps:
       - name: Checkout 代码
@@ -33,6 +33,9 @@ jobs:
 
       - name: 安装依赖
         run: npm ci
+
+      - name: 准备 Electron 运行时
+        run: npm run prepare:electron
 
       - name: 生成并核验内置图表示例包
         run: npm run chart-examples:generate && npm run chart-examples:check
@@ -86,11 +89,14 @@ jobs:
       - name: 设置 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '24.22.2'
           cache: 'npm'
 
       - name: 安装依赖
         run: npm ci
+
+      - name: 准备 Electron 运行时
+        run: npm run prepare:electron
 
       - name: 构建应用
         run: npm run build

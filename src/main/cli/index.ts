@@ -20,6 +20,7 @@ import { buildScreenshotResult } from './screenshotCommand'
 import { buildUninstallCliResult, buildInstallCliResult } from './shimCommand'
 import { runWatchCommand } from './watchCommand'
 import type { CliResult } from './types'
+import { RendererAssetError } from '../rendererAssets'
 
 export interface CliIo {
   stdout: (text: string) => void
@@ -67,7 +68,17 @@ export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<num
     return runWatchCommand(parsed.positional, parsed.flags, io)
   }
 
-  const result = await dispatchAutomationCommand(parsed.command, parsed.positional, parsed.flags)
+  let result: CliResult
+  try {
+    result = await dispatchAutomationCommand(parsed.command, parsed.positional, parsed.flags)
+  } catch (error) {
+    if (!(error instanceof RendererAssetError)) throw error
+    result = createFailureResult(parsed.command, {
+      code: 'RENDER_ASSET_UNAVAILABLE',
+      message: '应用渲染资源缺失或损坏，未生成渲染结果',
+      exitCode: 5,
+    })
+  }
   writeJson(io, result)
   return getExitCode(result)
 }

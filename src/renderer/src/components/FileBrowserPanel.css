@@ -13,7 +13,7 @@
 }
 .file-browser-panel[hidden] { display: none; }
 .file-browser-panel header, .browser-options { display: flex; align-items: center; gap: 8px; }
-.file-browser-panel header { gap: 4px; }
+.file-browser-panel header { position: relative; gap: 4px; }
 .file-browser-panel header strong { flex: 1; white-space: nowrap; }
 .file-browser-panel header button { white-space: nowrap; }
 .file-browser-panel button {
@@ -57,10 +57,29 @@
 .browser-resize-handle { flex: 0 0 4px; width: 4px; cursor: col-resize; background: var(--bg-secondary); }
 .browser-resize-handle:hover { background: var(--accent-color); }
 .file-browser-panel.browser-drawer { position: absolute; z-index: 30; inset-block: 0; left: 0; max-width: calc(100% - 16px); box-shadow: 4px 0 16px rgb(0 0 0 / 18%); }
-.browser-menu { position: relative; }
+.browser-menu { position: static; }
 .browser-menu summary { list-style: none; cursor: pointer; padding: 2px 6px; }
 .browser-menu summary::-webkit-details-marker { display: none; }
-.browser-menu .browser-options { position: absolute; top: 100%; right: 0; z-index: 2; min-width: 170px; display: flex; flex-direction: column; align-items: stretch; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); box-shadow: 0 4px 12px rgb(0 0 0 / 12%); }
+.browser-menu .browser-options { position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; width: min(100%, 280px); min-width: 0; box-sizing: border-box; max-height: calc(100dvh - 160px); overflow: auto; display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 4px 12px rgb(0 0 0 / 12%); font-size: 12px; }
+.browser-options .file-tree-sort-controls { min-width: 0; margin: 0; gap: 8px; }
+.browser-sort-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.browser-sort-heading strong { font-size: 12px; }
+.browser-sort-heading .file-tree-sort-reset { border: 0; padding: 2px 0; min-height: 24px; background: transparent; color: var(--text-secondary); font-size: 11px; }
+.browser-sort-heading .file-tree-sort-reset:hover:not(:disabled) { color: var(--accent-color); }
+.browser-options .file-tree-sort-controls fieldset { gap: 0; }
+.browser-options .file-tree-sort-controls fieldset label { min-height: 28px; padding: 0 4px; border-radius: 4px; gap: 8px; font-weight: 400; }
+.browser-options .file-tree-sort-controls fieldset label:hover { background: var(--bg-tertiary); }
+.browser-options .file-tree-sort-controls fieldset label:has(input:checked) { background: var(--bg-tertiary); }
+.browser-options input { flex-shrink: 0; margin: 0; accent-color: var(--accent-color); }
+.browser-options .file-tree-sort-field { flex-wrap: nowrap; border-top: 1px solid var(--border-color); padding-top: 8px; gap: 8px; font-weight: 400; }
+.browser-options .file-tree-sort-field select { min-width: 0; max-width: 100%; min-height: 28px; }
+.browser-options .file-tree-sort-hint { white-space: normal; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
+.browser-options .file-tree-sort-notes { gap: 2px; }
+.browser-display-options { display: grid; gap: 8px; border-top: 1px solid var(--border-color); padding-top: 10px; }
+.browser-display-options > label { min-height: 24px; gap: 8px; cursor: pointer; font-weight: 400; }
+.browser-menu-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.browser-menu-actions button { min-width: 0; min-height: 28px; padding: 4px 6px; border: 1px solid var(--border-color); background: var(--bg-secondary); }
+.browser-options :is(input, select, button):focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 .browser-menu:not([open]) .browser-options { display: none; }
 .browser-action-error { color: var(--text-primary); background: var(--bg-tertiary); padding: 8px; border-radius: 4px; overflow-wrap: anywhere; font-size: 12px; }
 .browser-name-dialog { width: 440px; }

@@ -6,11 +6,11 @@ interface HtmlDocumentOptions {
   title: string
   markdownCss: string
   prismCss: string
+  katexCss?: string
   showBranding: boolean
 }
 
 export type PdfDocumentOptions = HtmlDocumentOptions & {
-  katexCss?: string
   signal?: AbortSignal
 }
 
@@ -40,7 +40,6 @@ export function buildExportHtmlDocument(options: HtmlDocumentOptions): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(options.title)}</title>
-  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.27/files/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.css'">
   <style>
     :root {
       /* 固定亮色主题变量，导出 HTML 不跟随系统暗色模式 */
@@ -137,6 +136,21 @@ export function buildExportHtmlDocument(options: HtmlDocumentOptions): string {
     ${EXPORT_NON_CONTENT_CSS}
     ${options.markdownCss}
     ${options.prismCss}
+    ${options.katexCss || ''}
+    .markdown-body .echarts-container {
+      width: 100%;
+      max-width: 100%;
+      height: auto !important;
+      overflow: visible;
+    }
+    .markdown-body .echarts-container > svg {
+      position: static !important;
+      display: block;
+      width: 100% !important;
+      height: auto !important;
+      max-width: 100%;
+      margin: 0 auto;
+    }
   </style>
 </head>
 <body>

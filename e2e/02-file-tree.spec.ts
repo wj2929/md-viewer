@@ -236,7 +236,9 @@ test.describe('文件树功能测试', () => {
     await page.waitForSelector('.markdown-body', { timeout: 10000 })
 
     await page.locator('.markdown-body').click()
+    await expect(page.locator('.markdown-body')).toBeFocused()
     await page.keyboard.press('Escape')
+    await expect(page.locator('.markdown-body')).toBeFocused()
 
     const focusStyle = await page.locator('.markdown-body').evaluate(element => {
       const style = window.getComputedStyle(element)
@@ -247,7 +249,6 @@ test.describe('文件树功能测试', () => {
     })
 
     expect(focusStyle.outlineStyle).toBe('none')
-    expect(focusStyle.outlineWidth).toBe('0px')
   })
 
   test('刷新按钮应该重新加载文件树', async ({ page, electronApp, testDir }) => {

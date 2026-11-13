@@ -7,6 +7,7 @@ vi.mock('../../src/utils/fileCache', () => ({
 }))
 
 const { ensureTabContentLoaded, invalidateTabContentLoad } = await import('../../src/utils/ensureTabContentLoaded')
+const { useWorkspaceStore } = await import('../../src/stores/workspaceStore')
 const { useTabStore } = await import('../../src/stores/tabStore')
 const { registerLinkedDocumentReader } = await import('../../src/utils/tabDocumentReader')
 let unregisterReader: (() => void) | undefined
@@ -23,6 +24,7 @@ function makeTab(id: string, path: string, content: string | null) {
 describe('ensureTabContentLoaded 懒加载工具', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useWorkspaceStore.setState({ workspaces: [], activeWorkspaceId: null, runtimes: {} })
     vi.stubGlobal('api', { getReadPosition: vi.fn().mockResolvedValue(null), saveReadPosition: vi.fn() })
     useTabStore.setState({ tabs: [], activeTabId: null } as any)
   })
@@ -211,5 +213,50 @@ describe('ensureTabContentLoaded 懒加载工具', () => {
   it('未知 tabId 直接返回，不读盘', async () => {
     await ensureTabContentLoaded('missing')
     expect(readPreviewContentWithCache).not.toHaveBeenCalled()
+  })
+
+  it('首屏恢复先等待同根逻辑监听注册，不提前读盘', async () => {
+    let finish!: () => void
+    const watchFolder = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+    Object.assign(window.api, { watchFolder })
+    useWorkspaceStore.setState({ activeWorkspaceId: 'startup', workspaces: [{ id: 'startup', name: 'Startup', primaryRoot: '/ws', lifecycleEpoch: 1 }] })
+    readPreviewContentWithCache.mockResolvedValue('# delayed restore')
+    useTabStore.setState({ tabs: [makeTab('prepared', '/ws/a.md', null)] })
+    const pending = ensureTabContentLoaded('prepared')
+    await vi.waitFor(() => expect(watchFolder).toHaveBeenCalledWith('/ws', 'startup', 1))
+    expect(readPreviewContentWithCache).not.toHaveBeenCalled()
+    finish()
+    await pending
+    expect(useTabStore.getState().tabs[0].content).toBe('# delayed restore')
+  })
+
+  it('准备期间工作区失效时不发起旧路径读取', async () => {
+    let finish!: () => void
+    const watchFolder = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+    Object.assign(window.api, { watchFolder })
+    useWorkspaceStore.setState({ activeWorkspaceId: 'startup', workspaces: [{ id: 'startup', name: 'Startup', primaryRoot: '/ws', lifecycleEpoch: 1 }] })
+    readPreviewContentWithCache.mockResolvedValue('# stale')
+    useTabStore.setState({ tabs: [makeTab('stale-prepare', '/ws/a.md', null)] })
+    const pending = ensureTabContentLoaded('stale-prepare')
+    await vi.waitFor(() => expect(watchFolder).toHaveBeenCalled())
+    useWorkspaceStore.setState({ activeWorkspaceId: null })
+    finish()
+    await pending
+    expect(readPreviewContentWithCache).not.toHaveBeenCalled()
+    expect(useTabStore.getState().tabs[0].content).toBeNull()
+  })
+
+  it('监听准备失败仍可读取当前文档，不生成读取后的补授', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const watchFolder = vi.fn().mockRejectedValue(new Error('watch unavailable'))
+    Object.assign(window.api, { watchFolder })
+    useWorkspaceStore.setState({ activeWorkspaceId: 'startup', workspaces: [{ id: 'startup', name: 'Startup', primaryRoot: '/ws', lifecycleEpoch: 1 }] })
+    readPreviewContentWithCache.mockResolvedValue('# readable')
+    useTabStore.setState({ tabs: [makeTab('readable-prepare', '/ws/a.md', null)] })
+    try {
+      await ensureTabContentLoaded('readable-prepare')
+      expect(watchFolder).toHaveBeenCalledTimes(1)
+      expect(useTabStore.getState().tabs[0].content).toBe('# readable')
+    } finally { log.mockRestore() }
   })
 })

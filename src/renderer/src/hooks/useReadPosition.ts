@@ -11,13 +11,16 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
   renderVersion: number
   onChange?: (position: ReadPosition) => void
 }): void {
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+  const hasOnChange = Boolean(onChange)
   const restoreRef = useRef({ filePath, ratio: initialScrollRatio, applied: false, interacted: false })
   if (restoreRef.current.filePath !== filePath) {
     restoreRef.current = { filePath, ratio: initialScrollRatio, applied: false, interacted: false }
   }
 
   useEffect(() => {
-    if (!onChange && !Number.isFinite(initialScrollRatio)) return
+    if (!hasOnChange && !Number.isFinite(initialScrollRatio)) return
     const root = rootRef.current
     const container = (root?.closest('.preview') || root?.parentElement) as HTMLElement | null
     if (!root || !container) return
@@ -42,7 +45,7 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
         .map(heading => ({ heading, top: heading.getBoundingClientRect().top - containerTop }))
         .filter(item => item.top <= container.clientHeight * 0.35)
         .sort((a, b) => b.top - a.top)[0]?.heading
-      onChange?.({ scrollRatio: Math.max(0, Math.min(1, container.scrollTop / maxScroll)),
+      onChangeRef.current?.({ scrollRatio: Math.max(0, Math.min(1, container.scrollTop / maxScroll)),
         ...(activeHeading?.id ? { headingId: activeHeading.id } : {}) })
     }, 500)
     const scroll = () => { if (!restoring() && measurable()) report() }
@@ -88,5 +91,5 @@ export function useReadPosition({ rootRef, filePath, initialScrollRatio, isActiv
       document.removeEventListener('keydown', keydown)
       document.removeEventListener('browser-layout-start', cancelForLayout)
     }
-  }, [rootRef, filePath, initialScrollRatio, isActive, renderVersion, onChange])
+  }, [rootRef, filePath, initialScrollRatio, isActive, renderVersion, hasOnChange])
 }

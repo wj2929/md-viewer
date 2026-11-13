@@ -33,14 +33,14 @@ async function findPageByWindowId(
   await expect.poll(async () => {
     const pages = electronApp.windows()
     const ids = await Promise.all(
-      pages.map((page) => page.evaluate(() => window.api.getWindowId()))
+      pages.map(async page => (await electronApp.browserWindow(page)).evaluate(window => window.id))
     )
     return ids.includes(windowId)
   }).toBe(true)
 
   const pages = electronApp.windows()
   const ids = await Promise.all(
-    pages.map((page) => page.evaluate(() => window.api.getWindowId()))
+    pages.map(async page => (await electronApp.browserWindow(page)).evaluate(window => window.id))
   )
   const page = pages[ids.indexOf(windowId)]
   if (!page) throw new Error(`找不到窗口 ${windowId}`)
@@ -337,7 +337,7 @@ test.describe('工作区转移', () => {
     await openMarkdownFile(target, join(testDir, 'test1.md'), 'test1.md')
 
     const sourceA = await createAndIdentifyWindow(target, electronApp)
-    const videoRoot = join(testDir, 'video-sessions')
+    const videoRoot = join(testDir, '视频')
     const bibleRoot = join(testDir, '00_设定圣经')
     mkdirSync(videoRoot, { recursive: true })
     mkdirSync(bibleRoot, { recursive: true })

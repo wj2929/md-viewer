@@ -101,6 +101,12 @@ function copyMediaFixture(targetDir: string): void {
 }
 
 test.describe('本地音视频与 Obsidian 嵌入', () => {
+  test.beforeEach(async ({ electronApp }) => {
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.setAudioMuted(true)
+    })
+  })
+
   test('安全加载、播放、时间片段、字幕、尺寸与清理均可用', async ({
     electronApp,
     page,
@@ -129,7 +135,7 @@ test.describe('本地音视频与 Obsidian 嵌入', () => {
     })
 
     await page.evaluate(() => {
-      const probe = { created: [] as string[], revoked: [] as string[] }
+      const probe = { created: [] as string[], revoked: [] as string[], types: {} as Record<string, string> }
       const target = window as unknown as {
         __mdMediaBlobProbe: typeof probe
       }
@@ -139,6 +145,7 @@ test.describe('本地音视频与 Obsidian 嵌入', () => {
       URL.createObjectURL = blob => {
         const url = createObjectURL(blob)
         probe.created.push(url)
+        probe.types[url] = blob.type
         return url
       }
       URL.revokeObjectURL = url => {
@@ -382,12 +389,16 @@ test.describe('本地音视频与 Obsidian 嵌入', () => {
       path: testInfo.outputPath('wiki-excalidraw-compatible.png'),
     })
 
-    const createdBlobUrls = await page.evaluate(() => (
+    const blobProbe = await page.evaluate(() => (
       (window as unknown as {
-        __mdMediaBlobProbe: { created: string[], revoked: string[] }
-      }).__mdMediaBlobProbe.created
+        __mdMediaBlobProbe: { created: string[], revoked: string[], types: Record<string, string> }
+      }).__mdMediaBlobProbe
     ))
-    expect(createdBlobUrls).toHaveLength(2)
+    await testInfo.attach('all-blob-types', { body: JSON.stringify(blobProbe), contentType: 'application/json' })
+    const createdBlobUrls = blobProbe.created
+    expect(createdBlobUrls.length).toBeGreaterThanOrEqual(2)
+    // 内容重渲染可以重建字幕，但旧 Blob 必须释放，同时存活的字幕仍只能有两个。
+    expect(createdBlobUrls.filter(url => !blobProbe.revoked.includes(url))).toHaveLength(2)
 
     await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), plainPath)
     await page.locator('.tab', { hasText: 'plain.md' }).waitFor({ state: 'visible' })
@@ -403,10 +414,15 @@ test.describe('本地音视频与 Obsidian 嵌入', () => {
   test('深层 Markdown 引用的 Excalidraw 变化时自动刷新预览', async ({
     electronApp,
     page,
+    testDir,
   }, testInfo) => {
-    const workspaceRoot = join(process.cwd(), '..')
-    const markdownPath = join(MEDIA_FIXTURE_DIR, 'media.md')
-    const excalidrawPath = COMPATIBLE_EXCALIDRAW_FIXTURE
+    const workspaceRoot = join(testDir, 'deep-watch-workspace')
+    const fixtureRoot = join(workspaceRoot, 'project', 'docs', 'nested', 'fixtures')
+    mkdirSync(join(fixtureRoot, 'excalidraw'), { recursive: true })
+    cpSync(MEDIA_FIXTURE_DIR, join(fixtureRoot, 'local-media'), { recursive: true })
+    const markdownPath = join(fixtureRoot, 'local-media', 'media.md')
+    const excalidrawPath = join(fixtureRoot, 'excalidraw', 'compatible-no-type.excalidraw')
+    cpSync(COMPATIBLE_EXCALIDRAW_FIXTURE, excalidrawPath)
     const original = readFileSync(excalidrawPath, 'utf8')
     const originalLabel = '按兼容模式渲染'
     const updatedLabel = '自动刷新验证已生效'
@@ -459,6 +475,13 @@ test.describe('本地音视频与 Obsidian 嵌入', () => {
       await expect(page.locator('.excalidraw-wrapper')).toHaveCount(2, { timeout: 15_000 })
       const compatibleSvg = page.locator('.excalidraw-wrapper').nth(1).locator('.excalidraw-container svg')
       await expect(compatibleSvg).toContainText(originalLabel)
+      await expect.poll(async () => {
+        const bootstrap = await page.evaluate(() => window.api.getWorkspaceBootstrap())
+        const workspace = bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)!
+        return page.evaluate(async ({ id, lifecycleEpoch }) => (
+          await window.api.getWatchStatus(id, lifecycleEpoch)
+        ).state, workspace)
+      }).toBe('healthy')
 
       writeFileSync(excalidrawPath, original.replaceAll(originalLabel, updatedLabel))
       await expect(compatibleSvg).toContainText(updatedLabel, { timeout: 15_000 })

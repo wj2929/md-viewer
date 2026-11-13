@@ -1,7 +1,11 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type MouseEvent } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import type { WorkspaceOperationContext } from '../../../shared/workspace'
-import { isBrowserPathAffected, type WorkspaceDirectoryEntry, type WorkspaceBrowserSelection } from '../../../shared/directoryBrowser'
+import { isBrowserPathAffected, type WorkspaceDirectoryEntry, type WorkspaceDirectoryMetadata, type WorkspaceBrowserSelection } from '../../../shared/directoryBrowser'
 import { classifyWikiResource } from '../../../shared/localMedia'
+import { useBrowserSortStore } from '../stores/browserSortStore'
+import { needsFileTreeMetadata } from '../../../shared/fileTreeSort'
+import { retainFileTreeOrder, sortFileTree, type FileTreeSortMetadataMap } from '../utils/fileTreeSort'
+import { FileSortControls } from './FileTreeSortControls'
 import './FileBrowserPanel.css'
 
 function BrowserEntryIcon({ entry, expanded }: { entry: WorkspaceDirectoryEntry; expanded: boolean }): JSX.Element {
@@ -41,6 +45,10 @@ export const FileBrowserPanel = forwardRef<FileBrowserPanelHandle, {
   onSelect: (entry: WorkspaceDirectoryEntry) => void
   onAction?: (selection: WorkspaceBrowserSelection) => Promise<void>
 }>(function FileBrowserPanel({ open, operation, rootName, width = 280, drawer = false, onClose, onSelect, onAction }, ref) {
+  const sort = useBrowserSortStore()
+  useEffect(sort.connect, [sort.connect])
+  const metadata = needsFileTreeMetadata(sort.value.by) ? sort.value.by as WorkspaceDirectoryMetadata : undefined
+  const metadataRef = useRef(metadata)
   const [directories, setDirectories] = useState<Record<string, Directory>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['']))
   const [query, setQuery] = useState('')
@@ -55,24 +63,31 @@ export const FileBrowserPanel = forwardRef<FileBrowserPanelHandle, {
   const { workspaceId, lifecycleEpoch } = operation
   const lifecycle = `${workspaceId}:${lifecycleEpoch}`
   const load = useCallback((relativePath: string) => {
-    const pending = requests.current.get(relativePath)
+    const requirement = metadataRef.current
+    const key = `${relativePath}:${requirement ?? 'names'}`
+    const pending = requests.current.get(key)
     if (pending) return pending
     const version = generation.current
     setDirectories(prev => ({ ...prev, [relativePath]: { ...prev[relativePath], loading: true, error: undefined } }))
-    const request = window.api.listWorkspaceDirectory({ workspaceId, lifecycleEpoch }, relativePath).then(entries => {
+    const read = requirement
+      ? window.api.listWorkspaceDirectory({ workspaceId, lifecycleEpoch }, relativePath, requirement)
+      : window.api.listWorkspaceDirectory({ workspaceId, lifecycleEpoch }, relativePath)
+    const request = read.then(entries => {
       if (generation.current === version) setDirectories(prev => ({ ...prev, [relativePath]: { entries } }))
     }).catch(() => {
-      if (generation.current === version) setDirectories(prev => ({ ...prev, [relativePath]: { error: '无法读取目录，请重试' } }))
-    }).finally(() => { if (requests.current.get(relativePath) === request) requests.current.delete(relativePath) })
-    requests.current.set(relativePath, request)
+      if (generation.current === version) setDirectories(prev => ({ ...prev, [relativePath]: { ...prev[relativePath], loading: false, error: '无法读取目录，请重试' } }))
+    }).finally(() => { if (requests.current.get(key) === request) requests.current.delete(key) })
+    requests.current.set(key, request)
     return request
   }, [workspaceId, lifecycleEpoch])
 
   useEffect(() => () => { generation.current++; menuSequence.current++; requests.current.clear() }, [])
   useEffect(() => {
+    generation.current++; requests.current.clear()
+    metadataRef.current = metadata
     if (open) for (const relativePath of expanded) void load(relativePath)
     // Expanded directories are read by explicit toggles; filtering never starts IO.
-  }, [open, load])
+  }, [open, load, metadata])
 
   const menuRef = useRef<HTMLDetailsElement>(null)
   const refresh: FileBrowserPanelHandle['refresh'] = mutation => {
@@ -112,6 +127,19 @@ export const FileBrowserPanel = forwardRef<FileBrowserPanelHandle, {
       return next
     })
   }
+  const previousOrder = useRef<Record<string, Array<WorkspaceDirectoryEntry & { path: string; treePath: string; isDirectory: boolean }>>>({})
+  const ordered = useMemo(() => Object.fromEntries(Object.entries(directories).map(([relativePath, state]) => {
+    const items = (state.entries ?? []).map(entry => ({ ...entry, path: entry.relativePath, treePath: entry.relativePath, isDirectory: entry.kind === 'directory' }))
+    const attributes: FileTreeSortMetadataMap = Object.create(null)
+    const field = metadata === 'modified' ? 'mtimeMs' : 'size'
+    for (const item of items) {
+      if (Object.hasOwn(item, field)) attributes[item.treePath] = { mtimeMs: item.mtimeMs ?? null, size: item.size ?? null }
+    }
+    const complete = !metadata || items.every(item => Object.hasOwn(attributes, item.treePath))
+    const current = complete ? items : retainFileTreeOrder(items, previousOrder.current[relativePath] ?? [])
+    return [relativePath, sortFileTree(current, sort.value, attributes, true)]
+  })), [directories, sort.value, metadata])
+  useLayoutEffect(() => { previousOrder.current = ordered }, [ordered])
   const filter = query.trim().toLocaleLowerCase()
   const matches = (entry: WorkspaceDirectoryEntry): boolean => {
     if (!showHidden && entry.name.startsWith('.')) return false
@@ -120,7 +148,7 @@ export const FileBrowserPanel = forwardRef<FileBrowserPanelHandle, {
   }
   const renderDirectory = (relativePath: string): JSX.Element => {
     const state = directories[relativePath]
-    const entries = state?.entries?.filter(matches) ?? []
+    const entries = ordered[relativePath]?.filter(matches) ?? []
     const limit = limits[relativePath] ?? 200
     return <>
       {state?.loading && <div role="status">正在读取…</div>}
@@ -132,7 +160,7 @@ export const FileBrowserPanel = forwardRef<FileBrowserPanelHandle, {
         return <div role="treeitem" key={entry.relativePath} onContextMenu={event => void showContextMenu(event, entry)} aria-expanded={directory ? isExpanded : undefined} aria-selected={selected === entry.relativePath}>
           <button className="browser-entry" title={entry.relativePath} disabled={entry.kind === 'link' || entry.kind === 'other'} onClick={() => {
             if (directory) toggle(entry.relativePath)
-            else { setSelected(entry.relativePath); onSelect(entry) }
+            else { setSelected(entry.relativePath); onSelect(state.entries!.find(item => item.relativePath === entry.relativePath)!) }
           }}><span className="browser-entry-chevron" aria-hidden="true">{directory && <svg viewBox="0 0 10 10" className={isExpanded ? 'expanded' : ''}><path d="m3 2 3 3-3 3" /></svg>}</span>
             <BrowserEntryIcon entry={entry} expanded={isExpanded} /><span>{entry.name}</span></button>
           {directory && isExpanded && directories[entry.relativePath] && <div role="group" className="browser-children">{renderDirectory(entry.relativePath)}</div>}
@@ -153,9 +181,16 @@ export const FileBrowserPanel = forwardRef<FileBrowserPanelHandle, {
   }}>
     <header><strong>工作区文件</strong>{drawer && <button onClick={onClose}>查看内容</button>}<details className="browser-menu" ref={menuRef}>
       <summary aria-label="工作区文件操作" title="工作区文件操作">⋯</summary>
-      <div className="browser-options"><label><input type="checkbox" checked={showHidden} onChange={event => setShowHidden(event.target.checked)} />显示隐藏文件</label>
-        <button aria-label="刷新工作区文件" onClick={() => { refresh(); if (menuRef.current) menuRef.current.open = false }}>刷新</button>
-        <button onClick={() => { setExpanded(new Set([''])); if (menuRef.current) menuRef.current.open = false }}>折叠全部</button></div>
+      <div className="browser-options">
+        <FileSortControls state={sort} compact browser />
+        <div className="browser-display-options">
+          <label><input type="checkbox" checked={showHidden} onChange={event => setShowHidden(event.target.checked)} />显示隐藏文件</label>
+          <div className="browser-menu-actions">
+            <button aria-label="刷新工作区文件" onClick={() => { refresh(); if (menuRef.current) menuRef.current.open = false }}>刷新</button>
+            <button onClick={() => { setExpanded(new Set([''])); if (menuRef.current) menuRef.current.open = false }}>折叠全部</button>
+          </div>
+        </div>
+      </div>
     </details><button aria-label="关闭工作区文件" onClick={onClose}>×</button></header>
     <div className="browser-root" title={rootName} onContextMenu={event => void showContextMenu(event)}>{rootName}</div>
     <input aria-label="过滤已加载项" placeholder="过滤已加载项" value={query} onChange={event => setQuery(event.target.value)} />

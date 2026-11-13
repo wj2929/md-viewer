@@ -2,7 +2,7 @@
  * TTS IPC handlers
  * @module main/ipc/ttsHandlers
  * @description 朗读合成/取消/音色/测试/存key。渲染进程只传 opaque providerId 和播放参数,
- * provider 配置由主进程从 AppSettings 解析；apiKey 由 keyStore(safeStorage)自取,不经渲染进程。
+ * provider 配置由主进程从 AppSettings 解析；apiKey 由本地 keyStore 自取,不经渲染进程。
  */
 
 import { ipcMain } from 'electron'
@@ -113,6 +113,13 @@ function isCustomProviderId(providerId: string): boolean {
   return /^custom-tts-[a-z0-9-]{1,80}$/i.test(providerId)
 }
 
+function validateResolvedRequest(ctx: IPCContext, expected: SynthesizeRequest): void {
+  const current = resolveRequest(ctx, expected)
+  if (providerTarget(current) !== providerTarget(expected)) {
+    throw new TtsSynthesisError('config', '朗读服务配置已变化，请重试')
+  }
+}
+
 export function registerTtsHandlers(ctx: IPCContext): void {
   ipcMain.handle('tts:synthesize', async (event, req: SynthesizeRequest & { requestId: string }) => {
     const key = requestKey(event.sender.id, req.requestId)
@@ -125,7 +132,8 @@ export function registerTtsHandlers(ctx: IPCContext): void {
     const task = createInFlightTask(SYNTHESIS_TIMEOUT_MS)
     inFlight.set(key, task)
     try {
-      const result = await synthesize(resolveRequest(ctx, req), task.controller.signal)
+      const resolved = resolveRequest(ctx, req)
+      const result = await synthesize(resolved, task.controller.signal, () => validateResolvedRequest(ctx, resolved))
       return { ok: true, ...result }
     } catch (err) {
       return classifyTaskError(err, task)
@@ -157,7 +165,8 @@ export function registerTtsHandlers(ctx: IPCContext): void {
   ipcMain.handle('tts:testProvider', async (_, req: SynthesizeRequest) => {
     const task = createInFlightTask(PROVIDER_TEST_TIMEOUT_MS)
     try {
-      await synthesize({ ...resolveRequest(ctx, req), text: '测试' }, task.controller.signal)
+      const resolved = { ...resolveRequest(ctx, req), text: '测试' }
+      await synthesize(resolved, task.controller.signal, () => validateResolvedRequest(ctx, resolved))
       return { ok: true }
     } catch (err) {
       return classifyTaskError(err, task)
@@ -196,7 +205,7 @@ export function registerTtsHandlers(ctx: IPCContext): void {
     return settings
   })
 
-  ipcMain.handle('tts:setKey', (_, providerId: string, apiKey: string) => {
+  ipcMain.handle('tts:setKey', async (_, providerId: string, apiKey: string) => {
     try {
       if (!isCustomProviderId(providerId)) throw new Error('朗读服务 ID 无效')
       let target: string | undefined
@@ -204,7 +213,7 @@ export function registerTtsHandlers(ctx: IPCContext): void {
         const provider = resolvePaidProvider(ctx, providerId)
         target = providerTarget(provider)
         if (!target) throw new Error('请先完成朗读服务地址或区域配置')
-        setProviderKey(providerId, apiKey, target)
+        await setProviderKey(providerId, apiKey, target)
       } else {
         deleteProviderKey(providerId)
       }

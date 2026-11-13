@@ -133,6 +133,7 @@ export interface PinnedTab {
  */
 export interface AppSettings {
   fileTreeSort?: FileTreeSort
+  browserSort?: FileTreeSort
   imageDir: string       // 图片保存目录，默认 'assets'
   autoSave: boolean      // 自动保存，默认 true（失焦时保存）
   bookmarkPanelWidth: number     // 书签面板宽度
@@ -228,6 +229,7 @@ class AppDataManager {
           sidebarCollapsed: false,
           autoRenderRemoteCharts: true,
           folderPinyinSearchEnabled: false,
+          browserSort: { by: 'name', direction: 'asc' },
           diagnosticLogs: { ...DEFAULT_DIAGNOSTIC_LOG_SETTINGS }
         }
       }
@@ -345,28 +347,36 @@ class AppDataManager {
    * 后台验证最近文件路径有效性（并行验证，不阻塞）
    */
   async validateRecentFilesInBackground(): Promise<void> {
-    const recentFiles = this.getRecentFiles()
+    const recentFiles = this.getRecentFiles().map(file => ({ ...file }))
     if (recentFiles.length === 0) return
 
-    const validationPromises = recentFiles.map(async (file) => {
+    const results = await Promise.all(recentFiles.map(async file => {
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
         await Promise.race([
           fs.access(file.path),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), VALIDATE_TIMEOUT)
-          )
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('timeout')), VALIDATE_TIMEOUT)
+          })
         ])
-        return file
-      } catch {
         return null
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code
+        return code === 'ENOENT' || code === 'ENOTDIR' ? file : null
+      } finally {
+        if (timer !== undefined) clearTimeout(timer)
       }
-    })
+    }))
+    const missingFiles = results.filter((file): file is RecentFile => file !== null)
+    if (missingFiles.length === 0) return
 
-    const results = await Promise.all(validationPromises)
-    const validFiles = results.filter((file): file is RecentFile => file !== null)
-
-    // 如果有失效路径，更新存储
-    if (validFiles.length !== recentFiles.length) {
+    // 只移除仍未变化的缺失身份，不用旧快照覆盖校验期间的操作。
+    const current = this.getRecentFiles()
+    const validFiles = current.filter(file => !missingFiles.some(missing =>
+      missing.id === file.id && missing.path === file.path && missing.name === file.name
+      && missing.folderPath === file.folderPath && missing.lastOpened === file.lastOpened
+    ))
+    if (validFiles.length !== current.length) {
       this.store.set('recentFiles', validFiles)
     }
   }

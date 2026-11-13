@@ -117,6 +117,20 @@ describe('folder metadata and pending order', () => {
     expect(data.__proto__).toBeNull()
     expect(data.constructor).toEqual({ size: 0, mtimeMs: null })
   })
+  it('uses browser directory timestamps but never treats their bytes as folder totals', () => {
+    const tree = [directory('B'), directory('A'), file('large'), file('zero'), file('missing')]
+    const data = { A: { mtimeMs: 10, size: 99 }, B: { mtimeMs: 20, size: null },
+      large: { mtimeMs: 2, size: 10 }, zero: { mtimeMs: 1, size: 0 }, missing: { mtimeMs: null, size: null } }
+    expect(names(sortFileTree(tree, { by: 'modified', direction: 'desc' }, data, true)))
+      .toEqual(['B', 'A', 'large', 'zero', 'missing'])
+    for (const direction of ['asc', 'desc'] as const) {
+      const result = names(sortFileTree(tree, { by: 'size', direction }, data, true))
+      expect(result.slice(0, 2)).toEqual(['A', 'B'])
+      expect(result.slice(2)).toEqual(direction === 'asc' ? ['zero', 'large', 'missing'] : ['large', 'zero', 'missing'])
+    }
+    expect(names(sortFileTree(tree, { by: 'size', direction: 'desc' }, data)).slice(0, 2)).toEqual(['A', 'B'])
+  })
+
   it('retains positions but immediately uses fresh nodes, removes old ones and appends new siblings', () => {
     const previous: SortableTreeItem[] = [directory('B', [file('B/2.md'), file('B/1.md')]), directory('A'), file('2.md'), file('1.md')]
     const updated = { ...file('2.md'), name: 'fresh label' }

@@ -313,6 +313,38 @@ export function optimizeEChartsConfig(option: EChartsOption): EChartsOption {
   return optimized
 }
 
+function normalizeEChartsExportSvg(svg: SVGElement, exportWidth?: number): void {
+  const box = svg.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number)
+  const hasViewBox = box?.length === 4 && box.every(Number.isFinite) && box[2] > 0 && box[3] > 0
+  const width = hasViewBox ? box[2] : Number.parseFloat(svg.getAttribute('width') || '')
+  const height = hasViewBox ? box[3] : Number.parseFloat(svg.getAttribute('height') || '')
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
+  if (!hasViewBox) svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
+  if (exportWidth !== undefined) {
+    svg.setAttribute('width', String(exportWidth))
+    svg.setAttribute('height', String(Math.round(exportWidth * height / width)))
+  }
+  if (!svg.getAttribute('preserveAspectRatio')) svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+  svg.style.position = 'static'
+  svg.style.left = ''
+  svg.style.top = ''
+  svg.style.display = 'block'
+  svg.style.margin = '0 auto'
+}
+
+/** 只调整输出副本，保留 live DOM 的截图尺寸和图表实例。 */
+export function serializeEChartsExportHtml(root: HTMLElement): string {
+  const copy = root.cloneNode(true) as HTMLElement
+  for (const container of copy.querySelectorAll<HTMLElement>('.echarts-container')) {
+    const svg = container.querySelector<SVGElement>('svg')
+    if (!svg) continue
+    normalizeEChartsExportSvg(svg)
+    container.replaceChildren(svg)
+    container.style.height = 'auto'
+  }
+  return copy.innerHTML
+}
+
 /**
  * 渲染 ECharts 为 SVG（用于导出）
  * 使用可见容器确保正确渲染
@@ -356,28 +388,8 @@ export async function renderEChartsToSvg(config: string, id: string): Promise<st
     // 克隆 SVG
     const svgClone = svgElement.cloneNode(true) as SVGElement
 
-    // 使用原始 viewBox，不裁剪（避免裁剪出错）
-    // ECharts 生成的 SVG viewBox 通常是 0 0 600 400
-    const viewBox = svgClone.getAttribute('viewBox') || `0 0 ${ECHARTS_CONFIG.DEFAULT_WIDTH} ${ECHARTS_CONFIG.DEFAULT_HEIGHT}`
-    svgClone.setAttribute('viewBox', viewBox)
-
-    // 设置固定的像素尺寸（用于 Pandoc 导出）
-    // 使用 624px 宽度（对应 Word 页面宽度 6.5 英寸 @ 96 DPI）
-    const exportWidth = 624
-    const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number)
-    const aspectRatio = vbHeight / vbWidth
-    const exportHeight = Math.round(exportWidth * aspectRatio)
-
-    svgClone.setAttribute('width', String(exportWidth))
-    svgClone.setAttribute('height', String(exportHeight))
-    svgClone.setAttribute('preserveAspectRatio', 'xMidYMid meet')
-
-    // 移除绝对定位样式
-    svgClone.style.position = 'relative'
-    svgClone.style.left = ''
-    svgClone.style.top = ''
-    svgClone.style.display = 'block'
-    svgClone.style.margin = '0 auto'
+    // GUI/Pandoc 保留 624px 输出，坐标系取实际 SVG 尺寸，不裁剪图元。
+    normalizeEChartsExportSvg(svgClone, 624)
 
     return svgClone.outerHTML
   } finally {

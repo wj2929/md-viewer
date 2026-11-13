@@ -3,6 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
+import { inspectRendererAssets } from './prepare-renderer-assets.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const stageRoot = path.join(projectRoot, '.package-app')
@@ -75,8 +76,13 @@ async function main() {
     throw new Error(`stage direct dependencies 不匹配：${declared.join(', ')}`)
   }
   for (const dependency of expected) {
-    stageRequire.resolve(dependency)
+    const resolved = await fs.realpath(stageRequire.resolve(dependency))
+    const relative = path.relative(await fs.realpath(stageRoot), resolved)
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
+      throw new Error(`stage dependency resolved outside stage: ${dependency}`)
+    }
   }
+  const rendererAssets = await inspectRendererAssets(projectRoot, stageRoot)
 
   for (const entry of closure.packages) {
     const manifestPath = path.join(stageRoot, entry.path, 'package.json')
@@ -120,6 +126,7 @@ async function main() {
     closurePackages: closure.packages.length,
     rendererOnlyTopLevelExcluded: forbiddenTopLevel.length,
     katexFonts: fontCounts,
+    rendererAssets,
     chartExamplesBytes: chartExamplesZip.byteLength,
     chartExamplesCaseCount: chartExamplesManifest.caseCount,
   }, null, 2))

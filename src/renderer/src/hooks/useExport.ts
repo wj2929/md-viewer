@@ -199,7 +199,7 @@ export function useExport({ splitState, tabs, activeTabId, folderPath, toast, sa
 
       let htmlContent: string
       const markdownBody = document.querySelector('.split-leaf-panel.active .markdown-body')
-      if (markdownBody) {
+      if (markdownBody && !markdownBody.hasAttribute('data-render-pending')) {
         const clone = markdownBody.cloneNode(true) as HTMLElement
         clone.querySelectorAll('.copy-button, .line-numbers-wrapper, .no-export').forEach(el => el.remove())
         clone.querySelectorAll('.echarts-wrapper').forEach(wrapper => {

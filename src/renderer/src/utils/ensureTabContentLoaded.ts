@@ -1,6 +1,8 @@
 import { useTabStore } from '../stores/tabStore'
 import { readTabPreviewContent } from './tabDocumentReader'
 import { recordFileTerminal, startFileDiagnostic } from './diagnostics'
+import { prepareWorkspaceWatch } from './prepareWorkspaceWatch'
+import { getActiveWorkspaceLifecycleKey, isActiveWorkspaceLifecycleKey } from './workspaceOperationContext'
 
 const inflight = new Map<string, Promise<void>>()
 const generations = new Map<string, number>()
@@ -20,13 +22,33 @@ export function ensureTabContentLoaded(tabId: string): Promise<void> {
   const generation = generations.get(tabId) ?? 0
   let shouldRetry = false
   const diagnosticOperation = startFileDiagnostic('restore')
-  const promise = Promise.all([
+  const activeLifecycle = tab.linkedReadOnly ? undefined : getActiveWorkspaceLifecycleKey()
+  const root = activeLifecycle?.primaryRoot?.replace(/[\\/]+$/, '')
+  const lifecycle = root !== undefined && (filePath === root || filePath.startsWith(`${root}/`) || filePath.startsWith(`${root}\\`))
+    ? activeLifecycle : undefined
+  const read = () => Promise.all([
     readTabPreviewContent(tab, true, diagnosticOperation),
     Promise.resolve(tab.linkedReadOnly ? null : window.api.getReadPosition?.(filePath)).catch(() => null),
   ])
-    .then(([content, position]) => {
+  const reading = lifecycle ? prepareWorkspaceWatch(lifecycle).then(() => {
+    const current = useTabStore.getState().tabs.find(item => item.id === tabId)
+    if (!isActiveWorkspaceLifecycleKey(lifecycle) || !current || current.content !== null) {
+      recordFileTerminal(diagnosticOperation, 'superseded')
+      return null
+    }
+    if (current.file.path !== filePath || (generations.get(tabId) ?? 0) !== generation) {
+      shouldRetry = true
+      recordFileTerminal(diagnosticOperation, 'superseded')
+      return null
+    }
+    return read()
+  }) : read()
+  const promise = reading
+    .then(result => {
+      if (!result) return
+      const [content, position] = result
       const current = useTabStore.getState().tabs.find(t => t.id === tabId)
-      if (!current || current.content !== null) {
+      if (!current || current.content !== null || (lifecycle && !isActiveWorkspaceLifecycleKey(lifecycle))) {
         recordFileTerminal(diagnosticOperation, 'superseded')
         return
       }

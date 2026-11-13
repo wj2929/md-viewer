@@ -75,11 +75,16 @@ test.describe('阅读位置恢复', () => {
     await expect(page.locator('.markdown-body h1')).toHaveText('Long Read')
 
     const preview = page.locator('.preview')
+    // 标题出现不代表布局事务已结束；暂停期间的程序滚动按契约不写阅读记录。
+    await expect.poll(() => preview.evaluate(element => element.clientHeight > 0
+      && !element.closest('[data-browser-layout-paused]'))).toBe(true)
     await preview.evaluate(element => {
       element.scrollTop = element.scrollHeight * 0.62
       element.dispatchEvent(new Event('scroll', { bubbles: true }))
     })
     await page.waitForTimeout(700)
+    await expect.poll(() => page.evaluate(path => window.api.getReadPosition(path), join(testDir, 'long-read.md'))
+      .then(position => position?.scrollRatio ?? 0)).toBeGreaterThan(0.35)
 
     await page.click('.file-tree-row.file:has-text("test1.md")')
     await expect(page.locator('.markdown-body h1')).toHaveText('Test 1')

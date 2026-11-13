@@ -1,13 +1,15 @@
-import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceIndexService } from '../indexing/WorkspaceIndexService'
 import { WorkspaceIndexStore } from '../indexing/WorkspaceIndexStore'
+import { LinkRewritePlanner } from '../linking/LinkRewritePlanner'
 import type { WorkspaceRootDelta, WorkspaceWatchService } from '../watching/WorkspaceWatchService'
 
 class WikiWatcher {
   coverage = { token: 'root:1:0:0', complete: true }
   getIndexCoverage = vi.fn(() => ({ ...this.coverage }))
+  waitForRootAlignment = vi.fn(async () => {})
   consumer?: (delta: WorkspaceRootDelta) => void
   attachIndexConsumer(_root: string, _id: string, consumer: (delta: WorkspaceRootDelta) => void): void { this.consumer = consumer }
   detachIndexConsumer(): void {}
@@ -37,6 +39,42 @@ async function fixture() {
 const note = (alias: string) => `---\naliases: [${alias}]\n---\n\n# 正文\n`
 
 describe('workspace Wiki metadata snapshots', () => {
+  it('预览对齐后单次确认只移动一次，签发后真实 coverage 变化仍零写入拒绝', async () => {
+    const { root, service, watcher } = await fixture()
+    await writeFile(join(root, 'a.md'), note('Guide'))
+    watcher.coverage = { token: 'root:1:1:0', complete: false }
+    await service.attach(root, 'test'); await service.waitUntilIdle(root)
+    const old = service.getWikiSnapshot(root)!
+    let finish!: () => void
+    watcher.waitForRootAlignment.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const prepared = vi.fn()
+    const waiting = service.waitUntilIdle(root, { assertCurrent: () => {} }).then(prepared)
+    await Promise.resolve()
+    expect(prepared).not.toHaveBeenCalled()
+    await service.reconcileWatch(root, 'refresh')
+    watcher.coverage = { token: 'root:1:1:1', complete: true }
+    expect(old.isCurrent()).toBe(false)
+    finish()
+    await waiting
+    expect(service.getWikiSnapshot(root)?.ready).toBe(true)
+    const planner = new LinkRewritePlanner(service)
+    const mapping = { oldRelativePath: 'a.md', newRelativePath: 'b.md' }
+    const impact = await planner.createImpact('test-owner', root, mapping)
+    const move = vi.fn(() => rename(join(root, 'a.md'), join(root, 'b.md')))
+    await planner.executeOperation({ ownerId: 'test-owner', rootPath: root, impactId: impact.impactId, actualMapping: mapping, execute: move })
+    expect(move).toHaveBeenCalledTimes(1)
+    expect(await readFile(join(root, 'b.md'), 'utf8')).toBe(note('Guide'))
+    await expect(readFile(join(root, 'a.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await service.refreshMovedRelativePaths(root, [mapping])
+    const nextMapping = { oldRelativePath: 'b.md', newRelativePath: 'c.md' }
+    const next = await planner.createImpact('test-owner', root, nextMapping)
+    watcher.coverage = { token: 'root:1:2:1', complete: false }
+    await expect(planner.executeOperation({ ownerId: 'test-owner', rootPath: root, impactId: next.impactId, actualMapping: nextMapping, execute: move })).rejects.toThrow('索引已变化')
+    expect(move).toHaveBeenCalledTimes(1)
+    expect(await readFile(join(root, 'b.md'), 'utf8')).toBe(note('Guide'))
+    await expect(readFile(join(root, 'c.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('反链确认普通 alias、不计嵌入或 frontmatter，并保留覆盖缺口', async () => {
     const { root, service } = await fixture()
     await writeFile(join(root, 'target.md'), note('Guide'))

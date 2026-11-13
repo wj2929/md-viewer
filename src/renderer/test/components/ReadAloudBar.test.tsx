@@ -91,6 +91,36 @@ afterEach(() => {
 })
 
 describe('ReadAloudBar 睡眠定时与音色', () => {
+  it('朗读入口用 SVG，展开操作不触发播放', () => {
+    renderBar()
+    const button = screen.getByRole('button', { name: '朗读' })
+    const icon = button.querySelector('svg')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+    expect(icon).toHaveAttribute('data-icon', 'volume')
+    expect(icon?.querySelector('text, image, use, foreignObject')).toBeNull()
+    fireEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('group', { name: '朗读控制' })).toBeVisible()
+    expect(mocks.play).not.toHaveBeenCalled()
+    expect(mocks.resume).not.toHaveBeenCalled()
+  })
+
+  it('回退进行中显示提示，播放结束后即使回退标志仍在也不显示', () => {
+    const containerRef = { current: document.createElement('div') }
+    const view = render(<ReadAloudBar containerRef={containerRef} filePath="/tmp/a.md" />)
+    fireEvent.click(screen.getByRole('button', { name: '朗读' }))
+    expect(document.querySelector('.read-aloud-fallback')).toBeNull()
+    mocks.speech.fellBackToSystem = true
+    for (const status of ['loading', 'playing', 'paused']) {
+      mocks.speech.status = status
+      view.rerender(<ReadAloudBar containerRef={containerRef} filePath="/tmp/a.md" />)
+      expect(document.querySelector('.read-aloud-fallback')).toBeVisible()
+    }
+    mocks.speech.status = 'idle'
+    view.rerender(<ReadAloudBar containerRef={containerRef} filePath="/tmp/a.md" />)
+    expect(document.querySelector('.read-aloud-fallback')).toBeNull()
+  })
+
   it('加载中点击主按钮取消合成而不是重新开始', () => {
     mocks.speech.status = 'loading'
     renderBar()

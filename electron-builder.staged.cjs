@@ -17,6 +17,10 @@ module.exports = {
   mac: macConfig,
   asar: true,
   npmRebuild: false,
+  beforePack: async context => {
+    const { capturePackageInputs } = await import('./scripts/capture-package-inputs.mjs')
+    await capturePackageInputs(context)
+  },
   electronLanguages: packageLocales.electronLanguages,
   directories: {
     ...packageJson.build.directories,
@@ -26,6 +30,8 @@ module.exports = {
   files: [
     'out/**/*',
     'package.json',
+    'renderer-assets.json',
+    'THIRD_PARTY_DISTRIBUTION_COMMENTS.txt',
     'node_modules/**/*',
     '!node_modules/**/*.d.ts.map',
     '!node_modules/axios/MIGRATION_GUIDE.md',

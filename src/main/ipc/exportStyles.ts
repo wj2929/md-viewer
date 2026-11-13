@@ -131,6 +131,11 @@ export async function getExportStyles(): Promise<{ markdownCss: string; prismCss
   return { markdownCss, prismCss }
 }
 
+export async function getHtmlExportStyles(): Promise<{ markdownCss: string; prismCss: string; katexCss: string }> {
+  const { markdownCss, prismCss } = await getExportStyles()
+  return getPdfExportStyles(markdownCss, prismCss)
+}
+
 /** PDF 只使用随包的 KaTeX/WOFF2，避免重启打印进程时重新从 CDN 取字体。 */
 export async function getPdfExportStyles(markdownCss: string, prismCss: string): Promise<{
   markdownCss: string

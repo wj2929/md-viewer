@@ -202,6 +202,9 @@ export function sanitizeSettingsUpdates(updates: unknown): Record<string, unknow
   if (Object.hasOwn(safeUpdates, 'fileTreeSort') && !isFileTreeSort(safeUpdates.fileTreeSort)) {
     throw new Error('无效的目录树排序设置')
   }
+  if (Object.hasOwn(safeUpdates, 'browserSort') && !isFileTreeSort(safeUpdates.browserSort)) {
+    throw new Error('无效的工作区文件排序设置')
+  }
   return safeUpdates
 }
 
@@ -231,14 +234,14 @@ ipcMain.handle('clipboard:query-state', async (event) => {
 
 // v1.3 阶段 6：从系统剪贴板读取文件
 ipcMain.handle('clipboard:read-system', async () => {
-  const files = readFilesFromSystemClipboard()
+  const files = await readFilesFromSystemClipboard()
   console.log('[CLIPBOARD] Read from system:', files.length, 'files')
   return files
 })
 
 // v1.3 阶段 6：写入文件到系统剪贴板
 ipcMain.handle('clipboard:write-system', async (_, paths: string[], isCut: boolean) => {
-  const result = writeFilesToSystemClipboard(paths, isCut)
+  const result = await writeFilesToSystemClipboard(paths, isCut)
   console.log('[CLIPBOARD] Write to system:', paths.length, 'files, success:', result)
   return result
 })
@@ -532,9 +535,19 @@ ipcMain.handle('settings:get', async () => {
 let fileTreeSortRevision = 0
 const sortSnapshot = () => ({ value: normalizeFileTreeSort(ctx.appDataManager.getSettings().fileTreeSort), revision: fileTreeSortRevision })
 ipcMain.handle('settings:fileTreeSort', () => sortSnapshot())
+let browserSortRevision = 0
+const browserSortSnapshot = () => ({ value: normalizeFileTreeSort(ctx.appDataManager.getSettings().browserSort), revision: browserSortRevision })
+ipcMain.handle('settings:browserSort', () => browserSortSnapshot())
 ipcMain.handle('settings:update', async (_, updates: Record<string, unknown>) => {
   const safeUpdates = sanitizeSettingsUpdates(updates)
   ctx.appDataManager.updateSettings(safeUpdates)
+  if (Object.hasOwn(safeUpdates, 'browserSort')) {
+    browserSortRevision++
+    const snapshot = browserSortSnapshot()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('settings:browserSortChanged', snapshot)
+    }
+  }
   if (Object.hasOwn(safeUpdates, 'fileTreeSort')) {
     fileTreeSortRevision++
     const snapshot = sortSnapshot()

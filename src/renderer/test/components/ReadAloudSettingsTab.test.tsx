@@ -53,6 +53,57 @@ afterEach(() => {
 })
 
 describe('ReadAloudSettingsTab 连接测试', () => {
+  it('说明本地加密、旧Key重输及主密钥备份边界，不再声称由钥匙串保存', () => {
+    render(<ReadAloudSettingsTab />)
+    expect(screen.getByText(/不使用系统钥匙串/)).toBeTruthy()
+    expect(screen.getByText(/原付费 Key 需重新输入一次/)).toBeTruthy()
+    expect(screen.getByText(/同时拿到两者即可解密/)).toBeTruthy()
+    expect(screen.getByText(/重新输入不能恢复旧密文/)).toBeTruthy()
+    expect(screen.queryByText(/经系统钥匙串加密存储/)).toBeNull()
+  })
+
+  it('失焦保存失败可见且保留输入，不误报连接成功', async () => {
+    ttsSetKey.mockResolvedValueOnce({ ok: false, message: '本地主密钥错配，请恢复备份' })
+    render(<ReadAloudSettingsTab />)
+    const input = screen.getByPlaceholderText('已设置（重输可替换）') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'public-test-key' } })
+    fireEvent.blur(input)
+    expect(await screen.findByText(/本地主密钥错配/)).toBeTruthy()
+    expect(input.value).toBe('public-test-key')
+    expect(ttsTestProvider).not.toHaveBeenCalled()
+  })
+
+  it('失焦保存成功后才清空输入', async () => {
+    render(<ReadAloudSettingsTab />)
+    const input = screen.getByPlaceholderText('已设置（重输可替换）') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'public-test-key' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(input.value).toBe(''))
+    expect(ttsSetKey).toHaveBeenCalledWith(provider.id, 'public-test-key')
+  })
+
+  it('失焦IPC拒绝时显示受控错误，不泄漏异常且保留输入', async () => {
+    ttsSetKey.mockRejectedValueOnce(new Error('RAW_ERROR_CANARY'))
+    render(<ReadAloudSettingsTab />)
+    const input = screen.getByPlaceholderText('已设置（重输可替换）') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'public-test-key' } })
+    fireEvent.blur(input)
+    expect(await screen.findByText(/本地加密保存失败/)).toBeTruthy()
+    expect(input.value).toBe('public-test-key')
+    expect(screen.queryByText(/RAW_ERROR_CANARY/)).toBeNull()
+  })
+
+  it('失焦时配置保存失败不发送Key，也不清空输入', async () => {
+    updateReadAloudSettings.mockRejectedValueOnce(new Error('disk full'))
+    render(<ReadAloudSettingsTab />)
+    const input = screen.getByPlaceholderText('已设置（重输可替换）') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'public-test-key' } })
+    fireEvent.blur(input)
+    expect(await screen.findByText(/API Key 尚未保存/)).toBeTruthy()
+    expect(input.value).toBe('public-test-key')
+    expect(ttsSetKey).not.toHaveBeenCalled()
+  })
+
   it('为声音方案字段显示明确标题', () => {
     const profile = {
       id: 'voice-profile-test',

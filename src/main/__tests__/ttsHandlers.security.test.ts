@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
 import { registerTtsHandlers } from '../ipc/ttsHandlers'
 import { synthesize } from '../tts/ttsService'
-import { deleteProviderKey, hasProviderKey, setProviderKey } from '../tts/keyStore'
+import { deleteProviderKey, getProviderKey, hasProviderKey, setProviderKey } from '../tts/keyStore'
 import { defaultReadAloudSettings, type ReadAloudSettings } from '../../shared/ttsProviders'
 
 vi.mock('electron', () => ({
@@ -15,10 +15,11 @@ vi.mock('../tts/ttsService', async (importOriginal) => {
 })
 
 vi.mock('../tts/keyStore', () => ({
-  setProviderKey: vi.fn(),
+  setProviderKey: vi.fn(async () => {}),
+  getProviderKey: vi.fn(async (): Promise<string | undefined> => 'temporary-key'),
   deleteProviderKey: vi.fn(),
   hasProviderKey: vi.fn(() => true),
-  isEncryptionAvailable: vi.fn(() => true),
+  isEncryptionAvailable: vi.fn(async () => true),
 }))
 
 function getHandler<T extends (...args: any[]) => any>(channel: string): T {
@@ -63,20 +64,78 @@ beforeEach(() => {
 })
 
 describe('TTS IPC 安全边界', () => {
-  it('非空 API Key 只允许写入当前启用的付费 provider，删除保持幂等', () => {
+  it('本地加密保存失败沿用失败回执，不提前返回已设置或更新配置', async () => {
+    vi.mocked(setProviderKey).mockRejectedValueOnce(new Error('本地主密钥错配，请恢复配套备份'))
+    await expect(getHandler('tts:setKey')(event(7), storedProvider.id, 'public-test-key'))
+      .resolves.toEqual({ ok: false, message: '本地主密钥错配，请恢复配套备份' })
+    expect(hasProviderKey).not.toHaveBeenCalled()
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
+  it.each(['tts:synthesize', 'tts:testProvider'])('%s 等待结束后复核 provider 状态与目标', async channel => {
+    for (const change of ['removed', 'disabled', 'type', 'target']) {
+      readAloud.providers = [...defaultReadAloudSettings().providers, { ...storedProvider }]
+      let release!: () => void
+      const gate = new Promise<void>(resolve => { release = resolve })
+      vi.mocked(synthesize).mockImplementationOnce(async (_req, _signal, validate) => {
+        await gate
+        validate?.()
+        return { audioBase64: 'AA', format: 'mp3' }
+      })
+      const pending = getHandler(channel)(event(7), {
+        requestId: `change-${change}`, providerId: storedProvider.id, type: 'openai', text: '正文',
+      })
+      const providers = readAloud.providers.flatMap(provider => {
+        if (provider.id !== storedProvider.id) return [provider]
+        if (change === 'removed') return []
+        if (change === 'disabled') return [{ ...provider, enabled: false }]
+        if (change === 'type') return [{ ...provider, type: 'azure' as const, region: 'eastasia' }]
+        return [{ ...provider, baseUrl: 'https://changed.example/v1' }]
+      })
+      getHandler('tts:updateSettings')(event(7), { ...readAloud, activeProviderId: 'edge', providers })
+      release()
+      await expect(pending).resolves.toMatchObject({ ok: false, kind: 'config' })
+    }
+  })
+
+  it.each([
+    ['tts:synthesize', 30_000], ['tts:testProvider', 10_000],
+  ] as const)('%s 密钥读取未返回时仍按截止时间退出', async (channel, deadline) => {
+    const actual = await vi.importActual<typeof import('../tts/ttsService')>('../tts/ttsService')
+    vi.mocked(synthesize).mockImplementationOnce(actual.synthesize)
+    let finish!: (value: string) => void
+    vi.mocked(getProviderKey).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    vi.useFakeTimers()
+    try {
+      const pending = getHandler(channel)(event(7), {
+        requestId: `decrypt-${channel}`, providerId: storedProvider.id, type: 'openai', text: '正文',
+      })
+      await vi.advanceTimersByTimeAsync(deadline)
+      await expect(pending).resolves.toMatchObject({ ok: false, kind: 'network', message: '语音合成超时' })
+      finish('late-key')
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+  it('非空 API Key 只允许写入当前启用的付费 provider，删除保持幂等', async () => {
     const handler = getHandler('tts:setKey')
 
-    expect(handler(event(7), storedProvider.id, 'secret')).toMatchObject({ ok: true })
+    expect(await handler(event(7), storedProvider.id, 'secret')).toMatchObject({ ok: true })
     expect(setProviderKey).toHaveBeenCalledWith(
       storedProvider.id,
       'secret',
       'openai:https://trusted.example/v1'
     )
 
-    expect(handler(event(7), 'edge', 'secret')).toMatchObject({ ok: false })
+    expect(await handler(event(7), 'edge', 'secret')).toMatchObject({ ok: false })
     expect(setProviderKey).toHaveBeenCalledTimes(1)
 
-    expect(handler(event(7), 'custom-tts-removed', '')).toMatchObject({ ok: true })
+    expect(await handler(event(7), 'custom-tts-removed', '')).toMatchObject({ ok: true })
     expect(deleteProviderKey).toHaveBeenCalledWith('custom-tts-removed')
   })
 
@@ -156,7 +215,7 @@ describe('TTS IPC 安全边界', () => {
       voice: storedProvider.voice,
       model: storedProvider.model,
       text: '正文',
-    }), expect.any(AbortSignal))
+    }), expect.any(AbortSignal), expect.any(Function))
   })
 
   it('拒绝同一 providerId 的类型篡改', async () => {

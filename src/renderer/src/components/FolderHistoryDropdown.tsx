@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useId } from 'react'
+import { UiIcon } from './UiIcon'
 import { useFolderHistorySearch } from '../hooks/useFolderHistorySearch'
 
 interface FolderHistoryItem {
@@ -140,7 +141,7 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
       }}
     >
       <div className="history-info">
-        <span className="history-icon">📁</span>
+        <span className="history-icon"><UiIcon name="folder" /></span>
         <div className="history-details">
           <span className="history-name" title={item.path}>
             {item.name}
@@ -178,7 +179,7 @@ export function FolderHistoryDropdown({ onSelectFolder, onOpenFolder }: Props): 
         data-tooltip="切换文件夹"
         aria-label="切换文件夹"
       >
-        📂
+        <UiIcon name="folder-open" />
       </button>
       <button
         className="history-toggle-btn nav-instant-tooltip"

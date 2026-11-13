@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import fs from 'fs'
 import http from 'http'
 import path from 'path'
+import type { Socket } from 'node:net'
 
 async function serveOutRenderer(): Promise<{ url: string; close: () => Promise<void> }> {
   const root = path.resolve('out/renderer')
@@ -38,13 +39,37 @@ async function serveOutRenderer(): Promise<{ url: string; close: () => Promise<v
     })
   })
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const sockets = new Set<Socket>()
+  server.on('connection', socket => {
+    sockets.add(socket)
+    socket.once('close', () => sockets.delete(socket))
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve() })
+  })
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Failed to start static server')
 
   return {
     url: `http://127.0.0.1:${address.port}/server-render.html`,
-    close: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
+    close: () => new Promise((resolve, reject) => {
+      const force = setTimeout(() => {
+        if (sockets.size) console.warn(`[server-render fixture] closing ${sockets.size} owned lingering connections`)
+        for (const socket of sockets) socket.destroy()
+      }, 800)
+      const deadline = setTimeout(() => {
+        clearTimeout(force)
+        for (const socket of sockets) socket.destroy()
+        reject(new Error('Owned renderer fixture server did not close within 3 seconds'))
+      }, 3000)
+      server.close(error => {
+        clearTimeout(force)
+        clearTimeout(deadline)
+        if (error) reject(error)
+        else resolve()
+      })
+    }),
   }
 }
 

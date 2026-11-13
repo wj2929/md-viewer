@@ -409,4 +409,103 @@ describe('watch process supervision', () => {
     expect(watch.failed).toBe(true)
     expect(event).not.toHaveBeenCalled()
   })
+
+  it('publishes each revoked continuation with the final gap before its existing change callback', async () => {
+    const diagnostics = vi.fn()
+    host.setDiagnostics(diagnostics)
+    const first = host.add('/ws/first', 'root', { event: vi.fn(), change: vi.fn() })
+    const child = await spawned()
+    const start = (watch: typeof first) => {
+      const create = child.postMessage.mock.calls.find(([m]: any[]) => m.type === 'create' && m.watchId === watch.id)[0]
+      child.emit('message', { ...create, type: 'accepted' })
+      child.emit('message', { ...create, type: 'startup-progress', stage: 'watch-created', elapsedMs: 1, pathChecks: 1, directoryChecks: 0 })
+    }
+    start(first)
+    child.postMessage.mockImplementation((message: any) => {
+      if (message.type === 'ping') child.emit('message', { ...message, type: 'pong' })
+    })
+    await vi.advanceTimersByTimeAsync(580)
+    const changed = vi.fn()
+    const second = host.add('/ws/second', 'root', { event: vi.fn(), change: changed })
+    start(second)
+    await vi.advanceTimersByTimeAsync(35000)
+    expect(second.startupRecoveryPending).toBe(true)
+    const before = diagnostics.mock.calls.filter(call => call[0] === 'terminal' && call[3].watchReason === 'timeout').length
+    changed.mockImplementation(() => {
+      if (second.startupRecoveryPending) return
+      const last = diagnostics.mock.calls.filter(call => call[2] === second.path).at(-1)
+      expect(last?.[0]).toBe('terminal')
+      expect(last?.[3]).toMatchObject({ startupRecoveryPending: false, gapVersion: second.gapVersion })
+    })
+    const count = changed.mock.calls.length
+    await vi.advanceTimersByTimeAsync(84420)
+    for (const watch of [first, second]) {
+      const last = diagnostics.mock.calls.filter(call => call[2] === watch.path).at(-1)
+      expect(last?.[0]).toBe('terminal')
+      expect(last?.[3]).toMatchObject({ startupRecoveryPending: false, gapVersion: watch.gapVersion, state: 'degraded', watchReason: 'timeout' })
+    }
+    expect(diagnostics.mock.calls.filter(call => call[0] === 'terminal' && call[3].watchReason === 'timeout')).toHaveLength(before + 2)
+    expect(changed).toHaveBeenCalledTimes(count + 1)
+    expect(child.kill).toHaveBeenCalledTimes(1)
+    expect(runtime.children).toHaveLength(1)
+  })
+
+  it.each(['exit', 'heartbeat', 'retry'])('records a pending sibling invalidated by %s without duplicating later invalidations', async mode => {
+    const diagnostics = vi.fn()
+    host.setDiagnostics(diagnostics)
+    const watch = host.add('/ws/slow', 'root', { event: vi.fn(), change: vi.fn() })
+    const child = await spawned()
+    reply(child, 'accepted')
+    reply(child, 'startup-progress', { stage: 'watch-created', elapsedMs: 1, pathChecks: 1, directoryChecks: 0 })
+    child.postMessage.mockImplementation((message: any) => {
+      if (message.type === 'ping') child.emit('message', { ...message, type: 'pong' })
+    })
+    await vi.advanceTimersByTimeAsync(35000)
+    if (mode === 'exit') child.emit('exit', 1)
+    if (mode === 'heartbeat') {
+      child.postMessage.mockImplementation(() => {})
+      await vi.advanceTimersByTimeAsync(6000)
+    }
+    if (mode === 'retry') {
+      const other = host.add('/ws/other', 'root', { event: vi.fn(), change: vi.fn() })
+      host.retry([other])
+    }
+    await vi.advanceTimersByTimeAsync(0)
+    const last = diagnostics.mock.calls.filter(call => call[2] === watch.path).at(-1)
+    expect(last?.[0]).toBe('terminal')
+    expect(last?.[3]).toMatchObject({ startupRecoveryPending: false, gapVersion: watch.gapVersion, state: 'degraded', watchReason: 'timeout' })
+    expect(diagnostics.mock.calls.filter(call => call[0] === 'terminal' && call[2] === watch.path && call[3].watchReason === 'timeout')).toHaveLength(2)
+    await host.shutdown()
+    // shutdown has its own existing terminal; it must not add another revocation record.
+    expect(diagnostics.mock.calls.filter(call => call[0] === 'terminal' && call[2] === watch.path && call[3].watchReason === 'timeout')).toHaveLength(3)
+  })
+
+  it('keeps the healthy sibling on its existing reconcile path when slow continuation expires', async () => {
+    const diagnostics = vi.fn()
+    host.setDiagnostics(diagnostics)
+    const healthy = host.add('/ws/healthy', 'root', { event: vi.fn(), change: vi.fn() })
+    const child = await spawned()
+    reply(child, 'crawl-complete', { excluded: [], directories: 1, entries: 1 })
+    host.reconciled(healthy, healthy.gapVersion, healthy.generation)
+    const slow = host.add('/ws/slow', 'root', { event: vi.fn(), change: vi.fn() })
+    const create = child.postMessage.mock.calls.findLast(([m]: any[]) => m.type === 'create')[0]
+    child.emit('message', { ...create, type: 'accepted' })
+    child.emit('message', { ...create, type: 'startup-progress', stage: 'watch-created', elapsedMs: 1, pathChecks: 1, directoryChecks: 0 })
+    child.postMessage.mockImplementation((message: any) => {
+      if (message.type === 'ping') child.emit('message', { ...message, type: 'pong' })
+    })
+    const healthyTerminals = diagnostics.mock.calls.filter(call => call[0] === 'terminal' && call[2] === healthy.path).length
+    await vi.advanceTimersByTimeAsync(120000)
+    const last = diagnostics.mock.calls.filter(call => call[2] === healthy.path).at(-1)
+    expect(last?.[0]).toBe('start')
+    expect(diagnostics.mock.calls.filter(call => call[0] === 'terminal' && call[2] === healthy.path)).toHaveLength(healthyTerminals)
+    expect(slow).toMatchObject({ failed: true, startupRecoveryPending: false })
+    expect(host.automaticRecoveryCount).toBe(0)
+    const next = await spawned()
+    const roots = next.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create')
+    expect(roots.map(([m]: any[]) => m.path)).toEqual(['/ws/healthy'])
+    reply(next, 'crawl-complete', { excluded: [], directories: 1, entries: 1 })
+    host.reconciled(healthy, healthy.gapVersion, healthy.generation)
+    expect(host.health(healthy).state).toBe('healthy')
+  })
 })

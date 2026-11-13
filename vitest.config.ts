@@ -27,7 +27,8 @@ export default defineConfig({
       'src/main/__tests__/exampleHandlers.test.ts',
       'src/main/__tests__/chartExamplesInstaller.test.ts',
       'src/main/__tests__/chartExamplesGenerator.test.ts',
-      'src/main/__tests__/cli*.test.ts',
+      // CLI suites use cliXxx; clipboard* belongs to the Node test entry.
+      'src/main/__tests__/cli[A-Z]*.test.ts',
       'src/main/__tests__/localImageEmbed.test.ts',
       'src/main/__tests__/localMediaProtocol.test.ts',
       'src/main/__tests__/localMediaHandlers.test.ts',

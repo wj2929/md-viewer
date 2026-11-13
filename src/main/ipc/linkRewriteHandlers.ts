@@ -52,12 +52,18 @@ export function registerLinkRewriteHandlers(ctx: IPCContext): void {
     mapping: LinkMoveMapping,
   ) => {
     const workspace = getSenderWorkspaceForOperation(ctx, event, operation)
-    if (!workspace.primaryRoot) throw new Error('当前工作区未绑定文件夹')
-    await ctx.workspaceIndexService!.attach(workspace.primaryRoot, consumerId(event.sender.id, workspace.id))
-    await ctx.workspaceIndexService!.waitUntilIdle(workspace.primaryRoot)
+    const root = workspace.primaryRoot
+    if (!root) throw new Error('当前工作区未绑定文件夹')
+    const assertCurrent = (): void => {
+      if (getSenderWorkspaceForOperation(ctx, event, operation).primaryRoot !== root) throw new Error('当前工作区已变化')
+    }
+    await ctx.workspaceIndexService!.attach(root, consumerId(event.sender.id, workspace.id))
+    assertCurrent()
+    await ctx.workspaceIndexService!.waitUntilIdle(root, { assertCurrent })
+    assertCurrent()
     return ctx.linkRewritePlanner!.createImpact(
       ownerId(event.sender.id, workspace.id, operation.lifecycleEpoch),
-      workspace.primaryRoot,
+      root,
       mapping,
     )
   })

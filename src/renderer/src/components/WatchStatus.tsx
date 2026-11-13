@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { UiIcon } from './UiIcon'
 import type { WorkspaceWatchHealth } from '../../../shared/workspaceWatch'
 import './WatchStatus.css'
 
@@ -94,7 +95,7 @@ export function WatchStatus({ workspaceId, lifecycleEpoch, onRefresh, isLoading 
       aria-controls={open ? panelId : undefined} data-tooltip={showDetails ? `${summary}，点击查看` : summary}
       disabled={!showDetails && (busy || isLoading)}
       onClick={() => { if (showDetails) setOpen(value => !value); else void run(onRefresh) }}>
-      <span className={`watch-refresh-icon${recovering || busy || isLoading ? ' is-spinning' : ''}`} aria-hidden="true">🔄</span>
+      <span className={`watch-refresh-icon${recovering || busy || isLoading ? ' is-spinning' : ''}`} aria-hidden="true"><UiIcon name="refresh" /></span>
       {hasStatus && !recovering && <span className={`watch-refresh-mark${degraded ? ' is-degraded' : ''}`} aria-hidden="true">{degraded ? '!' : ''}</span>}
     </button>
     <span className="watch-refresh-announcement" role="status">{hasStatus ? summary : ''}</span>

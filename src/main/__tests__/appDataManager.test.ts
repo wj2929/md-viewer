@@ -147,6 +147,134 @@ describe('AppDataManager', () => {
     })
   })
 
+  describe('最近文件后台校验', () => {
+    const entry = (id: number) => ({ id: String(id), path: `/self/${id}.md`, name: `${id}.md`, folderPath: '/self', lastOpened: 1 })
+    const missing = (code = 'ENOENT') => Object.assign(new Error('missing'), { code })
+    let previousRecent: unknown
+    let previousSettings: unknown
+    beforeEach(() => {
+      previousRecent = appDataStore.get('recentFiles')
+      previousSettings = appDataStore.get('settings')
+      appDataStore.set('recentFiles', [entry(1), entry(2)])
+      appDataStore.set('settings', { maxRecentFiles: 500 })
+      vi.mocked(fs.access).mockReset().mockResolvedValue(undefined)
+      vi.mocked(fs.stat).mockReset().mockResolvedValue({ isDirectory: () => false } as any)
+      vi.useFakeTimers()
+      appDataStore.set.mockClear()
+    })
+    afterEach(() => {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+      appDataStore.set('recentFiles', previousRecent)
+      appDataStore.set('settings', previousSettings)
+    })
+    const holdFirst = () => {
+      let reject!: (error: unknown) => void
+      let resolve!: () => void
+      vi.mocked(fs.access).mockImplementation(async file => {
+        if (file === '/self/1.md') await new Promise<void>((yes, no) => { resolve = yes; reject = no })
+      })
+      return { reject: (error: unknown) => reject(error), resolve: () => resolve() }
+    }
+
+    it.each(['success', 'ENOENT'] as const)('500条超时后迟到%s仍保留且不再写入', async result => {
+      const files = Array.from({ length: 500 }, (_, id) => entry(id + 1))
+      appDataStore.set('recentFiles', files)
+      const gate = holdFirst()
+      const pending = appDataManager.validateRecentFilesInBackground()
+      appDataStore.set.mockClear()
+      await vi.advanceTimersByTimeAsync(1001)
+      await pending
+      expect(appDataStore.get('recentFiles')).toEqual(files)
+      if (result === 'success') gate.resolve()
+      else gate.reject(missing())
+      await Promise.resolve()
+      expect(appDataStore.get('recentFiles')).toEqual(files)
+      expect(appDataStore.set).not.toHaveBeenCalled()
+      expect(appDataManager.getMaxRecentFiles()).toBe(500)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it.each(['EACCES', 'EPERM', 'EIO', undefined])('非明确缺失错误%s不移除、不写store', async code => {
+      vi.mocked(fs.access).mockRejectedValue(code ? Object.assign(new Error('unavailable'), { code }) : null)
+      await appDataManager.validateRecentFilesInBackground()
+      expect(appDataStore.get('recentFiles')).toEqual([entry(1), entry(2)])
+      expect(appDataStore.set).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it.each(['ENOENT', 'ENOTDIR'])('仅移除确认%s且未更新的身份', async code => {
+      vi.mocked(fs.access).mockImplementation(async file => { if (file === '/self/1.md') throw missing(code) })
+      await appDataManager.validateRecentFilesInBackground()
+      expect(appDataStore.get('recentFiles')).toEqual([entry(2)])
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('期间新增保留当前顺序，旧快照不能覆盖', async () => {
+      const gate = holdFirst()
+      const pending = appDataManager.validateRecentFilesInBackground()
+      await appDataManager.addRecentFile({ path: '/self/3.md', name: '3.md', folderPath: '/self' })
+      const current = [...appDataStore.get('recentFiles')]
+      gate.reject(missing())
+      await pending
+      expect(appDataStore.get('recentFiles')).toEqual(current.filter(file => file.path !== '/self/1.md'))
+    })
+
+    it('同毫秒同路径重新添加的新ID不被旧缺失结果删除', async () => {
+      vi.setSystemTime(1)
+      const gate = holdFirst()
+      const pending = appDataManager.validateRecentFilesInBackground()
+      await appDataManager.addRecentFile({ path: '/self/1.md', name: '1.md', folderPath: '/self' })
+      const current = [...appDataStore.get('recentFiles')]
+      expect(current[0].id).not.toBe('1')
+      expect(current[0].lastOpened).toBe(1)
+      appDataStore.set.mockClear()
+      gate.reject(missing())
+      await pending
+      expect(appDataStore.get('recentFiles')).toEqual(current)
+      expect(appDataStore.set).not.toHaveBeenCalled()
+    })
+
+    it.each(['id', 'path', 'name', 'folderPath', 'lastOpened'] as const)('校验期间原地更新%s也不被旧结果删除', async field => {
+      const gate = holdFirst()
+      const pending = appDataManager.validateRecentFilesInBackground()
+      const current = appDataStore.get('recentFiles')
+      current[0][field] = field === 'lastOpened' ? 2 : '/changed'
+      gate.reject(missing())
+      await pending
+      expect(appDataStore.get('recentFiles')).toEqual(current)
+      expect(appDataStore.set).not.toHaveBeenCalled()
+    })
+
+    it.each(['remove', 'clear'] as const)('期间%s不能被旧结果复活，随后新增仍保留', async mode => {
+      const gate = holdFirst()
+      const pending = appDataManager.validateRecentFilesInBackground()
+      if (mode === 'remove') appDataManager.removeRecentFile('/self/2.md')
+      else appDataManager.clearRecentFiles()
+      await appDataManager.addRecentFile({ path: '/self/3.md', name: '3.md', folderPath: '/self' })
+      const added = appDataStore.get('recentFiles')[0]
+      gate.reject(missing())
+      await pending
+      expect(appDataStore.get('recentFiles')).toEqual([added])
+    })
+
+    it('两轮反序完成仅局部移除，不能覆盖或复活另一轮的结果', async () => {
+      let first!: (error: unknown) => void
+      let second!: (error: unknown) => void
+      vi.mocked(fs.access)
+        .mockImplementationOnce(() => new Promise((_, reject) => { first = reject }))
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockImplementationOnce(() => new Promise((_, reject) => { second = reject }))
+      const one = appDataManager.validateRecentFilesInBackground()
+      const two = appDataManager.validateRecentFilesInBackground()
+      second(missing()); await two
+      expect(appDataStore.get('recentFiles')).toEqual([entry(1)])
+      first(missing()); await one
+      expect(appDataStore.get('recentFiles')).toEqual([])
+    })
+  })
+
   describe('固定标签管理', () => {
     it('应该返回空的固定标签列表', () => {
       const tabs = appDataManager.getPinnedTabs()
@@ -248,6 +376,18 @@ describe('AppDataManager', () => {
       expect(appDataManager.getSettings()).toEqual({ ...before, folderPinyinSearchEnabled: true })
       appDataManager.updateSettings({ folderPinyinSearchEnabled: false })
       expect(appDataManager.getSettings().folderPinyinSearchEnabled).toBe(false)
+    })
+
+    it('工作区文件排序独立保存，读取旧配置不补写，保留已有设置', () => {
+      const before = appDataManager.getSettings()
+      expect(defaultSettings).toHaveProperty('browserSort', { by: 'name', direction: 'asc' })
+      expect(appDataStore.set).not.toHaveBeenCalled()
+      try {
+        appDataManager.updateSettings({ browserSort: { by: 'modified', direction: 'desc' } })
+        expect(appDataManager.getSettings()).toEqual({ ...before, browserSort: { by: 'modified', direction: 'desc' } })
+        appDataManager.updateSettings({ fileTreeSort: { by: 'natural', direction: 'asc' } })
+        expect(appDataManager.getSettings().browserSort).toEqual({ by: 'modified', direction: 'desc' })
+      } finally { appDataStore.set('settings', before) }
     })
 
     it('应该更新设置', () => {

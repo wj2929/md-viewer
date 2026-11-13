@@ -442,6 +442,7 @@ test('打包环境使用的生产 CSP 应允许 D2 Blob Worker', async ({ page, 
     if (/worker|content security policy/i.test(text)) cspWorkerErrors.push(text)
   })
 
+  const reloaded = page.waitForEvent('domcontentloaded')
   await electronApp.evaluate(({ BrowserWindow }, productionPolicy) => {
     const win = BrowserWindow.getAllWindows()[0]
     if (!win) throw new Error('Electron window not found')
@@ -456,6 +457,8 @@ test('打包环境使用的生产 CSP 应允许 D2 Blob Worker', async ({ page, 
     win.webContents.reload()
   }, policy)
 
+  await reloaded
+  await expect(page.locator('.app')).toBeVisible()
   await page.waitForSelector('body', { timeout: 30000 })
   await page.waitForFunction(() => typeof window.api?.testOpenMarkdownFile === 'function', undefined, { timeout: 30000 })
   await page.evaluate(path => window.api.testOpenMarkdownFile?.(path), fixturePath)

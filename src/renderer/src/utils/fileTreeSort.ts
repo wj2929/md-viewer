@@ -9,7 +9,7 @@ export interface SortableTreeItem {
 }
 
 type SortMetadata = { mtimeMs: number | null; size: number }
-export type FileTreeSortMetadataMap = Record<string, SortMetadata | null>
+export type FileTreeSortMetadataMap = Record<string, { mtimeMs: number | null; size: number | null } | null>
 
 const natural = new Intl.Collator(undefined, { numeric: true })
 const exactCompare = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0
@@ -52,7 +52,7 @@ export function aggregateFileTreeMetadata(items: SortableTreeItem[], metadata: F
 }
 
 export function sortFileTree<T extends SortableTreeItem>(
-  items: T[], sort: FileTreeSort, metadata: FileTreeSortMetadataMap = {},
+  items: T[], sort: FileTreeSort, metadata: FileTreeSortMetadataMap = {}, directorySizeByName = false,
 ): T[] {
   if (sort.by === 'name' && sort.direction === 'asc') return items
   const needsMetadata = needsFileTreeMetadata(sort.by)
@@ -64,6 +64,7 @@ export function sortFileTree<T extends SortableTreeItem>(
     if (sort.by === 'natural') return compareName(a, b) * direction
     if (sort.by === 'type') return a.isDirectory ? compareName(a, b) * direction
       : extension(a.name).localeCompare(extension(b.name)) * direction || compareName(a, b)
+    if (sort.by === 'size' && a.isDirectory && directorySizeByName) return compareName(a, b)
     const key = sort.by === 'modified' ? 'mtimeMs' : 'size'
     const av = metadata[a.treePath!]?.[key]
     const bv = metadata[b.treePath!]?.[key]
@@ -73,7 +74,7 @@ export function sortFileTree<T extends SortableTreeItem>(
   let changed = ordered !== items
   const result = ordered.map(item => {
     if (!item.children) return item
-    const children = sortFileTree(item.children, sort, metadata)
+    const children = sortFileTree(item.children, sort, metadata, directorySizeByName)
     if (children === item.children) return item
     changed = true
     return { ...item, children }

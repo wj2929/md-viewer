@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useTableOfContents } from '../hooks/useTableOfContents'
 import { useActiveHeading } from '../hooks/useActiveHeading'
 import { getActiveWorkspaceLifecycleKey, isActiveWorkspaceLifecycleKey } from '../utils/workspaceOperationContext'
+import { useWorkspaceStore } from '../stores/workspaceStore'
 import TocPanel from './TocPanel'
 import type { LinkOrigin } from '../utils/linkNavigation'
 import BacklinksPanel, { type BacklinkItem, type BacklinkStats } from './BacklinksPanel'
@@ -60,7 +61,7 @@ const FloatingNav: React.FC<FloatingNavProps> = ({ containerRef, markdown, fileP
 
   const { toc, scrollToHeading } = useTableOfContents(markdown)
   const activeId = useActiveHeading(toc, containerRef.current)
-  const workspace = getActiveWorkspaceLifecycleKey()
+  const workspace = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeWorkspaceId))
   const targetRelativePath = useMemo(() => {
     if (!filePath || !workspace?.primaryRoot) return null
     const root = workspace.primaryRoot.replace(/[\\/]+$/, '')
@@ -122,7 +123,7 @@ const FloatingNav: React.FC<FloatingNavProps> = ({ containerRef, markdown, fileP
       cancelled = true
       unsubscribe?.()
     }
-  }, [targetRelativePath])
+  }, [targetRelativePath, workspace?.id, workspace?.lifecycleEpoch, workspace?.primaryRoot])
 
   // 滚动到顶部
   const scrollToTop = useCallback(() => {

@@ -1,4 +1,4 @@
-import type { WorkspaceDirectoryEntry, WorkspaceResourceRequest, WorkspaceResourceResult, WorkspaceBrowserAction, WorkspaceBrowserInput, WorkspaceBrowserResult, WorkspaceBrowserSelection } from '../shared/directoryBrowser'
+import type { WorkspaceDirectoryMetadata, WorkspaceDirectoryEntry, WorkspaceResourceRequest, WorkspaceResourceResult, WorkspaceBrowserAction, WorkspaceBrowserInput, WorkspaceBrowserResult, WorkspaceBrowserSelection } from '../shared/directoryBrowser'
 import type { LargeDocumentSize } from '../shared/largeDocumentApproval'
 import type { FileTreeSortSnapshot, FileTreeMetadataResult } from '../shared/fileTreeSort'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
@@ -32,6 +32,12 @@ const api = {
   // 平台信息（同步，供渲染进程直接使用）
   platform: process.platform as 'darwin' | 'win32' | 'linux',
 
+  getBrowserSort: () => ipcRenderer.invoke('settings:browserSort') as Promise<FileTreeSortSnapshot>,
+  onBrowserSortChanged: (callback: (snapshot: FileTreeSortSnapshot) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: FileTreeSortSnapshot) => callback(snapshot)
+    ipcRenderer.on('settings:browserSortChanged', listener)
+    return () => ipcRenderer.removeListener('settings:browserSortChanged', listener)
+  },
   getFileTreeSort: () => ipcRenderer.invoke('settings:fileTreeSort') as Promise<FileTreeSortSnapshot>,
   onFileTreeSortChanged: (callback: (snapshot: FileTreeSortSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: FileTreeSortSnapshot) => callback(snapshot)
@@ -51,8 +57,8 @@ const api = {
     ipcRenderer.invoke('browser:readResource', request, asText, previousHandle) as Promise<WorkspaceResourceResult>,
   openWorkspaceResource: (handle: string) =>
     ipcRenderer.invoke('browser:openResource', handle) as Promise<LocalAttachmentOpenResult>,
-  listWorkspaceDirectory: (operation: WorkspaceOperationContext, relativePath: string) =>
-    ipcRenderer.invoke('browser:listDirectory', operation, relativePath) as Promise<WorkspaceDirectoryEntry[]>,
+  listWorkspaceDirectory: (operation: WorkspaceOperationContext, relativePath: string, metadata?: WorkspaceDirectoryMetadata) =>
+    ipcRenderer.invoke('browser:listDirectory', operation, relativePath, metadata) as Promise<WorkspaceDirectoryEntry[]>,
   showWorkspaceContextMenu: (operation: WorkspaceOperationContext, relativePath: string) =>
     ipcRenderer.invoke('browser:showContextMenu', operation, relativePath) as Promise<WorkspaceBrowserSelection | null>,
   performWorkspaceBrowserAction: (operation: WorkspaceOperationContext, id: string, action: WorkspaceBrowserAction, input?: WorkspaceBrowserInput) =>

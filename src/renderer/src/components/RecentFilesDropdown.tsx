@@ -6,6 +6,7 @@
 import { useState, useEffect, useMemo, useRef, useId } from 'react'
 import { useFolderHistorySearch } from '../hooks/useFolderHistorySearch'
 import { useFilePreview } from '../hooks/useFilePreview'
+import { UiIcon } from './UiIcon'
 import { FilePreviewTooltip } from './FilePreviewTooltip'
 import './RecentFilesDropdown.css'
 
@@ -161,7 +162,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
       aria-describedby="file-preview-tooltip"
     >
       <div className="recent-file-info">
-        <span className="recent-file-icon">📄</span>
+        <span className="recent-file-icon"><UiIcon name="document" /></span>
         <div className="recent-file-details">
           <span className="recent-file-name">{file.name}</span>
           <span className="recent-file-path">{formatPath(file.folderPath)}</span>
@@ -197,7 +198,7 @@ export function RecentFilesDropdown({ onSelectFile }: Props): JSX.Element {
         data-tooltip="最近打开的文件"
         aria-label="最近打开的文件"
       >
-        🕐
+        <UiIcon name="clock" />
       </button>
 
       {isOpen && (

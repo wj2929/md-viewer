@@ -91,6 +91,19 @@ describe('workspace browser actions', () => {
     await perform(await choose(''), 'copy-relative-path')
     expect(clipboard.writeText).toHaveBeenLastCalledWith('.')
   })
+  it('copy action waits for system write and rejects a failed write', async () => {
+    const target = await choose('folder/child.md')
+    let finish!: () => void
+    vi.mocked(clipboard.writeText).mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve }))
+    let completed = false
+    const pending = perform(target).then(result => { completed = true; return result })
+    await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalled())
+    expect(completed).toBe(false)
+    finish()
+    await expect(pending).resolves.toEqual({})
+    vi.mocked(clipboard.writeText).mockRejectedValueOnce(new Error('system refused'))
+    await expect(perform(target)).rejects.toThrow('无法写入系统剪贴板')
+  })
   it('creates files and folders without overwriting or recursively creating parents', async () => {
     let target = await choose('folder')
     expect(await perform(target, 'create-file', { name: '新建.md' })).toMatchObject({ entry: { relativePath: 'folder/新建.md', kind: 'file' } })

@@ -143,6 +143,12 @@ test.describe('文件监听功能测试 (v1.1)', () => {
     const newPath = join(testDir, 'renamed.md')
     await openFolderViaIPC(electronApp, testDir)
     await expect(page.locator('.markdown-body h1')).toHaveText('Original Content')
+    await expect.poll(() => page.evaluate(async () => {
+      const bootstrap = await window.api.getWorkspaceBootstrap()
+      const workspace = bootstrap.workspaces.find(item => item.id === bootstrap.activeWorkspaceId)
+      if (!workspace) throw new Error('测试工作区未激活')
+      return window.api.getWatchStatus(workspace.id, workspace.lifecycleEpoch)
+    })).toMatchObject({ state: 'healthy' })
 
     renameSync(oldPath, newPath)
 

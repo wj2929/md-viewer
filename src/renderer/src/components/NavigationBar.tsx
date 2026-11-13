@@ -7,6 +7,7 @@
  */
 
 import { ThemeToggle } from './ThemeToggle'
+import { UiIcon } from './UiIcon'
 import { SearchBar, SearchBarHandle } from './SearchBar'
 import { FolderHistoryDropdown } from './FolderHistoryDropdown'
 import { RecentFilesDropdown } from './RecentFilesDropdown'
@@ -81,7 +82,7 @@ export function NavigationBar({
 
       {/* Logo */}
       <div className="nav-logo">
-        <span className="nav-logo-icon">📝</span>
+        <span className="nav-logo-icon"><UiIcon name="document-edit" /></span>
         <span className="nav-logo-text">MD Viewer</span>
       </div>
 
@@ -103,7 +104,7 @@ export function NavigationBar({
       {folderPath && (
         <div className="nav-folder-section">
           <span className="nav-folder-path" title={folderPath}>
-            📂 {folderPath.split(/[/\\]/).pop()}
+            <UiIcon name="folder-open" /> {folderPath.split(/[/\\]/).pop()}
           </span>
           <WatchStatus
             key={`${workspaceId}:${lifecycleEpoch}`}
@@ -151,7 +152,7 @@ export function NavigationBar({
             onClick={onOpenLastExport}
             title={`上次导出：${lastExportedFilePath.split(/[/\\]/).pop()}${lastExportedTime ? `（${lastExportedTime}）` : ''}`}
             aria-label="打开上次导出的文件"
-          >📄</button>
+          ><UiIcon name="document" /></button>
         )}
         {/* v1.4.2：窗口置顶按钮 */}
         <button
@@ -161,7 +162,7 @@ export function NavigationBar({
           aria-pressed={isAlwaysOnTop}
           aria-label={isAlwaysOnTop ? '取消窗口置顶' : '窗口置顶'}
         >
-          {isAlwaysOnTop ? '📌' : '📍'}
+          <UiIcon name="pin" />
         </button>
         <button
           className="nav-settings-btn nav-instant-tooltip"
@@ -169,7 +170,7 @@ export function NavigationBar({
           data-tooltip="设置"
           aria-label="设置"
         >
-          ⚙️
+          <UiIcon name="settings" />
         </button>
         <ThemeToggle theme={theme} onThemeChange={onThemeChange} />
       </div>

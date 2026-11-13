@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { UiIcon, type UiIconName } from './UiIcon'
 import { Theme } from '../hooks/useTheme'
 
 interface ThemeToggleProps {
@@ -11,10 +12,10 @@ interface ThemeToggleProps {
  * 三档切换：自动 / 亮色 / 暗色
  */
 export function ThemeToggle({ theme, onThemeChange }: ThemeToggleProps): JSX.Element {
-  const themes: { value: Theme; label: string; icon: string }[] = [
-    { value: 'auto', label: '自动', icon: '🌓' },
-    { value: 'light', label: '亮色', icon: '☀️' },
-    { value: 'dark', label: '暗色', icon: '🌙' }
+  const themes: { value: Theme; label: string; icon: UiIconName }[] = [
+    { value: 'auto', label: '自动', icon: 'auto' },
+    { value: 'light', label: '亮色', icon: 'sun' },
+    { value: 'dark', label: '暗色', icon: 'moon' }
   ]
 
   return (
@@ -29,7 +30,7 @@ export function ThemeToggle({ theme, onThemeChange }: ThemeToggleProps): JSX.Ele
           aria-label={`${label}主题`}
           data-tooltip={`${label}主题`}
         >
-          <span className="theme-icon">{icon}</span>
+          <span className="theme-icon"><UiIcon name={icon} /></span>
         </button>
       ))}
     </div>
