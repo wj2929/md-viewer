@@ -72,17 +72,22 @@ describe('FileBrowserPanel', () => {
     const entries = [directory('assets'), ...Array.from({ length: 230 }, (_, i) => file(`file-${i}.txt`))]
     vi.mocked(window.api.listWorkspaceDirectory).mockImplementation(async (_op, path) => path ? [file('child.txt', 'assets/child.txt')] : entries)
     mount()
-    fireEvent.click(await screen.findByRole('button', { name: 'assets' }))
-    await screen.findByRole('button', { name: 'child.txt' })
-    fireEvent.click(screen.getByRole('button', { name: 'file-0.txt' }))
+    const entry = (title: string) => {
+      const button = screen.getByTitle(title)
+      expect(button).toHaveRole('button')
+      return button
+    }
+    fireEvent.click(await screen.findByTitle('assets'))
+    await screen.findByTitle('assets/child.txt')
+    fireEvent.click(entry('file-0.txt'))
     act(() => useBrowserSortStore.setState({ value: { by: 'natural', direction: 'desc' } }))
-    expect(screen.getByRole('button', { name: 'file-229.txt' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'file-0.txt' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '显示更多（31）' }))
-    expect(screen.getByRole('button', { name: 'file-0.txt' }).parentElement).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('button', { name: 'child.txt' })).toBeInTheDocument()
+    expect(entry('file-229.txt')).toBeInTheDocument()
+    expect(screen.queryByTitle('file-0.txt')).toBeNull()
+    fireEvent.click(screen.getByText('显示更多（31）', { selector: 'button' }))
+    expect(entry('file-0.txt').parentElement).toHaveAttribute('aria-selected', 'true')
+    expect(entry('assets/child.txt')).toBeInTheDocument()
     act(() => useBrowserSortStore.setState({ value: { by: 'name', direction: 'asc' } }))
-    expect(screen.queryByRole('button', { name: /显示更多/ })).toBeNull()
+    expect(screen.queryByText(/显示更多/, { selector: 'button' })).toBeNull()
     expect(window.api.listWorkspaceDirectory).toHaveBeenCalledTimes(2)
   })
 
