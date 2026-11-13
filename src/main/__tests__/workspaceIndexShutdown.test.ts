@@ -148,6 +148,47 @@ describe('WorkspaceIndexService shutdown', () => {
     }
   })
 
+  it.each(['query', 'backlinks'] as const)('退出等待已经在读取文件的 %s 请求完成，并拒绝新查询', async kind => {
+    const { store, service, root } = createService()
+    const acquire = vi.spyOn(store, 'acquireLock')
+    await writeFile(join(root, 'fixture.md'), '# Fixture\n\n[Target](./target.md)')
+    await writeFile(join(root, 'target.md'), '# Target')
+    await service.attach(root, 'window')
+    await service.waitUntilIdle(root)
+    const lock = await acquire.mock.results[0].value
+    const release = lock.release.bind(lock)
+    vi.spyOn(lock, 'release').mockResolvedValue(undefined)
+    const entered = deferred(), gate = deferred()
+    const reader = service as unknown as { readIfCurrent: () => Promise<string> }
+    const read = vi.spyOn(reader, 'readIfCurrent').mockImplementation(async () => {
+      entered.resolve()
+      await gate.promise
+      return '# Fixture\n\n[Target](./target.md)'
+    })
+    const querying = kind === 'query' ? service.query(root, 'fixture') : service.getBacklinks(root, 'target.md')
+    let work: Promise<void> | undefined
+    try {
+      await entered.promise
+      work = service.shutdown()
+      let finished = false
+      void work.then(() => { finished = true })
+      await new Promise<void>(resolve => setImmediate(resolve))
+      expect(finished).toBe(false)
+      await expect(service.query(root, 'fixture')).rejects.toThrow('工作区索引未附加')
+      await expect(service.getBacklinks(root, 'target.md')).rejects.toThrow('工作区索引未附加')
+      gate.resolve()
+      await Promise.all([work, querying])
+      expect(read).toHaveBeenCalledTimes(1)
+      expect(service.getDiagnosticActivity()).toMatchObject({ activeIndexBuilds: 0, activeIndexReads: 0 })
+    } finally {
+      gate.resolve()
+      await querying
+      await work
+      read.mockRestore()
+      await release()
+    }
+  })
+
   it('等待窗口关闭已经发起的 detach，不重复释放同一把锁', async () => {
     const { store, service, root } = createService()
     const acquire = vi.spyOn(store, 'acquireLock')

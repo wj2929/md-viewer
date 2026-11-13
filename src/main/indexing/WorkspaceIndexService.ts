@@ -74,6 +74,8 @@ interface ActiveIndexWork {
   activityTimer: NodeJS.Timeout | null
   slowStartTimer: NodeJS.Timeout | null
   diagnosticStarted: boolean
+  completion: Promise<void>
+  complete: () => void
 }
 
 interface IndexQueryWindow {
@@ -138,6 +140,9 @@ export class WorkspaceIndexService {
   private async completeShutdown(): Promise<void> {
     this.desiredConsumerRoots.clear()
     await Promise.allSettled(this.initializations.values())
+    await Promise.all([...this.activeDiagnosticWorks.values()]
+      .filter(work => isIndexQueryWorkload(work.kind))
+      .map(work => work.completion))
     await Promise.all([...this.runtimes.values()].flatMap(runtime => (
       [...runtime.consumerIds].map(consumerId => this.detach(runtime.rootPath, consumerId))
     )))
@@ -494,6 +499,7 @@ export class WorkspaceIndexService {
       const results: WorkspaceSearchResult[] = []
 
       for (const document of runtime.documents.values()) {
+        if (this.shutdownPromise) break
         if (relativePaths && !relativePaths.has(document.relativePath)) continue
         const score = terms.reduce((total, term) => total + (document.terms[term] ?? 0), 0)
         if (score === 0) continue
@@ -534,6 +540,7 @@ export class WorkspaceIndexService {
       const lookup = createWikiNameLookup(runtime.rootPath, snapshot)
       const results: WorkspaceBacklinkResult[] = []
       for (const document of snapshot.documents.values()) {
+        if (this.shutdownPromise) break
         const sourceDir = path.posix.dirname(document.relativePath)
         const metadata = snapshot.metadata.get(document.relativePath)
         const links = metadata?.revisionToken === document.revisionToken ? metadata.links : document.outboundLinks
@@ -600,6 +607,8 @@ export class WorkspaceIndexService {
     kind: IndexWorkloadKind,
     enqueuedAt?: number,
   ): ActiveIndexWork {
+    let complete!: () => void
+    const completion = new Promise<void>(resolve => { complete = resolve })
     const work: ActiveIndexWork = {
       id: `index_${randomUUID()}`,
       kind,
@@ -612,6 +621,8 @@ export class WorkspaceIndexService {
       activityTimer: null,
       slowStartTimer: null,
       diagnosticStarted: false,
+      completion,
+      complete,
     }
     this.activeDiagnosticWorks.set(work.id, work)
     work.metrics.queueWaitMs = enqueuedAt === undefined ? 0 : Math.max(0, work.started - enqueuedAt)
@@ -667,6 +678,7 @@ export class WorkspaceIndexService {
     if (work.activityTimer) clearInterval(work.activityTimer)
     if (work.slowStartTimer) clearTimeout(work.slowStartTimer)
     this.activeDiagnosticWorks.delete(work.id)
+    work.complete()
     const durationMs = performance.now() - work.started
     if (isIndexQueryWorkload(work.kind)) {
       this.recordQueryDiagnosticWindow(runtime.rootPath, work.kind, durationMs, outcome)
@@ -1120,7 +1132,7 @@ export class WorkspaceIndexService {
 
   private requireRuntime(rootPath: string): WorkspaceIndexRuntime {
     const runtime = this.getRuntime(rootPath)
-    if (!runtime || runtime.closing) throw new Error('工作区索引未附加')
+    if (this.shutdownPromise || !runtime || runtime.closing) throw new Error('工作区索引未附加')
     return runtime
   }
 
