@@ -47,7 +47,7 @@ jobs:
         run: npm run lint
 
       - name: 运行全量单元测试
-        run: npm run test:unit
+        run: npm run test:renderer -- --maxWorkers=2 && npm run test:main -- --maxWorkers=2
 
       - name: 生成覆盖率报告
         run: npm run test:coverage
