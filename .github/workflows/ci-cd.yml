@@ -70,6 +70,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -145,6 +146,21 @@ jobs:
         env:
           MD_VIEWER_SIZE_BUDGET_MODE: ${{ github.event_name == 'workflow_dispatch' && 'baseline' || 'enforce' }}
         run: xvfb-run --auto-servernum npm run verify:package
+
+      - name: 诊断 Linux 截图失败
+        if: failure() && matrix.platform == 'linux'
+        env:
+          MD_VIEWER_CAPTURE_DIAGNOSTICS_DIR: ${{ runner.temp }}/capture-diagnostics
+        run: xvfb-run --auto-servernum node scripts/diagnose-packaged-capture.mjs
+
+      - name: 保留 Linux 截图诊断
+        if: failure() && matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture-diagnostics-linux
+          path: ${{ runner.temp }}/capture-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: 打包应用 (Windows)
         if: matrix.platform == 'win'
