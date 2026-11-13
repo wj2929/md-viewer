@@ -77,7 +77,8 @@ app.on('before-quit', (event) => {
   if (diagnosticShutdownStarted) return
   diagnosticShutdownStarted = true
   event.preventDefault()
-  void workspaceWatchService.shutdown()
+  void workspaceIndexService.shutdown()
+    .finally(() => workspaceWatchService.shutdown())
     .finally(() => diagnosticEventLogService.shutdown())
     .finally(() => app.quit())
 })

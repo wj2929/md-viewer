@@ -122,6 +122,7 @@ export class WorkspaceIndexService {
   private readonly activeDiagnosticWorks = new Map<string, ActiveIndexWork>()
   private readonly queryDiagnosticWindows = new Map<string, IndexQueryWindow>()
   private activeIndexReads = 0
+  private shutdownPromise: Promise<void> | null = null
 
   constructor(
     private readonly store: WorkspaceIndexStore,
@@ -129,7 +130,22 @@ export class WorkspaceIndexService {
     private readonly diagnostics?: IndexDiagnosticsSink,
   ) {}
 
+  shutdown(): Promise<void> {
+    if (!this.shutdownPromise) this.shutdownPromise = this.completeShutdown()
+    return this.shutdownPromise
+  }
+
+  private async completeShutdown(): Promise<void> {
+    this.desiredConsumerRoots.clear()
+    await Promise.allSettled(this.initializations.values())
+    await Promise.all([...this.runtimes.values()].flatMap(runtime => (
+      [...runtime.consumerIds].map(consumerId => this.detach(runtime.rootPath, consumerId))
+    )))
+    await Promise.all(this.teardowns.values())
+  }
+
   async attach(rootPath: string, consumerId: string): Promise<WorkspaceIndexStatus> {
+    if (this.shutdownPromise) return emptyStatus('detached')
     const requestedRoot = path.resolve(rootPath)
     this.markConsumerDesired(consumerId, requestedRoot)
     const canonicalRoot = await realpath(rootPath)
