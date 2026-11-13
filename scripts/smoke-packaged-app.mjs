@@ -8,6 +8,11 @@ import { spawnSync } from 'node:child_process'
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const fixturePath = path.join(projectRoot, 'e2e', 'fixtures', 'shown-source.md')
 const packageArch = process.env.MD_VIEWER_PACKAGE_ARCH?.trim() || process.arch
+// Intel CI has no usable EGL device; keep local package validation unchanged.
+const runtimeArgs = process.platform === 'darwin' && packageArch === 'x64' && process.env.GITHUB_ACTIONS === 'true'
+  ? ['--disable-gpu']
+  : []
+
 const platformTarget = process.platform === 'darwin'
   ? packageArch === 'x64'
     ? 'dist/staged/mac/MD Viewer.app/Contents/MacOS/MD Viewer'
@@ -42,7 +47,7 @@ async function run(args, timeout = 90_000) {
   const stderrFd = fsSync.openSync(stderrPath, 'w')
   let child
   try {
-    child = spawnSync(executablePath, args, {
+    child = spawnSync(executablePath, [...args, ...runtimeArgs], {
       timeout,
       stdio: [stdinFd, stdoutFd, stderrFd],
       env: {

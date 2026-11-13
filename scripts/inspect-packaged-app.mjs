@@ -16,6 +16,11 @@ const chartExamplesSourcePath = path.join(projectRoot, 'resources', 'examples', 
 const chartExamplesSidecarName = 'md-viewer-chart-examples.manifest.json'
 const chartExamplesZipName = 'md-viewer-chart-examples.zip'
 const packageArch = process.env.MD_VIEWER_PACKAGE_ARCH?.trim() || process.arch
+// Intel CI has no usable EGL device; keep local package validation unchanged.
+const runtimeArgs = process.platform === 'darwin' && packageArch === 'x64' && process.env.GITHUB_ACTIONS === 'true'
+  ? ['--disable-gpu']
+  : []
+
 const platformTarget = process.platform === 'darwin'
   ? {
       output: packageArch === 'x64' ? 'mac/MD Viewer.app' : `mac-${packageArch}/MD Viewer.app`,
@@ -197,7 +202,7 @@ async function main() {
   const stderrFd = fsSync.openSync(stderrPath, 'w')
   let cliRun
   try {
-    cliRun = spawnSync(executablePath, [`--user-data-dir=${path.join(cliOutputDir, 'profile')}`, 'capabilities', '--json'], {
+    cliRun = spawnSync(executablePath, [`--user-data-dir=${path.join(cliOutputDir, 'profile')}`, 'capabilities', '--json', ...runtimeArgs], {
       timeout: 30_000,
       stdio: [stdinFd, stdoutFd, stderrFd],
       env: process.platform === 'linux'
