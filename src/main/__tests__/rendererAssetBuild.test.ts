@@ -52,12 +52,17 @@ describe('native renderer Worker build', () => {
     expect(() => invoke(worker,'generateBundle',{error},{},{worker:{...output,imports:['page.js']}})).toThrow('non-independent')
   })
 
-  it('requires all native outputs before emitting role metadata', () => {
+  it.each(['native', 'forward slashes', 'backslashes'])('requires all native outputs before emitting role metadata: %s', async separators => {
+    const plugins = rendererAssetBuildPlugins(root)
+    await invoke(plugins.renderer, 'buildStart', context)
+    const facade = separators === 'forward slashes' ? fontEntry.replace(/\\/g, '/')
+      : separators === 'backslashes' ? fontEntry.replace(/\//g, '\\') : fontEntry
+    expect(invoke(plugins.renderer, 'load', context, facade)).toBe('export const WorkerUrl = new URL(import.meta.ROLLUP_FILE_URL_font-reference);')
     expect(() => invoke(plugins.renderer,'generateBundle',context,{},{})).toThrow('Missing native Worker output')
     const worker = plugins.workers()[0]
     const bundle: any = {
       'assets/font-worker.js': {type:'asset',source:fontAsset.source},
-      'assets/font-url.js': {type:'chunk',facadeModuleId:fontEntry,fileName:'assets/font-url.js'},
+      'assets/font-url.js': {type:'chunk',facadeModuleId:facade,fileName:'assets/font-url.js'},
     }
     for (const source of ['searchWorker','attachmentSqlWorker','attachmentSearchWorker']) {
       const fileName = `assets/${source}.js`

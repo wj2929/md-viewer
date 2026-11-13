@@ -7,7 +7,10 @@ const root = path.resolve(import.meta.dirname, '..')
 const output = process.env.MD_VIEWER_CAPTURE_DIAGNOSTICS_DIR
 if (!output) throw new Error('Explicit capture diagnostic output directory required')
 await fs.mkdir(output, { recursive: true })
-const executable = path.join(root, 'dist/staged/linux-unpacked/md-viewer')
+const packageArch = process.env.MD_VIEWER_PACKAGE_ARCH?.trim() || process.arch
+const executable = process.platform === 'darwin'
+  ? path.join(root, `dist/staged/${packageArch === 'x64' ? 'mac' : `mac-${packageArch}`}/MD Viewer.app/Contents/MacOS/MD Viewer`)
+  : path.join(root, 'dist/staged/linux-unpacked/md-viewer')
 const fixture = path.join(root, 'e2e/fixtures/shown-source.md')
 
 async function observe(mode) {

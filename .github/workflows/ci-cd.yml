@@ -147,17 +147,24 @@ jobs:
           MD_VIEWER_SIZE_BUDGET_MODE: ${{ github.event_name == 'workflow_dispatch' && 'baseline' || 'enforce' }}
         run: xvfb-run --auto-servernum npm run verify:package
 
-      - name: 诊断 Linux 截图失败
-        if: failure() && matrix.platform == 'linux'
+      - name: 诊断虚拟机截图失败
+        if: failure() && (matrix.platform == 'linux' || (matrix.platform == 'mac' && matrix.arch == 'x64'))
         env:
           MD_VIEWER_CAPTURE_DIAGNOSTICS_DIR: ${{ runner.temp }}/capture-diagnostics
-        run: xvfb-run --auto-servernum node scripts/diagnose-packaged-capture.mjs
+          MD_VIEWER_PACKAGE_ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum node scripts/diagnose-packaged-capture.mjs
+          else
+            node scripts/diagnose-packaged-capture.mjs
+          fi
 
-      - name: 保留 Linux 截图诊断
-        if: failure() && matrix.platform == 'linux'
+      - name: 保留虚拟机截图诊断
+        if: failure() && (matrix.platform == 'linux' || (matrix.platform == 'mac' && matrix.arch == 'x64'))
         uses: actions/upload-artifact@v4
         with:
-          name: capture-diagnostics-linux
+          name: capture-diagnostics-${{ matrix.platform }}-${{ matrix.arch || 'x64' }}
           path: ${{ runner.temp }}/capture-diagnostics
           if-no-files-found: warn
           retention-days: 7

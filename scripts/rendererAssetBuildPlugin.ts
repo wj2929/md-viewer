@@ -6,6 +6,7 @@ import { init, parse } from 'es-module-lexer'
 import type { Plugin } from 'vite'
 
 const sha256 = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+const normalizeModuleId = (id: string) => path.normalize(id.replace(/\\/g, '/')).replace(/\\/g, '/')
 const fontEntrySha256 = '3a934398962a0289fa451776640208d406b35b375e7761bd865b574de2f46e25'
 const nativeEntries = new Set([
   'src/renderer/src/workers/searchWorker.ts',
@@ -55,7 +56,7 @@ export function rendererAssetBuildPlugins(projectRoot: string): {
         fontReference = this.emitFile({ type: 'asset', name: 'font-subset-worker.js', source: code })
       },
       load(id) {
-        if (path.normalize(id) !== path.normalize(fontEntry)) return null
+        if (normalizeModuleId(id) !== normalizeModuleId(fontEntry)) return null
         fontModuleCount++
         return `export const WorkerUrl = new URL(import.meta.ROLLUP_FILE_URL_${fontReference});`
       },
@@ -69,7 +70,7 @@ export function rendererAssetBuildPlugins(projectRoot: string): {
           return { source, path: file, bytes: bytes.length, sha256: sha256(bytes) }
         })
         if (nativeWorkers.length !== nativeEntries.size + 1) this.error('Native Worker output closure incomplete')
-        const fontModules = Object.values(bundle).filter(output => output.type === 'chunk' && output.facadeModuleId === fontEntry)
+        const fontModules = Object.values(bundle).filter(output => output.type === 'chunk' && output.facadeModuleId && normalizeModuleId(output.facadeModuleId) === normalizeModuleId(fontEntry))
         if (fontModules.length !== 1) this.error('Font Worker URL module missing from output graph')
         this.emitFile({
           type: 'asset',
