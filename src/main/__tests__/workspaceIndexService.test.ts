@@ -551,11 +551,13 @@ describe('WorkspaceIndexService', () => {
     recordMainEvent.mockClear()
 
     // 这里只验证正常分支的计数聚合，不让并发 IO 的机器负载决定慢查询分类。
-    vi.useFakeTimers({ toFake: ['performance', 'setTimeout', 'clearTimeout'] })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
     try {
       await Promise.all(Array.from({ length: 502 }, () => service.getBacklinks(root, 'target.md')))
       await service.detach(root, 'consumer')
     } finally {
+      clock.mockRestore()
       vi.useRealTimers()
     }
 
