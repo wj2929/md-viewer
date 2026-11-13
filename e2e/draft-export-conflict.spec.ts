@@ -50,7 +50,8 @@ for (const metadataOnly of [false, true]) {
     }
     confirmSave(page)
     await exportHtml(electronApp)
-    await expect.poll(() => existsSync(output)).toBe(true)
+    await expect(page.getByText('HTML 已导出', { exact: true })).toBeVisible()
+    expect(existsSync(output)).toBe(true)
     expect(readFileSync(file, 'utf8')).toContain('LOCAL-DRAFT-ONLY')
     expect(readFileSync(output, 'utf8')).toContain('LOCAL-DRAFT-ONLY')
   })
@@ -111,7 +112,8 @@ for (const resolution of ['overwrite', 'reload'] as const) {
     }
     await workbench.getByRole('tab', { name: '预览', exact: true }).click()
     await exportHtml(electronApp)
-    await expect.poll(() => existsSync(output)).toBe(true)
+    await expect(page.getByText('HTML 已导出', { exact: true })).toBeVisible()
+    expect(existsSync(output)).toBe(true)
     expect(readFileSync(output, 'utf8')).toContain(resolution === 'overwrite' ? 'LOCAL-DRAFT-ONLY' : 'EXTERNAL-CHANGE')
     await page.screenshot({ path: testInfo.outputPath('resolved-export.png') })
   })
