@@ -23,8 +23,8 @@ import { DiagnosticEventLogService } from '../diagnostics/DiagnosticEventLogServ
 const services: DiagnosticEventLogService[] = []
 const tempDirectories: string[] = []
 
-async function createTempDirectory(prefix: string): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), prefix))
+async function createTempDirectory(prefix: string, parent = tmpdir()): Promise<string> {
+  const directory = await mkdtemp(path.join(parent, prefix))
   tempDirectories.push(directory)
   return directory
 }
@@ -381,7 +381,7 @@ describe('DiagnosticEventLogService', () => {
     await expect(service.validateCustomDirectory(path.parse(process.cwd()).root))
       .rejects.toMatchObject({ code: 'DIRECTORY_PROTECTED' })
 
-    const sensitiveRoot = await createTempDirectory('mdv-sensitive-parent-')
+    const sensitiveRoot = await createTempDirectory('mdv-sensitive-parent-', homedir())
     const sshDirectory = path.join(sensitiveRoot, '.ssh')
     await mkdir(sshDirectory)
     await expect(service.validateCustomDirectory(sshDirectory))

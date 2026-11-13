@@ -51,9 +51,15 @@ async function fixture() {
 describe('工作区目录资源只读入口', () => {
   it('无需 Markdown 来源；相对路径中的中文、空格、#、? 和 % 原样读取', async () => {
     const f = await fixture()
-    await f.write('中文 #?%.json', '{"ok":true}')
-    const result = await f.read('中文 #?%.json')
-    expect(result).toMatchObject({ kind: 'text', content: '{"ok":true}', relativePath: '中文 #?%.json', canOpenExternally: true })
+    const name = process.platform === 'win32' ? '中文 #%.json' : '中文 #?%.json'
+    await f.write(name, '{"ok":true}')
+    const result = await f.read(name)
+    expect(result).toMatchObject({ kind: 'text', content: '{"ok":true}', relativePath: name, canOpenExternally: true })
+    if (process.platform === 'win32') {
+      for (const invalid of ['中文 #?%.json', 'nul.txt']) {
+        expect(await f.read(invalid)).toMatchObject({ kind: 'error' })
+      }
+    }
     expect(validateSenderReadPath).not.toHaveBeenCalled()
   })
   it.each(['../outside/a.txt', '/etc/passwd', 'C:/a.txt', 'a\\b.txt', 'a//b', './a', '', 'a\0b', 'https:x'])('拒绝非规范或伪造目标 %j', async name => {
@@ -83,10 +89,10 @@ describe('工作区目录资源只读入口', () => {
   })
   it('严格 UTF-8、二进制和 5MiB 检查保留信息卡，不截断内容', async () => {
     const f = await fixture()
-    await f.write('nul.txt', new Uint8Array([65, 0, 66]))
+    await f.write('nul-bytes.txt', new Uint8Array([65, 0, 66]))
     await f.write('bad.txt', new Uint8Array([0xff]))
     await f.write('huge.txt', new Uint8Array(5 * 1024 * 1024 + 1).fill(65))
-    for (const [name, notice] of [['nul.txt', 'binary'], ['bad.txt', 'not-utf8'], ['huge.txt', 'too-large']]) {
+    for (const [name, notice] of [['nul-bytes.txt', 'binary'], ['bad.txt', 'not-utf8'], ['huge.txt', 'too-large']]) {
       expect(await f.read(name)).toMatchObject({ kind: 'file', notice })
     }
   })

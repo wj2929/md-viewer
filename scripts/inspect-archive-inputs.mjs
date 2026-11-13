@@ -17,12 +17,12 @@ export async function inspectArchiveInputs(projectRoot, stageRoot, archive) {
     if (sha256(source) !== entry.sourceSha256) throw new Error(`Stage changed after packaging: ${entry.source}`)
     expected.set(entry.path,entry)
   }
-  const actual = listPackage(archive).map(name=>name.replace(/^\//,'')).filter(name=>!statFile(archive,name).files)
+  const actual = listPackage(archive).map(name=>name.replace(/\\/g,'/').replace(/^\//,'')).filter(name=>!statFile(archive,path.normalize(name)).files)
   if (JSON.stringify([...expected.keys()].sort()) !== JSON.stringify(actual.sort())) throw new Error('ASAR physical file set mismatch')
   for (const name of actual) {
-    const info = statFile(archive,name)
+    const info = statFile(archive,path.normalize(name))
     if (info.link) throw new Error(`Unexpected ASAR symlink: ${name}`)
-    const bytes = extractFile(archive,name)
+    const bytes = extractFile(archive,path.normalize(name))
     const entry = expected.get(name)
     if (bytes.length !== entry.bytes || sha256(bytes) !== entry.sha256) throw new Error(`ASAR input identity mismatch: ${name}`)
   }
@@ -31,14 +31,14 @@ export async function inspectArchiveInputs(projectRoot, stageRoot, archive) {
     if (expected.has(entry.archivePath) || expected.has(entry.path)) throw new Error(`Pruned dependency returned: ${entry.archivePath}`)
   }
   for (const entry of [...audit.retainedMaps,...audit.legalFiles]) {
-    const bytes = extractFile(archive,entry.archivePath)
+    const bytes = extractFile(archive,path.normalize(entry.archivePath))
     if (sha256(bytes) !== entry.sha256) throw new Error(`Protected package file changed: ${entry.archivePath}`)
   }
   const closure = JSON.parse(await fs.readFile(path.join(stageRoot,'.runtime-closure.json'),'utf8'))
   for (const entry of closure.packages) {
     const projected = projection.files.filter(file=>file.source === `${entry.path}/package.json`)
     if (projected.length !== 1) throw new Error(`Closure package identity ambiguous: ${entry.path}`)
-    const manifest = JSON.parse(extractFile(archive,projected[0].path).toString())
+    const manifest = JSON.parse(extractFile(archive,path.normalize(projected[0].path)).toString())
     const original = JSON.parse(await fs.readFile(path.join(stageRoot,entry.path,'package.json'),'utf8'))
     if (manifest.name !== original.name || manifest.version !== entry.version) throw new Error(`Closure package identity changed: ${entry.path}`)
   }

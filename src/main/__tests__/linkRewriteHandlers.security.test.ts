@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ipcMain } from 'electron'
 import * as sameRootMove from '../linking/sameRootMove'
@@ -143,7 +144,7 @@ describe('link rewrite IPC', () => {
       await move.beforeMove?.()
       return { destinationPath: move.destinationPath, isDirectory: false }
     })
-    expect(await input.execute(request.operations[0].mapping, check)).toEqual({ newPath: '/workspace/archive/a.md', isDirectory: false })
+    expect(await input.execute(request.operations[0].mapping, check)).toEqual({ newPath: resolve('/workspace/archive/a.md'), isDirectory: false })
     expect(check).toHaveBeenCalledTimes(1)
     expect(senderSecurity.validateWorkspaceOperationPath).toHaveBeenCalledTimes(4)
     ctx.windowManager.getWorkspace.mockReturnValue({ id: 'workspace-a', lifecycleEpoch: 5, primaryRoot: '/workspace' })

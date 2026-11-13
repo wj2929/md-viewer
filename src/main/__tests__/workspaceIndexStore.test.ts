@@ -2,7 +2,7 @@
 
 import * as io from 'fs/promises'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { INDEX_SCHEMA_VERSION, INDEX_STORAGE_VERSION, WorkspaceIndexStore } from '../indexing/WorkspaceIndexStore'
@@ -183,7 +183,7 @@ describe('WorkspaceIndexStore', () => {
       ...options, previousInstanceId: first.indexInstanceId,
       documents: [{ ...options.documents[0], mtimeMs: 2, indexedAt: 2 }],
     })
-    expect(open.mock.calls.filter(([file]) => String(file).includes('/shards/'))).toEqual([])
+    expect(open.mock.calls.filter(([file]) => String(file).includes(`${sep}shards${sep}`))).toEqual([])
     expect(second.documents.map(({ relativePath, revisionToken, shardFile }) => ({ relativePath, revisionToken, shardFile })))
       .toEqual(first.documents.map(({ relativePath, revisionToken, shardFile }) => ({ relativePath, revisionToken, shardFile })))
     expect((await store.load(root, options.rootFingerprint))?.documents).toEqual([
@@ -203,7 +203,7 @@ describe('WorkspaceIndexStore', () => {
     let injected = false
     vi.spyOn(io, 'open').mockImplementation(async (...args) => {
       const file = String(args[0])
-      if (!injected && ((stage === 'shard' && file.includes('/shards/')) || (stage === 'manifest' && file.endsWith('/manifest.json')))) {
+      if (!injected && ((stage === 'shard' && file.includes(`${sep}shards${sep}`)) || (stage === 'manifest' && file.endsWith(`${sep}manifest.json`)))) {
         injected = true
         throw Object.assign(new Error('injected write failure'), { code: 'EIO' })
       }
@@ -238,7 +238,7 @@ describe('WorkspaceIndexStore', () => {
     const nativeOpen = io.open
     let waiting = 0
     vi.spyOn(io, 'open').mockImplementation(async (...args) => {
-      if (String(args[0]).includes('/shards/')) {
+      if (String(args[0]).includes(`${sep}shards${sep}`)) {
         if (++opened === 1) throw new Error('injected shard failure')
         waiting++
         await gate

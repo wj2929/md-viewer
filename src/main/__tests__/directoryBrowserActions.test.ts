@@ -74,10 +74,10 @@ describe('workspace browser actions', () => {
     await choose('folder/child.md')
     expect(labels).toContain('在标签页打开')
     await choose('folder')
-    expect(labels).toEqual(expect.arrayContaining(['新建文件…', '新建文件夹…', '在当前窗口打开', '在新窗口打开', '重命名…', '移到废纸篓…']))
+    expect(labels).toEqual(expect.arrayContaining(['新建文件…', '新建文件夹…', '在当前窗口打开', '在新窗口打开', '重命名…', process.platform === 'win32' ? '移到回收站…' : '移到废纸篓…']))
     await choose('')
     expect(labels).not.toContain('重命名…')
-    expect(labels).not.toContain('移到废纸篓…')
+    expect(labels).not.toContain(process.platform === 'win32' ? '移到回收站…' : '移到废纸篓…')
     expect(labels).not.toContain('在当前窗口打开')
   })
   it('copies canonical and workspace-relative paths and reveals the bound target', async () => {

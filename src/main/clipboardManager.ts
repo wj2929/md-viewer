@@ -119,7 +119,7 @@ export function writeFilesToSystemClipboard(paths: string[], isCut = false): Pro
       const validPaths = requestedPaths.filter(path => fs.existsSync(path))
       if (!validPaths.length) return false
       if (os.platform() === 'win32') return writeWindowsFilesToSystemClipboard(validPaths, isCut)
-      const urls = validPaths.map(path => pathToFileURL(path).href).join('\r\n')
+      const urls = validPaths.map(path => pathToFileURL(path, { windows: false }).href).join('\r\n')
       const data: Record<string, string> = { 'text/uri-list': urls }
       if (os.platform() === 'linux') {
         data[osFormat('x-special/gnome-copied-files')] = `${isCut ? 'cut' : 'copy'}\n${urls}\n`

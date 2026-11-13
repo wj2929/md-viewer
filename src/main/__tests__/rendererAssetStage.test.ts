@@ -1,10 +1,15 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { createHash } from 'node:crypto'
-import { createPackage } from '@electron/asar'
+import { createPackage, listPackage } from '@electron/asar'
+
+vi.mock('@electron/asar', async importOriginal => {
+  const actual = await importOriginal<typeof import('@electron/asar')>()
+  return { ...actual, listPackage: vi.fn(actual.listPackage) }
+})
 // @ts-expect-error build helpers are Node.js ESM scripts
 import { prepareRendererAssets, inspectRendererAssets, listRegularFiles } from '../../../scripts/prepare-renderer-assets.mjs'
 // @ts-expect-error build helpers are Node.js ESM scripts
@@ -88,7 +93,7 @@ describe('stage-only renderer asset preparation', () => {
     await expect(prepareRendererAssets(root,stage)).rejects.toThrow('Invalid native Worker role')
   })
 
-  it.each(['valid','extra','missing','corrupt'])('checks the exact physical ASAR projection: %s', async kind => {
+  it.each(['valid','windows enumeration','extra','missing','corrupt'])('checks the exact physical ASAR projection: %s', async kind => {
     await prepareRendererAssets(root,stage)
     const files: string[] = await listRegularFiles(stage)
     const projection = []
@@ -106,7 +111,11 @@ describe('stage-only renderer asset preparation', () => {
     if(kind==='corrupt') await put('archive-input/node_modules/demo/index.js','CORRUPTED')
     const archive = path.join(root,'public.asar')
     await createPackage(input,archive)
-    if(kind==='valid') expect(await inspectArchiveInputs(root,stage,archive)).toMatchObject({physicalFiles:files.length,closurePackages:1,protectedLegalFiles:1})
+    if (kind === 'windows enumeration') {
+      const actual = await vi.importActual<typeof import('@electron/asar')>('@electron/asar')
+      vi.mocked(listPackage).mockImplementationOnce((...args) => actual.listPackage(...args).map(name => name.replace(/\//g, '\\')))
+    }
+    if(kind==='valid' || kind==='windows enumeration') expect(await inspectArchiveInputs(root,stage,archive)).toMatchObject({physicalFiles:files.length,closurePackages:1,protectedLegalFiles:1})
     else await expect(inspectArchiveInputs(root,stage,archive)).rejects.toThrow()
   })
 })

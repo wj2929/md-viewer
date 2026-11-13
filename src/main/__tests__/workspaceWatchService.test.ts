@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceWatchService } from '../watching/WorkspaceWatchService'
@@ -21,7 +22,7 @@ let service: WorkspaceWatchService
 beforeEach(() => { vi.useFakeTimers(); runtime.children.length = 0; service = new WorkspaceWatchService() })
 afterEach(async () => { await service.shutdown(); vi.useRealTimers() })
 function subscription(key = '1:a', epoch = 1, deliver = vi.fn()) {
-  return { key, workspaceId: key.split(':')[1], lifecycleEpoch: epoch, primaryRoot: '/ws/root', strict: true, deliver }
+  return { key, workspaceId: key.split(':')[1], lifecycleEpoch: epoch, primaryRoot: resolve('/ws/root'), strict: true, deliver }
 }
 async function childAndWatch(): Promise<{ child: any; create: any }> {
   await vi.advanceTimersByTimeAsync(0)
@@ -36,12 +37,12 @@ function events(child: any, create: any, values: Array<{ kind: string; path: str
 describe('WorkspaceWatchService', () => {
   it('预览对齐等待必须覆盖 crawl、refresh、barrier 和 drain，不能只等索引暂时 idle', async () => {
     let finish!: () => void
-    service.attachRoot('/ws/root', { ...subscription(), reconcile: phase => phase === 'refresh'
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile: phase => phase === 'refresh'
       ? new Promise<void>(resolve => { finish = resolve }) : Promise.resolve() })
     const { child, create } = await childAndWatch()
     const assertCurrent = vi.fn()
     const aligned = vi.fn()
-    const waiting = service.waitForRootAlignment('/ws/root', assertCurrent).then(aligned)
+    const waiting = service.waitForRootAlignment(resolve('/ws/root'), assertCurrent).then(aligned)
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)
     expect(aligned).not.toHaveBeenCalled()
@@ -50,19 +51,19 @@ describe('WorkspaceWatchService', () => {
     await waiting
     expect(aligned).toHaveBeenCalledTimes(1)
     expect(assertCurrent).toHaveBeenCalled()
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(true)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(true)
   })
 
   it('对齐等待在切根时取消、无启动响应时有界失败', async () => {
-    service.attachRoot('/ws/root', subscription())
+    service.attachRoot(resolve('/ws/root'), subscription())
     await childAndWatch()
-    const cancelled = service.waitForRootAlignment('/ws/root', () => {})
+    const cancelled = service.waitForRootAlignment(resolve('/ws/root'), () => {})
     const rejected = expect(cancelled).rejects.toThrow('监听目录已变化')
     service.detachUi('1:a')
     await rejected
-    service.attachRoot('/ws/other', { ...subscription(), primaryRoot: '/ws/other' })
+    service.attachRoot(resolve('/ws/other'), { ...subscription(), primaryRoot: resolve('/ws/other') })
     await childAndWatch()
-    const timedOut = expect(service.waitForRootAlignment('/ws/other', () => {}, 100)).rejects.toThrow('监听对齐超时')
+    const timedOut = expect(service.waitForRootAlignment(resolve('/ws/other'), () => {}, 100)).rejects.toThrow('监听对齐超时')
     await vi.advanceTimersByTimeAsync(100)
     await timedOut
   })
@@ -73,13 +74,13 @@ describe('WorkspaceWatchService', () => {
       ? new Promise<void>(resolve => { finish = resolve }) : Promise.resolve())
     const sub = { ...subscription(), reconcile }
     const consume = vi.fn()
-    service.attachRoot('/ws/root', sub)
-    service.attachIndexConsumer('/ws/root', 'index', consume)
+    service.attachRoot(resolve('/ws/root'), sub)
+    service.attachIndexConsumer(resolve('/ws/root'), 'index', consume)
     service.setIndexReconciler(vi.fn().mockResolvedValue(undefined))
     const { child, create } = await childAndWatch()
-    service.watchOpenedFile('/ws/root/a.md', sub)
-    expect(service.hasRootSubscription(sub.key, '/ws/root/a.md')).toBe(false)
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
+    service.watchOpenedFile(resolve('/ws/root/a.md'), sub)
+    expect(service.hasRootSubscription(sub.key, resolve('/ws/root/a.md'))).toBe(false)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(false)
     expect(child.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create' && m.kind === 'file')).toHaveLength(0)
     const postMessage = child.postMessage.getMockImplementation()
     child.postMessage.mockImplementation((command: any) => {
@@ -87,7 +88,7 @@ describe('WorkspaceWatchService', () => {
       else postMessage(command)
     })
     events(child, create, [{ kind: 'change', path: 'a.md', observedAt: 1 }])
-    expect(consume).toHaveBeenCalledWith({ kind: 'changed', path: '/ws/root/a.md' })
+    expect(consume).toHaveBeenCalledWith({ kind: 'changed', path: resolve('/ws/root/a.md') })
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)
     expect(service.getHealth(sub.key).state).toBe('recovering')
@@ -95,14 +96,14 @@ describe('WorkspaceWatchService', () => {
     finish()
     await vi.advanceTimersByTimeAsync(0)
     expect(reconcile).toHaveBeenCalledWith('drain')
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(true)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(true)
     expect(child.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create' && m.kind === 'file')).toHaveLength(0)
   })
 
   it('根完成 crawl 后才为新发现的 excluded 文件创建必要补充监听', async () => {
-    service.attachRoot('/ws/root', subscription())
+    service.attachRoot(resolve('/ws/root'), subscription())
     const { child, create } = await childAndWatch()
-    service.watchOpenedFile('/ws/root/bin/manual.md', subscription())
+    service.watchOpenedFile(resolve('/ws/root/bin/manual.md'), subscription())
     expect(service.getOpenedFileCount('1:a')).toBe(0)
     child.emit('message', { ...create, type: 'crawl-complete', excluded: ['bin'], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)
@@ -111,9 +112,9 @@ describe('WorkspaceWatchService', () => {
   })
 
   it('已有补充监听不能在新根仍启动时被提前撤销', async () => {
-    service.watchOpenedFile('/ws/root/a.md', subscription())
+    service.watchOpenedFile(resolve('/ws/root/a.md'), subscription())
     const { child } = await childAndWatch()
-    service.attachRoot('/ws/root', subscription())
+    service.attachRoot(resolve('/ws/root'), subscription())
     await vi.advanceTimersByTimeAsync(0)
     expect(service.getOpenedFileCount('1:a')).toBe(1)
     const rootCreate = child.postMessage.mock.calls.find(([m]: any[]) => m.type === 'create' && m.kind === 'root')[0]
@@ -123,22 +124,22 @@ describe('WorkspaceWatchService', () => {
   })
 
   it('待交接文件关闭后迟到 crawl 不复活订阅，其他未覆盖订阅仍需精确监听', async () => {
-    service.attachRoot('/ws/root', subscription())
+    service.attachRoot(resolve('/ws/root'), subscription())
     const { child, create } = await childAndWatch()
-    service.watchOpenedFile('/ws/root/a.md', subscription())
-    await service.unwatchOpenedFile('1:a', '/ws/root/a.md', 1)
+    service.watchOpenedFile(resolve('/ws/root/a.md'), subscription())
+    await service.unwatchOpenedFile('1:a', resolve('/ws/root/a.md'), 1)
     child.emit('message', { ...create, type: 'crawl-complete', excluded: ['bin'], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)
     expect(service.getOpenedFileCount('1:a')).toBe(0)
-    service.watchOpenedFile('/ws/root/a.md', subscription('2:b'))
+    service.watchOpenedFile(resolve('/ws/root/a.md'), subscription('2:b'))
     expect(service.getOpenedFileCount('2:b')).toBe(1)
   })
 
   it('reports only the requesting subscriber root and opened-file selections', async () => {
-    service.attachRoot('/ws/root', subscription())
+    service.attachRoot(resolve('/ws/root'), subscription())
     await childAndWatch()
-    service.watchOpenedFile('/ws/outside-a.md', subscription())
-    service.watchOpenedFile('/ws/outside-b.md', subscription('2:b'))
+    service.watchOpenedFile(resolve('/ws/outside-a.md'), subscription())
+    service.watchOpenedFile(resolve('/ws/outside-b.md'), subscription('2:b'))
     const observe = vi.fn()
     service.retry('1:a', observe)
     expect(observe.mock.calls[0][0]).toEqual({ watchRetryStage: 'subscriptions-selected', watchSelectedCount: 2,
@@ -149,7 +150,7 @@ describe('WorkspaceWatchService', () => {
   })
 
   it('reports zero UI subscriptions even when an index-only root exists', () => {
-    service.attachIndexConsumer('/ws/root', 'index-only', vi.fn())
+    service.attachIndexConsumer(resolve('/ws/root'), 'index-only', vi.fn())
     const observe = vi.fn()
     service.retry('1:a', observe)
     expect(observe.mock.calls.map(([row]) => row.watchRetryStage)).toEqual(['subscriptions-selected', 'host-skipped'])
@@ -161,98 +162,98 @@ describe('WorkspaceWatchService', () => {
     let finish!: () => void
     const reconcile = vi.fn().mockImplementation((phase: string) => phase === 'refresh'
       ? new Promise<void>(resolve => { finish = resolve }) : Promise.resolve())
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
-    service.attachIndexConsumer('/ws/root', 'index', vi.fn())
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
+    service.attachIndexConsumer(resolve('/ws/root'), 'index', vi.fn())
     service.setIndexReconciler(vi.fn().mockResolvedValue(undefined))
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'accepted' })
     child.emit('message', { ...create, type: 'startup-progress', stage: 'watch-created', elapsedMs: 1, pathChecks: 1, directoryChecks: 0 })
     await vi.advanceTimersByTimeAsync(65000)
     expect(service.getHealth('1:a')).toMatchObject({ state: 'degraded', reason: 'timeout' })
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(false)
     expect(child.kill).not.toHaveBeenCalled()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)
     expect(service.getHealth('1:a').state).toBe('recovering')
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(false)
     expect(reconcile).toHaveBeenCalledWith('refresh')
     finish()
     await vi.advanceTimersByTimeAsync(0)
     expect(reconcile).toHaveBeenCalledWith('drain')
     expect(service.getHealth('1:a').state).toBe('healthy')
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(true)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(true)
   })
 
   it('index-only coverage 不依赖 UI key；协调、挂起及断连均撤销健康状态', async () => {
     const phases: string[] = []
     service.setIndexReconciler(async (_root, phase) => {
       phases.push(phase)
-      expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
+      expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(false)
     })
-    expect(service.getIndexCoverage('/ws/root')).toEqual({ token: 'detached', complete: false })
+    expect(service.getIndexCoverage(resolve('/ws/root'))).toEqual({ token: 'detached', complete: false })
     expect(runtime.children).toHaveLength(0)
-    service.attachIndexConsumer('/ws/root', 'index-only', vi.fn())
+    service.attachIndexConsumer(resolve('/ws/root'), 'index-only', vi.fn())
     const { child, create } = await childAndWatch()
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(false)
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)
-    const healthy = service.getIndexCoverage('/ws/root')
+    const healthy = service.getIndexCoverage(resolve('/ws/root'))
     expect(healthy.complete).toBe(true)
     expect(phases).toContain('refresh')
     expect(phases).toContain('drain')
-    service.attachIndexConsumer('/ws/other', 'other', vi.fn())
-    expect(service.getIndexCoverage('/ws/root')).toEqual(healthy)
-    service.detachIndexConsumer('/ws/other', 'other')
+    service.attachIndexConsumer(resolve('/ws/other'), 'other', vi.fn())
+    expect(service.getIndexCoverage(resolve('/ws/root'))).toEqual(healthy)
+    service.detachIndexConsumer(resolve('/ws/other'), 'other')
     service.suspend()
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(false)
     service.resume()
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(true)
-    expect(service.getIndexCoverage('/ws/root').token).not.toBe(healthy.token)
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(true)
+    expect(service.getIndexCoverage(resolve('/ws/root')).token).not.toBe(healthy.token)
     child.emit('exit', 1)
-    expect(service.getIndexCoverage('/ws/root').complete).toBe(false)
-    service.detachIndexConsumer('/ws/root', 'index-only')
-    expect(service.getIndexCoverage('/ws/root')).toEqual({ token: 'detached', complete: false })
+    expect(service.getIndexCoverage(resolve('/ws/root')).complete).toBe(false)
+    service.detachIndexConsumer(resolve('/ws/root'), 'index-only')
+    expect(service.getIndexCoverage(resolve('/ws/root'))).toEqual({ token: 'detached', complete: false })
   })
   it('同根 UI 与索引 consumer 共享一个递归 watcher', async () => {
     const sub = subscription()
     const consume = vi.fn()
-    service.attachRoot('/ws/root', sub)
-    service.attachIndexConsumer('/ws/root', 'index', consume)
+    service.attachRoot(resolve('/ws/root'), sub)
+    service.attachIndexConsumer(resolve('/ws/root'), 'index', consume)
     const { child, create } = await childAndWatch()
     expect(child.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create')).toHaveLength(1)
     events(child, create, [{ kind: 'change', path: 'deep/a/b/c.md', observedAt: 1 }])
-    expect(sub.deliver).toHaveBeenCalledWith('file:changed', expect.objectContaining({ path: '/ws/root/deep/a/b/c.md' }))
-    expect(consume).toHaveBeenCalledWith({ kind: 'changed', path: '/ws/root/deep/a/b/c.md' })
+    expect(sub.deliver).toHaveBeenCalledWith('file:changed', expect.objectContaining({ path: resolve('/ws/root/deep/a/b/c.md') }))
+    expect(consume).toHaveBeenCalledWith({ kind: 'changed', path: resolve('/ws/root/deep/a/b/c.md') })
   })
 
   it('只有 UI 与索引 consumer 都 detach 后才关闭物理 watcher', async () => {
-    service.attachRoot('/ws/root', subscription())
-    service.attachIndexConsumer('/ws/root', 'index', vi.fn())
+    service.attachRoot(resolve('/ws/root'), subscription())
+    service.attachIndexConsumer(resolve('/ws/root'), 'index', vi.fn())
     const { child } = await childAndWatch()
     service.detachUi('1:a')
     expect(child.kill).not.toHaveBeenCalled()
-    service.detachIndexConsumer('/ws/root', 'index')
+    service.detachIndexConsumer(resolve('/ws/root'), 'index')
     expect(child.kill).toHaveBeenCalledTimes(1)
   })
 
   it('rename hint 对 UI 保持单事件，对索引保留 remove + add 原始事实', async () => {
     const sub = subscription()
     const consume = vi.fn()
-    service.attachRoot('/ws/root', sub)
-    service.attachIndexConsumer('/ws/root', 'index', consume)
+    service.attachRoot(resolve('/ws/root'), sub)
+    service.attachIndexConsumer(resolve('/ws/root'), 'index', consume)
     const { child, create } = await childAndWatch()
     events(child, create, [{ kind: 'unlink', path: 'old.md', observedAt: 10 }, { kind: 'add', path: 'new.md', observedAt: 210 }])
     await vi.advanceTimersByTimeAsync(600)
     expect(sub.deliver.mock.calls).toHaveLength(1)
-    expect(sub.deliver).toHaveBeenCalledWith('file:renamed', expect.objectContaining({ oldPath: '/ws/root/old.md', newPath: '/ws/root/new.md' }))
+    expect(sub.deliver).toHaveBeenCalledWith('file:renamed', expect.objectContaining({ oldPath: resolve('/ws/root/old.md'), newPath: resolve('/ws/root/new.md') }))
     expect(consume.mock.calls.map(([delta]) => delta)).toEqual([
-      { kind: 'removed', path: '/ws/root/old.md' }, { kind: 'added', path: '/ws/root/new.md' },
+      { kind: 'removed', path: resolve('/ws/root/old.md') }, { kind: 'added', path: resolve('/ws/root/new.md') },
     ])
   })
 
   it('同一批到达但源时间相隔数秒的 unlink/add 不能猜成 rename', async () => {
     const sub = subscription()
-    service.attachRoot('/ws/root', sub)
+    service.attachRoot(resolve('/ws/root'), sub)
     const { child, create } = await childAndWatch()
     events(child, create, [{ kind: 'unlink', path: 'old.md', observedAt: 10 }, { kind: 'add', path: 'new.md', observedAt: 3010 }])
     await vi.advanceTimersByTimeAsync(600)
@@ -262,16 +263,16 @@ describe('WorkspaceWatchService', () => {
   it('历史查询增加索引 consumer 不触发文件树补查反馈循环', async () => {
     const reconcile = vi.fn().mockResolvedValue(undefined)
     service.setIndexReconciler(vi.fn().mockResolvedValue(undefined))
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
-    service.attachIndexConsumer('/ws/root', 'workspace', vi.fn())
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
+    service.attachIndexConsumer(resolve('/ws/root'), 'workspace', vi.fn())
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)
     const gap = service.getHealth('1:a').gapVersion
     reconcile.mockClear()
     for (let i = 0; i < 5; i++) {
-      service.attachIndexConsumer('/ws/root', `history:${i}`, vi.fn())
-      service.detachIndexConsumer('/ws/root', `history:${i}`)
+      service.attachIndexConsumer(resolve('/ws/root'), `history:${i}`, vi.fn())
+      service.detachIndexConsumer(resolve('/ws/root'), `history:${i}`)
     }
     await vi.advanceTimersByTimeAsync(0)
     expect(reconcile).not.toHaveBeenCalled()
@@ -279,22 +280,22 @@ describe('WorkspaceWatchService', () => {
   })
 
   it('生成目录不算根监听覆盖；打开文件共享精确补充监听', async () => {
-    service.attachRoot('/ws/root', subscription())
+    service.attachRoot(resolve('/ws/root'), subscription())
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: ['bin'], directories: 1, entries: 1 })
-    expect(service.hasRootSubscription('1:a', '/ws/root/bin/manual.md')).toBe(false)
-    expect(service.hasRootSubscription('1:a', '/ws/root/docs/a.md')).toBe(true)
-    service.watchOpenedFile('/ws/root/docs/a.md', subscription())
+    expect(service.hasRootSubscription('1:a', resolve('/ws/root/bin/manual.md'))).toBe(false)
+    expect(service.hasRootSubscription('1:a', resolve('/ws/root/docs/a.md'))).toBe(true)
+    service.watchOpenedFile(resolve('/ws/root/docs/a.md'), subscription())
     expect(service.getOpenedFileCount('1:a')).toBe(0)
-    service.watchOpenedFile('/ws/root/bin/manual.md', subscription())
-    service.watchOpenedFile('/ws/root/bin/manual.md', subscription('2:b'))
+    service.watchOpenedFile(resolve('/ws/root/bin/manual.md'), subscription())
+    service.watchOpenedFile(resolve('/ws/root/bin/manual.md'), subscription('2:b'))
     expect(service.getOpenedFileCount('1:a')).toBe(1)
     expect(service.getOpenedFileCount('2:b')).toBe(1)
     expect(child.postMessage.mock.calls.filter(([m]: any[]) => m.type === 'create' && m.kind === 'file')).toHaveLength(1)
   })
 
   it('旧 epoch 的 cleanup 不撤销新订阅', async () => {
-    service.attachRoot('/ws/root', subscription('1:a', 2))
+    service.attachRoot(resolve('/ws/root'), subscription('1:a', 2))
     const { child } = await childAndWatch()
     service.cleanupWebContents(1, 'a', 1)
     expect(child.kill).not.toHaveBeenCalled()
@@ -303,7 +304,7 @@ describe('WorkspaceWatchService', () => {
   })
 
   it('新进程不继承正常切换前旧代补查额度', async () => {
-    service.attachRoot('/ws/root', subscription())
+    service.attachRoot(resolve('/ws/root'), subscription())
     let { child, create } = await childAndWatch()
     const ready = () => child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     ready()
@@ -324,11 +325,11 @@ describe('WorkspaceWatchService', () => {
   it('缺口清理 rename 候选前已向索引交付删除事实', async () => {
     const consume = vi.fn()
     const sub = subscription()
-    service.attachRoot('/ws/root', sub)
-    service.attachIndexConsumer('/ws/root', 'index', consume)
+    service.attachRoot(resolve('/ws/root'), sub)
+    service.attachIndexConsumer(resolve('/ws/root'), 'index', consume)
     const { child, create } = await childAndWatch()
     events(child, create, [{ kind: 'unlink', path: 'removed.md', observedAt: 1 }])
-    expect(consume).toHaveBeenCalledWith({ kind: 'removed', path: '/ws/root/removed.md' })
+    expect(consume).toHaveBeenCalledWith({ kind: 'removed', path: resolve('/ws/root/removed.md') })
     expect(sub.deliver).not.toHaveBeenCalled()
     service.reportGap('1:a')
     await vi.advanceTimersByTimeAsync(600)
@@ -340,7 +341,7 @@ describe('WorkspaceWatchService', () => {
     const reconcile = vi.fn(async (phase: string) => {
       if (phase === 'refresh' && ++attempts <= 3) throw new WatchReconcileSupersededError()
     })
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(2000)
@@ -357,7 +358,7 @@ describe('WorkspaceWatchService', () => {
 
   it('一个恢复过程内三次实际失败才降级', async () => {
     const reconcile = vi.fn().mockRejectedValue(new Error('injected read failure'))
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(1999)
@@ -370,7 +371,7 @@ describe('WorkspaceWatchService', () => {
   it('恢复总期限可终止永不完成的补查，迟到成功不得洗白', async () => {
     let finish!: () => void
     const reconcile = vi.fn().mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(29000)
@@ -384,7 +385,7 @@ describe('WorkspaceWatchService', () => {
 
   it('不断被取代的扫描不能重置恢复总期限', async () => {
     const reconcile = vi.fn().mockRejectedValue(new WatchReconcileSupersededError())
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(29000)
@@ -397,7 +398,7 @@ describe('WorkspaceWatchService', () => {
   it('休眠不占恢复总期限，恢复后给予在途工作处理机会', async () => {
     let finish!: () => void
     const reconcile = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve })).mockResolvedValue(undefined)
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(28000)
@@ -415,7 +416,7 @@ describe('WorkspaceWatchService', () => {
   it('补查中二次缺口保留后续补查，不能提前恢复健康', async () => {
     let finish!: () => void
     const reconcile = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve })).mockResolvedValue(undefined)
-    service.attachRoot('/ws/root', { ...subscription(), reconcile })
+    service.attachRoot(resolve('/ws/root'), { ...subscription(), reconcile })
     const { child, create } = await childAndWatch()
     child.emit('message', { ...create, type: 'crawl-complete', excluded: [], directories: 1, entries: 1 })
     await vi.advanceTimersByTimeAsync(0)

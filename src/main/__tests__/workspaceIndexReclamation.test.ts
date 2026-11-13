@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 import * as io from 'fs/promises'
 import * as syncIO from 'fs'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceIndexStore } from '../indexing/WorkspaceIndexStore'
@@ -76,7 +76,7 @@ describe('manual index reclamation', () => {
     const plan = await store.previewReclamation(root, 'fp', guard)
     const unlink = syncIO.unlinkSync
     vi.spyOn(syncIO, 'unlinkSync').mockImplementation(file => {
-      if (String(file).endsWith(`/${old.generationId}/manifest.json`)) throw Object.assign(new Error('private path'), { code: 'EACCES' })
+      if (String(file).endsWith(`${sep}${old.generationId}${sep}manifest.json`)) throw Object.assign(new Error('private path'), { code: 'EACCES' })
       return unlink(file)
     })
     const result = await store.executeReclamation(plan!, guard)
@@ -173,14 +173,14 @@ describe('manual index reclamation', () => {
     let revoked = false, verificationDone = false
     const open = io.open
     vi.spyOn(io, 'open').mockImplementation(async (...args) => {
-      if (String(args[0]).endsWith('/CURRENT')) verificationDone = true
+      if (String(args[0]).endsWith(`${sep}CURRENT`)) verificationDone = true
       return open(...args)
     })
     // Revoke on a late lstat of the candidate; guard must not rely only on batch entry.
     let reads = 0
     vi.spyOn(io, 'lstat').mockImplementation(async (...args) => {
       const stats = await original(...args)
-      if (verificationDone && String(args[0]).endsWith('/manifest.json') && ++reads > 6) revoked = true
+      if (verificationDone && String(args[0]).endsWith(`${sep}manifest.json`) && ++reads > 6) revoked = true
       return stats
     })
     await expect(store.executeReclamation(plan!, async () => { if (revoked) throw new Error('revoked') })).rejects.toThrow('revoked')
@@ -194,7 +194,7 @@ describe('manual index reclamation', () => {
     let deleted = false
     vi.spyOn(syncIO, 'unlinkSync').mockImplementation(file => { originalUnlink(file); deleted = true })
     vi.spyOn(io, 'opendir').mockImplementation(async (...args) => {
-      if (deleted && String(args[0]).endsWith('/generations')) throw Object.assign(new Error('private'), { code: 'EIO' })
+      if (deleted && String(args[0]).endsWith(`${sep}generations`)) throw Object.assign(new Error('private'), { code: 'EIO' })
       return originalOpen(...args)
     })
     expect(await store.executeReclamation(plan!, guard)).toMatchObject({ status: 'partial', deletedFiles: 1 })
@@ -205,7 +205,7 @@ describe('manual index reclamation', () => {
     const first = await commit('same'); await commit('same', first.indexInstanceId)
     const original = io.open, reads: string[] = []
     vi.spyOn(io, 'open').mockImplementation(async (...args) => {
-      if (String(args[0]).includes('/shards/')) reads.push(String(args[0]))
+      if (String(args[0]).includes(`${sep}shards${sep}`)) reads.push(String(args[0]))
       return original(...args)
     })
     expect((await store.previewReclamation(root, 'fp', guard))?.summary.files).toBe(0)
@@ -233,7 +233,7 @@ describe('manual index reclamation', () => {
     const unlink = vi.spyOn(syncIO, 'unlinkSync')
     const spy = vi.spyOn(io, 'lstat').mockImplementation(async (...args) => {
       const stats = await original(...args)
-      if (String(args[0]).endsWith('/manifest.json')) stats.size = 32 * 1024 * 1024 + 1
+      if (String(args[0]).endsWith(`${sep}manifest.json`)) stats.size = 32 * 1024 * 1024 + 1
       return stats
     })
     await expect(store.previewReclamation(root, 'fp', guard)).rejects.toMatchObject({ code: 'budget' })
@@ -272,7 +272,7 @@ describe('manual index reclamation', () => {
     const original = io.opendir
     const close = vi.fn(async () => undefined)
     vi.spyOn(io, 'opendir').mockImplementation(async (...args) => {
-      if (!String(args[0]).endsWith('/generations')) return original(...args)
+      if (!String(args[0]).endsWith(`${sep}generations`)) return original(...args)
       let count = 0
       return { read: async () => ++count <= 100_001 ? { name: 'same' } : null, close } as unknown as Awaited<ReturnType<typeof io.opendir>>
     })
@@ -306,7 +306,7 @@ describe('manual index reclamation', () => {
     const original = io.readFile
     let currentReads = 0
     vi.spyOn(io, 'readFile').mockImplementation(async (...args) => {
-      if (String(args[0]).endsWith('/CURRENT')) currentReads++
+      if (String(args[0]).endsWith(`${sep}CURRENT`)) currentReads++
       if (String(args[0]).endsWith(old.documents[0].shardFile)) {
         await io.writeFile(join(base(old), 'CURRENT'), current.generationId + '\n')
         return Buffer.from('{}') as never
@@ -397,7 +397,7 @@ describe('manual index reclamation', () => {
     const original = io.lstat, unlink = vi.spyOn(syncIO, 'unlinkSync')
     vi.spyOn(io, 'lstat').mockImplementation(async (...args) => {
       const stats = await original(...args)
-      if (String(args[0]).endsWith('/manifest.json')) stats.size = 32 * 1024 * 1024 + 1
+      if (String(args[0]).endsWith(`${sep}manifest.json`)) stats.size = 32 * 1024 * 1024 + 1
       return stats
     })
     await expect(store.executeReclamation(plan!, guard)).rejects.toMatchObject({ code: 'budget' })
@@ -474,7 +474,7 @@ describe('manual index reclamation', () => {
     let candidateStats = 0, swapped = false
     vi.spyOn(io, 'lstat').mockImplementation(async (...args) => {
       const stats = await original(...args)
-      if (String(args[0]).endsWith(`/${old.generationId}/manifest.json`)) candidateStats++
+      if (String(args[0]).endsWith(`${sep}${old.generationId}${sep}manifest.json`)) candidateStats++
       return stats
     })
     await expect(store.executeReclamation(plan!, async () => {

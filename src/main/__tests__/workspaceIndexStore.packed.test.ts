@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 import * as io from 'fs/promises'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INDEX_SCHEMA_VERSION, WorkspaceIndexStore } from '../indexing/WorkspaceIndexStore'
@@ -76,7 +76,7 @@ describe('WorkspaceIndexStore packed format', () => {
     expect(manifest.schemaVersion).toBe(3)
     expect(INDEX_SCHEMA_VERSION).toBe(2)
     expect(Object.keys(disk.shards)).toHaveLength(1)
-    expect(sync.mock.calls.filter(([file]) => file.includes('/shards/'))).toHaveLength(1)
+    expect(sync.mock.calls.filter(([file]) => file.includes(`${sep}shards${sep}`))).toHaveLength(1)
     expect(sync).toHaveBeenCalledTimes(3)
     const loaded = await store.load(root, 'fp')
     expect(loaded?.documents).toEqual(sources.map(source => ({ ...source, rootKey: manifest.rootKey, indexInstanceId: manifest.indexInstanceId })))
@@ -132,8 +132,8 @@ describe('WorkspaceIndexStore packed format', () => {
     const fail = (): never => { injected = true; throw Object.assign(new Error('injected failure'), { code: 'EIO' }) }
     vi.spyOn(io, 'open').mockImplementation(async (...args) => {
       const handle = await nativeOpen(...args), file = String(args[0])
-      if (!injected && ((stage === 'shard-sync' && file.includes('/shards/')) ||
-        (stage === 'current-sync' && file.includes('/CURRENT.')))) handle.sync = async () => fail()
+      if (!injected && ((stage === 'shard-sync' && file.includes(`${sep}shards${sep}`)) ||
+        (stage === 'current-sync' && file.includes(`${sep}CURRENT.`)))) handle.sync = async () => fail()
       return handle
     })
     vi.spyOn(io, 'link').mockImplementation(async (...args) => {

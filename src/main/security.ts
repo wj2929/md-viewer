@@ -34,16 +34,16 @@ const PROTECTED_PATTERNS = [
   /^C:\\Users\\[^\\]+\\AppData\\/i,
 
   // ========== 用户敏感目录（凭证和密钥）==========
-  /\/\.ssh\//,           // SSH 密钥
-  /\/\.gnupg\//,         // GPG 密钥
-  /\/\.aws\//,           // AWS 凭证
-  /\/\.kube\//,          // Kubernetes 配置
-  /\/\.docker\//,        // Docker 配置
-  /\/\.azure\//,         // Azure 凭证
-  /\/\.gcloud\//,        // Google Cloud 凭证
-  /\/\.config\/gh\//,    // GitHub CLI 凭证
-  /\/\.config\/gcloud\//,  // Google Cloud 配置
-  /\/\.config\/heroku\//,  // Heroku 配置
+  /\/\.ssh(?:\/|$)/,           // SSH 密钥
+  /\/\.gnupg(?:\/|$)/,         // GPG 密钥
+  /\/\.aws(?:\/|$)/,           // AWS 凭证
+  /\/\.kube(?:\/|$)/,          // Kubernetes 配置
+  /\/\.docker(?:\/|$)/,        // Docker 配置
+  /\/\.azure(?:\/|$)/,         // Azure 凭证
+  /\/\.gcloud(?:\/|$)/,        // Google Cloud 凭证
+  /\/\.config\/gh(?:\/|$)/,    // GitHub CLI 凭证
+  /\/\.config\/gcloud(?:\/|$)/,  // Google Cloud 配置
+  /\/\.config\/heroku(?:\/|$)/,  // Heroku 配置
 
   // ========== 敏感配置文件 ==========
   /\/\.npmrc$/,          // NPM Token

@@ -50,21 +50,21 @@ describe('AppDataManager', () => {
     beforeEach(() => appDataStore.set('largeDocumentApprovals', []))
 
     it('保存/读取/撤销仅影响目标文档，读取不返回路径', () => {
-      appDataManager.setLargeDocumentApproval('/self/a.md', { characters: 1_500_001, lines: 3 })
-      appDataManager.setLargeDocumentApproval('/self/b.md', { characters: 2_000_000, lines: 4 })
-      expect(appDataManager.getLargeDocumentApproval('/self/./a.md')).toEqual({ characters: 1_500_001, lines: 3 })
-      appDataManager.setLargeDocumentApproval('/self/a.md', null)
-      expect(appDataManager.getLargeDocumentApproval('/self/a.md')).toBeNull()
-      expect(appDataManager.getLargeDocumentApproval('/self/b.md')).toEqual({ characters: 2_000_000, lines: 4 })
+      appDataManager.setLargeDocumentApproval(path.resolve('/self/a.md'), { characters: 1_500_001, lines: 3 })
+      appDataManager.setLargeDocumentApproval(path.resolve('/self/b.md'), { characters: 2_000_000, lines: 4 })
+      expect(appDataManager.getLargeDocumentApproval(path.resolve('/self/./a.md'))).toEqual({ characters: 1_500_001, lines: 3 })
+      appDataManager.setLargeDocumentApproval(path.resolve('/self/a.md'), null)
+      expect(appDataManager.getLargeDocumentApproval(path.resolve('/self/a.md'))).toBeNull()
+      expect(appDataManager.getLargeDocumentApproval(path.resolve('/self/b.md'))).toEqual({ characters: 2_000_000, lines: 4 })
     })
 
     it('保持100篇上限，更新移到末尾，不改变获准时规模', () => {
-      for (let i = 0; i < 100; i++) appDataManager.setLargeDocumentApproval(`/self/${i}.md`, { characters: 10 + i, lines: 2 })
-      appDataManager.setLargeDocumentApproval('/self/0.md', { characters: 10, lines: 2 })
-      appDataManager.setLargeDocumentApproval('/self/new.md', { characters: 1500001, lines: 3 })
+      for (let i = 0; i < 100; i++) appDataManager.setLargeDocumentApproval(path.resolve(`/self/${i}.md`), { characters: 10 + i, lines: 2 })
+      appDataManager.setLargeDocumentApproval(path.resolve('/self/0.md'), { characters: 10, lines: 2 })
+      appDataManager.setLargeDocumentApproval(path.resolve('/self/new.md'), { characters: 1500001, lines: 3 })
       expect(appDataStore.get('largeDocumentApprovals')).toHaveLength(100)
-      expect(appDataManager.getLargeDocumentApproval('/self/1.md')).toBeNull()
-      expect(appDataManager.getLargeDocumentApproval('/self/0.md')).toEqual({ characters: 10, lines: 2 })
+      expect(appDataManager.getLargeDocumentApproval(path.resolve('/self/1.md'))).toBeNull()
+      expect(appDataManager.getLargeDocumentApproval(path.resolve('/self/0.md'))).toEqual({ characters: 10, lines: 2 })
     })
 
     it('不改变其他设置或500条最近记录', () => {
@@ -75,7 +75,7 @@ describe('AppDataManager', () => {
       appDataStore.set('settings', settings)
       appDataStore.set('recentFiles', recent)
       appDataStore.set.mockClear()
-      appDataManager.setLargeDocumentApproval('/self/a.md', { characters: 1500001, lines: 3 })
+      appDataManager.setLargeDocumentApproval(path.resolve('/self/a.md'), { characters: 1500001, lines: 3 })
       expect(appDataStore.set.mock.calls.map((call: unknown[]) => call[0])).toEqual(['largeDocumentApprovals'])
       expect(appDataStore.get('settings')).toEqual(settings)
       expect(appDataStore.get('recentFiles')).toEqual(recent)
@@ -84,16 +84,16 @@ describe('AppDataManager', () => {
     })
 
     it('损坏记录不能放行，写入只保留路径和规模', () => {
-      appDataStore.set('largeDocumentApprovals', [null, { path: '/self/a.md', characters: 'huge', lines: -1 }])
-      expect(appDataManager.getLargeDocumentApproval('/self/a.md')).toBeNull()
-      appDataManager.setLargeDocumentApproval('/self/b.md', { characters: 1500001, lines: 3, content: 'private body' } as any)
-      expect(appDataStore.get('largeDocumentApprovals')).toEqual([{ path: '/self/b.md', characters: 1500001, lines: 3 }])
+      appDataStore.set('largeDocumentApprovals', [null, { path: path.resolve('/self/a.md'), characters: 'huge', lines: -1 }])
+      expect(appDataManager.getLargeDocumentApproval(path.resolve('/self/a.md'))).toBeNull()
+      appDataManager.setLargeDocumentApproval(path.resolve('/self/b.md'), { characters: 1500001, lines: 3, content: 'private body' } as any)
+      expect(appDataStore.get('largeDocumentApprovals')).toEqual([{ path: path.resolve('/self/b.md'), characters: 1500001, lines: 3 }])
       appDataStore.set('largeDocumentApprovals', { invalid: true })
-      expect(appDataManager.getLargeDocumentApproval('/self/b.md')).toBeNull()
+      expect(appDataManager.getLargeDocumentApproval(path.resolve('/self/b.md'))).toBeNull()
     })
 
     it.each([{}, { characters: 0, lines: 3 }, { characters: 1.5, lines: 3 }, { characters: Infinity, lines: 3 }])('无效规模不能写入：%j', value => {
-      expect(() => appDataManager.setLargeDocumentApproval('/self/a.md', value as any)).toThrow('无效')
+      expect(() => appDataManager.setLargeDocumentApproval(path.resolve('/self/a.md'), value as any)).toThrow('无效')
       expect(appDataStore.get('largeDocumentApprovals')).toEqual([])
     })
   })
@@ -148,7 +148,7 @@ describe('AppDataManager', () => {
   })
 
   describe('最近文件后台校验', () => {
-    const entry = (id: number) => ({ id: String(id), path: `/self/${id}.md`, name: `${id}.md`, folderPath: '/self', lastOpened: 1 })
+    const entry = (id: number) => ({ id: String(id), path: path.resolve(`/self/${id}.md`), name: `${id}.md`, folderPath: path.resolve('/self'), lastOpened: 1 })
     const missing = (code = 'ENOENT') => Object.assign(new Error('missing'), { code })
     let previousRecent: unknown
     let previousSettings: unknown
@@ -172,7 +172,7 @@ describe('AppDataManager', () => {
       let reject!: (error: unknown) => void
       let resolve!: () => void
       vi.mocked(fs.access).mockImplementation(async file => {
-        if (file === '/self/1.md') await new Promise<void>((yes, no) => { resolve = yes; reject = no })
+        if (file === path.resolve('/self/1.md')) await new Promise<void>((yes, no) => { resolve = yes; reject = no })
       })
       return { reject: (error: unknown) => reject(error), resolve: () => resolve() }
     }
@@ -204,7 +204,7 @@ describe('AppDataManager', () => {
     })
 
     it.each(['ENOENT', 'ENOTDIR'])('仅移除确认%s且未更新的身份', async code => {
-      vi.mocked(fs.access).mockImplementation(async file => { if (file === '/self/1.md') throw missing(code) })
+      vi.mocked(fs.access).mockImplementation(async file => { if (file === path.resolve('/self/1.md')) throw missing(code) })
       await appDataManager.validateRecentFilesInBackground()
       expect(appDataStore.get('recentFiles')).toEqual([entry(2)])
       expect(vi.getTimerCount()).toBe(0)
@@ -213,18 +213,18 @@ describe('AppDataManager', () => {
     it('期间新增保留当前顺序，旧快照不能覆盖', async () => {
       const gate = holdFirst()
       const pending = appDataManager.validateRecentFilesInBackground()
-      await appDataManager.addRecentFile({ path: '/self/3.md', name: '3.md', folderPath: '/self' })
+      await appDataManager.addRecentFile({ path: path.resolve('/self/3.md'), name: '3.md', folderPath: path.resolve('/self') })
       const current = [...appDataStore.get('recentFiles')]
       gate.reject(missing())
       await pending
-      expect(appDataStore.get('recentFiles')).toEqual(current.filter(file => file.path !== '/self/1.md'))
+      expect(appDataStore.get('recentFiles')).toEqual(current.filter(file => file.path !== path.resolve('/self/1.md')))
     })
 
     it('同毫秒同路径重新添加的新ID不被旧缺失结果删除', async () => {
       vi.setSystemTime(1)
       const gate = holdFirst()
       const pending = appDataManager.validateRecentFilesInBackground()
-      await appDataManager.addRecentFile({ path: '/self/1.md', name: '1.md', folderPath: '/self' })
+      await appDataManager.addRecentFile({ path: path.resolve('/self/1.md'), name: '1.md', folderPath: path.resolve('/self') })
       const current = [...appDataStore.get('recentFiles')]
       expect(current[0].id).not.toBe('1')
       expect(current[0].lastOpened).toBe(1)
@@ -249,9 +249,9 @@ describe('AppDataManager', () => {
     it.each(['remove', 'clear'] as const)('期间%s不能被旧结果复活，随后新增仍保留', async mode => {
       const gate = holdFirst()
       const pending = appDataManager.validateRecentFilesInBackground()
-      if (mode === 'remove') appDataManager.removeRecentFile('/self/2.md')
+      if (mode === 'remove') appDataManager.removeRecentFile(path.resolve('/self/2.md'))
       else appDataManager.clearRecentFiles()
-      await appDataManager.addRecentFile({ path: '/self/3.md', name: '3.md', folderPath: '/self' })
+      await appDataManager.addRecentFile({ path: path.resolve('/self/3.md'), name: '3.md', folderPath: path.resolve('/self') })
       const added = appDataStore.get('recentFiles')[0]
       gate.reject(missing())
       await pending

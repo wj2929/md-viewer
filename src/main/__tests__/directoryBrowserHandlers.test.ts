@@ -18,6 +18,7 @@ vi.mock('node:fs/promises', async importOriginal => {
 })
 
 describe('workspace directory browsing', () => {
+  const specialName = process.platform === 'win32' ? '中文 #%.txt' : '中文 #?%.txt'
   let root: string
   let epoch: number
   let list: (event: Electron.IpcMainInvokeEvent, operation: WorkspaceOperationContext, relativePath: unknown, metadata?: unknown) => Promise<WorkspaceDirectoryEntry[]>
@@ -32,7 +33,7 @@ describe('workspace directory browsing', () => {
     epoch = 1
     root = await fs.mkdtemp(path.join(os.homedir(), 'md-viewer-browser-test-'))
     for (const name of ['empty', 'assets', 'node_modules', '.hidden', '.ssh']) await fs.mkdir(path.join(root, name))
-    for (const name of ['readme.md', 'data.json', 'binary.bin', '中文 #?%.txt']) await fs.writeFile(path.join(root, name), 'fixture')
+    for (const name of ['readme.md', 'data.json', 'binary.bin', specialName]) await fs.writeFile(path.join(root, name), 'fixture')
     await fs.writeFile(path.join(root, 'assets', 'image.png'), 'synthetic')
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue({ id: 1, isDestroyed: () => false } as Electron.BrowserWindow)
     registerDirectoryBrowserHandlers({ windowManager: { getWorkspace: (_id: number, id: string) => id === 'workspace'
@@ -48,7 +49,7 @@ describe('workspace directory browsing', () => {
 
   it('reads direct entries only, including empty, generated and hidden directories, without file contents', async () => {
     const result = await list(event, operation, '')
-    expect(result.map(item => item.name)).toEqual(['.hidden', '.ssh', 'assets', 'empty', 'node_modules', 'binary.bin', 'data.json', 'readme.md', '中文 #?%.txt'])
+    expect(result.map(item => item.name)).toEqual(['.hidden', '.ssh', 'assets', 'empty', 'node_modules', 'binary.bin', 'data.json', 'readme.md', specialName])
     expect(result.find(item => item.name === 'assets')).toEqual({ name: 'assets', relativePath: 'assets', kind: 'directory' })
     expect(JSON.stringify(result)).not.toContain(root)
     expect(result.some(item => item.name === 'image.png')).toBe(false)

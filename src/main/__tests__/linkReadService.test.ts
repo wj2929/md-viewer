@@ -225,23 +225,28 @@ describe('点击链接的精确文件读取', () => {
     const f = await fixture()
     const target = path.join(f.outside, 'B.md')
     const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    let mutated = false
     vi.mocked(open).mockImplementationOnce(async (...args) => {
       const handle = await actual.open(...args), read = handle.read.bind(handle)
       handle.read = (async (...readArgs: any[]) => {
         const result = await (read as any)(...readArgs)
+        if (mutated) return result
         if (mutation === 'growth') await appendFile(target, '\nchanged')
         else if (mutation === 'truncate') await writeFile(target, '# Short')
         else {
           const next = path.join(f.outside, 'replacement.md')
           await writeFile(next, '# Replaced')
+          await rename(target, path.join(f.outside, 'original.md'))
           await rename(next, target)
         }
+        mutated = true
         return result
       }) as typeof handle.read
       return handle
     })
-    expect(await f.service.prepareDocument(f.event, f.request('../unopened/B.md#b')))
-      .toMatchObject({ success: false, code: 'stale' })
+    const result = await f.service.prepareDocument(f.event, f.request('../unopened/B.md#b'))
+    expect(mutated).toBe(true)
+    expect(result).toMatchObject({ success: false, code: 'stale' })
   })
   it('commit根授权最后一次await期间文件改变，不能确认旧快照', async () => {
     const f = await fixture()

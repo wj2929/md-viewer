@@ -136,6 +136,14 @@ describe('Security Module', () => {
       expect(isProtectedPath('/Users/test/.kube/config')).toBe(true)
     })
 
+    it.each(['.ssh', '.gnupg', '.aws', '.kube', '.docker', '.azure', '.gcloud', '.config/gh', '.config/gcloud', '.config/heroku'])('protects sensitive directory %s itself without blocking sibling names', directory => {
+      const target = path.join(os.homedir(), 'mdv-synthetic-security', directory)
+      expect(isProtectedPath(target)).toBe(true)
+      expect(isProtectedPath(`${target}${path.sep}`)).toBe(true)
+      expect(isProtectedPath(path.join(target, 'ordinary.txt'))).toBe(true)
+      expect(isProtectedPath(`${target}-notes`)).toBe(false)
+    })
+
     it('should detect hidden directory key/pem files', () => {
       expect(isProtectedPath('/Users/test/.config/private.key')).toBe(true)
       expect(isProtectedPath('/Users/test/.secrets/cert.pem')).toBe(true)
